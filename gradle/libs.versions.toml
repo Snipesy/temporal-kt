@@ -11,6 +11,7 @@ protobuf = "4.29.3"
 protobufPlugin = "0.9.4"
 ktlint = "13.1.0"
 autoService = "1.1.1"
+dokka = "2.1.0"
 
 [libraries]
 kotlinGradlePlugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
@@ -32,3 +33,4 @@ kotlinxEcosystem = ["kotlinxDatetime", "kotlinxSerialization", "kotlinxCoroutine
 kotlinPluginSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 ktlint = { id = "org.jlleitschuh.gradle.ktlint", version.ref = "ktlint" }
 protobuf = { id = "com.google.protobuf", version.ref = "protobufPlugin" }
+dokka = { id = "org.jetbrains.dokka", version.ref = "dokka" }

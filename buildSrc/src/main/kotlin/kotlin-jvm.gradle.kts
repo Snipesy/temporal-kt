@@ -10,6 +10,8 @@ plugins {
     kotlin("jvm")
     // ktlint for code formatting
     id("org.jlleitschuh.gradle.ktlint")
+    // Dokka for documentation generation
+    id("org.jetbrains.dokka")
 }
 
 configure<KtlintExtension> {

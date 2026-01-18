@@ -14,4 +14,6 @@ dependencies {
     implementation(libs.kotlinGradlePlugin)
     // ktlint plugin for code formatting
     implementation("org.jlleitschuh.gradle:ktlint-gradle:${libs.versions.ktlint.get()}")
+    // Dokka for documentation generation
+    implementation("org.jetbrains.dokka:dokka-gradle-plugin:${libs.versions.dokka.get()}")
 }
