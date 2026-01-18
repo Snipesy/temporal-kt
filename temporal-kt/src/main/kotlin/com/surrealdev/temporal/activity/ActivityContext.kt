@@ -1,6 +1,6 @@
 package com.surrealdev.temporal.activity
 
-import kotlinx.datetime.Instant
+import kotlin.time.Instant
 
 /**
  * Context available within an activity execution.
