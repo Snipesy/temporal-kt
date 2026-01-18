@@ -1,0 +1,17 @@
+[package]
+name = "temporal_core_bridge"
+version = "0.1.0"
+edition = "2021"
+description = "JNI bridge for Temporal Rust SDK Core"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+jni = "0.21"
+prost = "0.13"
+tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
+once_cell = "1.19"
+
+[build-dependencies]
+prost-build = "0.13"
