@@ -14,6 +14,15 @@ This document tracks the implementation status of Temporal SDK features in the K
 
 ---
 
+## API Design
+
+| Feature | Status | Description | Kotlin Source |
+|---------|--------|-------------|---------------|
+| Annotation-Based Definitions | Incubating | `@Workflow`, `@Activity`, `@WorkflowRun`, `@ActivityMethod` | [Annotations.kt](temporal-kt/src/main/kotlin/com/surrealdev/temporal/annotation/Annotations.kt) |
+| Interface-Based Definitions | Incubating | For interop and compiler plugin stubs | [Annotations.kt](temporal-kt/src/main/kotlin/com/surrealdev/temporal/annotation/Annotations.kt) |
+| Inline Declarative | Not Implemented | Lambda-based workflow/activity definitions | - |
+| DSL Scope Safety | Incubating | `@TemporalDsl` marker annotation | [Annotations.kt](temporal-kt/src/main/kotlin/com/surrealdev/temporal/annotation/Annotations.kt) |
+
 ## Core Components
 
 | Feature | Status | Temporal Docs | Kotlin Source |
@@ -51,10 +60,10 @@ This document tracks the implementation status of Temporal SDK features in the K
 
 | Feature | Status | Temporal Docs | Kotlin Source |
 |---------|--------|---------------|---------------|
-| Signals | Not Implemented | [Signals](https://docs.temporal.io/develop/java/message-passing#signals) | - |
-| Queries | Not Implemented | [Queries](https://docs.temporal.io/develop/java/message-passing#queries) | - |
-| Updates | Not Implemented | [Updates](https://docs.temporal.io/develop/java/message-passing#updates) | - |
-| Dynamic Handlers | Not Implemented | [Dynamic Handlers](https://docs.temporal.io/develop/java/message-passing#dynamic-handler) | - |
+| Signals | Incubating | [Signals](https://docs.temporal.io/develop/java/message-passing#signals) | [Annotations.kt](temporal-kt/src/main/kotlin/com/surrealdev/temporal/annotation/Annotations.kt) |
+| Queries | Incubating | [Queries](https://docs.temporal.io/develop/java/message-passing#queries) | [Annotations.kt](temporal-kt/src/main/kotlin/com/surrealdev/temporal/annotation/Annotations.kt) |
+| Updates | Incubating | [Updates](https://docs.temporal.io/develop/java/message-passing#updates) | [Annotations.kt](temporal-kt/src/main/kotlin/com/surrealdev/temporal/annotation/Annotations.kt) |
+| Dynamic Handlers | Incubating | [Dynamic Handlers](https://docs.temporal.io/develop/java/message-passing#dynamic-handler) | [Annotations.kt](temporal-kt/src/main/kotlin/com/surrealdev/temporal/annotation/Annotations.kt) |
 
 ## Cancellation & Termination
 

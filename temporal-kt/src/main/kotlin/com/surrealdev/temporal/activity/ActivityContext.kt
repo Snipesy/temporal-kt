@@ -10,8 +10,12 @@ import kotlin.time.Instant
  *
  * Usage:
  * ```kotlin
- * interface MyActivity {
- *     suspend fun ActivityContext.greet(name: String): String
+ * @Activity("MyActivity")
+ * class MyActivity {
+ *     @ActivityMethod
+ *     suspend fun ActivityContext.greet(name: String): String {
+ *         return "Hello, $name"
+ *     }
  * }
  * ```
  */

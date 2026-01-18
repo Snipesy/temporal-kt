@@ -10,8 +10,13 @@ import kotlin.time.Duration
  *
  * Usage:
  * ```kotlin
- * interface MyWorkflow {
- *     suspend fun WorkflowContext.execute(arg: MyArg): String
+ * @Workflow("MyWorkflow")
+ * class MyWorkflow {
+ *     @WorkflowRun
+ *     suspend fun WorkflowContext.execute(arg: MyArg): String {
+ *         val result = activity<MyActivity>().doSomething(arg.value)
+ *         return "Result: $result"
+ *     }
  * }
  * ```
  */
