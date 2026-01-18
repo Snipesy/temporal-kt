@@ -1,34 +1,47 @@
 package com.surrealdev.temporal.core.internal
 
-import java.io.File
 import java.io.FileOutputStream
+import java.lang.foreign.Arena
+import java.lang.foreign.SymbolLookup
 import java.nio.file.Files
+import java.nio.file.Path
 
 /**
  * Platform-aware native library loader for the Temporal Core bridge.
  *
- * This loader:
- * 1. Detects the current OS and architecture
- * 2. Extracts the appropriate native library from JAR resources
- * 3. Loads the library via System.load()
+ * This loader uses Java's Foreign Function & Memory (FFM) API to:
+ * 1. Detect the current OS and architecture
+ * 2. Extract the appropriate native library from JAR resources
+ * 3. Load the library via SymbolLookup for FFM access
  */
 object NativeLoader {
     private const val LIB_NAME = "temporal_core_bridge"
 
+    /**
+     * Global arena for the native library's lifetime.
+     * Using global arena ensures the library stays loaded for the JVM's lifetime.
+     */
+    private val arena: Arena = Arena.global()
+
     @Volatile
-    private var loaded = false
+    private var symbolLookup: SymbolLookup? = null
+
+    @Volatile
+    private var libraryPath: Path? = null
 
     private val platform: Platform by lazy { detectPlatform() }
 
     /**
-     * Loads the native library. Safe to call multiple times.
+     * Loads the native library and returns a SymbolLookup for accessing symbols.
+     * Safe to call multiple times - returns cached lookup after first load.
      *
+     * @return SymbolLookup for accessing native functions
      * @throws UnsatisfiedLinkError if the library cannot be loaded
      * @throws IllegalStateException if the platform is not supported
      */
     @Synchronized
-    fun load() {
-        if (loaded) return
+    fun load(): SymbolLookup {
+        symbolLookup?.let { return it }
 
         val libFileName = platform.libFileName(LIB_NAME)
         val resourcePath = "/native/${platform.resourceDir}/$libFileName"
@@ -40,26 +53,38 @@ object NativeLoader {
                         "Make sure the library was built for platform: ${platform.resourceDir}",
                 )
 
-        val tempDir = Files.createTempDirectory("temporal-core-bridge").toFile()
-        tempDir.deleteOnExit()
-
-        val tempLib = File(tempDir, libFileName)
-        tempLib.deleteOnExit()
+        val tempDir = Files.createTempDirectory("temporal-core-bridge")
+        val tempLib = tempDir.resolve(libFileName)
 
         resourceStream.use { input ->
-            FileOutputStream(tempLib).use { output ->
+            FileOutputStream(tempLib.toFile()).use { output ->
                 input.copyTo(output)
             }
         }
 
-        System.load(tempLib.absolutePath)
-        loaded = true
+        // Register cleanup on JVM shutdown
+        Runtime.getRuntime().addShutdownHook(
+            Thread {
+                tempLib.toFile().delete()
+                tempDir.toFile().delete()
+            },
+        )
+
+        libraryPath = tempLib
+        val lookup = SymbolLookup.libraryLookup(tempLib, arena)
+        symbolLookup = lookup
+        return lookup
     }
 
     /**
      * Check if the native library has been loaded.
      */
-    fun isLoaded(): Boolean = loaded
+    fun isLoaded(): Boolean = symbolLookup != null
+
+    /**
+     * Get the path to the loaded library, or null if not loaded.
+     */
+    fun getLibraryPath(): Path? = libraryPath
 
     private fun detectPlatform(): Platform {
         val osName = System.getProperty("os.name").lowercase()

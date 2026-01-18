@@ -8,7 +8,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * Tests for the native library loading and JNI communication.
+ * Tests for the native library loading and FFM communication.
  *
  * Note: These tests require the native library to be built first.
  * Run `cargo build --release` in the `rust/` directory before running tests.

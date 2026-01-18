@@ -155,3 +155,8 @@ tasks.register<Delete>("cargoClean") {
 tasks.named("clean") {
     dependsOn("cargoClean")
 }
+
+// Enable native access for FFM API to suppress warnings
+tasks.withType<Test> {
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+}

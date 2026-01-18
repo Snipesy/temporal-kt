@@ -6,5 +6,6 @@ dependencyResolutionManagement {
 }
 
 include(":core-bridge")
+include(":temporal-kt")
 
 rootProject.name = "temporal-kt"

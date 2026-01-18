@@ -1,7 +1,5 @@
-use jni::objects::{JClass, JString};
-use jni::sys::jstring;
-use jni::JNIEnv;
 use once_cell::sync::Lazy;
+use std::ffi::{c_char, c_long, CStr, CString};
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 
@@ -21,54 +19,80 @@ static RUNTIME: Lazy<Arc<Runtime>> = Lazy::new(|| {
     )
 });
 
-/// Called when the native library is loaded.
-/// Initializes the Tokio runtime.
+/// Initialize the native library.
+/// Should be called once before using other functions.
+/// Returns 0 on success, non-zero on failure.
 #[no_mangle]
-pub extern "system" fn JNI_OnLoad(
-    _vm: jni::JavaVM,
-    _reserved: *mut std::ffi::c_void,
-) -> jni::sys::jint {
+pub extern "C" fn temporal_init() -> c_long {
     // Force initialization of the runtime
     let _ = &*RUNTIME;
-    jni::sys::JNI_VERSION_1_8
+    0
 }
 
 /// Returns the version of the native library.
-/// JNI signature: ()Ljava/lang/String;
+/// The returned string is statically allocated and should not be freed.
 #[no_mangle]
-pub extern "system" fn Java_com_surrealdev_temporal_core_internal_TemporalCoreBridge_nativeVersion(
-    env: JNIEnv,
-    _class: JClass,
-) -> jstring {
-    let version = env!("CARGO_PKG_VERSION");
-    env.new_string(version)
-        .expect("Failed to create Java string")
-        .into_raw()
+pub extern "C" fn temporal_version() -> *const c_char {
+    // Use a static CString to avoid allocation/deallocation issues
+    static VERSION: Lazy<CString> =
+        Lazy::new(|| CString::new(env!("CARGO_PKG_VERSION")).unwrap());
+    VERSION.as_ptr()
 }
 
-/// Simple echo function to verify JNI communication works.
-/// JNI signature: (Ljava/lang/String;)Ljava/lang/String;
+/// Echo function to verify FFM communication works.
+///
+/// # Safety
+/// - `input` must be a valid null-terminated C string
+/// - The returned string must be freed by calling `temporal_free_string`
 #[no_mangle]
-pub extern "system" fn Java_com_surrealdev_temporal_core_internal_TemporalCoreBridge_nativeEcho(
-    mut env: JNIEnv,
-    _class: JClass,
-    input: JString,
-) -> jstring {
-    let input_str: String = env
-        .get_string(&input)
-        .expect("Failed to get string from JNI")
-        .into();
+pub unsafe extern "C" fn temporal_echo(input: *const c_char) -> *mut c_char {
+    if input.is_null() {
+        return std::ptr::null_mut();
+    }
 
-    let output_str = format!("Echo from Rust: {}", input_str);
-    env.new_string(output_str)
-        .expect("Failed to create Java string")
-        .into_raw()
+    let input_str = match CStr::from_ptr(input).to_str() {
+        Ok(s) => s,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    let output = format!("Echo from Rust: {}", input_str);
+    match CString::new(output) {
+        Ok(cstr) => cstr.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Free a string that was allocated by Rust.
+///
+/// # Safety
+/// - `ptr` must have been returned by a Rust function that allocates strings
+/// - `ptr` must not be used after this call
+#[no_mangle]
+pub unsafe extern "C" fn temporal_free_string(ptr: *mut c_char) {
+    if !ptr.is_null() {
+        drop(CString::from_raw(ptr));
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn test_version() {
-        assert_eq!(env!("CARGO_PKG_VERSION"), "0.1.0");
+        let version = temporal_version();
+        assert!(!version.is_null());
+        let version_str = unsafe { CStr::from_ptr(version).to_str().unwrap() };
+        assert_eq!(version_str, "0.1.0");
+    }
+
+    #[test]
+    fn test_echo() {
+        let input = CString::new("Hello FFM!").unwrap();
+        let output = unsafe { temporal_echo(input.as_ptr()) };
+        assert!(!output.is_null());
+        let output_str = unsafe { CStr::from_ptr(output).to_str().unwrap() };
+        assert_eq!(output_str, "Echo from Rust: Hello FFM!");
+        unsafe { temporal_free_string(output) };
     }
 }
