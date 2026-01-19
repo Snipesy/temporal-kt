@@ -1,0 +1,6 @@
+temporal:
+  connection:
+    target: "http://localhost:7233"
+    namespace: "default"
+  modules:
+    - com.example.configdriven.ModulesKt.ordersModule
