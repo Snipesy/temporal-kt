@@ -128,6 +128,11 @@ class TemporalDevServer private constructor(
             val arena = Arena.ofShared()
             val future = CompletableFuture<TemporalDevServer>()
 
+            // Track whether arena ownership was transferred to the server
+            val arenaOwnershipTransferred =
+                java.util.concurrent.atomic
+                    .AtomicBoolean(false)
+
             TemporalCoreEphemeralServer.startDevServer(
                 runtimePtr = runtime.handle,
                 arena = arena,
@@ -137,18 +142,30 @@ class TemporalDevServer private constructor(
                 downloadVersion = downloadVersion,
                 downloadTtlSeconds = downloadTtlSeconds,
             ) { serverPtr, targetUrl, error ->
-                if (error != null) {
+                // Don't close arena in callback - it will be closed when future completes exceptionally
+                // or transferred to the server on success
+                try {
+                    if (error != null) {
+                        future.completeExceptionally(TemporalCoreException(error))
+                    } else if (serverPtr == null || targetUrl == null) {
+                        future.completeExceptionally(
+                            TemporalCoreException("Dev server start returned null without error"),
+                        )
+                    } else {
+                        arenaOwnershipTransferred.set(true)
+                        future.complete(
+                            TemporalDevServer(serverPtr, runtime.handle, arena, targetUrl),
+                        )
+                    }
+                } catch (e: Exception) {
+                    // Callback already completed, ignore
+                }
+            }
+
+            // Close arena if the future completes exceptionally (arena wasn't transferred)
+            future.whenComplete { _, throwable ->
+                if (throwable != null && !arenaOwnershipTransferred.get()) {
                     arena.close()
-                    future.completeExceptionally(TemporalCoreException(error))
-                } else if (serverPtr == null || targetUrl == null) {
-                    arena.close()
-                    future.completeExceptionally(
-                        TemporalCoreException("Dev server start returned null without error"),
-                    )
-                } else {
-                    future.complete(
-                        TemporalDevServer(serverPtr, runtime.handle, arena, targetUrl),
-                    )
                 }
             }
 

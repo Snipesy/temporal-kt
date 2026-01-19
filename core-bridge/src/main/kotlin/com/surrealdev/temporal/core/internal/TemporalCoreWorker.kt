@@ -2,8 +2,10 @@ package com.surrealdev.temporal.core.internal
 
 import com.surrealdev.temporal.core.TemporalCoreException
 import io.temporal.sdkbridge.TemporalCoreByteArrayRefArray
+import io.temporal.sdkbridge.TemporalCoreFixedSizeSlotSupplier
 import io.temporal.sdkbridge.TemporalCorePollerBehavior
 import io.temporal.sdkbridge.TemporalCorePollerBehaviorSimpleMaximum
+import io.temporal.sdkbridge.TemporalCoreSlotSupplier
 import io.temporal.sdkbridge.TemporalCoreTunerHolder
 import io.temporal.sdkbridge.TemporalCoreWorkerCallback
 import io.temporal.sdkbridge.TemporalCoreWorkerOptions
@@ -487,7 +489,12 @@ internal object TemporalCoreWorker {
 
         TemporalCoreWorkerOptions.namespace_(options, TemporalCoreFfmUtil.createByteArrayRef(arena, namespace))
         TemporalCoreWorkerOptions.task_queue(options, TemporalCoreFfmUtil.createByteArrayRef(arena, taskQueue))
-        TemporalCoreWorkerOptions.identity_override(options, TemporalCoreFfmUtil.createEmptyByteArrayRef(arena))
+        // Use process ID and hostname as default identity
+        val defaultIdentity = "${ProcessHandle.current().pid()}@${java.net.InetAddress.getLocalHost().hostName}"
+        TemporalCoreWorkerOptions.identity_override(
+            options,
+            TemporalCoreFfmUtil.createByteArrayRef(arena, defaultIdentity),
+        )
         TemporalCoreWorkerOptions.max_cached_workflows(options, maxCachedWorkflows)
 
         // Set versioning strategy to None
@@ -505,13 +512,13 @@ internal object TemporalCoreWorker {
         TemporalCoreWorkerTaskTypes.enable_nexus(taskTypes, nexus)
         TemporalCoreWorkerOptions.task_types(options, taskTypes)
 
-        // Set tuner (null for default)
-        val tuner = TemporalCoreTunerHolder.allocate(arena)
-        TemporalCoreTunerHolder.workflow_slot_supplier(tuner, MemorySegment.NULL)
-        TemporalCoreTunerHolder.activity_slot_supplier(tuner, MemorySegment.NULL)
-        TemporalCoreTunerHolder.local_activity_slot_supplier(tuner, MemorySegment.NULL)
-        TemporalCoreTunerHolder.nexus_task_slot_supplier(tuner, MemorySegment.NULL)
-        TemporalCoreWorkerOptions.tuner(options, tuner)
+        // Initialize tuner with fixed-size slot suppliers
+        // Get the embedded tuner struct from the options
+        val tuner = TemporalCoreWorkerOptions.tuner(options)
+        initializeSlotSupplier(TemporalCoreTunerHolder.workflow_slot_supplier(tuner), 100)
+        initializeSlotSupplier(TemporalCoreTunerHolder.activity_slot_supplier(tuner), 100)
+        initializeSlotSupplier(TemporalCoreTunerHolder.local_activity_slot_supplier(tuner), 100)
+        initializeSlotSupplier(TemporalCoreTunerHolder.nexus_task_slot_supplier(tuner), 100)
 
         // Set timeouts and limits
         TemporalCoreWorkerOptions.sticky_queue_schedule_to_start_timeout_millis(options, 10_000L)
@@ -563,6 +570,17 @@ internal object TemporalCoreWorker {
         TemporalCoreByteArrayRefArray.data(arr, MemorySegment.NULL)
         TemporalCoreByteArrayRefArray.size(arr, 0L)
         return arr
+    }
+
+    private fun initializeSlotSupplier(
+        slotSupplier: MemorySegment,
+        numSlots: Long,
+    ) {
+        // Set tag to FixedSize (0)
+        TemporalCoreSlotSupplier.tag(slotSupplier, CoreBridge.FixedSize())
+        // Set num_slots in the fixed_size union member
+        val fixedSize = TemporalCoreSlotSupplier.fixed_size(slotSupplier)
+        TemporalCoreFixedSizeSlotSupplier.num_slots(fixedSize, numSlots)
     }
 
     private fun createPollCallbackStub(

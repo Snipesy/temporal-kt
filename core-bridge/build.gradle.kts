@@ -9,6 +9,7 @@ plugins {
 dependencies {
     implementation(libs.protobufJava)
     implementation(libs.protobufKotlin)
+    implementation(libs.kotlinxCoroutines)
 
     testImplementation(kotlin("test"))
 }
