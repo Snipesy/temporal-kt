@@ -1,70 +1,25 @@
 package com.surrealdev.temporal.core.internal
 
+import io.temporal.sdkbridge.TemporalCoreDevServerOptions
+import io.temporal.sdkbridge.TemporalCoreEphemeralServerShutdownCallback
+import io.temporal.sdkbridge.TemporalCoreEphemeralServerStartCallback
+import io.temporal.sdkbridge.TemporalCoreTestServerOptions
 import java.lang.foreign.Arena
-import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.MemorySegment
-import java.lang.foreign.ValueLayout
-import java.lang.invoke.MethodHandle
-import java.lang.invoke.MethodHandles
-import java.lang.invoke.MethodType
+import io.temporal.sdkbridge.temporal_sdk_core_c_bridge_h as CoreBridge
 
 /**
  * FFM bridge for Temporal Core ephemeral server operations.
  *
  * Ephemeral servers are used for testing - they provide a local Temporal
  * server instance that can be started and stopped programmatically.
+ *
+ * Uses jextract-generated bindings for direct function calls and callbacks.
  */
 internal object TemporalCoreEphemeralServer {
-    private val linker = TemporalCoreFfmUtil.linker
-
-    // ============================================================
-    // Method Handles
-    // ============================================================
-
-    // temporal_core_ephemeral_server_start_dev_server(runtime, options, user_data, callback) -> void
-    private val devServerStartHandle: MethodHandle by lazy {
-        linker.downcallHandle(
-            TemporalCoreFfmUtil.findSymbol("temporal_core_ephemeral_server_start_dev_server"),
-            FunctionDescriptor.ofVoid(
-                ValueLayout.ADDRESS, // runtime
-                ValueLayout.ADDRESS, // options
-                ValueLayout.ADDRESS, // user_data
-                ValueLayout.ADDRESS, // callback
-            ),
-        )
-    }
-
-    // temporal_core_ephemeral_server_start_test_server(runtime, options, user_data, callback) -> void
-    private val testServerStartHandle: MethodHandle by lazy {
-        linker.downcallHandle(
-            TemporalCoreFfmUtil.findSymbol("temporal_core_ephemeral_server_start_test_server"),
-            FunctionDescriptor.ofVoid(
-                ValueLayout.ADDRESS, // runtime
-                ValueLayout.ADDRESS, // options
-                ValueLayout.ADDRESS, // user_data
-                ValueLayout.ADDRESS, // callback
-            ),
-        )
-    }
-
-    // temporal_core_ephemeral_server_free(server) -> void
-    private val ephemeralServerFreeHandle: MethodHandle by lazy {
-        linker.downcallHandle(
-            TemporalCoreFfmUtil.findSymbol("temporal_core_ephemeral_server_free"),
-            FunctionDescriptor.ofVoid(ValueLayout.ADDRESS),
-        )
-    }
-
-    // temporal_core_ephemeral_server_shutdown(server, user_data, callback) -> void
-    private val ephemeralServerShutdownHandle: MethodHandle by lazy {
-        linker.downcallHandle(
-            TemporalCoreFfmUtil.findSymbol("temporal_core_ephemeral_server_shutdown"),
-            FunctionDescriptor.ofVoid(
-                ValueLayout.ADDRESS, // server
-                ValueLayout.ADDRESS, // user_data
-                ValueLayout.ADDRESS, // callback
-            ),
-        )
+    init {
+        // Ensure native library is loaded before using generated bindings
+        TemporalCoreFfmUtil.ensureLoaded()
     }
 
     // ============================================================
@@ -98,122 +53,58 @@ internal object TemporalCoreEphemeralServer {
     }
 
     // ============================================================
-    // Callback Handlers
+    // Struct Builders
     // ============================================================
 
-    /**
-     * Handler class for server start callback (must be a class for MethodHandles.bind)
-     */
-    private class StartCallbackHandler(
-        private val runtimePtr: MemorySegment,
-        private val callback: StartCallback,
-    ) {
-        @Suppress("unused") // Called via reflection by FFM
-        fun handle(
-            userData: MemorySegment,
-            serverPtr: MemorySegment,
-            targetUrlPtr: MemorySegment,
-            failPtr: MemorySegment,
-        ) {
-            val targetUrl =
-                if (targetUrlPtr !=
-                    MemorySegment.NULL
-                ) {
-                    TemporalCoreFfmUtil.readByteArray(targetUrlPtr)
-                } else {
-                    null
-                }
-            val error = if (failPtr != MemorySegment.NULL) TemporalCoreFfmUtil.readByteArray(failPtr) else null
-
-            // Free the byte arrays if present
-            if (targetUrlPtr != MemorySegment.NULL) {
-                TemporalCoreRuntime.freeByteArray(runtimePtr, targetUrlPtr)
-            }
-            if (failPtr != MemorySegment.NULL) {
-                TemporalCoreRuntime.freeByteArray(runtimePtr, failPtr)
-            }
-
-            callback.onComplete(
-                if (serverPtr != MemorySegment.NULL) serverPtr else null,
-                targetUrl,
-                error,
-            )
-        }
-    }
-
-    /**
-     * Handler class for server shutdown callback
-     */
-    private class ShutdownCallbackHandler(
-        private val runtimePtr: MemorySegment,
-        private val callback: ShutdownCallback,
-    ) {
-        @Suppress("unused") // Called via reflection by FFM
-        fun handle(
-            userData: MemorySegment,
-            failPtr: MemorySegment,
-        ) {
-            val error = if (failPtr != MemorySegment.NULL) TemporalCoreFfmUtil.readByteArray(failPtr) else null
-
-            // Free the byte array if present
-            if (failPtr != MemorySegment.NULL) {
-                TemporalCoreRuntime.freeByteArray(runtimePtr, failPtr)
-            }
-
-            callback.onComplete(error)
-        }
-    }
-
-    // ============================================================
-    // Callback Stub Creation
-    // ============================================================
-
-    /**
-     * Creates an upcall stub for the server start callback.
-     */
-    private fun createStartCallbackStub(
+    private fun buildTestServerOptions(
         arena: Arena,
-        runtimePtr: MemorySegment,
-        callback: StartCallback,
+        existingPath: String?,
+        downloadVersion: String?,
+        downloadTtlSeconds: Long,
     ): MemorySegment {
-        val handle =
-            MethodHandles
-                .lookup()
-                .bind(
-                    StartCallbackHandler(runtimePtr, callback),
-                    "handle",
-                    MethodType.methodType(
-                        Void.TYPE,
-                        MemorySegment::class.java,
-                        MemorySegment::class.java,
-                        MemorySegment::class.java,
-                        MemorySegment::class.java,
-                    ),
-                )
-        return linker.upcallStub(handle, TemporalCoreFfmUtil.EPHEMERAL_SERVER_START_CALLBACK_DESC, arena)
+        val opts = TemporalCoreTestServerOptions.allocate(arena)
+
+        TemporalCoreTestServerOptions.existing_path(opts, TemporalCoreFfmUtil.createByteArrayRef(arena, existingPath))
+        TemporalCoreTestServerOptions.sdk_name(opts, TemporalCoreFfmUtil.createByteArrayRef(arena, "temporal-kotlin"))
+        TemporalCoreTestServerOptions.sdk_version(opts, TemporalCoreFfmUtil.createByteArrayRef(arena, "0.1.0"))
+        TemporalCoreTestServerOptions.download_version(
+            opts,
+            TemporalCoreFfmUtil.createByteArrayRef(arena, downloadVersion),
+        )
+        TemporalCoreTestServerOptions.download_dest_dir(opts, TemporalCoreFfmUtil.createEmptyByteArrayRef(arena))
+        TemporalCoreTestServerOptions.port(opts, 0.toShort())
+        TemporalCoreTestServerOptions.extra_args(opts, TemporalCoreFfmUtil.createEmptyByteArrayRef(arena))
+        TemporalCoreTestServerOptions.download_ttl_seconds(opts, downloadTtlSeconds)
+
+        return opts
     }
 
-    /**
-     * Creates an upcall stub for the server shutdown callback.
-     */
-    private fun createShutdownCallbackStub(
+    private fun buildDevServerOptions(
         arena: Arena,
-        runtimePtr: MemorySegment,
-        callback: ShutdownCallback,
+        testServerOptions: MemorySegment,
+        namespace: String,
+        ip: String,
+        databaseFilename: String?,
+        ui: Boolean,
+        uiPort: Short,
+        logFormat: String,
+        logLevel: String,
     ): MemorySegment {
-        val handle =
-            MethodHandles
-                .lookup()
-                .bind(
-                    ShutdownCallbackHandler(runtimePtr, callback),
-                    "handle",
-                    MethodType.methodType(
-                        Void.TYPE,
-                        MemorySegment::class.java,
-                        MemorySegment::class.java,
-                    ),
-                )
-        return linker.upcallStub(handle, TemporalCoreFfmUtil.EPHEMERAL_SERVER_SHUTDOWN_CALLBACK_DESC, arena)
+        val opts = TemporalCoreDevServerOptions.allocate(arena)
+
+        TemporalCoreDevServerOptions.test_server(opts, testServerOptions)
+        TemporalCoreDevServerOptions.namespace_(opts, TemporalCoreFfmUtil.createByteArrayRef(arena, namespace))
+        TemporalCoreDevServerOptions.ip(opts, TemporalCoreFfmUtil.createByteArrayRef(arena, ip))
+        TemporalCoreDevServerOptions.database_filename(
+            opts,
+            TemporalCoreFfmUtil.createByteArrayRef(arena, databaseFilename),
+        )
+        TemporalCoreDevServerOptions.ui(opts, ui)
+        TemporalCoreDevServerOptions.ui_port(opts, uiPort)
+        TemporalCoreDevServerOptions.log_format(opts, TemporalCoreFfmUtil.createByteArrayRef(arena, logFormat))
+        TemporalCoreDevServerOptions.log_level(opts, TemporalCoreFfmUtil.createByteArrayRef(arena, logLevel))
+
+        return opts
     }
 
     // ============================================================
@@ -242,72 +133,27 @@ internal object TemporalCoreEphemeralServer {
         downloadTtlSeconds: Long = 0,
         callback: StartCallback,
     ) {
-        // Allocate TestServerOptions (required by DevServerOptions)
-        val testServerOptions = arena.allocate(TemporalCoreFfmUtil.TEST_SERVER_OPTIONS_LAYOUT)
-        var offset = 0L
+        val testServerOptions = buildTestServerOptions(arena, existingPath, downloadVersion, downloadTtlSeconds)
+        val devServerOptions =
+            buildDevServerOptions(
+                arena = arena,
+                testServerOptions = testServerOptions,
+                namespace = namespace,
+                ip = ip,
+                databaseFilename = null,
+                ui = false,
+                uiPort = 0,
+                logFormat = "text",
+                logLevel = "warn",
+            )
 
-        // existing_path ByteArrayRef (first field)
-        offset += TemporalCoreFfmUtil.writeByteArrayRef(arena, testServerOptions, offset, existingPath)
-
-        // sdk_name ByteArrayRef - identify ourselves
-        offset += TemporalCoreFfmUtil.writeByteArrayRef(arena, testServerOptions, offset, "temporal-kotlin")
-
-        // sdk_version ByteArrayRef
-        offset += TemporalCoreFfmUtil.writeByteArrayRef(arena, testServerOptions, offset, "0.1.0")
-
-        // download_version ByteArrayRef
-        offset += TemporalCoreFfmUtil.writeByteArrayRef(arena, testServerOptions, offset, downloadVersion)
-
-        // download_dest_dir ByteArrayRef (empty = default)
-        offset += TemporalCoreFfmUtil.writeByteArrayRef(arena, testServerOptions, offset, null)
-
-        // port = 0 (auto)
-        testServerOptions.set(ValueLayout.JAVA_SHORT, offset, 0.toShort())
-        offset += 8 // 2 + 6 padding
-
-        // extra_args ByteArrayRef
-        offset += TemporalCoreFfmUtil.writeByteArrayRef(arena, testServerOptions, offset, null)
-
-        // download_ttl_seconds
-        testServerOptions.set(ValueLayout.JAVA_LONG, offset, downloadTtlSeconds)
-
-        // Allocate DevServerOptions
-        val devServerOptions = arena.allocate(TemporalCoreFfmUtil.DEV_SERVER_OPTIONS_LAYOUT)
-        offset = 0L
-
-        // test_server pointer
-        devServerOptions.set(ValueLayout.ADDRESS, offset, testServerOptions)
-        offset += 8
-
-        // namespace_ ByteArrayRef
-        offset += TemporalCoreFfmUtil.writeByteArrayRef(arena, devServerOptions, offset, namespace)
-
-        // ip ByteArrayRef
-        offset += TemporalCoreFfmUtil.writeByteArrayRef(arena, devServerOptions, offset, ip)
-
-        // database_filename ByteArrayRef (empty = in-memory)
-        offset += TemporalCoreFfmUtil.writeByteArrayRef(arena, devServerOptions, offset, null)
-
-        // ui = false
-        devServerOptions.set(ValueLayout.JAVA_BOOLEAN, offset, false)
-        offset += 1
-        offset += 1 // padding
-        // ui_port = 0
-        devServerOptions.set(ValueLayout.JAVA_SHORT, offset, 0.toShort())
-        offset += 2
-        offset += 4 // padding
-
-        // log_format ByteArrayRef - "text" as default
-        offset += TemporalCoreFfmUtil.writeByteArrayRef(arena, devServerOptions, offset, "text")
-
-        // log_level ByteArrayRef - "warn" for dev server
-        TemporalCoreFfmUtil.writeByteArrayRef(arena, devServerOptions, offset, "warn")
-
-        // Create callback stub
         val callbackStub = createStartCallbackStub(arena, runtimePtr, callback)
-
-        // Call native function
-        devServerStartHandle.invokeExact(runtimePtr, devServerOptions, MemorySegment.NULL, callbackStub)
+        CoreBridge.temporal_core_ephemeral_server_start_dev_server(
+            runtimePtr,
+            devServerOptions,
+            MemorySegment.NULL,
+            callbackStub,
+        )
     }
 
     /**
@@ -328,40 +174,14 @@ internal object TemporalCoreEphemeralServer {
         downloadTtlSeconds: Long = 0,
         callback: StartCallback,
     ) {
-        // Allocate TestServerOptions
-        val testServerOptions = arena.allocate(TemporalCoreFfmUtil.TEST_SERVER_OPTIONS_LAYOUT)
-        var offset = 0L
-
-        // existing_path ByteArrayRef
-        offset += TemporalCoreFfmUtil.writeByteArrayRef(arena, testServerOptions, offset, existingPath)
-
-        // sdk_name ByteArrayRef
-        offset += TemporalCoreFfmUtil.writeByteArrayRef(arena, testServerOptions, offset, "temporal-kotlin")
-
-        // sdk_version ByteArrayRef
-        offset += TemporalCoreFfmUtil.writeByteArrayRef(arena, testServerOptions, offset, "0.1.0")
-
-        // download_version ByteArrayRef
-        offset += TemporalCoreFfmUtil.writeByteArrayRef(arena, testServerOptions, offset, downloadVersion)
-
-        // download_dest_dir ByteArrayRef (empty = default)
-        offset += TemporalCoreFfmUtil.writeByteArrayRef(arena, testServerOptions, offset, null)
-
-        // port = 0 (auto)
-        testServerOptions.set(ValueLayout.JAVA_SHORT, offset, 0.toShort())
-        offset += 8 // 2 + 6 padding
-
-        // extra_args ByteArrayRef
-        offset += TemporalCoreFfmUtil.writeByteArrayRef(arena, testServerOptions, offset, null)
-
-        // download_ttl_seconds
-        testServerOptions.set(ValueLayout.JAVA_LONG, offset, downloadTtlSeconds)
-
-        // Create callback stub
+        val testServerOptions = buildTestServerOptions(arena, existingPath, downloadVersion, downloadTtlSeconds)
         val callbackStub = createStartCallbackStub(arena, runtimePtr, callback)
-
-        // Call native function
-        testServerStartHandle.invokeExact(runtimePtr, testServerOptions, MemorySegment.NULL, callbackStub)
+        CoreBridge.temporal_core_ephemeral_server_start_test_server(
+            runtimePtr,
+            testServerOptions,
+            MemorySegment.NULL,
+            callbackStub,
+        )
     }
 
     /**
@@ -370,7 +190,7 @@ internal object TemporalCoreEphemeralServer {
      * @param serverPtr Pointer to the server to free
      */
     fun freeServer(serverPtr: MemorySegment) {
-        ephemeralServerFreeHandle.invokeExact(serverPtr)
+        CoreBridge.temporal_core_ephemeral_server_free(serverPtr)
     }
 
     /**
@@ -388,6 +208,77 @@ internal object TemporalCoreEphemeralServer {
         callback: ShutdownCallback,
     ) {
         val callbackStub = createShutdownCallbackStub(arena, runtimePtr, callback)
-        ephemeralServerShutdownHandle.invokeExact(serverPtr, MemorySegment.NULL, callbackStub)
+        CoreBridge.temporal_core_ephemeral_server_shutdown(serverPtr, MemorySegment.NULL, callbackStub)
     }
+
+    // ============================================================
+    // Callback Stub Creation (using jextract-generated callback classes)
+    // ============================================================
+
+    /**
+     * Creates an upcall stub for the server start callback using jextract-generated callback class.
+     */
+    private fun createStartCallbackStub(
+        arena: Arena,
+        runtimePtr: MemorySegment,
+        callback: StartCallback,
+    ): MemorySegment =
+        TemporalCoreEphemeralServerStartCallback.allocate(
+            { _, serverPtr, targetUrlPtr, failPtr ->
+                val targetUrl =
+                    if (targetUrlPtr != MemorySegment.NULL) {
+                        TemporalCoreFfmUtil.readByteArray(targetUrlPtr)
+                    } else {
+                        null
+                    }
+                val error =
+                    if (failPtr != MemorySegment.NULL) {
+                        TemporalCoreFfmUtil.readByteArray(failPtr)
+                    } else {
+                        null
+                    }
+
+                // Free the byte arrays if present
+                if (targetUrlPtr != MemorySegment.NULL) {
+                    CoreBridge.temporal_core_byte_array_free(runtimePtr, targetUrlPtr)
+                }
+                if (failPtr != MemorySegment.NULL) {
+                    CoreBridge.temporal_core_byte_array_free(runtimePtr, failPtr)
+                }
+
+                callback.onComplete(
+                    if (serverPtr != MemorySegment.NULL) serverPtr else null,
+                    targetUrl,
+                    error,
+                )
+            },
+            arena,
+        )
+
+    /**
+     * Creates an upcall stub for the server shutdown callback using jextract-generated callback class.
+     */
+    private fun createShutdownCallbackStub(
+        arena: Arena,
+        runtimePtr: MemorySegment,
+        callback: ShutdownCallback,
+    ): MemorySegment =
+        TemporalCoreEphemeralServerShutdownCallback.allocate(
+            { _, failPtr ->
+                val error =
+                    if (failPtr != MemorySegment.NULL) {
+                        TemporalCoreFfmUtil.readByteArray(failPtr)
+                    } else {
+                        null
+                    }
+
+                // Free the byte array if present
+                if (failPtr != MemorySegment.NULL) {
+                    CoreBridge.temporal_core_byte_array_free(runtimePtr, failPtr)
+                }
+
+                callback.onComplete(error)
+            },
+            arena,
+        )
 }

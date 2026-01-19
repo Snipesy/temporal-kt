@@ -13,12 +13,42 @@ See [progress.md](Progress.md) to see how close we are to feature parity with te
 
 - **Java 25** (GraalVM recommended) - `sdk install java 25.0.1-graal`
 - **Gradle 9.2+** - `sdk install gradle 9.2.1`
-- **Rust** - [rustup.rs](https://rustup.rs)
+- **Rust (with rustup)** - [rustup.rs](https://rustup.rs)
 - **Protobuf** - `brew install protobuf`
 
 ```bash
 sdk env install
 ```
+### Supported Platforms
+
+Temporal-KT currently only supports:
+
+* MacOS aarch64
+* Linux x86_64
+* Linux aarch64
+* Windows x86_64 (GNU)
+
+### Cross-Platform Build (Optional)
+
+To build native libraries for all platforms, install:
+
+- **cargo-zigbuild** - `cargo install cargo-zigbuild`
+- **Zig** - `brew install zig` (macOS) or [ziglang.org/download](https://ziglang.org/download/)
+- **Rust targets** - Install the cross-compilation targets:
+  ```bash
+  rustup target add x86_64-unknown-linux-gnu
+  rustup target add aarch64-unknown-linux-gnu
+  rustup target add x86_64-pc-windows-gnu
+  rustup target add aarch64-apple-darwin
+  ```
+- Platform specific build essentials (follow the errors)
+  
+Then you can build cross-platform artifacts with
+```bash
+gradle cargoBuildAll
+gradle copyAllNativeLibs
+```
+
 
 ## Cloning
 

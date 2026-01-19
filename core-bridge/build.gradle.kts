@@ -3,6 +3,7 @@ import org.gradle.internal.os.OperatingSystem
 plugins {
     id("buildsrc.convention.kotlin-jvm")
     alias(libs.plugins.protobuf)
+    id("com.github.gmazzo.buildconfig")
 }
 
 dependencies {
@@ -32,7 +33,6 @@ val arch: String = System.getProperty("os.arch")
 val nativePlatform: String =
     when {
         os.isMacOsX && arch == "aarch64" -> "darwin-aarch64"
-        os.isMacOsX -> "darwin-x86_64"
         os.isLinux && arch == "aarch64" -> "linux-aarch64"
         os.isLinux -> "linux-x86_64"
         os.isWindows -> "windows-x86_64"
@@ -102,41 +102,65 @@ val copyNativeLibLinuxx8664 by tasks.registering(Copy::class) {
     into(nativeLibsDir.map { it.dir("native/linux-x86_64") })
 }
 
-// Cross-compilation for Darwin x86_64 (requires cargo-zigbuild on ARM Mac)
-val cargoBuildDarwinx8664 by tasks.registering(Exec::class) {
-    description = "Build native library for darwin-x86_64 (requires cargo-zigbuild on ARM)"
+// Cross-compilation for Linux aarch64 (requires cargo-zigbuild)
+val cargoBuildLinuxAarch64 by tasks.registering(Exec::class) {
+    description = "Build native library for linux-aarch64 (requires cargo-zigbuild)"
     group = "build"
     workingDir = file("rust/sdk-core/crates/sdk-core-c-bridge")
-    commandLine("cargo-zigbuild", "build", "--release", "--target", "x86_64-apple-darwin")
+    commandLine("cargo-zigbuild", "build", "--release", "--target", "aarch64-unknown-linux-gnu")
 
     inputs.files(
         fileTree("rust/sdk-core") {
             include("**/*.rs", "**/Cargo.toml", "**/Cargo.lock")
         },
     )
-    outputs.file("rust/sdk-core/target/x86_64-apple-darwin/release/lib$nativeLibName.dylib")
+    outputs.file("rust/sdk-core/target/aarch64-unknown-linux-gnu/release/lib$nativeLibName.so")
 }
 
-val copyNativeLibDarwinx8664 by tasks.registering(Copy::class) {
-    description = "Copy native library for darwin-x86_64 to build directory"
+val copyNativeLibLinuxAarch64 by tasks.registering(Copy::class) {
+    description = "Copy native library for linux-aarch64 to build directory"
     group = "build"
-    dependsOn(cargoBuildDarwinx8664)
+    dependsOn(cargoBuildLinuxAarch64)
 
-    from("rust/sdk-core/target/x86_64-apple-darwin/release/lib$nativeLibName.dylib")
-    into(nativeLibsDir.map { it.dir("native/darwin-x86_64") })
+    from("rust/sdk-core/target/aarch64-unknown-linux-gnu/release/lib$nativeLibName.so")
+    into(nativeLibsDir.map { it.dir("native/linux-aarch64") })
+}
+
+// Cross-compilation for Windows x86_64 (requires cargo-zigbuild)
+val cargoBuildWindowsx8664 by tasks.registering(Exec::class) {
+    description = "Build native library for windows-x86_64 (requires cargo-zigbuild)"
+    group = "build"
+    workingDir = file("rust/sdk-core/crates/sdk-core-c-bridge")
+    commandLine("cargo-zigbuild", "build", "--release", "--target", "x86_64-pc-windows-gnu")
+
+    inputs.files(
+        fileTree("rust/sdk-core") {
+            include("**/*.rs", "**/Cargo.toml", "**/Cargo.lock")
+        },
+    )
+    outputs.file("rust/sdk-core/target/x86_64-pc-windows-gnu/release/$nativeLibName.dll")
+}
+
+val copyNativeLibWindowsx8664 by tasks.registering(Copy::class) {
+    description = "Copy native library for windows-x86_64 to build directory"
+    group = "build"
+    dependsOn(cargoBuildWindowsx8664)
+
+    from("rust/sdk-core/target/x86_64-pc-windows-gnu/release/$nativeLibName.dll")
+    into(nativeLibsDir.map { it.dir("native/windows-x86_64") })
 }
 
 // Build all platforms task
 val cargoBuildAll by tasks.registering {
     description = "Build Rust native library for all supported platforms"
     group = "build"
-    dependsOn(cargoBuild, cargoBuildLinuxx8664, cargoBuildDarwinx8664)
+    dependsOn(cargoBuild, cargoBuildLinuxx8664, cargoBuildLinuxAarch64, cargoBuildWindowsx8664)
 }
 
 val copyAllNativeLibs by tasks.registering {
     description = "Copy all native libraries to build directory"
     group = "build"
-    dependsOn(copyNativeLib, copyNativeLibLinuxx8664, copyNativeLibDarwinx8664)
+    dependsOn(copyNativeLib, copyNativeLibLinuxx8664, copyNativeLibLinuxAarch64, copyNativeLibWindowsx8664)
 }
 
 // Include native libs from build directory in resources and sdk-core protos
@@ -175,51 +199,10 @@ tasks.withType<Test> {
 
 // Generate BuildConfig with version constants
 val temporalCliVersion: String by project
-val buildConfigDir = layout.buildDirectory.dir("generated/buildconfig")
 
-abstract class GenerateBuildConfigTask : DefaultTask() {
-    @get:Input
-    abstract val cliVersion: Property<String>
+buildConfig {
+    packageName("com.surrealdev.temporal.core")
+    documentation.set("Build-time configuration constants.")
 
-    @get:OutputDirectory
-    abstract val outputDir: DirectoryProperty
-
-    @TaskAction
-    fun generate() {
-        val dir = outputDir.get().asFile.resolve("com/surrealdev/temporal/core")
-        dir.mkdirs()
-        dir.resolve("BuildConfig.kt").writeText(
-            """
-            |package com.surrealdev.temporal.core
-            |
-            |/**
-            | * Build-time configuration constants.
-            | * Generated by Gradle - do not edit manually.
-            | */
-            |object BuildConfig {
-            |    /** The default Temporal CLI version for dev server downloads. */
-            |    const val TEMPORAL_CLI_VERSION: String = "${cliVersion.get()}"
-            |}
-            """.trimMargin(),
-        )
-    }
-}
-
-val generateBuildConfig by tasks.registering(GenerateBuildConfigTask::class) {
-    description = "Generate BuildConfig.kt with version constants"
-    group = "build"
-    cliVersion.set(temporalCliVersion)
-    outputDir.set(buildConfigDir)
-}
-
-sourceSets {
-    main {
-        kotlin {
-            srcDir(buildConfigDir)
-        }
-    }
-}
-
-tasks.named("compileKotlin") {
-    dependsOn(generateBuildConfig)
+    buildConfigField("TEMPORAL_CLI_VERSION", temporalCliVersion)
 }

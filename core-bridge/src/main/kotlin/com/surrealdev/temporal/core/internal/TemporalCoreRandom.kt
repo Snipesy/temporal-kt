@@ -1,74 +1,22 @@
 package com.surrealdev.temporal.core.internal
 
 import java.lang.foreign.Arena
-import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout
-import java.lang.invoke.MethodHandle
+import io.temporal.sdkbridge.temporal_sdk_core_c_bridge_h as CoreBridge
 
 /**
  * FFM bridge for Temporal Core deterministic random number generation.
  *
  * Workflows must use deterministic randomness to ensure replay consistency.
  * This bridge provides access to the seeded RNG in Temporal Core.
+ *
+ * Uses jextract-generated bindings for direct function calls.
  */
 internal object TemporalCoreRandom {
-    private val linker = TemporalCoreFfmUtil.linker
-
-    // ============================================================
-    // Method Handles
-    // ============================================================
-
-    // temporal_core_random_new(uint64_t seed) -> TemporalCoreRandom*
-    private val randomNewHandle: MethodHandle by lazy {
-        linker.downcallHandle(
-            TemporalCoreFfmUtil.findSymbol("temporal_core_random_new"),
-            FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG),
-        )
-    }
-
-    // temporal_core_random_free(TemporalCoreRandom *random) -> void
-    private val randomFreeHandle: MethodHandle by lazy {
-        linker.downcallHandle(
-            TemporalCoreFfmUtil.findSymbol("temporal_core_random_free"),
-            FunctionDescriptor.ofVoid(ValueLayout.ADDRESS),
-        )
-    }
-
-    // temporal_core_random_int32_range(TemporalCoreRandom *random, int32_t min, int32_t max, bool max_inclusive) -> int32_t
-    private val randomInt32RangeHandle: MethodHandle by lazy {
-        linker.downcallHandle(
-            TemporalCoreFfmUtil.findSymbol("temporal_core_random_int32_range"),
-            FunctionDescriptor.of(
-                ValueLayout.JAVA_INT,
-                ValueLayout.ADDRESS,
-                ValueLayout.JAVA_INT,
-                ValueLayout.JAVA_INT,
-                ValueLayout.JAVA_BOOLEAN,
-            ),
-        )
-    }
-
-    // temporal_core_random_double_range(TemporalCoreRandom *random, double min, double max, bool max_inclusive) -> double
-    private val randomDoubleRangeHandle: MethodHandle by lazy {
-        linker.downcallHandle(
-            TemporalCoreFfmUtil.findSymbol("temporal_core_random_double_range"),
-            FunctionDescriptor.of(
-                ValueLayout.JAVA_DOUBLE,
-                ValueLayout.ADDRESS,
-                ValueLayout.JAVA_DOUBLE,
-                ValueLayout.JAVA_DOUBLE,
-                ValueLayout.JAVA_BOOLEAN,
-            ),
-        )
-    }
-
-    // temporal_core_random_fill_bytes(TemporalCoreRandom *random, TemporalCoreByteArrayRef bytes) -> void
-    private val randomFillBytesHandle: MethodHandle by lazy {
-        linker.downcallHandle(
-            TemporalCoreFfmUtil.findSymbol("temporal_core_random_fill_bytes"),
-            FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, TemporalCoreFfmUtil.BYTE_ARRAY_REF_LAYOUT),
-        )
+    init {
+        // Ensure native library is loaded before using generated bindings
+        TemporalCoreFfmUtil.ensureLoaded()
     }
 
     // ============================================================
@@ -81,7 +29,7 @@ internal object TemporalCoreRandom {
      * @param seed The seed for the RNG
      * @return A pointer to the created random generator
      */
-    fun createRandom(seed: Long): MemorySegment = randomNewHandle.invokeExact(seed) as MemorySegment
+    fun createRandom(seed: Long): MemorySegment = CoreBridge.temporal_core_random_new(seed)
 
     /**
      * Frees a random number generator.
@@ -89,7 +37,7 @@ internal object TemporalCoreRandom {
      * @param randomPtr Pointer to the random generator to free
      */
     fun freeRandom(randomPtr: MemorySegment) {
-        randomFreeHandle.invokeExact(randomPtr)
+        CoreBridge.temporal_core_random_free(randomPtr)
     }
 
     /**
@@ -106,7 +54,7 @@ internal object TemporalCoreRandom {
         min: Int,
         max: Int,
         maxInclusive: Boolean,
-    ): Int = randomInt32RangeHandle.invokeExact(randomPtr, min, max, maxInclusive) as Int
+    ): Int = CoreBridge.temporal_core_random_int32_range(randomPtr, min, max, maxInclusive)
 
     /**
      * Generates a random double in the given range.
@@ -122,7 +70,7 @@ internal object TemporalCoreRandom {
         min: Double,
         max: Double,
         maxInclusive: Boolean,
-    ): Double = randomDoubleRangeHandle.invokeExact(randomPtr, min, max, maxInclusive) as Double
+    ): Double = CoreBridge.temporal_core_random_double_range(randomPtr, min, max, maxInclusive)
 
     /**
      * Fills a byte array with random bytes.
@@ -139,13 +87,11 @@ internal object TemporalCoreRandom {
         // Allocate native memory for the bytes
         val dataSegment = arena.allocate(bytes.size.toLong())
 
-        // Create ByteArrayRef pointing to the native memory
-        val ref = arena.allocate(TemporalCoreFfmUtil.BYTE_ARRAY_REF_LAYOUT)
-        ref.set(ValueLayout.ADDRESS, 0, dataSegment)
-        ref.set(ValueLayout.JAVA_LONG, 8, bytes.size.toLong())
+        // Create ByteArrayRef pointing to the native memory (pass struct by value)
+        val ref = TemporalCoreFfmUtil.createByteArrayRef(arena, dataSegment, bytes.size.toLong())
 
-        // Call the native function (pass struct by value)
-        randomFillBytesHandle.invokeExact(randomPtr, ref)
+        // Call the native function
+        CoreBridge.temporal_core_random_fill_bytes(randomPtr, ref)
 
         // Copy the filled bytes back to the Kotlin array
         MemorySegment.copy(dataSegment, ValueLayout.JAVA_BYTE, 0, bytes, 0, bytes.size)

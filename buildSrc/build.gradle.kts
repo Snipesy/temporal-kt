@@ -16,4 +16,6 @@ dependencies {
     implementation("org.jlleitschuh.gradle:ktlint-gradle:${libs.versions.ktlint.get()}")
     // Dokka for documentation generation
     implementation("org.jetbrains.dokka:dokka-gradle-plugin:${libs.versions.dokka.get()}")
+    // BuildConfig generation
+    implementation("com.github.gmazzo.buildconfig:plugin:${libs.versions.buildconfig.get()}")
 }

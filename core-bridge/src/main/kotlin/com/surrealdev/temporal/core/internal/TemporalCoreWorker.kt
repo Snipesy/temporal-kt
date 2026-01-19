@@ -1,97 +1,618 @@
 package com.surrealdev.temporal.core.internal
 
+import com.surrealdev.temporal.core.TemporalCoreException
+import io.temporal.sdkbridge.TemporalCoreByteArrayRefArray
+import io.temporal.sdkbridge.TemporalCorePollerBehavior
+import io.temporal.sdkbridge.TemporalCorePollerBehaviorSimpleMaximum
+import io.temporal.sdkbridge.TemporalCoreTunerHolder
+import io.temporal.sdkbridge.TemporalCoreWorkerCallback
+import io.temporal.sdkbridge.TemporalCoreWorkerOptions
+import io.temporal.sdkbridge.TemporalCoreWorkerOrFail
+import io.temporal.sdkbridge.TemporalCoreWorkerPollCallback
+import io.temporal.sdkbridge.TemporalCoreWorkerReplayPushResult
+import io.temporal.sdkbridge.TemporalCoreWorkerReplayerOrFail
+import io.temporal.sdkbridge.TemporalCoreWorkerTaskTypes
+import io.temporal.sdkbridge.TemporalCoreWorkerVersioningNone
+import io.temporal.sdkbridge.TemporalCoreWorkerVersioningStrategy
+import java.lang.foreign.Arena
+import java.lang.foreign.MemorySegment
+import io.temporal.sdkbridge.temporal_sdk_core_c_bridge_h as CoreBridge
+
 /**
  * FFM bridge for Temporal Core worker operations.
  *
- * Workers poll for and execute workflow and activity tasks.
+ * Workers poll for tasks from the Temporal server and execute workflows
+ * and activities. This bridge provides access to worker creation, polling,
+ * completion, and shutdown functionality.
+ *
+ * Uses jextract-generated bindings for direct function calls.
  */
 internal object TemporalCoreWorker {
-    // ============================================================
-    // Worker Lifecycle
-    // ============================================================
-
-    // TODO: temporal_core_worker_new
-    // WorkerOrFail temporal_core_worker_new(client, options)
-
-    // TODO: temporal_core_worker_free
-    // void temporal_core_worker_free(worker)
-
-    // TODO: temporal_core_worker_validate
-    // void temporal_core_worker_validate(worker, user_data, callback)
-
-    // TODO: temporal_core_worker_replace_client
-    // ByteArray* temporal_core_worker_replace_client(worker, new_client)
+    init {
+        // Ensure native library is loaded before using generated bindings
+        TemporalCoreFfmUtil.ensureLoaded()
+    }
 
     // ============================================================
-    // Polling
+    // Callback Interfaces
     // ============================================================
 
-    // TODO: temporal_core_worker_poll_workflow_activation
-    // void temporal_core_worker_poll_workflow_activation(worker, user_data, callback)
+    /**
+     * Callback interface for poll operations.
+     */
+    fun interface PollCallback {
+        fun onComplete(
+            data: ByteArray?,
+            error: String?,
+        )
+    }
 
-    // TODO: temporal_core_worker_poll_activity_task
-    // void temporal_core_worker_poll_activity_task(worker, user_data, callback)
-
-    // TODO: temporal_core_worker_poll_nexus_task
-    // void temporal_core_worker_poll_nexus_task(worker, user_data, callback)
-
-    // ============================================================
-    // Completions
-    // ============================================================
-
-    // TODO: temporal_core_worker_complete_workflow_activation
-    // void temporal_core_worker_complete_workflow_activation(worker, completion, user_data, callback)
-
-    // TODO: temporal_core_worker_complete_activity_task
-    // void temporal_core_worker_complete_activity_task(worker, completion, user_data, callback)
-
-    // TODO: temporal_core_worker_complete_nexus_task
-    // void temporal_core_worker_complete_nexus_task(worker, completion, user_data, callback)
+    /**
+     * Callback interface for simple operations (validate, shutdown).
+     */
+    fun interface WorkerCallback {
+        fun onComplete(error: String?)
+    }
 
     // ============================================================
-    // Activity Heartbeat
+    // Worker Creation API
     // ============================================================
 
-    // TODO: temporal_core_worker_record_activity_heartbeat
-    // ByteArray* temporal_core_worker_record_activity_heartbeat(worker, heartbeat)
+    /**
+     * Creates a new worker.
+     *
+     * @param clientPtr Pointer to the client
+     * @param arena Arena for allocations
+     * @param namespace The namespace
+     * @param taskQueue The task queue to poll
+     * @param maxCachedWorkflows Maximum cached workflow executions
+     * @return Pointer to the worker
+     * @throws TemporalCoreException if worker creation fails
+     */
+    fun createWorker(
+        clientPtr: MemorySegment,
+        arena: Arena,
+        namespace: String,
+        taskQueue: String,
+        maxCachedWorkflows: Int = 1000,
+        workflows: Boolean = true,
+        activities: Boolean = true,
+        nexus: Boolean = false,
+    ): MemorySegment {
+        val options =
+            buildWorkerOptions(
+                arena = arena,
+                namespace = namespace,
+                taskQueue = taskQueue,
+                maxCachedWorkflows = maxCachedWorkflows,
+                workflows = workflows,
+                activities = activities,
+                nexus = nexus,
+            )
+
+        val result = CoreBridge.temporal_core_worker_new(arena, clientPtr, options)
+
+        val workerPtr = TemporalCoreWorkerOrFail.worker(result)
+        val failPtr = TemporalCoreWorkerOrFail.fail(result)
+
+        if (failPtr != MemorySegment.NULL) {
+            val errorMessage = TemporalCoreFfmUtil.readByteArray(failPtr)
+            throw TemporalCoreException(errorMessage ?: "Unknown error creating worker")
+        }
+
+        return workerPtr
+    }
+
+    /**
+     * Frees a worker.
+     *
+     * @param workerPtr Pointer to the worker to free
+     */
+    fun freeWorker(workerPtr: MemorySegment) {
+        CoreBridge.temporal_core_worker_free(workerPtr)
+    }
+
+    /**
+     * Validates a worker's configuration.
+     *
+     * @param workerPtr Pointer to the worker
+     * @param arena Arena for callback allocation
+     * @param runtimePtr Pointer to the runtime
+     * @param callback Callback invoked when validation completes
+     */
+    fun validate(
+        workerPtr: MemorySegment,
+        arena: Arena,
+        runtimePtr: MemorySegment,
+        callback: WorkerCallback,
+    ) {
+        val callbackStub = createWorkerCallbackStub(arena, runtimePtr, callback)
+        CoreBridge.temporal_core_worker_validate(workerPtr, MemorySegment.NULL, callbackStub)
+    }
+
+    /**
+     * Replaces the client used by a worker.
+     *
+     * @param workerPtr Pointer to the worker
+     * @param newClientPtr Pointer to the new client
+     * @return Error message if failed, null if successful
+     */
+    fun replaceClient(
+        workerPtr: MemorySegment,
+        newClientPtr: MemorySegment,
+    ): String? {
+        val result = CoreBridge.temporal_core_worker_replace_client(workerPtr, newClientPtr)
+        return if (result != MemorySegment.NULL) {
+            TemporalCoreFfmUtil.readByteArray(result)
+        } else {
+            null
+        }
+    }
 
     // ============================================================
-    // Workflow Management
+    // Polling API
     // ============================================================
 
-    // TODO: temporal_core_worker_request_workflow_eviction
-    // void temporal_core_worker_request_workflow_eviction(worker, run_id)
+    /**
+     * Polls for a workflow activation.
+     *
+     * @param workerPtr Pointer to the worker
+     * @param arena Arena for callback allocation
+     * @param runtimePtr Pointer to the runtime
+     * @param callback Callback invoked when poll completes
+     */
+    fun pollWorkflowActivation(
+        workerPtr: MemorySegment,
+        arena: Arena,
+        runtimePtr: MemorySegment,
+        callback: PollCallback,
+    ) {
+        val callbackStub = createPollCallbackStub(arena, runtimePtr, callback)
+        CoreBridge.temporal_core_worker_poll_workflow_activation(workerPtr, MemorySegment.NULL, callbackStub)
+    }
+
+    /**
+     * Polls for an activity task.
+     *
+     * @param workerPtr Pointer to the worker
+     * @param arena Arena for callback allocation
+     * @param runtimePtr Pointer to the runtime
+     * @param callback Callback invoked when poll completes
+     */
+    fun pollActivityTask(
+        workerPtr: MemorySegment,
+        arena: Arena,
+        runtimePtr: MemorySegment,
+        callback: PollCallback,
+    ) {
+        val callbackStub = createPollCallbackStub(arena, runtimePtr, callback)
+        CoreBridge.temporal_core_worker_poll_activity_task(workerPtr, MemorySegment.NULL, callbackStub)
+    }
+
+    /**
+     * Polls for a nexus task.
+     *
+     * @param workerPtr Pointer to the worker
+     * @param arena Arena for callback allocation
+     * @param runtimePtr Pointer to the runtime
+     * @param callback Callback invoked when poll completes
+     */
+    fun pollNexusTask(
+        workerPtr: MemorySegment,
+        arena: Arena,
+        runtimePtr: MemorySegment,
+        callback: PollCallback,
+    ) {
+        val callbackStub = createPollCallbackStub(arena, runtimePtr, callback)
+        CoreBridge.temporal_core_worker_poll_nexus_task(workerPtr, MemorySegment.NULL, callbackStub)
+    }
 
     // ============================================================
-    // Shutdown
+    // Completion API
     // ============================================================
 
-    // TODO: temporal_core_worker_initiate_shutdown
-    // void temporal_core_worker_initiate_shutdown(worker)
+    /**
+     * Completes a workflow activation.
+     *
+     * @param workerPtr Pointer to the worker
+     * @param arena Arena for allocations
+     * @param runtimePtr Pointer to the runtime
+     * @param completion The completion protobuf bytes
+     * @param callback Callback invoked when completion is processed
+     */
+    fun completeWorkflowActivation(
+        workerPtr: MemorySegment,
+        arena: Arena,
+        runtimePtr: MemorySegment,
+        completion: ByteArray,
+        callback: WorkerCallback,
+    ) {
+        val completionRef = TemporalCoreFfmUtil.createByteArrayRef(arena, completion)
+        val callbackStub = createWorkerCallbackStub(arena, runtimePtr, callback)
+        CoreBridge.temporal_core_worker_complete_workflow_activation(
+            workerPtr,
+            completionRef,
+            MemorySegment.NULL,
+            callbackStub,
+        )
+    }
 
-    // TODO: temporal_core_worker_finalize_shutdown
-    // void temporal_core_worker_finalize_shutdown(worker, user_data, callback)
+    /**
+     * Completes an activity task.
+     *
+     * @param workerPtr Pointer to the worker
+     * @param arena Arena for allocations
+     * @param runtimePtr Pointer to the runtime
+     * @param completion The completion protobuf bytes
+     * @param callback Callback invoked when completion is processed
+     */
+    fun completeActivityTask(
+        workerPtr: MemorySegment,
+        arena: Arena,
+        runtimePtr: MemorySegment,
+        completion: ByteArray,
+        callback: WorkerCallback,
+    ) {
+        val completionRef = TemporalCoreFfmUtil.createByteArrayRef(arena, completion)
+        val callbackStub = createWorkerCallbackStub(arena, runtimePtr, callback)
+        CoreBridge.temporal_core_worker_complete_activity_task(
+            workerPtr,
+            completionRef,
+            MemorySegment.NULL,
+            callbackStub,
+        )
+    }
+
+    /**
+     * Completes a nexus task.
+     *
+     * @param workerPtr Pointer to the worker
+     * @param arena Arena for allocations
+     * @param runtimePtr Pointer to the runtime
+     * @param completion The completion protobuf bytes
+     * @param callback Callback invoked when completion is processed
+     */
+    fun completeNexusTask(
+        workerPtr: MemorySegment,
+        arena: Arena,
+        runtimePtr: MemorySegment,
+        completion: ByteArray,
+        callback: WorkerCallback,
+    ) {
+        val completionRef = TemporalCoreFfmUtil.createByteArrayRef(arena, completion)
+        val callbackStub = createWorkerCallbackStub(arena, runtimePtr, callback)
+        CoreBridge.temporal_core_worker_complete_nexus_task(workerPtr, completionRef, MemorySegment.NULL, callbackStub)
+    }
+
+    /**
+     * Records an activity heartbeat.
+     *
+     * @param workerPtr Pointer to the worker
+     * @param arena Arena for allocations
+     * @param heartbeat The heartbeat protobuf bytes
+     * @return Error message if failed, null if successful
+     */
+    fun recordActivityHeartbeat(
+        workerPtr: MemorySegment,
+        arena: Arena,
+        heartbeat: ByteArray,
+    ): String? {
+        val heartbeatRef = TemporalCoreFfmUtil.createByteArrayRef(arena, heartbeat)
+        val result = CoreBridge.temporal_core_worker_record_activity_heartbeat(workerPtr, heartbeatRef)
+        return if (result != MemorySegment.NULL) {
+            TemporalCoreFfmUtil.readByteArray(result)
+        } else {
+            null
+        }
+    }
+
+    /**
+     * Requests eviction of a workflow from the cache.
+     *
+     * @param workerPtr Pointer to the worker
+     * @param arena Arena for allocations
+     * @param runId The run ID to evict
+     */
+    fun requestWorkflowEviction(
+        workerPtr: MemorySegment,
+        arena: Arena,
+        runId: String,
+    ) {
+        val runIdRef = TemporalCoreFfmUtil.createByteArrayRef(arena, runId)
+        CoreBridge.temporal_core_worker_request_workflow_eviction(workerPtr, runIdRef)
+    }
 
     // ============================================================
-    // Replay
+    // Shutdown API
     // ============================================================
 
-    // TODO: temporal_core_worker_replayer_new
-    // WorkerReplayerOrFail temporal_core_worker_replayer_new(runtime, options)
+    /**
+     * Initiates worker shutdown.
+     *
+     * @param workerPtr Pointer to the worker
+     */
+    fun initiateShutdown(workerPtr: MemorySegment) {
+        CoreBridge.temporal_core_worker_initiate_shutdown(workerPtr)
+    }
 
-    // TODO: temporal_core_worker_replay_pusher_free
-    // void temporal_core_worker_replay_pusher_free(pusher)
-
-    // TODO: temporal_core_worker_replay_push
-    // ReplayPushResult temporal_core_worker_replay_push(worker, pusher, workflow_id, history)
+    /**
+     * Finalizes worker shutdown.
+     *
+     * @param workerPtr Pointer to the worker
+     * @param arena Arena for callback allocation
+     * @param runtimePtr Pointer to the runtime
+     * @param callback Callback invoked when shutdown completes
+     */
+    fun finalizeShutdown(
+        workerPtr: MemorySegment,
+        arena: Arena,
+        runtimePtr: MemorySegment,
+        callback: WorkerCallback,
+    ) {
+        val callbackStub = createWorkerCallbackStub(arena, runtimePtr, callback)
+        CoreBridge.temporal_core_worker_finalize_shutdown(workerPtr, MemorySegment.NULL, callbackStub)
+    }
 
     // ============================================================
-    // Async Slot Reservation
+    // Replay API
     // ============================================================
 
-    // TODO: temporal_core_complete_async_reserve
-    // bool temporal_core_complete_async_reserve(completion_ctx, permit_id)
+    /**
+     * Result of creating a replayer.
+     */
+    data class ReplayerResult(
+        val workerPtr: MemorySegment,
+        val pusherPtr: MemorySegment,
+    )
 
-    // TODO: temporal_core_complete_async_cancel_reserve
-    // bool temporal_core_complete_async_cancel_reserve(completion_ctx)
+    /**
+     * Creates a new replayer for workflow history replay.
+     *
+     * @param runtimePtr Pointer to the runtime
+     * @param arena Arena for allocations
+     * @param namespace The namespace
+     * @param taskQueue The task queue
+     * @return The worker and pusher pointers
+     * @throws TemporalCoreException if replayer creation fails
+     */
+    fun createReplayer(
+        runtimePtr: MemorySegment,
+        arena: Arena,
+        namespace: String,
+        taskQueue: String,
+    ): ReplayerResult {
+        val options =
+            buildWorkerOptions(
+                arena = arena,
+                namespace = namespace,
+                taskQueue = taskQueue,
+                maxCachedWorkflows = 1,
+                workflows = true,
+                activities = false,
+                nexus = false,
+            )
+
+        val result = CoreBridge.temporal_core_worker_replayer_new(arena, runtimePtr, options)
+
+        val workerPtr = TemporalCoreWorkerReplayerOrFail.worker(result)
+        val pusherPtr = TemporalCoreWorkerReplayerOrFail.worker_replay_pusher(result)
+        val failPtr = TemporalCoreWorkerReplayerOrFail.fail(result)
+
+        if (failPtr != MemorySegment.NULL) {
+            val errorMessage = TemporalCoreFfmUtil.readByteArray(failPtr)
+            throw TemporalCoreException(errorMessage ?: "Unknown error creating replayer")
+        }
+
+        return ReplayerResult(workerPtr, pusherPtr)
+    }
+
+    /**
+     * Frees a replay pusher.
+     *
+     * @param pusherPtr Pointer to the pusher to free
+     */
+    fun freeReplayPusher(pusherPtr: MemorySegment) {
+        CoreBridge.temporal_core_worker_replay_pusher_free(pusherPtr)
+    }
+
+    /**
+     * Pushes a workflow history for replay.
+     *
+     * @param arena Arena for allocations
+     * @param workerPtr Pointer to the worker
+     * @param pusherPtr Pointer to the pusher
+     * @param workflowId The workflow ID
+     * @param history The history protobuf bytes
+     * @return Error message if failed, null if successful
+     */
+    fun replayPush(
+        arena: Arena,
+        workerPtr: MemorySegment,
+        pusherPtr: MemorySegment,
+        workflowId: String,
+        history: ByteArray,
+    ): String? {
+        val workflowIdRef = TemporalCoreFfmUtil.createByteArrayRef(arena, workflowId)
+        val historyRef = TemporalCoreFfmUtil.createByteArrayRef(arena, history)
+
+        val result = CoreBridge.temporal_core_worker_replay_push(arena, workerPtr, pusherPtr, workflowIdRef, historyRef)
+
+        val failPtr = TemporalCoreWorkerReplayPushResult.fail(result)
+        return if (failPtr != MemorySegment.NULL) {
+            TemporalCoreFfmUtil.readByteArray(failPtr)
+        } else {
+            null
+        }
+    }
+
+    // ============================================================
+    // Slot Supplier API
+    // ============================================================
+
+    /**
+     * Completes an async slot reserve operation.
+     *
+     * @param completionCtx The completion context
+     * @param permitId The permit ID
+     * @return True if successful
+     */
+    fun completeAsyncReserve(
+        completionCtx: MemorySegment,
+        permitId: Long,
+    ): Boolean = CoreBridge.temporal_core_complete_async_reserve(completionCtx, permitId)
+
+    /**
+     * Completes an async cancel reserve operation.
+     *
+     * @param completionCtx The completion context
+     * @return True if successful
+     */
+    fun completeAsyncCancelReserve(completionCtx: MemorySegment): Boolean =
+        CoreBridge.temporal_core_complete_async_cancel_reserve(completionCtx)
+
+    // ============================================================
+    // Helper Functions
+    // ============================================================
+
+    private fun buildWorkerOptions(
+        arena: Arena,
+        namespace: String,
+        taskQueue: String,
+        maxCachedWorkflows: Int,
+        workflows: Boolean,
+        activities: Boolean,
+        nexus: Boolean,
+    ): MemorySegment {
+        val options = TemporalCoreWorkerOptions.allocate(arena)
+
+        TemporalCoreWorkerOptions.namespace_(options, TemporalCoreFfmUtil.createByteArrayRef(arena, namespace))
+        TemporalCoreWorkerOptions.task_queue(options, TemporalCoreFfmUtil.createByteArrayRef(arena, taskQueue))
+        TemporalCoreWorkerOptions.identity_override(options, TemporalCoreFfmUtil.createEmptyByteArrayRef(arena))
+        TemporalCoreWorkerOptions.max_cached_workflows(options, maxCachedWorkflows)
+
+        // Set versioning strategy to None
+        val versioningStrategy = TemporalCoreWorkerVersioningStrategy.allocate(arena)
+        TemporalCoreWorkerVersioningStrategy.tag(versioningStrategy, CoreBridge.None())
+        val versioningNone = TemporalCoreWorkerVersioningNone.allocate(arena)
+        TemporalCoreWorkerVersioningStrategy.none(versioningStrategy, versioningNone)
+        TemporalCoreWorkerOptions.versioning_strategy(options, versioningStrategy)
+
+        // Set task types
+        val taskTypes = TemporalCoreWorkerTaskTypes.allocate(arena)
+        TemporalCoreWorkerTaskTypes.enable_workflows(taskTypes, workflows)
+        TemporalCoreWorkerTaskTypes.enable_remote_activities(taskTypes, activities)
+        TemporalCoreWorkerTaskTypes.enable_local_activities(taskTypes, activities)
+        TemporalCoreWorkerTaskTypes.enable_nexus(taskTypes, nexus)
+        TemporalCoreWorkerOptions.task_types(options, taskTypes)
+
+        // Set tuner (null for default)
+        val tuner = TemporalCoreTunerHolder.allocate(arena)
+        TemporalCoreTunerHolder.workflow_slot_supplier(tuner, MemorySegment.NULL)
+        TemporalCoreTunerHolder.activity_slot_supplier(tuner, MemorySegment.NULL)
+        TemporalCoreTunerHolder.local_activity_slot_supplier(tuner, MemorySegment.NULL)
+        TemporalCoreTunerHolder.nexus_task_slot_supplier(tuner, MemorySegment.NULL)
+        TemporalCoreWorkerOptions.tuner(options, tuner)
+
+        // Set timeouts and limits
+        TemporalCoreWorkerOptions.sticky_queue_schedule_to_start_timeout_millis(options, 10_000L)
+        TemporalCoreWorkerOptions.max_heartbeat_throttle_interval_millis(options, 60_000L)
+        TemporalCoreWorkerOptions.default_heartbeat_throttle_interval_millis(options, 30_000L)
+        TemporalCoreWorkerOptions.max_activities_per_second(options, 0.0)
+        TemporalCoreWorkerOptions.max_task_queue_activities_per_second(options, 0.0)
+        TemporalCoreWorkerOptions.graceful_shutdown_period_millis(options, 0L)
+
+        // Set poller behavior (SimpleMaximum with 5 pollers)
+        val workflowPollerBehavior = createSimpleMaximumPollerBehavior(arena, 5)
+        TemporalCoreWorkerOptions.workflow_task_poller_behavior(options, workflowPollerBehavior)
+
+        TemporalCoreWorkerOptions.nonsticky_to_sticky_poll_ratio(options, 0.2f)
+
+        val activityPollerBehavior = createSimpleMaximumPollerBehavior(arena, 5)
+        TemporalCoreWorkerOptions.activity_task_poller_behavior(options, activityPollerBehavior)
+
+        val nexusPollerBehavior = createSimpleMaximumPollerBehavior(arena, 2)
+        TemporalCoreWorkerOptions.nexus_task_poller_behavior(options, nexusPollerBehavior)
+
+        // Set nondeterminism options
+        TemporalCoreWorkerOptions.nondeterminism_as_workflow_fail(options, false)
+        TemporalCoreWorkerOptions.nondeterminism_as_workflow_fail_for_types(
+            options,
+            createEmptyByteArrayRefArray(arena),
+        )
+        TemporalCoreWorkerOptions.plugins(options, createEmptyByteArrayRefArray(arena))
+
+        return options
+    }
+
+    private fun createSimpleMaximumPollerBehavior(
+        arena: Arena,
+        maximum: Int,
+    ): MemorySegment {
+        val behavior = TemporalCorePollerBehavior.allocate(arena)
+        // Allocate the SimpleMaximum struct and set its value
+        val simpleMax = TemporalCorePollerBehaviorSimpleMaximum.allocate(arena)
+        TemporalCorePollerBehaviorSimpleMaximum.simple_maximum(simpleMax, maximum.toLong())
+        // Set the pointer in the behavior struct (other pointer stays null)
+        TemporalCorePollerBehavior.simple_maximum(behavior, simpleMax)
+        TemporalCorePollerBehavior.autoscaling(behavior, MemorySegment.NULL)
+        return behavior
+    }
+
+    private fun createEmptyByteArrayRefArray(arena: Arena): MemorySegment {
+        val arr = TemporalCoreByteArrayRefArray.allocate(arena)
+        TemporalCoreByteArrayRefArray.data(arr, MemorySegment.NULL)
+        TemporalCoreByteArrayRefArray.size(arr, 0L)
+        return arr
+    }
+
+    private fun createPollCallbackStub(
+        arena: Arena,
+        runtimePtr: MemorySegment,
+        callback: PollCallback,
+    ): MemorySegment =
+        TemporalCoreWorkerPollCallback.allocate(
+            { _, successPtr, failPtr ->
+                val data =
+                    if (successPtr != MemorySegment.NULL) {
+                        TemporalCoreFfmUtil.readByteArrayAsBytes(successPtr).also {
+                            CoreBridge.temporal_core_byte_array_free(runtimePtr, successPtr)
+                        }
+                    } else {
+                        null
+                    }
+
+                val error =
+                    if (failPtr != MemorySegment.NULL) {
+                        TemporalCoreFfmUtil.readByteArray(failPtr).also {
+                            CoreBridge.temporal_core_byte_array_free(runtimePtr, failPtr)
+                        }
+                    } else {
+                        null
+                    }
+
+                callback.onComplete(data, error)
+            },
+            arena,
+        )
+
+    private fun createWorkerCallbackStub(
+        arena: Arena,
+        runtimePtr: MemorySegment,
+        callback: WorkerCallback,
+    ): MemorySegment =
+        TemporalCoreWorkerCallback.allocate(
+            { _, failPtr ->
+                val error =
+                    if (failPtr != MemorySegment.NULL) {
+                        TemporalCoreFfmUtil.readByteArray(failPtr).also {
+                            CoreBridge.temporal_core_byte_array_free(runtimePtr, failPtr)
+                        }
+                    } else {
+                        null
+                    }
+
+                callback.onComplete(error)
+            },
+            arena,
+        )
 }

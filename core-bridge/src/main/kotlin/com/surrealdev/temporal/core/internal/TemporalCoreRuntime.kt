@@ -1,12 +1,11 @@
 package com.surrealdev.temporal.core.internal
 
 import com.surrealdev.temporal.core.TemporalCoreException
+import io.temporal.sdkbridge.TemporalCoreRuntimeOptions
+import io.temporal.sdkbridge.TemporalCoreRuntimeOrFail
 import java.lang.foreign.Arena
-import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.MemorySegment
-import java.lang.foreign.SegmentAllocator
-import java.lang.foreign.ValueLayout
-import java.lang.invoke.MethodHandle
+import io.temporal.sdkbridge.temporal_sdk_core_c_bridge_h as CoreBridge
 
 /**
  * FFM bridge for Temporal Core runtime operations.
@@ -14,37 +13,13 @@ import java.lang.invoke.MethodHandle
  * The runtime is the foundational object that must be created before
  * any other Temporal Core operations. It manages the Tokio async runtime
  * and other shared resources.
+ *
+ * Uses jextract-generated bindings for direct function calls.
  */
 internal object TemporalCoreRuntime {
-    private val linker = TemporalCoreFfmUtil.linker
-    private val lookup = TemporalCoreFfmUtil.lookup
-
-    // ============================================================
-    // Method Handles
-    // ============================================================
-
-    // temporal_core_runtime_new(const TemporalCoreRuntimeOptions *options) -> TemporalCoreRuntimeOrFail
-    private val runtimeNewHandle: MethodHandle by lazy {
-        linker.downcallHandle(
-            TemporalCoreFfmUtil.findSymbol("temporal_core_runtime_new"),
-            FunctionDescriptor.of(TemporalCoreFfmUtil.RUNTIME_OR_FAIL_LAYOUT, ValueLayout.ADDRESS),
-        )
-    }
-
-    // temporal_core_runtime_free(TemporalCoreRuntime *runtime) -> void
-    private val runtimeFreeHandle: MethodHandle by lazy {
-        linker.downcallHandle(
-            TemporalCoreFfmUtil.findSymbol("temporal_core_runtime_free"),
-            FunctionDescriptor.ofVoid(ValueLayout.ADDRESS),
-        )
-    }
-
-    // temporal_core_byte_array_free(TemporalCoreRuntime *runtime, const TemporalCoreByteArray *bytes) -> void
-    private val byteArrayFreeHandle: MethodHandle by lazy {
-        linker.downcallHandle(
-            TemporalCoreFfmUtil.findSymbol("temporal_core_byte_array_free"),
-            FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS),
-        )
+    init {
+        // Ensure native library is loaded before using generated bindings
+        TemporalCoreFfmUtil.ensureLoaded()
     }
 
     // ============================================================
@@ -60,25 +35,59 @@ internal object TemporalCoreRuntime {
      */
     fun createRuntime(arena: Arena): MemorySegment {
         // Allocate RuntimeOptions with null telemetry and default heartbeat interval
-        val options = arena.allocate(TemporalCoreFfmUtil.RUNTIME_OPTIONS_LAYOUT)
-        options.set(ValueLayout.ADDRESS, 0, MemorySegment.NULL) // telemetry = null
-        options.set(ValueLayout.JAVA_LONG, 8, 0L) // worker_heartbeat_interval_millis = 0 (default)
+        val options = TemporalCoreRuntimeOptions.allocate(arena)
+        TemporalCoreRuntimeOptions.telemetry(options, MemorySegment.NULL)
+        TemporalCoreRuntimeOptions.worker_heartbeat_interval_millis(options, 0L)
 
         // Call temporal_core_runtime_new - returns struct by value
-        val allocator: SegmentAllocator = arena
-        val result = runtimeNewHandle.invokeExact(allocator, options) as MemorySegment
+        val result = CoreBridge.temporal_core_runtime_new(arena, options)
 
-        val runtimePtr = result.get(ValueLayout.ADDRESS, 0)
-        val failPtr = result.get(ValueLayout.ADDRESS, 8)
+        val runtimePtr = TemporalCoreRuntimeOrFail.runtime(result)
+        val failPtr = TemporalCoreRuntimeOrFail.fail(result)
 
         // Check for error
         if (failPtr != MemorySegment.NULL) {
             val errorMessage = TemporalCoreFfmUtil.readByteArray(failPtr)
             // Free the error byte array
-            byteArrayFreeHandle.invokeExact(runtimePtr, failPtr)
+            CoreBridge.temporal_core_byte_array_free(runtimePtr, failPtr)
             // Still need to free the runtime even on error (per C API docs)
             if (runtimePtr != MemorySegment.NULL) {
-                runtimeFreeHandle.invokeExact(runtimePtr)
+                CoreBridge.temporal_core_runtime_free(runtimePtr)
+            }
+            throw TemporalCoreException(errorMessage ?: "Unknown error creating runtime")
+        }
+
+        return runtimePtr
+    }
+
+    /**
+     * Creates a new Temporal Core runtime with custom telemetry options.
+     *
+     * @param arena The arena to allocate memory from
+     * @param telemetryOptions Pointer to telemetry options (or NULL for default)
+     * @param workerHeartbeatIntervalMillis Worker heartbeat interval (0 for default)
+     * @return A pointer to the created runtime
+     * @throws TemporalCoreException if runtime creation fails
+     */
+    fun createRuntime(
+        arena: Arena,
+        telemetryOptions: MemorySegment,
+        workerHeartbeatIntervalMillis: Long = 0L,
+    ): MemorySegment {
+        val options = TemporalCoreRuntimeOptions.allocate(arena)
+        TemporalCoreRuntimeOptions.telemetry(options, telemetryOptions)
+        TemporalCoreRuntimeOptions.worker_heartbeat_interval_millis(options, workerHeartbeatIntervalMillis)
+
+        val result = CoreBridge.temporal_core_runtime_new(arena, options)
+
+        val runtimePtr = TemporalCoreRuntimeOrFail.runtime(result)
+        val failPtr = TemporalCoreRuntimeOrFail.fail(result)
+
+        if (failPtr != MemorySegment.NULL) {
+            val errorMessage = TemporalCoreFfmUtil.readByteArray(failPtr)
+            CoreBridge.temporal_core_byte_array_free(runtimePtr, failPtr)
+            if (runtimePtr != MemorySegment.NULL) {
+                CoreBridge.temporal_core_runtime_free(runtimePtr)
             }
             throw TemporalCoreException(errorMessage ?: "Unknown error creating runtime")
         }
@@ -92,7 +101,7 @@ internal object TemporalCoreRuntime {
      * @param runtimePtr Pointer to the runtime to free
      */
     fun freeRuntime(runtimePtr: MemorySegment) {
-        runtimeFreeHandle.invokeExact(runtimePtr)
+        CoreBridge.temporal_core_runtime_free(runtimePtr)
     }
 
     /**
@@ -105,6 +114,6 @@ internal object TemporalCoreRuntime {
         runtimePtr: MemorySegment,
         byteArrayPtr: MemorySegment,
     ) {
-        byteArrayFreeHandle.invokeExact(runtimePtr, byteArrayPtr)
+        CoreBridge.temporal_core_byte_array_free(runtimePtr, byteArrayPtr)
     }
 }

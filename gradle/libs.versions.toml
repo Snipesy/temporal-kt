@@ -12,6 +12,7 @@ protobufPlugin = "0.9.4"
 ktlint = "13.1.0"
 autoService = "1.1.1"
 dokka = "2.1.0"
+buildconfig = "6.0.7"
 
 [libraries]
 kotlinGradlePlugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }

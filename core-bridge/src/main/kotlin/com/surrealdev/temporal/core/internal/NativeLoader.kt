@@ -71,6 +71,10 @@ object NativeLoader {
         )
 
         libraryPath = tempLib
+
+        // Load library ahead of time so FFM bindings work ok
+        System.load(tempLib.toAbsolutePath().toString())
+
         val lookup = SymbolLookup.libraryLookup(tempLib, arena)
         symbolLookup = lookup
         return lookup
