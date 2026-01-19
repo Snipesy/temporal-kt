@@ -109,3 +109,4 @@ See [proposals/](proposals/) for API design proposals:
 | [TKT-0010](proposals/TKT-0010-testing.md) | Test application environment |
 | [TKT-0011](proposals/TKT-0011-payload-codec.md) | Payload codec (encryption/compression) |
 | [TKT-0012](proposals/TKT-0012-payload-serializer.md) | Payload serializer |
+| [TKT-0013](proposals/TKT-0013-ktor-subroutine.md) | Ktor subroutine (unified JAR) |
