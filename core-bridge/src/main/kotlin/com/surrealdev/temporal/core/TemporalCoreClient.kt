@@ -101,6 +101,40 @@ class TemporalCoreClient private constructor(
     }
 
     /**
+     * Makes an RPC call to the Temporal workflow service.
+     *
+     * Uses a long-lived arena because Rust spawns async tasks that hold the callback
+     * pointer, which may complete after the arena would normally be GC'd.
+     *
+     * @param rpc The RPC method name (e.g., "StartWorkflowExecution")
+     * @param request The request payload as protobuf bytes
+     * @return The response payload as protobuf bytes
+     * @throws TemporalCoreException if the RPC call fails
+     */
+    suspend fun workflowServiceCall(
+        rpc: String,
+        request: ByteArray,
+    ): ByteArray {
+        ensureOpen()
+        return CallbackArena.withLongLivedNonNullResult<ByteArray> { callArena, callback ->
+            InternalClient.rpcCall(
+                clientPtr = handle,
+                arena = callArena,
+                runtimePtr = runtimePtr,
+                service = InternalClient.RpcService.WORKFLOW,
+                rpc = rpc,
+                request = request,
+            ) { response, statusCode, failureMessage, _ ->
+                if (response != null && statusCode == 0) {
+                    callback(response, null)
+                } else {
+                    callback(null, failureMessage ?: "RPC call failed with status $statusCode")
+                }
+            }
+        }
+    }
+
+    /**
      * Closes this client and releases all associated resources.
      *
      * After calling this method, the client can no longer be used.

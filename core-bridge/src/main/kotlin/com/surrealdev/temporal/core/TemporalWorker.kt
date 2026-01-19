@@ -135,7 +135,7 @@ class TemporalWorker private constructor(
     suspend fun pollWorkflowActivation(): ByteArray? {
         ensureOpen()
         return try {
-            CallbackArena.withResult { arena, callback ->
+            CallbackArena.withLongLivedResult { arena, callback ->
                 InternalWorker.pollWorkflowActivation(handle, arena, runtimePtr, callback)
             }
         } catch (e: TemporalCoreException) {
@@ -149,13 +149,16 @@ class TemporalWorker private constructor(
      *
      * This method suspends until an activity task is available or shutdown is complete.
      *
+     * Uses a long-lived arena because Rust spawns async tasks that hold the callback
+     * pointer, which may complete much later than when this function is called.
+     *
      * @return The activity task protobuf bytes, or null if shutdown is complete
      * @throws TemporalCoreException if polling fails
      */
     suspend fun pollActivityTask(): ByteArray? {
         ensureOpen()
         return try {
-            CallbackArena.withResult { arena, callback ->
+            CallbackArena.withLongLivedResult { arena, callback ->
                 InternalWorker.pollActivityTask(handle, arena, runtimePtr, callback)
             }
         } catch (e: TemporalCoreException) {
