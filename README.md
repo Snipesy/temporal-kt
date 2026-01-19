@@ -20,6 +20,20 @@ See [progress.md](Progress.md) to see how close we are to feature parity with te
 sdk env install
 ```
 
+## Cloning
+
+This repo uses git submodules. Clone with:
+
+```bash
+git clone --recurse-submodules https://github.com/snipesy/temporal-kt.git
+```
+
+Or if already cloned:
+
+```bash
+git submodule update --init --recursive
+```
+
 ## Building
 
 ```bash

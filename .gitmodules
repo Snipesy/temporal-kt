@@ -1,0 +1,3 @@
+[submodule "core-bridge/rust/sdk-core"]
+	path = core-bridge/rust/sdk-core
+	url = https://github.com/temporalio/sdk-core.git
