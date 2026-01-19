@@ -36,7 +36,7 @@ class MyActivityImpl : MyActivity {
 }
 
 fun TemporalApplication.myMainModule() {
-    install(KotlinxSerialization) { ... }
+    install(PayloadSerialization) { json() }
     taskQueue("my-task-queue") {
         workflow(MyWorkflowImpl())
         activity(MyActivityImpl())

@@ -5,8 +5,8 @@ This trades type-safe client stubs for development speed.
 
 ```kotlin
 fun TemporalApplication.myMainModule() {
-    install(KotlinxSerialization) {
-        json = Json {
+    install(PayloadSerialization) {
+        json {
             prettyPrint = true
             encodeDefaults = true
             ignoreUnknownKeys = true

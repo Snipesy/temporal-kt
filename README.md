@@ -49,7 +49,7 @@ class MyActivity {
 }
 
 fun TemporalApplication.module() {
-    install(KotlinxSerialization)
+    install(PayloadSerialization) { json() }
     taskQueue("my-queue") {
         workflow<MyWorkflow>()
         activity<MyActivity>()
@@ -61,7 +61,7 @@ fun TemporalApplication.module() {
 
 ```kotlin
 fun TemporalApplication.module() {
-    install(KotlinxSerialization)
+    install(PayloadSerialization) { json() }
     taskQueue("my-queue") {
         workflow<WorkflowArg>("MyWorkflow") { arg ->
             val greeting = activity<String>("MyActivity") { name ->
@@ -91,3 +91,7 @@ See [proposals/](proposals/) for API design proposals:
 | [TKT-0006](proposals/TKT-0006-dsl-scope.md) | DSL scope safety |
 | [TKT-0007](proposals/TKT-0007-determinism.md) | Determinism checks |
 | [TKT-0008](proposals/TKT-0008-non-suspending.md) | Non-suspending annotations/interfaces |
+| [TKT-0009](proposals/TKT-0009-routing.md) | Routing |
+| [TKT-0010](proposals/TKT-0010-testing.md) | Test application environment |
+| [TKT-0011](proposals/TKT-0011-payload-codec.md) | Payload codec (encryption/compression) |
+| [TKT-0012](proposals/TKT-0012-payload-serializer.md) | Payload serializer |
