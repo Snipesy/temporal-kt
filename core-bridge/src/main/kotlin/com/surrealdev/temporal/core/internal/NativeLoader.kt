@@ -15,7 +15,7 @@ import java.nio.file.Path
  * 3. Load the library via SymbolLookup for FFM access
  */
 object NativeLoader {
-    private const val LIB_NAME = "temporal_core_bridge"
+    private const val LIB_NAME = "temporalio_sdk_core_c_bridge"
 
     /**
      * Global arena for the native library's lifetime.

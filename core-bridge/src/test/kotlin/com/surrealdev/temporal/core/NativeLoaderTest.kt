@@ -1,17 +1,18 @@
 package com.surrealdev.temporal.core
 
 import com.surrealdev.temporal.core.internal.NativeLoader
-import com.surrealdev.temporal.core.internal.TemporalCoreBridge
+import com.surrealdev.temporal.core.internal.TemporalCoreRuntime
+import java.lang.foreign.Arena
+import java.lang.foreign.MemorySegment
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 /**
  * Tests for the native library loading and FFM communication.
  *
  * Note: These tests require the native library to be built first.
- * Run `cargo build --release` in the `rust/` directory before running tests.
+ * Run `./gradlew :core-bridge:cargoBuild` before running tests.
  */
 class NativeLoaderTest {
     @Test
@@ -21,42 +22,37 @@ class NativeLoaderTest {
     }
 
     @Test
-    fun `nativeVersion returns valid version string`() {
-        val version = TemporalCoreBridge.nativeVersion()
-        assertNotNull(version, "Version should not be null")
-        assertTrue(version.isNotEmpty(), "Version should not be empty")
-        // Version should match semver pattern
-        assertTrue(
-            version.matches(Regex("""\d+\.\d+\.\d+.*""")),
-            "Version '$version' should match semver pattern",
-        )
-    }
-
-    @Test
-    fun `nativeEcho returns echoed string`() {
-        val input = "Hello, Temporal!"
-        val result = TemporalCoreBridge.nativeEcho(input)
-        assertEquals("Echo from Rust: $input", result)
-    }
-
-    @Test
-    fun `nativeEcho handles unicode strings`() {
-        val input = "Hello 世界 🌍"
-        val result = TemporalCoreBridge.nativeEcho(input)
-        assertEquals("Echo from Rust: $input", result)
-    }
-
-    @Test
-    fun `nativeEcho handles empty string`() {
-        val result = TemporalCoreBridge.nativeEcho("")
-        assertEquals("Echo from Rust: ", result)
-    }
-
-    @Test
     fun `multiple load calls are safe`() {
         NativeLoader.load()
         NativeLoader.load()
         NativeLoader.load()
         assertTrue(NativeLoader.isLoaded())
+    }
+
+    @Test
+    fun `can create and free runtime`() {
+        Arena.ofConfined().use { arena ->
+            val runtimePtr = TemporalCoreRuntime.createRuntime(arena)
+            assertNotEquals(MemorySegment.NULL, runtimePtr, "Runtime pointer should not be null")
+
+            // Clean up
+            TemporalCoreRuntime.freeRuntime(runtimePtr)
+        }
+    }
+
+    @Test
+    fun `can create multiple runtimes`() {
+        Arena.ofConfined().use { arena ->
+            val runtime1 = TemporalCoreRuntime.createRuntime(arena)
+            val runtime2 = TemporalCoreRuntime.createRuntime(arena)
+
+            assertNotEquals(MemorySegment.NULL, runtime1)
+            assertNotEquals(MemorySegment.NULL, runtime2)
+            assertNotEquals(runtime1, runtime2, "Each runtime should have unique pointer")
+
+            // Clean up
+            TemporalCoreRuntime.freeRuntime(runtime1)
+            TemporalCoreRuntime.freeRuntime(runtime2)
+        }
     }
 }

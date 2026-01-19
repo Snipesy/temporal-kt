@@ -8,18 +8,4 @@ description = "FFM bridge for Temporal Rust SDK Core"
 crate-type = ["cdylib"]
 
 [dependencies]
-prost = "0.13"
-tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
-once_cell = "1.19"
-
-# Temporal SDK Core
-temporalio-client = { version = "0.1.0", path = "./sdk-core/crates/client" }
-temporalio-common = { version = "0.1.0", path = "./sdk-core/crates/common", features = [
-    "envconfig",
-]}
-temporalio-sdk-core = { version = "0.1.0", path = "./sdk-core/crates/sdk-core", features = [
-    "ephemeral-server",
-] }
-
-[build-dependencies]
-prost-build = "0.13"
+temporalio-sdk-core-c-bridge = { version = "0.1.0", path = "./sdk-core/crates/sdk-core-c-bridge" }
