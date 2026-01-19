@@ -26,9 +26,15 @@ kotlin {
     jvmToolchain(25)
 }
 
+// Enable native access for FFM (Foreign Function & Memory) API
+val nativeAccessArgs = listOf("--enable-native-access=ALL-UNNAMED")
+
 tasks.withType<Test>().configureEach {
     // Configure all test Gradle tasks to use JUnitPlatform.
     useJUnitPlatform()
+
+    // Enable native access for FFM
+    jvmArgs(nativeAccessArgs)
 
     // Log information about all test results, not only the failed ones.
     testLogging {
@@ -38,4 +44,9 @@ tasks.withType<Test>().configureEach {
             TestLogEvent.SKIPPED,
         )
     }
+}
+
+tasks.withType<JavaExec>().configureEach {
+    // Enable native access for FFM
+    jvmArgs(nativeAccessArgs)
 }
