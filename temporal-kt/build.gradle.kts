@@ -2,13 +2,18 @@ plugins {
     id("buildsrc.convention.kotlin-jvm")
     alias(libs.plugins.kotlinPluginSerialization)
     `maven-publish`
+    `java-test-fixtures`
 }
 
 dependencies {
     api(project(":core-bridge"))
     api(libs.bundles.kotlinxEcosystem)
+    implementation(libs.bundles.hoplite)
+    implementation(libs.kotlinReflect)
 
     testImplementation(kotlin("test"))
+
+    testFixturesImplementation(libs.kotlinxCoroutinesTest)
 }
 
 publishing {

@@ -29,7 +29,7 @@ This document tracks the implementation status of Temporal SDK features in the K
 |---------|--------|---------------|---------------|
 | Workflows | In Development | [Workflows](https://docs.temporal.io/workflows) | [WorkflowContext.kt](temporal-kt/src/main/kotlin/com/surrealdev/temporal/workflow/WorkflowContext.kt) |
 | Activities | In Development | [Activities](https://docs.temporal.io/activities) | [ActivityContext.kt](temporal-kt/src/main/kotlin/com/surrealdev/temporal/activity/ActivityContext.kt) |
-| Workers | Not Implemented | [Workers](https://docs.temporal.io/workers) | - |
+| Workers | Incubating | [Workers](https://docs.temporal.io/workers) | [ManagedWorker.kt](temporal-kt/src/main/kotlin/com/surrealdev/temporal/application/worker/ManagedWorker.kt) |
 | Temporal Client | In Development | [Temporal Client](https://docs.temporal.io/encyclopedia/temporal-sdks#temporal-client) | [TemporalClient.kt](temporal-kt/src/main/kotlin/com/surrealdev/temporal/client/TemporalClient.kt) |
 
 ## Workflow Features
@@ -104,7 +104,7 @@ This document tracks the implementation status of Temporal SDK features in the K
 
 | Feature | Status | Temporal Docs | Kotlin Source |
 |---------|--------|---------------|---------------|
-| Test Framework | Not Implemented | [Testing](https://docs.temporal.io/develop/java/testing) | - |
+| Test Framework | Incubating | [Testing](https://docs.temporal.io/develop/java/testing) | [TemporalTestFixture.kt](temporal-kt/src/testFixtures/kotlin/com/surrealdev/temporal/testing/TemporalTestFixture.kt) |
 | Workflow Replay | Not Implemented | [Replay](https://docs.temporal.io/develop/java/testing#replay) | - |
 | Time Skipping | Not Implemented | [Time Skipping](https://docs.temporal.io/develop/java/testing#skip-time) | - |
 
@@ -126,4 +126,4 @@ This document tracks the implementation status of Temporal SDK features in the K
 | Namespaces | In Development | [Namespaces](https://docs.temporal.io/namespaces) | [TemporalApplication.kt](temporal-kt/src/main/kotlin/com/surrealdev/temporal/application/TemporalApplication.kt) |
 
 
-**Last Updated:** 2025-01-18
+**Last Updated:** 2026-01-19

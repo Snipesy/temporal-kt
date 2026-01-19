@@ -1,66 +1,50 @@
 package com.surrealdev.temporal.application
 
+import kotlinx.coroutines.Dispatchers
+import kotlin.coroutines.CoroutineContext
+
 /**
  * Builder for configuring a [TemporalApplication].
+ *
+ * @param parentCoroutineContext The parent coroutine context for the application.
+ *                               Defaults to [Dispatchers.Default].
  */
 @TemporalDsl
-class TemporalApplicationBuilder internal constructor() {
-    private val connectionConfig = ConnectionConfig()
-    private val taskQueues = mutableListOf<TaskQueueConfig>()
-    private val plugins = mutableListOf<TemporalPlugin>()
+class TemporalApplicationBuilder internal constructor(
+    private val parentCoroutineContext: CoroutineContext = Dispatchers.Default,
+) {
+    private var connectionConfig = ConnectionConfig()
 
     /**
-     * Configures the connection to the Temporal service.
+     * Sets the connection configuration directly.
      */
-    fun connection(configure: ConnectionConfig.() -> Unit) {
-        connectionConfig.configure()
+    fun connection(config: ConnectionConfig) {
+        connectionConfig = config
     }
 
     /**
-     * Installs a plugin into the application.
+     * Configures the connection to the Temporal service using a builder pattern.
      *
      * Usage:
      * ```kotlin
-     * install(KotlinxSerialization) {
-     *     json = Json { prettyPrint = true }
+     * connection {
+     *     target = "http://localhost:7233"
+     *     namespace = "my-namespace"
      * }
      * ```
      */
-    fun <TConfig : Any, TPlugin : TemporalPlugin> install(
-        plugin: TemporalPluginFactory<TConfig, TPlugin>,
-        configure: TConfig.() -> Unit = {},
-    ) {
-        plugins.add(plugin.create(configure))
-    }
-
-    /**
-     * Configures a task queue with workflows and activities.
-     *
-     * Usage:
-     * ```kotlin
-     * taskQueue("my-task-queue") {
-     *     workflow(MyWorkflowImpl())
-     *     activity(MyActivityImpl())
-     * }
-     * ```
-     */
-    fun taskQueue(
-        name: String,
-        configure: TaskQueueBuilder.() -> Unit,
-    ) {
-        val builder = TaskQueueBuilder(name)
-        builder.configure()
-        taskQueues.add(builder.build())
+    fun connection(configure: ConnectionConfigBuilder.() -> Unit) {
+        connectionConfig = ConnectionConfigBuilder(connectionConfig).apply(configure).build()
     }
 
     internal fun build(): TemporalApplication {
         val config =
             TemporalApplicationConfig(
                 connection = connectionConfig,
-                taskQueues = taskQueues.toList(),
-                plugins = plugins.toList(),
             )
-        return TemporalApplication(config)
+        val application = TemporalApplication(config, parentCoroutineContext)
+
+        return application
     }
 }
 
@@ -76,3 +60,35 @@ interface TemporalPluginFactory<TConfig : Any, TPlugin : TemporalPlugin> {
  */
 @DslMarker
 annotation class TemporalDsl
+
+/**
+ * Builder for [ConnectionConfig] that allows DSL-style configuration.
+ */
+@TemporalDsl
+class ConnectionConfigBuilder internal constructor(
+    base: ConnectionConfig = ConnectionConfig(),
+) {
+    /** Target address (e.g., "http://localhost:7233" or "https://my-namespace.tmprl.cloud:7233"). */
+    var target: String = base.target
+
+    /** Namespace to use. */
+    var namespace: String = base.namespace
+
+    /** Whether to use TLS. */
+    var useTls: Boolean = base.useTls
+
+    /** Path to TLS client certificate (for mTLS). */
+    var tlsCertPath: String? = base.tlsCertPath
+
+    /** Path to TLS client key (for mTLS). */
+    var tlsKeyPath: String? = base.tlsKeyPath
+
+    internal fun build(): ConnectionConfig =
+        ConnectionConfig(
+            target = target,
+            namespace = namespace,
+            useTls = useTls,
+            tlsCertPath = tlsCertPath,
+            tlsKeyPath = tlsKeyPath,
+        )
+}

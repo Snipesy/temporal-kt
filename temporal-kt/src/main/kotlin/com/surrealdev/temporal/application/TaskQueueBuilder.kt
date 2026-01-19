@@ -19,6 +19,12 @@ package com.surrealdev.temporal.application
 class TaskQueueBuilder internal constructor(
     private val name: String,
 ) {
+    /**
+     * Optional namespace override for this task queue.
+     * If null, the application's default namespace is used.
+     */
+    var namespace: String? = null
+
     @PublishedApi
     internal val workflows = mutableListOf<WorkflowRegistration>()
 
@@ -64,6 +70,7 @@ class TaskQueueBuilder internal constructor(
     internal fun build(): TaskQueueConfig =
         TaskQueueConfig(
             name = name,
+            namespace = namespace,
             workflows = workflows.toList(),
             activities = activities.toList(),
         )

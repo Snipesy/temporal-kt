@@ -1,0 +1,85 @@
+package com.surrealdev.temporal.application
+
+import com.surrealdev.temporal.core.TemporalDevServer
+import com.surrealdev.temporal.core.TemporalRuntime
+import com.surrealdev.temporal.testing.runTemporalTest
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlin.test.Test
+
+/**
+ * Integration tests for worker lifecycle management.
+ *
+ * These tests use the dev server for end-to-end testing.
+ */
+class WorkerLifecycleTest {
+    @Test
+    fun `can start and stop worker with dev server`() =
+        runTemporalTest {
+            application {
+                taskQueue("test-queue") {
+                    // Empty task queue for now - just testing lifecycle
+                }
+            }
+            // App is already started, just verify it works
+            delay(100)
+        }
+
+    @Test
+    fun `can start application with multiple task queues`() =
+        runTemporalTest {
+            application {
+                taskQueue("queue-1") {
+                }
+                taskQueue("queue-2") {}
+                taskQueue("queue-3") {}
+            }
+            delay(100)
+        }
+
+    @Test
+    fun `can start application with namespace override`() =
+        runTemporalTest {
+            application {
+                taskQueue("queue-with-override") {
+                    namespace = "default" // Override with same namespace for now
+                }
+            }
+            delay(100)
+        }
+
+    @Test
+    fun `embeddedTemporal starts and stops workers`() {
+        TemporalRuntime.create().use { runtime ->
+            TemporalDevServer.start(runtime, timeoutSeconds = 120).use { devServer ->
+                val embedded =
+                    embeddedTemporal(
+                        configure = {
+                            connection {
+                                target = "http://${devServer.targetUrl}"
+                                namespace = "default"
+                            }
+                        },
+                        module = {
+                            taskQueue("embedded-queue") {
+                                // Empty task queue
+                            }
+                        },
+                    )
+                embedded.start(wait = false)
+                runBlocking {
+                    delay(100)
+                    embedded.stop()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `application without task queues starts successfully`() =
+        runTemporalTest {
+            application {
+                // No task queues - just verify connection works
+            }
+        }
+}

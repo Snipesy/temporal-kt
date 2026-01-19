@@ -13,6 +13,7 @@ ktlint = "13.1.0"
 autoService = "1.1.1"
 dokka = "2.1.0"
 buildconfig = "6.0.7"
+hoplite = "2.7.5"
 
 [libraries]
 kotlinGradlePlugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
@@ -21,14 +22,19 @@ kotlinCompilerEmbeddable = { module = "org.jetbrains.kotlin:kotlin-compiler-embe
 kotlinxDatetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "kotlinxDatetime" }
 kotlinxSerialization = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerializationJSON" }
 kotlinxCoroutines = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
+kotlinxCoroutinesTest = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
 protobufJava = { module = "com.google.protobuf:protobuf-java", version.ref = "protobuf" }
 protobufKotlin = { module = "com.google.protobuf:protobuf-kotlin", version.ref = "protobuf" }
 autoServiceAnnotations = { module = "com.google.auto.service:auto-service-annotations", version.ref = "autoService" }
 autoService = { module = "com.google.auto.service:auto-service", version.ref = "autoService" }
+hopliteCore = { module = "com.sksamuel.hoplite:hoplite-core", version.ref = "hoplite" }
+hopliteYaml = { module = "com.sksamuel.hoplite:hoplite-yaml", version.ref = "hoplite" }
+kotlinReflect = { module = "org.jetbrains.kotlin:kotlin-reflect", version.ref = "kotlin" }
 
 # Libraries can be bundled together for easier import
 [bundles]
 kotlinxEcosystem = ["kotlinxDatetime", "kotlinxSerialization", "kotlinxCoroutines"]
+hoplite = ["hopliteCore", "hopliteYaml"]
 
 [plugins]
 kotlinPluginSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
