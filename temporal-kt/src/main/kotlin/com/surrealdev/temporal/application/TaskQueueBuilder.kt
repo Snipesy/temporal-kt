@@ -25,6 +25,18 @@ class TaskQueueBuilder internal constructor(
      */
     var namespace: String? = null
 
+    /**
+     * Maximum number of concurrent workflow executions.
+     * This is a logical limit enforced via semaphore.
+     */
+    var maxConcurrentWorkflows: Int = 200
+
+    /**
+     * Maximum number of concurrent activity executions.
+     * This is a logical limit enforced via semaphore.
+     */
+    var maxConcurrentActivities: Int = 200
+
     @PublishedApi
     internal val workflows = mutableListOf<WorkflowRegistration>()
 
@@ -73,5 +85,7 @@ class TaskQueueBuilder internal constructor(
             namespace = namespace,
             workflows = workflows.toList(),
             activities = activities.toList(),
+            maxConcurrentWorkflows = maxConcurrentWorkflows,
+            maxConcurrentActivities = maxConcurrentActivities,
         )
 }

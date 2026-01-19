@@ -6,6 +6,7 @@ import com.surrealdev.temporal.client.TemporalClientConfig
 import com.surrealdev.temporal.core.TemporalCoreClient
 import com.surrealdev.temporal.core.TemporalRuntime
 import com.surrealdev.temporal.core.TemporalWorker
+import com.surrealdev.temporal.serialization.payloadSerializer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -103,10 +104,17 @@ open class TemporalApplication internal constructor(
                     coreWorker = coreWorker,
                     config = taskQueueConfig,
                     parentContext = coroutineContext,
+                    serializer = payloadSerializer(),
+                    namespace = effectiveNamespace,
                 )
 
             workers[taskQueueConfig.name] = managedWorker
             managedWorker.start()
+        }
+
+        // Wait for all workers to be ready (first poll completed)
+        for (worker in workers.values) {
+            worker.awaitReady()
         }
 
         if (wait) {
@@ -145,13 +153,19 @@ open class TemporalApplication internal constructor(
      * This is typically called from the main function to keep the application running.
      */
     suspend fun awaitTermination() {
-        applicationJob.join()
+        applicationJob.join() // JVM is already shutting down, hook is running
     }
 
     /**
      * Creates a client for interacting with the Temporal service.
+     *
+     * @param configure Optional configuration block for the client.
+     * @return A configured [TemporalClient] instance.
+     * @throws IllegalStateException if the application hasn't been started.
      */
     suspend fun client(configure: TemporalClientConfig.() -> Unit = {}): TemporalClient {
+        val coreClientInstance = coreClient ?: throw IllegalStateException("Application not started")
+
         val clientConfig =
             TemporalClientConfig().apply {
                 // Inherit connection settings from application
@@ -159,8 +173,20 @@ open class TemporalApplication internal constructor(
                 namespace = config.connection.namespace
                 configure()
             }
-        return TemporalClient(clientConfig)
+
+        return TemporalClient.create(
+            coreClient = coreClientInstance,
+            namespace = clientConfig.namespace,
+            serializer = payloadSerializer(),
+        )
     }
+
+    /**
+     * Gets the underlying core client for low-level operations.
+     *
+     * @throws IllegalStateException if the application hasn't been started
+     */
+    fun getCoreClient(): TemporalCoreClient = coreClient ?: throw IllegalStateException("Application not started")
 
     companion object {
         /**
@@ -217,6 +243,10 @@ internal data class TaskQueueConfig(
     val namespace: String? = null,
     val workflows: List<WorkflowRegistration>,
     val activities: List<ActivityRegistration>,
+    /** Maximum number of concurrent workflow executions. */
+    val maxConcurrentWorkflows: Int = 200,
+    /** Maximum number of concurrent activity executions. */
+    val maxConcurrentActivities: Int = 200,
 )
 
 /**
