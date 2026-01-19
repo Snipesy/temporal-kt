@@ -7,6 +7,7 @@ plugins {
 
 dependencies {
     implementation(libs.protobufJava)
+    implementation(libs.protobufKotlin)
 
     testImplementation(kotlin("test"))
 }
@@ -14,6 +15,13 @@ dependencies {
 protobuf {
     protoc {
         artifact = "com.google.protobuf:protoc:${libs.versions.protobuf.get()}"
+    }
+    generateProtoTasks {
+        all().forEach { task ->
+            task.builtins {
+                create("kotlin")
+            }
+        }
     }
 }
 
@@ -131,11 +139,15 @@ val copyAllNativeLibs by tasks.registering {
     dependsOn(copyNativeLib, copyNativeLibLinuxx8664, copyNativeLibDarwinx8664)
 }
 
-// Include native libs from build directory in resources
+// Include native libs from build directory in resources and sdk-core protos
 sourceSets {
     main {
         resources {
             srcDir(nativeLibsDir)
+        }
+        proto {
+            srcDir("rust/sdk-core/crates/common/protos/local")
+            srcDir("rust/sdk-core/crates/common/protos/api_upstream")
         }
     }
 }
