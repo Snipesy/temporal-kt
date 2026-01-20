@@ -17,10 +17,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.slf4j.MDCContext
 import org.slf4j.LoggerFactory
 import kotlin.coroutines.CoroutineContext
-
-private val logger = LoggerFactory.getLogger(ManagedWorker::class.java)
 
 /**
  * A managed worker that integrates a core worker with the application lifecycle.
@@ -32,11 +31,23 @@ internal class ManagedWorker(
     private val config: TaskQueueConfig,
     parentContext: CoroutineContext,
     serializer: PayloadSerializer,
-    namespace: String,
+    private val namespace: String,
 ) : CoroutineScope {
     private val workerJob = SupervisorJob(parentContext[Job])
+
+    /** MDC context for logging with worker identifiers. */
+    private val mdcContext =
+        MDCContext(
+            mapOf(
+                "taskQueue" to config.name,
+                "namespace" to namespace,
+            ),
+        )
+
     override val coroutineContext: CoroutineContext =
-        parentContext + workerJob + CoroutineName("TaskQueue-${config.name}")
+        parentContext + workerJob + CoroutineName("TaskQueue-${config.name}") + mdcContext
+
+    private val logger = LoggerFactory.getLogger(ManagedWorker::class.java)
 
     @Volatile
     private var started = false

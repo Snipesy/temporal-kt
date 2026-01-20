@@ -9,6 +9,7 @@ import com.surrealdev.temporal.workflow.WorkflowInfo
 import coresdk.workflow_commands.WorkflowCommands
 import io.temporal.api.common.v1.Payload
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.slf4j.MDCContext
 import kotlin.coroutines.CoroutineContext
 import kotlin.reflect.KType
 import kotlin.time.Duration
@@ -36,12 +37,14 @@ internal class WorkflowContextImpl(
     private val serializer: PayloadSerializer,
     private val workflowDispatcher: WorkflowCoroutineDispatcher,
     parentJob: Job,
+    private val mdcContext: MDCContext? = null,
 ) : WorkflowContext {
     // Create a child job for this workflow - failures propagate to parent
     private val job = Job(parentJob)
     private val deterministicRandom = DeterministicRandom(state.randomSeed)
 
-    override val coroutineContext: CoroutineContext = job + workflowDispatcher
+    override val coroutineContext: CoroutineContext =
+        if (mdcContext != null) job + workflowDispatcher + mdcContext else job + workflowDispatcher
 
     /**
      * Updates the random seed (called when UpdateRandomSeed job is received).

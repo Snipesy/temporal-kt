@@ -15,6 +15,9 @@ import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.slf4j.MDCContext
+import kotlinx.coroutines.withContext
+import org.slf4j.LoggerFactory
 import kotlin.reflect.KType
 import kotlin.reflect.full.callSuspend
 import kotlin.time.Duration.Companion.milliseconds
@@ -38,6 +41,18 @@ internal class WorkflowExecutor(
     private val namespace: String,
 ) {
     private var state: WorkflowState = WorkflowState(runId)
+    private val logger = LoggerFactory.getLogger(WorkflowExecutor::class.java)
+
+    /** MDC context for coroutine propagation with workflow identifiers. */
+    private val mdcContext =
+        MDCContext(
+            mapOf(
+                "workflowType" to methodInfo.workflowType,
+                "taskQueue" to taskQueue,
+                "namespace" to namespace,
+                "runId" to runId,
+            ),
+        )
 
     // Create dispatcher with a timer scheduler that delegates to the workflow's timer system.
     // This allows kotlinx.coroutines.delay() to work correctly in workflows by creating
@@ -74,97 +89,130 @@ internal class WorkflowExecutor(
     suspend fun activate(
         activation: WorkflowActivation,
         scope: CoroutineScope,
-    ): WorkflowCompletion.WorkflowActivationCompletion {
-        try {
-            // Update state from activation metadata
-            state.updateFromActivation(
-                timestamp = if (activation.hasTimestamp()) activation.timestamp else null,
-                isReplaying = activation.isReplaying,
-                historyLength = activation.historyLength,
-            )
+    ): WorkflowCompletion.WorkflowActivationCompletion =
+        withContext(mdcContext) {
+            try {
+                logger.debug(
+                    "Processing activation: jobs={}, replaying={}, historyLength={}",
+                    activation.jobsList.map { jobTypeName(it) },
+                    activation.isReplaying,
+                    activation.historyLength,
+                )
 
-            // Handle eviction early - it must be the only job and should not process other stages
-            if (activation.jobsList.any { it.hasRemoveFromCache() }) {
-                handleEviction()
-                return buildSuccessCompletion()
-            }
+                // Update state from activation metadata
+                state.updateFromActivation(
+                    timestamp = if (activation.hasTimestamp()) activation.timestamp else null,
+                    isReplaying = activation.isReplaying,
+                    historyLength = activation.historyLength,
+                )
 
-            // Separate jobs into ordered stages following Python SDK pattern for deterministic replay:
-            // Stage 0: Initialization (if present)
-            // Stage 1: Patches (for workflow versioning - not yet implemented, placeholder for future)
-            // Stage 2: Signals + Updates (state mutations from external events)
-            // Stage 3: Non-queries (resolutions, cancellation, random seed, etc.)
-            // Stage 4: Queries (read-only operations)
-            // Note: RemoveFromCache (eviction) is handled as an early exit before stage processing
-            val initJob = activation.jobsList.find { it.hasInitializeWorkflow() }
-            val patchJobs = activation.jobsList.filter { isPatchJob(it) }
-            val signalAndUpdateJobs = activation.jobsList.filter { isSignalOrUpdateJob(it) }
-            val nonQueryJobs = activation.jobsList.filter { isNonQueryJob(it) }
-            val queryJobs = activation.jobsList.filter { it.hasQueryWorkflow() }
-
-            // Stage 0: Process initialization if present
-            if (initJob != null) {
-                processJob(initJob, activation, scope)
-                // Process queued work to start the workflow coroutine
-                workflowDispatcher.processAllWork()
-            }
-
-            // Stage 1: Process patches
-            // Patches must be processed first for correct workflow versioning
-            for (job in patchJobs) {
-                processJob(job, activation, scope)
-            }
-            if (patchJobs.isNotEmpty()) {
-                workflowDispatcher.processAllWork()
-                state.checkConditions()
-            }
-
-            // Stage 2: Process signals and updates
-            // These can mutate workflow state and may satisfy pending conditions
-            for (job in signalAndUpdateJobs) {
-                processJob(job, activation, scope)
-            }
-            if (signalAndUpdateJobs.isNotEmpty()) {
-                workflowDispatcher.processAllWork()
-                state.checkConditions()
-            }
-
-            // Stage 3: Process non-query jobs (resolutions, cancellation, etc.)
-            // These resume suspended workflow operations
-            for (job in nonQueryJobs) {
-                processJob(job, activation, scope)
-            }
-            if (nonQueryJobs.isNotEmpty()) {
-                workflowDispatcher.processAllWork()
-                state.checkConditions()
-            }
-
-            // Stage 4: Process queries (read-only mode)
-            // Queries must not mutate workflow state to ensure deterministic replay
-            if (queryJobs.isNotEmpty()) {
-                state.isReadOnly = true
-                try {
-                    for (job in queryJobs) {
-                        processJob(job, activation, scope)
-                    }
-                    workflowDispatcher.processAllWork()
-                } finally {
-                    state.isReadOnly = false
+                // Handle eviction early - it must be the only job and should not process other stages
+                if (activation.jobsList.any { it.hasRemoveFromCache() }) {
+                    handleEviction()
+                    return@withContext buildSuccessCompletion()
                 }
-            }
 
-            // Check if workflow completed
-            val mainResult = mainCoroutine
-            if (mainResult != null && mainResult.isCompleted) {
-                return buildTerminalCompletion(mainResult)
-            }
+                // Separate jobs into ordered stages following Python SDK pattern for deterministic replay:
+                // Stage 0: Initialization (if present)
+                // Stage 1: Patches (for workflow versioning - not yet implemented, placeholder for future)
+                // Stage 2: Signals + Updates (state mutations from external events)
+                // Stage 3: Non-queries (resolutions, cancellation, random seed, etc.)
+                // Stage 4: Queries (read-only operations)
+                // Note: RemoveFromCache (eviction) is handled as an early exit before stage processing
+                val initJob = activation.jobsList.find { it.hasInitializeWorkflow() }
+                val patchJobs = activation.jobsList.filter { isPatchJob(it) }
+                val signalAndUpdateJobs = activation.jobsList.filter { isSignalOrUpdateJob(it) }
+                val nonQueryJobs = activation.jobsList.filter { isNonQueryJob(it) }
+                val queryJobs = activation.jobsList.filter { it.hasQueryWorkflow() }
 
-            // Return accumulated commands
-            return buildSuccessCompletion()
-        } catch (e: Exception) {
-            return buildFailureCompletion(e)
+                // Stage 0: Process initialization if present
+                if (initJob != null) {
+                    processJob(initJob, activation, scope)
+                    // Process queued work to start the workflow coroutine
+                    workflowDispatcher.processAllWork()
+                }
+
+                // Stage 1: Process patches
+                // Patches must be processed first for correct workflow versioning
+                for (job in patchJobs) {
+                    processJob(job, activation, scope)
+                }
+                if (patchJobs.isNotEmpty()) {
+                    workflowDispatcher.processAllWork()
+                    state.checkConditions()
+                }
+
+                // Stage 2: Process signals and updates
+                // These can mutate workflow state and may satisfy pending conditions
+                for (job in signalAndUpdateJobs) {
+                    processJob(job, activation, scope)
+                }
+                if (signalAndUpdateJobs.isNotEmpty()) {
+                    workflowDispatcher.processAllWork()
+                    state.checkConditions()
+                }
+
+                // Stage 3: Process non-query jobs (resolutions, cancellation, etc.)
+                // These resume suspended workflow operations
+                for (job in nonQueryJobs) {
+                    processJob(job, activation, scope)
+                }
+                if (nonQueryJobs.isNotEmpty()) {
+                    workflowDispatcher.processAllWork()
+                    state.checkConditions()
+                }
+
+                // Stage 4: Process queries (read-only mode)
+                // Queries must not mutate workflow state to ensure deterministic replay
+                if (queryJobs.isNotEmpty()) {
+                    state.isReadOnly = true
+                    try {
+                        for (job in queryJobs) {
+                            processJob(job, activation, scope)
+                        }
+                        workflowDispatcher.processAllWork()
+                    } finally {
+                        state.isReadOnly = false
+                    }
+                }
+
+                // Check if workflow completed
+                val mainResult = mainCoroutine
+                if (mainResult != null && mainResult.isCompleted) {
+                    logger.debug("Main workflow coroutine completed, building terminal completion")
+                    return@withContext buildTerminalCompletion(mainResult)
+                }
+
+                // Return accumulated commands
+                buildSuccessCompletion()
+            } catch (e: Exception) {
+                buildFailureCompletion(e)
+            }
         }
-    }
+
+    /**
+     * Returns a human-readable name for the job type for logging.
+     */
+    private fun jobTypeName(job: WorkflowActivationJob): String =
+        when {
+            job.hasInitializeWorkflow() -> "InitializeWorkflow"
+            job.hasFireTimer() -> "FireTimer(seq=${job.fireTimer.seq})"
+            job.hasResolveActivity() -> "ResolveActivity(seq=${job.resolveActivity.seq})"
+            job.hasUpdateRandomSeed() -> "UpdateRandomSeed"
+            job.hasNotifyHasPatch() -> "NotifyHasPatch(${job.notifyHasPatch.patchId})"
+            job.hasSignalWorkflow() -> "SignalWorkflow(${job.signalWorkflow.signalName})"
+            job.hasDoUpdate() -> "DoUpdate(${job.doUpdate.name})"
+            job.hasQueryWorkflow() -> "QueryWorkflow(${job.queryWorkflow.queryType})"
+            job.hasCancelWorkflow() -> "CancelWorkflow"
+            job.hasRemoveFromCache() -> "RemoveFromCache"
+            job.hasResolveChildWorkflowExecutionStart() -> "ResolveChildWorkflowStart"
+            job.hasResolveChildWorkflowExecution() -> "ResolveChildWorkflowExecution"
+            job.hasResolveSignalExternalWorkflow() -> "ResolveSignalExternalWorkflow"
+            job.hasResolveRequestCancelExternalWorkflow() -> "ResolveCancelExternalWorkflow"
+            job.hasResolveNexusOperationStart() -> "ResolveNexusOperationStart"
+            job.hasResolveNexusOperation() -> "ResolveNexusOperation"
+            else -> "Unknown"
+        }
 
     /**
      * Checks if a job is a patch job (workflow versioning).
@@ -204,12 +252,23 @@ internal class WorkflowExecutor(
     ) {
         when {
             job.hasInitializeWorkflow() -> handleInitialize(job.initializeWorkflow, activation, scope)
-            job.hasFireTimer() -> state.resolveTimer(job.fireTimer.seq)
-            job.hasResolveActivity() ->
-                state.resolveActivity(
-                    job.resolveActivity.seq,
-                    job.resolveActivity.result,
-                )
+            job.hasFireTimer() -> {
+                logger.debug("Timer fired: seq={}", job.fireTimer.seq)
+                state.resolveTimer(job.fireTimer.seq)
+            }
+            job.hasResolveActivity() -> {
+                val result = job.resolveActivity.result
+                val status =
+                    when {
+                        result.hasCompleted() -> "completed"
+                        result.hasFailed() -> "failed"
+                        result.hasCancelled() -> "cancelled"
+                        result.hasBackoff() -> "backoff"
+                        else -> "unknown"
+                    }
+                logger.debug("Activity resolved: seq={}, status={}", job.resolveActivity.seq, status)
+                state.resolveActivity(job.resolveActivity.seq, result)
+            }
             job.hasUpdateRandomSeed() -> {
                 state.randomSeed = job.updateRandomSeed.randomnessSeed
                 context?.updateRandomSeed(job.updateRandomSeed.randomnessSeed)
@@ -243,6 +302,13 @@ internal class WorkflowExecutor(
         activation: WorkflowActivation,
         scope: CoroutineScope,
     ) {
+        logger.debug(
+            "Initializing workflow: workflowId={}, attempt={}, args={}",
+            init.workflowId,
+            init.attempt,
+            init.argumentsCount,
+        )
+
         val startTime =
             if (init.hasStartTime()) {
                 java.time.Instant
@@ -285,6 +351,7 @@ internal class WorkflowExecutor(
                 serializer = serializer,
                 workflowDispatcher = workflowDispatcher,
                 parentJob = workflowExecutionJob!!,
+                mdcContext = mdcContext,
             )
 
         // Start the main workflow coroutine
@@ -351,6 +418,8 @@ internal class WorkflowExecutor(
     }
 
     private fun handleCancel() {
+        logger.debug("Workflow cancellation requested")
+
         // Set the cancellation flag immediately
         state.cancelRequested = true
 
@@ -366,6 +435,8 @@ internal class WorkflowExecutor(
     }
 
     private fun handleEviction() {
+        logger.debug("Workflow evicted from cache")
+
         // Mark as canceled before clearing
         state.cancelRequested = true
         // Clear state on eviction
@@ -424,6 +495,10 @@ internal class WorkflowExecutor(
     ): WorkflowCompletion.WorkflowActivationCompletion =
         try {
             val value = result.await()
+            logger.debug(
+                "Workflow completed successfully with result type: {}",
+                value?.let { it::class.simpleName } ?: "null",
+            )
 
             // Serialize the result
             val resultPayload =
@@ -458,14 +533,17 @@ internal class WorkflowExecutor(
         } catch (e: Exception) {
             // Check if this is a cancellation with the cancel flag set
             if (state.cancelRequested && e is kotlinx.coroutines.CancellationException) {
+                logger.debug("Workflow cancelled")
                 buildWorkflowCancellationCompletion()
             } else {
+                logger.debug("Workflow failed with exception: {}", e.message, e)
                 buildWorkflowFailureCompletion(e)
             }
         }
 
     private fun buildSuccessCompletion(): WorkflowCompletion.WorkflowActivationCompletion {
         val commands = state.drainCommands()
+        logger.debug("Returning {} commands", commands.size)
 
         return WorkflowCompletion.WorkflowActivationCompletion
             .newBuilder()
@@ -571,6 +649,7 @@ internal class WorkflowExecutor(
     ) {
         // Handle zero or negative delay - resume immediately
         if (delayMillis <= 0) {
+            logger.debug("Timer with zero/negative delay ({}ms), resuming immediately", delayMillis)
             // Queue the continuation to be resumed on the next dispatcher cycle
             workflowDispatcher.dispatch(continuation.context) {
                 continuation.resumeWith(Result.success(Unit))
@@ -579,6 +658,7 @@ internal class WorkflowExecutor(
         }
 
         val seq = state.nextSeq()
+        logger.debug("Scheduling timer: seq={}, delay={}ms", seq, delayMillis)
         val duration = delayMillis.milliseconds
 
         // Build the StartTimer command

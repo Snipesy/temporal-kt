@@ -10,18 +10,13 @@ import io.temporal.api.common.v1.WorkflowExecution
 import io.temporal.api.enums.v1.EventType
 import io.temporal.api.enums.v1.HistoryEventFilterType
 import io.temporal.api.history.v1.HistoryEvent
-import io.temporal.api.workflowservice.v1.DescribeWorkflowExecutionRequest
-import io.temporal.api.workflowservice.v1.GetWorkflowExecutionHistoryRequest
-import io.temporal.api.workflowservice.v1.RequestCancelWorkflowExecutionRequest
-import io.temporal.api.workflowservice.v1.SignalWorkflowExecutionRequest
-import io.temporal.api.workflowservice.v1.TerminateWorkflowExecutionRequest
+import io.temporal.api.workflowservice.v1.*
 import kotlinx.coroutines.delay
-import java.util.logging.Logger
+import org.slf4j.LoggerFactory
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
-import kotlin.time.Duration.Companion.seconds
 
-private val logger = Logger.getLogger("WorkflowHandle")
+private val logger = LoggerFactory.getLogger(WorkflowHandleImpl::class.java)
 
 /**
  * Handle to a workflow execution.
@@ -124,11 +119,11 @@ internal class WorkflowHandleImpl<R>(
             pollCount++
             val elapsed = System.currentTimeMillis() - startTime
             if (elapsed >= timeoutMillis) {
-                logger.warning("[result] Timeout waiting for workflow $workflowId after ${elapsed}ms")
+                logger.warn("[result] Timeout waiting for workflow $workflowId after ${elapsed}ms")
                 throw WorkflowResultTimeoutException(workflowId, runId)
             }
 
-            logger.fine("[result] Poll #$pollCount for workflow $workflowId (elapsed=${elapsed}ms)")
+            logger.debug("[result] Poll #$pollCount for workflow $workflowId (elapsed=${elapsed}ms)")
 
             val request =
                 GetWorkflowExecutionHistoryRequest
@@ -148,13 +143,13 @@ internal class WorkflowHandleImpl<R>(
                 try {
                     serviceClient.getWorkflowExecutionHistory(request)
                 } catch (e: Exception) {
-                    logger.warning("[result] Poll failed for workflow $workflowId: ${e.message}")
+                    logger.warn("[result] Poll failed for workflow $workflowId: ${e.message}")
                     // If request fails, continue polling
                     delay(200.milliseconds)
                     continue
                 }
 
-            logger.fine("[result] Got ${response.history.eventsCount} events for workflow $workflowId")
+            logger.debug("[result] Got ${response.history.eventsCount} events for workflow $workflowId")
 
             // Find a close event in the response
             val closeEvent =

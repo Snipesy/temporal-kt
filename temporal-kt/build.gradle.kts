@@ -14,6 +14,7 @@ dependencies {
     implementation(libs.bundles.hoplite)
     implementation(libs.kotlinReflect)
     implementation(libs.slf4jApi)
+    implementation(libs.kotlinCoroutinesSl4j)
 
     testImplementation(kotlin("test"))
     testImplementation(libs.slf4jSimple)

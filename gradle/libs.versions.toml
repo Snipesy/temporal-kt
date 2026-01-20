@@ -15,6 +15,7 @@ dokka = "2.1.0"
 buildconfig = "6.0.7"
 hoplite = "2.7.5"
 slf4j = "2.0.17"
+sl4jkotlinCoroutines = "1.10.2"
 
 [libraries]
 kotlinGradlePlugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
@@ -34,6 +35,7 @@ hopliteYaml = { module = "com.sksamuel.hoplite:hoplite-yaml", version.ref = "hop
 kotlinReflect = { module = "org.jetbrains.kotlin:kotlin-reflect", version.ref = "kotlin" }
 slf4jApi = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
 slf4jSimple = { module = "org.slf4j:slf4j-simple", version.ref = "slf4j" }
+kotlinCoroutinesSl4j = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-slf4j", version.ref = "sl4jkotlinCoroutines" }
 
 # Libraries can be bundled together for easier import
 [bundles]

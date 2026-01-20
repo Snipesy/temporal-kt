@@ -10,10 +10,10 @@ import io.temporal.api.common.v1.Payloads
 import io.temporal.api.common.v1.WorkflowType
 import io.temporal.api.taskqueue.v1.TaskQueue
 import io.temporal.api.workflowservice.v1.StartWorkflowExecutionRequest
+import org.slf4j.LoggerFactory
 import java.util.UUID
-import java.util.logging.Logger
 
-private val logger = Logger.getLogger("TemporalClient")
+private val logger = LoggerFactory.getLogger(TemporalClient::class.java)
 
 /**
  * Client for interacting with the Temporal service.
