@@ -140,3 +140,5 @@ See [proposals/](proposals/) for API design proposals:
 | [TKT-0011](proposals/TKT-0011-payload-codec.md) | Payload codec (encryption/compression) |
 | [TKT-0012](proposals/TKT-0012-payload-serializer.md) | Payload serializer |
 | [TKT-0013](proposals/TKT-0013-ktor-subroutine.md) | Ktor subroutine (unified JAR) |
+| [TKT-0014](proposals/TKT-0014-coroutine-scopes.md) | Coroutine scope management |
+| [TKT-0015](proposals/TKT-0015-context-resolution.md) | Workflow context resolution |

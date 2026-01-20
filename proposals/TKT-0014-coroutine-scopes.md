@@ -76,3 +76,26 @@ val result: String = WorkflowContext.async {
 
 This interop may be possible entirely from a custom 
 [CoroutineDispatcher](https://kotlinlang.org/api/kotlinx.coroutines/kotlinx-coroutines-core/kotlinx.coroutines/-coroutine-dispatcher/)
+
+
+
+## Scope Leak Prevention
+
+Using a coroutine scope not from the WorkflowContext can lead to non determinism issues (and probably just break)...
+
+```kotlin
+@Workflow("MyWorkflow")
+class MyWorkflow {
+    @WorkflowRun
+    suspend fun WorkflowContext.execute(arg: WorkflowArg): String {
+        // Incorrect: using GlobalScope can lead to leaks and non-determinism
+        val result = GlobalScope.async {
+            // do some concurrent work
+        }.await()
+    }
+}
+```
+
+~~So at runtime, we can throw an exception if the user escapes.~~
+Runtime checks are actually limited with coroutine SDK (without internal usage) so this will have to rely on the 
+compiler plugins.
