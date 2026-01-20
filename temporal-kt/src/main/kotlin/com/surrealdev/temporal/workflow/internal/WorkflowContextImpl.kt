@@ -8,7 +8,9 @@ import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.WorkflowInfo
 import coresdk.workflow_commands.WorkflowCommands
 import io.temporal.api.common.v1.Payload
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlin.coroutines.CoroutineContext
 import kotlin.reflect.KType
 import kotlin.time.Duration
 import kotlin.time.toJavaDuration
@@ -23,13 +25,23 @@ import kotlin.time.toJavaDuration
  *
  * All operations that interact with the external world go through
  * the command system to ensure deterministic replay.
+ *
+ * The parent job is provided by the workflow execution scope to ensure
+ * proper structured concurrency. When a child coroutine created with `launch`
+ * fails, it cancels the entire workflow execution.
  */
 internal class WorkflowContextImpl(
     private val state: WorkflowState,
     override val info: WorkflowInfo,
     private val serializer: PayloadSerializer,
+    private val workflowDispatcher: WorkflowCoroutineDispatcher,
+    parentJob: Job,
 ) : WorkflowContext {
+    // Create a child job for this workflow - failures propagate to parent
+    private val job = Job(parentJob)
     private val deterministicRandom = DeterministicRandom(state.randomSeed)
+
+    override val coroutineContext: CoroutineContext = job + workflowDispatcher
 
     /**
      * Updates the random seed (called when UpdateRandomSeed job is received).

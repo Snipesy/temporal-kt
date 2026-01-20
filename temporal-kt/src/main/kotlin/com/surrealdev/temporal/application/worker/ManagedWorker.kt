@@ -11,6 +11,7 @@ import coresdk.activity_task.ActivityTaskOuterClass
 import coresdk.workflow_activation.WorkflowActivationOuterClass
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -34,7 +35,8 @@ internal class ManagedWorker(
     namespace: String,
 ) : CoroutineScope {
     private val workerJob = SupervisorJob(parentContext[Job])
-    override val coroutineContext: CoroutineContext = parentContext + workerJob
+    override val coroutineContext: CoroutineContext =
+        parentContext + workerJob + CoroutineName("TaskQueue-${config.name}")
 
     @Volatile
     private var started = false

@@ -3,8 +3,10 @@ package com.surrealdev.temporal.workflow.internal
 import coresdk.activity_result.ActivityResult
 import coresdk.workflow_commands.WorkflowCommands.WorkflowCommand
 import io.temporal.api.common.v1.Payload
+import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.CompletableDeferred
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.coroutines.resume
 import kotlin.reflect.KType
 import kotlin.time.Instant
 import kotlin.time.toKotlinInstant
@@ -43,6 +45,13 @@ internal class WorkflowState(
         private set
 
     /**
+     * Whether cancellation has been requested for this workflow.
+     * Once true, remains true for the lifetime of the workflow run.
+     */
+    var cancelRequested: Boolean = false
+        internal set
+
+    /**
      * Whether the workflow is currently replaying past events.
      * When replaying, side effects should not be executed.
      */
@@ -63,9 +72,16 @@ internal class WorkflowState(
         private set
 
     /**
-     * Pending timer operations, keyed by sequence number.
+     * Pending timer operations (deferred-based), keyed by sequence number.
+     * Used by WorkflowContext.sleep().
      */
     private val pendingTimers = ConcurrentHashMap<Int, CompletableDeferred<Unit>>()
+
+    /**
+     * Pending timer operations (continuation-based), keyed by sequence number.
+     * Used by kotlinx.coroutines.delay() interception.
+     */
+    private val pendingTimerContinuations = ConcurrentHashMap<Int, CancellableContinuation<Unit>>()
 
     /**
      * Pending activity operations, keyed by sequence number.
@@ -96,6 +112,7 @@ internal class WorkflowState(
 
     /**
      * Registers a pending timer and returns a deferred to await its completion.
+     * Used by WorkflowContext.sleep().
      */
     fun registerTimer(seq: Int): CompletableDeferred<Unit> {
         val deferred = CompletableDeferred<Unit>()
@@ -104,11 +121,29 @@ internal class WorkflowState(
     }
 
     /**
+     * Registers a pending timer with a continuation to resume when it fires.
+     * Used by kotlinx.coroutines.delay() interception.
+     *
+     * @param seq The sequence number for this timer
+     * @param continuation The continuation to resume when the timer fires
+     */
+    fun registerTimerContinuation(
+        seq: Int,
+        continuation: CancellableContinuation<Unit>,
+    ) {
+        pendingTimerContinuations[seq] = continuation
+    }
+
+    /**
      * Resolves a timer by its sequence number.
      * Called when a FireTimer job is received in an activation.
+     * Handles both deferred-based and continuation-based timers.
      */
     fun resolveTimer(seq: Int) {
+        // Try deferred-based timer first
         pendingTimers.remove(seq)?.complete(Unit)
+        // Then try continuation-based timer
+        pendingTimerContinuations.remove(seq)?.resume(Unit)
     }
 
     /**
@@ -187,9 +222,13 @@ internal class WorkflowState(
      * Called on workflow eviction or completion.
      */
     fun clear() {
-        // Cancel all pending timers
+        // Cancel all pending timers (deferred-based)
         pendingTimers.values.forEach { it.cancel() }
         pendingTimers.clear()
+
+        // Cancel all pending timers (continuation-based)
+        pendingTimerContinuations.values.forEach { it.cancel() }
+        pendingTimerContinuations.clear()
 
         // Cancel all pending activities
         pendingActivities.values.forEach { it.deferred.cancel() }

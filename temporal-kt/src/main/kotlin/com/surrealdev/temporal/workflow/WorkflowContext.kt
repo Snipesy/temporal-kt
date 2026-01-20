@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.workflow
 
+import kotlinx.coroutines.CoroutineScope
 import kotlin.time.Duration
 
 /**
@@ -19,8 +20,12 @@ import kotlin.time.Duration
  *     }
  * }
  * ```
+ *
+ * As a [CoroutineScope], workflow code can use structured concurrency with
+ * deterministic execution. The scope uses a custom dispatcher that ensures
+ * all coroutines run synchronously on the workflow task thread.
  */
-interface WorkflowContext {
+interface WorkflowContext : CoroutineScope {
     /**
      * Information about the currently executing workflow.
      */

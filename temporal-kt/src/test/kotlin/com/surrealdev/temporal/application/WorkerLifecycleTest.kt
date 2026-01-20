@@ -21,8 +21,6 @@ class WorkerLifecycleTest {
                     // Empty task queue for now - just testing lifecycle
                 }
             }
-            // App is already started, just verify it works
-            delay(100)
         }
 
     @Test
@@ -34,7 +32,6 @@ class WorkerLifecycleTest {
                 taskQueue("queue-2") {}
                 taskQueue("queue-3") {}
             }
-            delay(100)
         }
 
     @Test
@@ -45,7 +42,6 @@ class WorkerLifecycleTest {
                     namespace = "default" // Override with same namespace for now
                 }
             }
-            delay(100)
         }
 
     @Test

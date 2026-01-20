@@ -134,8 +134,10 @@ class TemporalCoreClient private constructor(
                 rpc = rpc,
                 request = request,
             ) { response, statusCode, failureMessage, _ ->
-                if (response != null && statusCode == 0) {
-                    callback(response, null)
+                if (statusCode == 0) {
+                    // Status 0 means success. Use empty byte array for empty responses
+                    // (e.g., RequestCancelWorkflowExecutionResponse has no fields)
+                    callback(response ?: ByteArray(0), null)
                 } else {
                     callback(null, failureMessage ?: "RPC call failed with status $statusCode")
                 }

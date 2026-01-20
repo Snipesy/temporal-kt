@@ -50,7 +50,8 @@ enum class WorkflowIdReusePolicy {
     internal fun toProto(): ProtoWorkflowIdReusePolicy =
         when (this) {
             ALLOW_DUPLICATE -> ProtoWorkflowIdReusePolicy.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE
-            ALLOW_DUPLICATE_FAILED_ONLY -> ProtoWorkflowIdReusePolicy.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE_FAILED_ONLY
+            ALLOW_DUPLICATE_FAILED_ONLY ->
+                ProtoWorkflowIdReusePolicy.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE_FAILED_ONLY
             REJECT_DUPLICATE -> ProtoWorkflowIdReusePolicy.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE
             TERMINATE_IF_RUNNING -> ProtoWorkflowIdReusePolicy.WORKFLOW_ID_REUSE_POLICY_TERMINATE_IF_RUNNING
         }
@@ -139,7 +140,8 @@ enum class WorkflowExecutionStatus {
                 io.temporal.api.enums.v1.WorkflowExecutionStatus.WORKFLOW_EXECUTION_STATUS_FAILED -> FAILED
                 io.temporal.api.enums.v1.WorkflowExecutionStatus.WORKFLOW_EXECUTION_STATUS_CANCELED -> CANCELED
                 io.temporal.api.enums.v1.WorkflowExecutionStatus.WORKFLOW_EXECUTION_STATUS_TERMINATED -> TERMINATED
-                io.temporal.api.enums.v1.WorkflowExecutionStatus.WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW -> CONTINUED_AS_NEW
+                io.temporal.api.enums.v1.WorkflowExecutionStatus.WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW ->
+                    CONTINUED_AS_NEW
                 io.temporal.api.enums.v1.WorkflowExecutionStatus.WORKFLOW_EXECUTION_STATUS_TIMED_OUT -> TIMED_OUT
                 else -> UNKNOWN
             }

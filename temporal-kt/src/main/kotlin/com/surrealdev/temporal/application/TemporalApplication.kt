@@ -7,6 +7,7 @@ import com.surrealdev.temporal.core.TemporalCoreClient
 import com.surrealdev.temporal.core.TemporalRuntime
 import com.surrealdev.temporal.core.TemporalWorker
 import com.surrealdev.temporal.serialization.payloadSerializer
+import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -48,7 +49,8 @@ open class TemporalApplication internal constructor(
 
     private val applicationJob = SupervisorJob(parentCoroutineContext[Job])
 
-    override val coroutineContext: CoroutineContext = parentCoroutineContext + applicationJob
+    override val coroutineContext: CoroutineContext =
+        parentCoroutineContext + applicationJob + CoroutineName("TemporalApp")
 
     // Task queues can be added before start() via extension functions
     internal val taskQueues = mutableListOf<TaskQueueConfig>()
@@ -89,7 +91,7 @@ open class TemporalApplication internal constructor(
         for (taskQueueConfig in taskQueues) {
             val effectiveNamespace = taskQueueConfig.namespace ?: config.connection.namespace
 
-            // Create the core worker
+            // Create the core bridge worker
             val coreWorker =
                 TemporalWorker.create(
                     runtime = rt,

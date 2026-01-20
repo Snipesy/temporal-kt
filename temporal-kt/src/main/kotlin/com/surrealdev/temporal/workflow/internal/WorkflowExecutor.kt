@@ -2,6 +2,7 @@ package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.serialization.typeInfoOf
+import com.surrealdev.temporal.workflow.WorkflowCancelledException
 import com.surrealdev.temporal.workflow.WorkflowInfo
 import coresdk.workflow_activation.WorkflowActivationOuterClass.InitializeWorkflow
 import coresdk.workflow_activation.WorkflowActivationOuterClass.WorkflowActivation
@@ -10,12 +11,14 @@ import coresdk.workflow_commands.WorkflowCommands
 import coresdk.workflow_completion.WorkflowCompletion
 import io.temporal.api.common.v1.Payload
 import io.temporal.api.failure.v1.Failure
+import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
-import kotlinx.coroutines.yield
 import kotlin.reflect.KType
 import kotlin.reflect.full.callSuspend
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.toJavaDuration
 import kotlin.time.toKotlinInstant
 
 /**
@@ -35,9 +38,23 @@ internal class WorkflowExecutor(
     private val namespace: String,
 ) {
     private var state: WorkflowState = WorkflowState(runId)
+
+    // Create dispatcher with a timer scheduler that delegates to the workflow's timer system.
+    // This allows kotlinx.coroutines.delay() to work correctly in workflows by creating
+    // durable timers that survive replay.
+    private val workflowDispatcher =
+        WorkflowCoroutineDispatcher(
+            timerScheduler =
+                WorkflowTimerScheduler { delayMillis, continuation ->
+                    scheduleTimerForContinuation(delayMillis, continuation)
+                },
+        )
     private var context: WorkflowContextImpl? = null
     private var mainCoroutine: Deferred<Any?>? = null
     private var workflowInfo: WorkflowInfo? = null
+
+    // Job for the workflow execution - provides unified scope for structured concurrency
+    private var workflowExecutionJob: kotlinx.coroutines.Job? = null
 
     /**
      * Processes a workflow activation and returns the completion.
@@ -45,9 +62,9 @@ internal class WorkflowExecutor(
      * The activation processing follows a specific order to handle replay correctly:
      * 1. Update state metadata (time, replay flag)
      * 2. Process initialization job if present (starts workflow coroutine)
-     * 3. Yield to let workflow run until it suspends (registers pending operations)
+     * 3. Process all queued work via custom dispatcher to let workflow run until suspension
      * 4. Process resolution jobs (timers, activities) to resume the workflow
-     * 5. Yield again to let workflow progress after resolutions
+     * 5. Process queued work again to let workflow progress after resolutions
      * 6. Return commands or terminal completion
      *
      * @param activation The activation from the Temporal server
@@ -76,9 +93,9 @@ internal class WorkflowExecutor(
                 processJob(initJob, activation, scope)
             }
 
-            // Step 2: Yield to let workflow coroutine run until it suspends
-            // This ensures pending operations (timers, activities) are registered
-            yield()
+            // Step 2: Process all queued work synchronously
+            // This runs the workflow coroutine until it suspends (e.g., on sleep/activity)
+            workflowDispatcher.processAllWork()
 
             // Step 3: Process other jobs (signals, queries, cancellation, etc.)
             for (job in otherJobs) {
@@ -91,8 +108,8 @@ internal class WorkflowExecutor(
                 processJob(job, activation, scope)
             }
 
-            // Step 5: Yield again to let workflow progress after resolutions
-            yield()
+            // Step 5: Process queued work again after resolutions
+            workflowDispatcher.processAllWork()
 
             // Check if workflow completed
             val mainResult = mainCoroutine
@@ -171,12 +188,19 @@ internal class WorkflowExecutor(
         // Update random seed
         state.randomSeed = init.randomnessSeed
 
-        // Create workflow context
+        // Create the workflow execution job as a child of the scope's Job
+        val parentJob = scope.coroutineContext[kotlinx.coroutines.Job]
+        workflowExecutionJob = kotlinx.coroutines.Job(parentJob)
+
+        // Create workflow context with the execution job as parent
+        // This ensures launch {} calls within the workflow are properly scoped
         context =
             WorkflowContextImpl(
                 state = state,
                 info = workflowInfo!!,
                 serializer = serializer,
+                workflowDispatcher = workflowDispatcher,
+                parentJob = workflowExecutionJob!!,
             )
 
         // Start the main workflow coroutine
@@ -193,7 +217,10 @@ internal class WorkflowExecutor(
         // Deserialize arguments
         val args = deserializeArguments(init.argumentsList, methodInfo.parameterTypes)
 
-        return scope.async {
+        // Launch the workflow within the WorkflowContext's scope
+        // This ensures all coroutines (including launch{}) share the same Job hierarchy
+        // for proper structured concurrency and exception propagation
+        return ctx.async {
             try {
                 if (methodInfo.hasContextReceiver) {
                     // Method has WorkflowContext as extension receiver
@@ -210,6 +237,9 @@ internal class WorkflowExecutor(
                         method.call(methodInfo.implementation, *args)
                     }
                 }
+            } catch (e: java.lang.reflect.InvocationTargetException) {
+                // Unwrap reflection exceptions to get the actual workflow exception
+                throw e.targetException ?: e
             } catch (e: Exception) {
                 throw e
             }
@@ -237,15 +267,26 @@ internal class WorkflowExecutor(
     }
 
     private fun handleCancel() {
-        // MVP: Cancellation not yet fully implemented
-        // TODO: Propagate cancellation to the workflow coroutine
-        mainCoroutine?.cancel()
+        // Set the cancellation flag immediately
+        state.cancelRequested = true
+
+        // Defer the actual cancellation to the next dispatcher cycle
+        // This allows the workflow to receive the cancellation signal
+        // and potentially handle it gracefully
+        if (mainCoroutine != null) {
+            workflowDispatcher.dispatch(kotlin.coroutines.EmptyCoroutineContext) {
+                // Cancel with our specific exception type
+                mainCoroutine?.cancel(WorkflowCancelledException())
+            }
+        }
     }
 
     private fun handleEviction() {
+        // Mark as cancelled before clearing
+        state.cancelRequested = true
         // Clear state on eviction
         state.clear()
-        mainCoroutine?.cancel()
+        mainCoroutine?.cancel(WorkflowCancelledException())
     }
 
     private suspend fun buildTerminalCompletion(
@@ -285,7 +326,12 @@ internal class WorkflowExecutor(
                         .addAllCommands(commands),
                 ).build()
         } catch (e: Exception) {
-            buildWorkflowFailureCompletion(e)
+            // Check if this is a cancellation with the cancel flag set
+            if (state.cancelRequested && e is kotlinx.coroutines.CancellationException) {
+                buildWorkflowCancellationCompletion()
+            } else {
+                buildWorkflowFailureCompletion(e)
+            }
         }
 
     private fun buildSuccessCompletion(): WorkflowCompletion.WorkflowActivationCompletion {
@@ -352,8 +398,81 @@ internal class WorkflowExecutor(
             ).build()
     }
 
+    private fun buildWorkflowCancellationCompletion(): WorkflowCompletion.WorkflowActivationCompletion {
+        // Build a workflow cancellation command
+        val cancelCommand =
+            WorkflowCommands.WorkflowCommand
+                .newBuilder()
+                .setCancelWorkflowExecution(
+                    WorkflowCommands.CancelWorkflowExecution.getDefaultInstance(),
+                ).build()
+
+        val commands = state.drainCommands().toMutableList()
+        commands.add(cancelCommand)
+
+        return WorkflowCompletion.WorkflowActivationCompletion
+            .newBuilder()
+            .setRunId(runId)
+            .setSuccessful(
+                WorkflowCompletion.Success
+                    .newBuilder()
+                    .addAllCommands(commands),
+            ).build()
+    }
+
     /**
      * Checks if this executor is for eviction.
      */
     fun isEviction(activation: WorkflowActivation): Boolean = activation.jobsList.any { it.hasRemoveFromCache() }
+
+    /**
+     * Schedules a durable timer for a continuation.
+     *
+     * This is called by the [WorkflowCoroutineDispatcher] when [kotlinx.coroutines.delay]
+     * is used in a workflow. It creates a proper durable timer command and registers
+     * the continuation to be resumed when the timer fires.
+     *
+     * @param delayMillis The delay in milliseconds
+     * @param continuation The continuation to resume when the timer fires
+     */
+    private fun scheduleTimerForContinuation(
+        delayMillis: Long,
+        continuation: CancellableContinuation<Unit>,
+    ) {
+        // Handle zero or negative delay - resume immediately
+        if (delayMillis <= 0) {
+            // Queue the continuation to be resumed on the next dispatcher cycle
+            workflowDispatcher.dispatch(continuation.context) {
+                continuation.resumeWith(Result.success(Unit))
+            }
+            return
+        }
+
+        val seq = state.nextSeq()
+        val duration = delayMillis.milliseconds
+
+        // Build the StartTimer command
+        val javaDuration = duration.toJavaDuration()
+        val protoDuration =
+            com.google.protobuf.Duration
+                .newBuilder()
+                .setSeconds(javaDuration.seconds)
+                .setNanos(javaDuration.nano)
+                .build()
+
+        val command =
+            WorkflowCommands.WorkflowCommand
+                .newBuilder()
+                .setStartTimer(
+                    WorkflowCommands.StartTimer
+                        .newBuilder()
+                        .setSeq(seq)
+                        .setStartToFireTimeout(protoDuration),
+                ).build()
+
+        state.addCommand(command)
+
+        // Register the continuation to be resumed when the timer fires
+        state.registerTimerContinuation(seq, continuation)
+    }
 }
