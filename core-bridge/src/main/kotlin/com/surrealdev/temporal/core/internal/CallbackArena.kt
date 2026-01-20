@@ -17,7 +17,7 @@ internal object CallbackArena {
      * This is suitable for operations that don't transfer arena ownership.
      *
      * WARNING: Not suitable for long-lived async operations where Rust spawns tasks
-     * that may complete much later. Use [withLongLivedResult] for those.
+     * that may complete much later. Use [withExternalArenaResult] for those.
      *
      * @param register Function that registers the callback with the native code.
      *                 The callback receives (result: T?, error: String?).
@@ -40,46 +40,9 @@ internal object CallbackArena {
         }
 
     /**
-     * Executes an async operation with a long-lived callback that may fire much later.
-     *
-     * Uses a shared arena that is explicitly closed after the callback completes.
-     * This is necessary for operations where Rust spawns async tasks that hold the
-     * callback pointer (e.g., worker polling, RPC calls).
-     *
-     * The key difference from [withResult] is that `Arena.ofShared()` is NOT managed
-     * by GC - it stays alive until explicitly closed, preventing premature freeing
-     * of callback stubs.
-     *
-     * @param register Function that registers the callback with the native code.
-     *                 The callback receives (result: T?, error: String?).
-     * @return The result from the callback
-     * @throws TemporalCoreException if the callback reports an error
-     */
-    suspend inline fun <T> withLongLivedResult(
-        crossinline register: (Arena, callback: (T?, String?) -> Unit) -> Unit,
-    ): T? =
-        suspendCancellableCoroutine { continuation ->
-            val arena = Arena.ofShared()
-
-            register(arena) { result, error ->
-                try {
-                    when {
-                        error != null -> continuation.resumeWithException(TemporalCoreException(error))
-                        else -> continuation.resume(result)
-                    }
-                } catch (_: IllegalStateException) {
-                    // Continuation already resumed, ignore
-                } finally {
-                    // Close arena after callback completes to free native memory
-                    arena.close()
-                }
-            }
-        }
-
-    /**
      * Executes an async operation with a callback that returns a non-null result.
      *
-     * Not suitable for long-lived async operations. Use [withLongLivedNonNullResult] for those.
+     * Not suitable for long-lived async operations. Use [withExternalArenaNonNullResult] for those.
      *
      * @param register Function that registers the callback with the native code.
      * @return The non-null result from the callback
@@ -114,22 +77,55 @@ internal object CallbackArena {
         }
 
     /**
-     * Executes a long-lived async operation with a callback that returns a non-null result.
+     * Executes an async operation with an externally-managed callback arena.
      *
-     * Uses a shared arena that is explicitly closed after the callback completes.
-     * This is necessary for operations where Rust spawns async tasks that hold the
-     * callback pointer (e.g., RPC calls).
+     * This method does NOT close the arena after the callback
+     * completes. The caller is responsible for managing the arena lifecycle, typically by
+     * closing it when the owning object (Worker, Client) is closed.
      *
+     * @param callbackArena An externally-managed arena (typically Arena.ofShared())
+     * @param register Function that registers the callback with the native code.
+     *                 The callback receives (result: T?, error: String?).
+     * @return The result from the callback
+     * @throws TemporalCoreException if the callback reports an error
+     */
+    suspend inline fun <T> withExternalArenaResult(
+        callbackArena: Arena,
+        crossinline register: (Arena, callback: (T?, String?) -> Unit) -> Unit,
+    ): T? =
+        suspendCancellableCoroutine { continuation ->
+            register(callbackArena) { result, error ->
+                try {
+                    when {
+                        error != null -> continuation.resumeWithException(TemporalCoreException(error))
+                        else -> continuation.resume(result)
+                    }
+                } catch (_: IllegalStateException) {
+                    // Continuation already resumed, ignore
+                }
+                // Arena is NOT closed here - it's managed by the owner
+            }
+        }
+
+    /**
+     * Executes an async operation with an externally-managed callback arena that returns a non-null result.
+     *
+     * This method does NOT close the arena after the callback
+     * completes. The caller is responsible for managing the arena lifecycle, typically by
+     * closing it when the owning object (Worker, Client) is closed.
+     *
+     *
+     * @param callbackArena An externally-managed arena (typically Arena.ofShared())
      * @param register Function that registers the callback with the native code.
      * @return The non-null result from the callback
      * @throws TemporalCoreException if the callback reports an error or returns null
      */
-    suspend inline fun <T : Any> withLongLivedNonNullResult(
+    suspend inline fun <T : Any> withExternalArenaNonNullResult(
+        callbackArena: Arena,
         crossinline register: (Arena, callback: (T?, String?) -> Unit) -> Unit,
     ): T =
         suspendCancellableCoroutine { continuation ->
-            val arena = Arena.ofShared()
-            register(arena) { result, error ->
+            register(callbackArena) { result, error ->
                 try {
                     when {
                         error != null -> {
@@ -148,10 +144,8 @@ internal object CallbackArena {
                     }
                 } catch (_: IllegalStateException) {
                     // Continuation already resumed, ignore
-                } finally {
-                    // Close arena after callback completes to free native memory
-                    arena.close()
                 }
+                // Arena is NOT closed here - it's managed by the owner
             }
         }
 

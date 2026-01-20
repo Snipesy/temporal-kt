@@ -9,16 +9,17 @@ import java.util.concurrent.TimeUnit
 /**
  * An ephemeral Temporal development server.
  *
- * This server is useful for testing and local development. It runs an
- * in-memory Temporal server that automatically downloads and starts
- * the Temporal CLI dev server.
+ * This server is useful for local development. It runs an in-memory Temporal
+ * server that automatically downloads and starts the Temporal CLI dev server.
+ * Time flows at real-time pace.
+ *
+ * For testing with time-skipping, use [TemporalTestServer] instead.
  *
  * Example usage:
  * ```kotlin
  * TemporalRuntime.create().use { runtime ->
  *     TemporalDevServer.start(runtime).use { server ->
  *         println("Dev server running at: ${server.targetUrl}")
- *         // Connect clients to server.targetUrl
  *     }
  * }
  * ```
@@ -27,8 +28,8 @@ class TemporalDevServer private constructor(
     private val serverPtr: MemorySegment,
     private val runtimePtr: MemorySegment,
     private val arena: Arena,
-    val targetUrl: String,
-) : AutoCloseable {
+    override val targetUrl: String,
+) : EphemeralServer {
     @Volatile
     private var closed = false
 
@@ -62,6 +63,21 @@ class TemporalDevServer private constructor(
             val arena = Arena.ofShared()
             val future = CompletableFuture<TemporalDevServer>()
 
+            val callback: TemporalCoreEphemeralServer.StartCallback =
+                TemporalCoreEphemeralServer.StartCallback { serverPtr, targetUrl, error ->
+                    if (error != null) {
+                        future.completeExceptionally(TemporalCoreException(error))
+                    } else if (serverPtr == null || targetUrl == null) {
+                        future.completeExceptionally(
+                            TemporalCoreException("Server start returned null without error"),
+                        )
+                    } else {
+                        future.complete(
+                            TemporalDevServer(serverPtr, runtime.handle, arena, targetUrl),
+                        )
+                    }
+                }
+
             try {
                 TemporalCoreEphemeralServer.startDevServer(
                     runtimePtr = runtime.handle,
@@ -71,19 +87,8 @@ class TemporalDevServer private constructor(
                     existingPath = existingPath,
                     downloadVersion = downloadVersion,
                     downloadTtlSeconds = downloadTtlSeconds,
-                ) { serverPtr, targetUrl, error ->
-                    if (error != null) {
-                        future.completeExceptionally(TemporalCoreException(error))
-                    } else if (serverPtr == null || targetUrl == null) {
-                        future.completeExceptionally(
-                            TemporalCoreException("Dev server start returned null without error"),
-                        )
-                    } else {
-                        future.complete(
-                            TemporalDevServer(serverPtr, runtime.handle, arena, targetUrl),
-                        )
-                    }
-                }
+                    callback = callback,
+                )
 
                 return future.get(timeoutSeconds, TimeUnit.SECONDS)
             } catch (e: Exception) {
@@ -94,11 +99,11 @@ class TemporalDevServer private constructor(
                     }
 
                     is java.util.concurrent.TimeoutException -> {
-                        throw TemporalCoreException("Dev server start timed out after ${timeoutSeconds}s")
+                        throw TemporalCoreException("Server start timed out after ${timeoutSeconds}s")
                     }
 
                     else -> {
-                        throw TemporalCoreException("Dev server start failed: ${e.message}", cause = e)
+                        throw TemporalCoreException("Server start failed: ${e.message}", cause = e)
                     }
                 }
             }
@@ -176,7 +181,7 @@ class TemporalDevServer private constructor(
     /**
      * Checks if this server has been closed.
      */
-    fun isClosed(): Boolean = closed
+    override fun isClosed(): Boolean = closed
 
     /**
      * Shuts down and closes this dev server.

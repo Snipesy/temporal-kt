@@ -42,6 +42,7 @@ class TemporalWorker private constructor(
     internal val handle: MemorySegment,
     private val runtimePtr: MemorySegment,
     private val arena: Arena,
+    private val callbackArena: Arena,
     val taskQueue: String,
     val namespace: String,
 ) : AutoCloseable {
@@ -74,6 +75,7 @@ class TemporalWorker private constructor(
             client.ensureOpen()
 
             val arena = Arena.ofShared()
+            val callbackArena = Arena.ofShared()
 
             return try {
                 val workerPtr =
@@ -91,10 +93,12 @@ class TemporalWorker private constructor(
                     handle = workerPtr,
                     runtimePtr = runtime.handle,
                     arena = arena,
+                    callbackArena = callbackArena,
                     taskQueue = taskQueue,
                     namespace = namespace,
                 )
             } catch (e: Exception) {
+                callbackArena.close()
                 arena.close()
                 when (e) {
                     is TemporalCoreException -> throw e
@@ -135,7 +139,7 @@ class TemporalWorker private constructor(
     suspend fun pollWorkflowActivation(): ByteArray? {
         ensureOpen()
         return try {
-            CallbackArena.withLongLivedResult { arena, callback ->
+            CallbackArena.withExternalArenaResult(callbackArena) { arena, callback ->
                 InternalWorker.pollWorkflowActivation(handle, arena, runtimePtr, callback)
             }
         } catch (e: TemporalCoreException) {
@@ -158,7 +162,7 @@ class TemporalWorker private constructor(
     suspend fun pollActivityTask(): ByteArray? {
         ensureOpen()
         return try {
-            CallbackArena.withLongLivedResult { arena, callback ->
+            CallbackArena.withExternalArenaResult(callbackArena) { arena, callback ->
                 InternalWorker.pollActivityTask(handle, arena, runtimePtr, callback)
             }
         } catch (e: TemporalCoreException) {
@@ -235,6 +239,7 @@ class TemporalWorker private constructor(
             closed = true
             InternalWorker.freeWorker(handle)
             arena.close()
+            callbackArena.close()
         }
     }
 }

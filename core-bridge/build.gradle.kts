@@ -173,6 +173,7 @@ sourceSets {
         proto {
             srcDir("rust/sdk-core/crates/common/protos/local")
             srcDir("rust/sdk-core/crates/common/protos/api_upstream")
+            srcDir("rust/sdk-core/crates/common/protos/testsrv_upstream")
             // Exclude google protobuf well-known types - use runtime versions instead
             // This prevents version conflicts between generated code and protobuf-java runtime
             exclude("**/google/protobuf/**")

@@ -36,6 +36,7 @@ class TemporalCoreClient private constructor(
     internal val handle: MemorySegment,
     private val runtimePtr: MemorySegment,
     private val arena: Arena,
+    private val callbackArena: Arena,
     val targetUrl: String,
     val namespace: String,
 ) : AutoCloseable {
@@ -61,27 +62,35 @@ class TemporalCoreClient private constructor(
         ): TemporalCoreClient {
             runtime.ensureOpen()
 
-            val (arena, clientPtr) =
-                CallbackArena.withOwnershipTransfer<MemorySegment> { arena, callback ->
-                    InternalClient.connect(
-                        runtimePtr = runtime.handle,
-                        arena = arena,
-                        targetUrl = targetUrl,
-                        namespace = namespace,
-                        clientName = options.clientName,
-                        clientVersion = options.clientVersion,
-                        identity = options.identity,
-                        callback = callback,
-                    )
-                }
+            val callbackArena = Arena.ofShared()
 
-            return TemporalCoreClient(
-                handle = clientPtr,
-                runtimePtr = runtime.handle,
-                arena = arena,
-                targetUrl = targetUrl,
-                namespace = namespace,
-            )
+            return try {
+                val (arena, clientPtr) =
+                    CallbackArena.withOwnershipTransfer<MemorySegment> { arena, callback ->
+                        InternalClient.connect(
+                            runtimePtr = runtime.handle,
+                            arena = arena,
+                            targetUrl = targetUrl,
+                            namespace = namespace,
+                            clientName = options.clientName,
+                            clientVersion = options.clientVersion,
+                            identity = options.identity,
+                            callback = callback,
+                        )
+                    }
+
+                TemporalCoreClient(
+                    handle = clientPtr,
+                    runtimePtr = runtime.handle,
+                    arena = arena,
+                    callbackArena = callbackArena,
+                    targetUrl = targetUrl,
+                    namespace = namespace,
+                )
+            } catch (e: Exception) {
+                callbackArena.close()
+                throw e
+            }
         }
     }
 
@@ -116,7 +125,7 @@ class TemporalCoreClient private constructor(
         request: ByteArray,
     ): ByteArray {
         ensureOpen()
-        return CallbackArena.withLongLivedNonNullResult<ByteArray> { callArena, callback ->
+        return CallbackArena.withExternalArenaNonNullResult<ByteArray>(callbackArena) { callArena, callback ->
             InternalClient.rpcCall(
                 clientPtr = handle,
                 arena = callArena,
@@ -127,6 +136,42 @@ class TemporalCoreClient private constructor(
             ) { response, statusCode, failureMessage, _ ->
                 if (response != null && statusCode == 0) {
                     callback(response, null)
+                } else {
+                    callback(null, failureMessage ?: "RPC call failed with status $statusCode")
+                }
+            }
+        }
+    }
+
+    /**
+     * Makes an RPC call to the Temporal test service.
+     *
+     * This is only available when connected to a test server with time-skipping enabled.
+     * Uses a long-lived arena because Rust spawns async tasks that hold the callback
+     * pointer, which may complete after the arena would normally be GC'd.
+     *
+     * @param rpc The RPC method name (e.g., "LockTimeSkipping", "GetCurrentTime")
+     * @param request The request payload as protobuf bytes
+     * @return The response payload as protobuf bytes (empty array for empty responses)
+     * @throws TemporalCoreException if the RPC call fails
+     */
+    suspend fun testServiceCall(
+        rpc: String,
+        request: ByteArray,
+    ): ByteArray {
+        ensureOpen()
+        return CallbackArena.withExternalArenaNonNullResult<ByteArray>(callbackArena) { callArena, callback ->
+            InternalClient.rpcCall(
+                clientPtr = handle,
+                arena = callArena,
+                runtimePtr = runtimePtr,
+                service = InternalClient.RpcService.TEST,
+                rpc = rpc,
+                request = request,
+            ) { response, statusCode, failureMessage, _ ->
+                if (statusCode == 0) {
+                    // Success - return response or empty array for empty protobuf messages
+                    callback(response ?: ByteArray(0), null)
                 } else {
                     callback(null, failureMessage ?: "RPC call failed with status $statusCode")
                 }
@@ -146,6 +191,7 @@ class TemporalCoreClient private constructor(
             closed = true
             InternalClient.freeClient(handle)
             arena.close()
+            callbackArena.close()
         }
     }
 }
