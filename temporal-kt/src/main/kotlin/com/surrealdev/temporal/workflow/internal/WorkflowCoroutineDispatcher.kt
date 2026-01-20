@@ -52,7 +52,7 @@ internal class WorkflowCoroutineDispatcher(
         context: CoroutineContext,
         block: Runnable,
     ) {
-        // Queue work instead of dispatching to thread pool
+        // Queue work
         taskQueue.addLast(block)
     }
 

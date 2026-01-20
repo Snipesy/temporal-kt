@@ -34,8 +34,16 @@ internal class WorkflowState(
 
     /**
      * Generates the next sequence number.
+     * This is a mutation operation and cannot be performed in read-only mode.
      */
-    fun nextSeq(): Int = nextSeq++
+    fun nextSeq(): Int {
+        if (isReadOnly) {
+            throw ReadOnlyContextException(
+                "Cannot generate sequence number in read-only mode (e.g., during query processing)",
+            )
+        }
+        return nextSeq++
+    }
 
     /**
      * Current workflow time as provided by the activation.
@@ -66,6 +74,14 @@ internal class WorkflowState(
         internal set
 
     /**
+     * Whether the workflow is in read-only mode (e.g., during query processing).
+     * When true, any attempt to mutate workflow state will throw [ReadOnlyContextException].
+     * This ensures queries cannot affect workflow history.
+     */
+    var isReadOnly: Boolean = false
+        internal set
+
+    /**
      * History length as of the current activation.
      */
     var historyLength: Int = 0
@@ -87,6 +103,13 @@ internal class WorkflowState(
      * Pending activity operations, keyed by sequence number.
      */
     private val pendingActivities = ConcurrentHashMap<Int, PendingActivity>()
+
+    /**
+     * Registered conditions waiting to be satisfied.
+     * Each entry is a pair of (predicate, deferred) where the deferred completes when the predicate returns true.
+     * This enables deterministic condition waiting without busy-wait loops.
+     */
+    private val conditions = mutableListOf<Pair<() -> Boolean, CompletableDeferred<Unit>>>()
 
     /**
      * Commands accumulated during this activation.
@@ -115,6 +138,9 @@ internal class WorkflowState(
      * Used by WorkflowContext.sleep().
      */
     fun registerTimer(seq: Int): CompletableDeferred<Unit> {
+        if (isReadOnly) {
+            throw ReadOnlyContextException("Cannot register timer in read-only mode (e.g., during query processing)")
+        }
         val deferred = CompletableDeferred<Unit>()
         pendingTimers[seq] = deferred
         return deferred
@@ -131,6 +157,9 @@ internal class WorkflowState(
         seq: Int,
         continuation: CancellableContinuation<Unit>,
     ) {
+        if (isReadOnly) {
+            throw ReadOnlyContextException("Cannot register timer in read-only mode (e.g., during query processing)")
+        }
         pendingTimerContinuations[seq] = continuation
     }
 
@@ -153,6 +182,9 @@ internal class WorkflowState(
         seq: Int,
         returnType: KType,
     ): CompletableDeferred<Payload?> {
+        if (isReadOnly) {
+            throw ReadOnlyContextException("Cannot register activity in read-only mode (e.g., during query processing)")
+        }
         val deferred = CompletableDeferred<Payload?>()
         pendingActivities[seq] = PendingActivity(deferred, returnType)
         return deferred
@@ -197,9 +229,53 @@ internal class WorkflowState(
     }
 
     /**
+     * Registers a condition and returns a deferred that completes when the condition becomes true.
+     * The condition will be checked during the event loop after signals/updates and non-query jobs.
+     *
+     * @param predicate The condition to check
+     * @return A deferred that completes when the predicate returns true
+     */
+    fun registerCondition(predicate: () -> Boolean): CompletableDeferred<Unit> {
+        if (isReadOnly) {
+            throw ReadOnlyContextException(
+                "Cannot register condition in read-only mode (e.g., during query processing)",
+            )
+        }
+        val deferred = CompletableDeferred<Unit>()
+        conditions.add(predicate to deferred)
+        return deferred
+    }
+
+    /**
+     * Checks all registered conditions and completes any whose predicates are now true.
+     * This is called after processing signals/updates and non-query jobs to allow
+     * condition-based workflow logic to proceed deterministically.
+     */
+    fun checkConditions() {
+        val iterator = conditions.iterator()
+        while (iterator.hasNext()) {
+            val (predicate, deferred) = iterator.next()
+            try {
+                if (predicate()) {
+                    deferred.complete(Unit)
+                    iterator.remove()
+                }
+            } catch (e: Exception) {
+                // If the predicate throws, complete the deferred with the exception
+                deferred.completeExceptionally(e)
+                iterator.remove()
+            }
+        }
+    }
+
+    /**
      * Adds a command to be sent at the end of this activation.
+     * Throws [ReadOnlyContextException] if called in read-only mode (e.g., during query processing).
      */
     fun addCommand(cmd: WorkflowCommand) {
+        if (isReadOnly) {
+            throw ReadOnlyContextException("Cannot add command in read-only mode (e.g., during query processing)")
+        }
         commands.add(cmd)
     }
 
@@ -234,6 +310,10 @@ internal class WorkflowState(
         pendingActivities.values.forEach { it.deferred.cancel() }
         pendingActivities.clear()
 
+        // Cancel all pending conditions
+        conditions.forEach { (_, deferred) -> deferred.cancel() }
+        conditions.clear()
+
         commands.clear()
     }
 }
@@ -260,4 +340,13 @@ class ActivityFailureException(
  */
 class ActivityCancelledException(
     message: String = "Activity was cancelled",
+) : RuntimeException(message)
+
+/**
+ * Exception thrown when attempting to mutate workflow state in read-only mode.
+ * This typically occurs during query processing, where modifications to workflow
+ * state would violate deterministic replay guarantees.
+ */
+class ReadOnlyContextException(
+    message: String,
 ) : RuntimeException(message)

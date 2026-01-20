@@ -9,10 +9,10 @@ import com.surrealdev.temporal.workflow.WorkflowInfo
 import coresdk.workflow_commands.WorkflowCommands
 import io.temporal.api.common.v1.Payload
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlin.coroutines.CoroutineContext
 import kotlin.reflect.KType
 import kotlin.time.Duration
+import kotlin.time.Instant
 import kotlin.time.toJavaDuration
 
 /**
@@ -167,17 +167,23 @@ internal class WorkflowContextImpl(
     }
 
     override suspend fun awaitCondition(condition: () -> Boolean) {
-        // MVP: Simple busy wait with short delays
-        // TODO: Implement proper condition signaling
-        while (!condition()) {
-            // Use a very short delay to yield to other coroutines
-            delay(1)
+        // Check the condition immediately - if already true, no need to wait
+        if (condition()) {
+            return
         }
+
+        // Register the condition with the workflow state
+        // The condition will be checked deterministically after signals/updates and non-query jobs
+        val deferred = state.registerCondition(condition)
+
+        // Await the deferred - it will complete when the condition becomes true
+        // or throw if the condition evaluation fails
+        deferred.await()
     }
 
     override fun now(): kotlinx.datetime.Instant {
         // Convert from kotlin.time.Instant to kotlinx.datetime.Instant
-        return kotlinx.datetime.Instant.fromEpochMilliseconds(
+        return Instant.fromEpochMilliseconds(
             state.currentTime.toEpochMilliseconds(),
         )
     }

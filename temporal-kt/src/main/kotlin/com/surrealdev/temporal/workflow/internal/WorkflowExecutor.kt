@@ -83,33 +83,75 @@ internal class WorkflowExecutor(
                 historyLength = activation.historyLength,
             )
 
-            // Separate jobs into initialization and resolution jobs
-            val initJob = activation.jobsList.find { it.hasInitializeWorkflow() }
-            val resolutionJobs = activation.jobsList.filter { isResolutionJob(it) }
-            val otherJobs = activation.jobsList.filter { !it.hasInitializeWorkflow() && !isResolutionJob(it) }
+            // Handle eviction early - it must be the only job and should not process other stages
+            if (activation.jobsList.any { it.hasRemoveFromCache() }) {
+                handleEviction()
+                return buildSuccessCompletion()
+            }
 
-            // Step 1: Process initialization if present
+            // Separate jobs into ordered stages following Python SDK pattern for deterministic replay:
+            // Stage 0: Initialization (if present)
+            // Stage 1: Patches (for workflow versioning - not yet implemented, placeholder for future)
+            // Stage 2: Signals + Updates (state mutations from external events)
+            // Stage 3: Non-queries (resolutions, cancellation, random seed, etc.)
+            // Stage 4: Queries (read-only operations)
+            // Note: RemoveFromCache (eviction) is handled as an early exit before stage processing
+            val initJob = activation.jobsList.find { it.hasInitializeWorkflow() }
+            val patchJobs = activation.jobsList.filter { isPatchJob(it) }
+            val signalAndUpdateJobs = activation.jobsList.filter { isSignalOrUpdateJob(it) }
+            val nonQueryJobs = activation.jobsList.filter { isNonQueryJob(it) }
+            val queryJobs = activation.jobsList.filter { it.hasQueryWorkflow() }
+
+            // Stage 0: Process initialization if present
             if (initJob != null) {
                 processJob(initJob, activation, scope)
+                // Process queued work to start the workflow coroutine
+                workflowDispatcher.processAllWork()
             }
 
-            // Step 2: Process all queued work synchronously
-            // This runs the workflow coroutine until it suspends (e.g., on sleep/activity)
-            workflowDispatcher.processAllWork()
-
-            // Step 3: Process other jobs (signals, queries, cancellation, etc.)
-            for (job in otherJobs) {
+            // Stage 1: Process patches
+            // Patches must be processed first for correct workflow versioning
+            for (job in patchJobs) {
                 processJob(job, activation, scope)
             }
-
-            // Step 4: Process resolution jobs (fire timer, resolve activity)
-            // These resume the workflow from its suspension points
-            for (job in resolutionJobs) {
-                processJob(job, activation, scope)
+            if (patchJobs.isNotEmpty()) {
+                workflowDispatcher.processAllWork()
+                state.checkConditions()
             }
 
-            // Step 5: Process queued work again after resolutions
-            workflowDispatcher.processAllWork()
+            // Stage 2: Process signals and updates
+            // These can mutate workflow state and may satisfy pending conditions
+            for (job in signalAndUpdateJobs) {
+                processJob(job, activation, scope)
+            }
+            if (signalAndUpdateJobs.isNotEmpty()) {
+                workflowDispatcher.processAllWork()
+                state.checkConditions()
+            }
+
+            // Stage 3: Process non-query jobs (resolutions, cancellation, etc.)
+            // These resume suspended workflow operations
+            for (job in nonQueryJobs) {
+                processJob(job, activation, scope)
+            }
+            if (nonQueryJobs.isNotEmpty()) {
+                workflowDispatcher.processAllWork()
+                state.checkConditions()
+            }
+
+            // Stage 4: Process queries (read-only mode)
+            // Queries must not mutate workflow state to ensure deterministic replay
+            if (queryJobs.isNotEmpty()) {
+                state.isReadOnly = true
+                try {
+                    for (job in queryJobs) {
+                        processJob(job, activation, scope)
+                    }
+                    workflowDispatcher.processAllWork()
+                } finally {
+                    state.isReadOnly = false
+                }
+            }
 
             // Check if workflow completed
             val mainResult = mainCoroutine
@@ -125,9 +167,35 @@ internal class WorkflowExecutor(
     }
 
     /**
-     * Checks if a job is a resolution job (resolves a pending operation).
+     * Checks if a job is a patch job (workflow versioning).
+     * Patches must be processed first for correct versioning behavior.
      */
-    private fun isResolutionJob(job: WorkflowActivationJob): Boolean = job.hasFireTimer() || job.hasResolveActivity()
+    private fun isPatchJob(job: WorkflowActivationJob): Boolean = job.hasNotifyHasPatch()
+
+    /**
+     * Checks if a job is a signal or update job.
+     * These can mutate workflow state and must be processed before queries.
+     */
+    private fun isSignalOrUpdateJob(job: WorkflowActivationJob): Boolean =
+        job.hasSignalWorkflow() ||
+            job.hasDoUpdate()
+
+    /**
+     * Checks if a job is a non-query job (resolutions, cancellation, random seed, etc.).
+     * These jobs can mutate state but are not signals/updates.
+     * Explicitly excludes InitializeWorkflow (processed in Stage 0) and RemoveFromCache (early exit).
+     */
+    private fun isNonQueryJob(job: WorkflowActivationJob): Boolean =
+        job.hasFireTimer() ||
+            job.hasResolveActivity() ||
+            job.hasUpdateRandomSeed() ||
+            job.hasCancelWorkflow() ||
+            job.hasResolveChildWorkflowExecutionStart() ||
+            job.hasResolveChildWorkflowExecution() ||
+            job.hasResolveSignalExternalWorkflow() ||
+            job.hasResolveRequestCancelExternalWorkflow() ||
+            job.hasResolveNexusOperationStart() ||
+            job.hasResolveNexusOperation()
 
     private suspend fun processJob(
         job: WorkflowActivationJob,
@@ -146,11 +214,27 @@ internal class WorkflowExecutor(
                 state.randomSeed = job.updateRandomSeed.randomnessSeed
                 context?.updateRandomSeed(job.updateRandomSeed.randomnessSeed)
             }
+            job.hasNotifyHasPatch() -> handlePatch(job.notifyHasPatch)
             job.hasSignalWorkflow() -> handleSignal(job.signalWorkflow)
+            job.hasDoUpdate() -> handleUpdate(job.doUpdate)
             job.hasQueryWorkflow() -> handleQuery(job.queryWorkflow)
             job.hasCancelWorkflow() -> handleCancel()
             job.hasRemoveFromCache() -> handleEviction()
-            // Other jobs can be added as needed
+            // Child workflow resolutions
+            job.hasResolveChildWorkflowExecutionStart() ->
+                handleChildWorkflowStart(
+                    job.resolveChildWorkflowExecutionStart,
+                )
+            job.hasResolveChildWorkflowExecution() -> handleChildWorkflowExecution(job.resolveChildWorkflowExecution)
+            // External workflow operations
+            job.hasResolveSignalExternalWorkflow() -> handleSignalExternalWorkflow(job.resolveSignalExternalWorkflow)
+            job.hasResolveRequestCancelExternalWorkflow() ->
+                handleCancelExternalWorkflow(
+                    job.resolveRequestCancelExternalWorkflow,
+                )
+            // Nexus operations
+            job.hasResolveNexusOperationStart() -> handleNexusOperationStart(job.resolveNexusOperationStart)
+            job.hasResolveNexusOperation() -> handleNexusOperation(job.resolveNexusOperation)
         }
     }
 
@@ -282,11 +366,57 @@ internal class WorkflowExecutor(
     }
 
     private fun handleEviction() {
-        // Mark as cancelled before clearing
+        // Mark as canceled before clearing
         state.cancelRequested = true
         // Clear state on eviction
         state.clear()
         mainCoroutine?.cancel(WorkflowCancelledException())
+    }
+
+    private fun handlePatch(patch: coresdk.workflow_activation.WorkflowActivationOuterClass.NotifyHasPatch) {
+        // TODO: Implement patch tracking when workflow versioning is implemented
+        // For now, just acknowledge receipt - patches will be tracked in WorkflowState
+    }
+
+    private fun handleUpdate(update: coresdk.workflow_activation.WorkflowActivationOuterClass.DoUpdate) {
+        // TODO: Implement update handlers when updates are implemented
+        // Updates are similar to signals but expect a response
+    }
+
+    private fun handleChildWorkflowStart(
+        start: coresdk.workflow_activation.WorkflowActivationOuterClass.ResolveChildWorkflowExecutionStart,
+    ) {
+        // TODO: Implement child workflow start resolution when child workflows are implemented
+    }
+
+    private fun handleChildWorkflowExecution(
+        execution: coresdk.workflow_activation.WorkflowActivationOuterClass.ResolveChildWorkflowExecution,
+    ) {
+        // TODO: Implement child workflow execution resolution when child workflows are implemented
+    }
+
+    private fun handleSignalExternalWorkflow(
+        signal: coresdk.workflow_activation.WorkflowActivationOuterClass.ResolveSignalExternalWorkflow,
+    ) {
+        // TODO: Implement external workflow signal resolution when external signals are implemented
+    }
+
+    private fun handleCancelExternalWorkflow(
+        cancel: coresdk.workflow_activation.WorkflowActivationOuterClass.ResolveRequestCancelExternalWorkflow,
+    ) {
+        // TODO: Implement external workflow cancel resolution when external cancellation is implemented
+    }
+
+    private fun handleNexusOperationStart(
+        start: coresdk.workflow_activation.WorkflowActivationOuterClass.ResolveNexusOperationStart,
+    ) {
+        // TODO: Implement nexus operation start resolution when nexus operations are implemented
+    }
+
+    private fun handleNexusOperation(
+        operation: coresdk.workflow_activation.WorkflowActivationOuterClass.ResolveNexusOperation,
+    ) {
+        // TODO: Implement nexus operation resolution when nexus operations are implemented
     }
 
     private suspend fun buildTerminalCompletion(
