@@ -17,10 +17,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import java.util.logging.Logger
+import org.slf4j.LoggerFactory
 import kotlin.coroutines.CoroutineContext
 
-private val logger = Logger.getLogger("ManagedWorker")
+private val logger = LoggerFactory.getLogger(ManagedWorker::class.java)
 
 /**
  * A managed worker that integrates a core worker with the application lifecycle.
@@ -132,9 +132,9 @@ internal class ManagedWorker(
 
         // Wait for polling to actually start before initiating shutdown
         // If this is not done then an internal temporal core-sdk race condition can occur
-        logger.fine("[stop] Waiting for workflow polling to start...")
+        logger.debug("[stop] Waiting for workflow polling to start...")
         workflowPollingStarted.await()
-        logger.fine("[stop] Waiting for activity polling to start...")
+        logger.debug("[stop] Waiting for activity polling to start...")
         activityPollingStarted.await()
 
         // Initiate shutdown - this causes poll methods to return null
@@ -144,7 +144,7 @@ internal class ManagedWorker(
         // Wait for polling coroutines to complete with a timeout
         // Activity polling doesn't have a "bump stream" mechanism like workflows,
         // so it may not exit immediately when shutdown is initiated
-        logger.fine("[stop] Waiting for polling coroutines to complete...")
+        logger.debug("[stop] Waiting for polling coroutines to complete...")
         val pollsCompleted =
             kotlinx.coroutines.withTimeoutOrNull(5000L) {
                 workerJob.children.forEach { it.join() }
@@ -157,7 +157,7 @@ internal class ManagedWorker(
         }
 
         // Clean shutdown now works since polling was active
-        logger.fine("[stop] Awaiting core worker shutdown...")
+        logger.debug("[stop] Awaiting core worker shutdown...")
         coreWorker.awaitShutdown()
         coreWorker.close()
 
@@ -185,14 +185,14 @@ internal class ManagedWorker(
 
                 // Parse the activation
                 val activation = WorkflowActivationOuterClass.WorkflowActivation.parseFrom(activationBytes)
-                logger.fine("[pollWorkflowActivations] Received activation for workflow ${activation.runId}")
+                logger.debug("[pollWorkflowActivations] Received activation for workflow ${activation.runId}")
 
                 // Dispatch to workflow executor
                 val completion = workflowDispatcher.dispatch(activation, this@ManagedWorker)
 
                 // Send completion back to core
                 coreWorker.completeWorkflowActivation(completion.toByteArray())
-                logger.fine("[pollWorkflowActivations] Completed activation for workflow ${activation.runId}")
+                logger.debug("[pollWorkflowActivations] Completed activation for workflow ${activation.runId}")
             } catch (_: CancellationException) {
                 logger.info("[pollWorkflowActivations] Cancelled, exiting")
                 break
@@ -200,7 +200,7 @@ internal class ManagedWorker(
                 // Log and continue on errors for now
                 // In production, we'd want proper error handling
                 if (!coreWorker.isShutdownInitiated()) {
-                    logger.warning("[pollWorkflowActivations] Error: ${e.message}")
+                    logger.warn("[pollWorkflowActivations] Error: ${e.message}")
                     e.printStackTrace()
                 }
             }
@@ -230,16 +230,16 @@ internal class ManagedWorker(
                 // Parse the activity task
                 val task = ActivityTaskOuterClass.ActivityTask.parseFrom(taskBytes)
                 val activityInfo = if (task.hasStart()) "type=${task.start.activityType}" else "cancel"
-                logger.fine("[pollActivityTasks] Received activity task: $activityInfo")
+                logger.debug("[pollActivityTasks] Received activity task: $activityInfo")
 
                 // Dispatch to activity executor (in a separate coroutine for parallelism)
                 launch {
                     try {
                         val completion = activityDispatcher.dispatch(task)
                         coreWorker.completeActivityTask(completion.toByteArray())
-                        logger.fine("[pollActivityTasks] Completed activity: $activityInfo")
+                        logger.debug("[pollActivityTasks] Completed activity: $activityInfo")
                     } catch (e: Exception) {
-                        logger.warning("[pollActivityTasks] Error dispatching activity: ${e.message}")
+                        logger.warn("[pollActivityTasks] Error dispatching activity: ${e.message}")
                         e.printStackTrace()
                     }
                 }
@@ -249,7 +249,7 @@ internal class ManagedWorker(
             } catch (e: Exception) {
                 // Log and continue on errors for now
                 if (!coreWorker.isShutdownInitiated()) {
-                    logger.warning("[pollActivityTasks] Error: ${e.message}")
+                    logger.warn("[pollActivityTasks] Error: ${e.message}")
                     e.printStackTrace()
                 }
             }

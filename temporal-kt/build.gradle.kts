@@ -13,8 +13,10 @@ dependencies {
     implementation(libs.protobufKotlin)
     implementation(libs.bundles.hoplite)
     implementation(libs.kotlinReflect)
+    implementation(libs.slf4jApi)
 
     testImplementation(kotlin("test"))
+    testImplementation(libs.slf4jSimple)
 
     testFixturesImplementation(libs.kotlinxCoroutinesTest)
 }
