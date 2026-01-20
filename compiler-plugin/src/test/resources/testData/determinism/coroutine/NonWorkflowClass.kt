@@ -1,4 +1,4 @@
-package testData.determinism
+package testData.determinism.coroutine
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
@@ -20,16 +20,18 @@ class NonWorkflowClass {
     }
 
     // ALLOWED: withContext(Dispatchers.IO) is fine in non-workflow code
-    suspend fun fetchData(): String = withContext(Dispatchers.IO) {
-        // Simulate IO operation
-        "data"
-    }
+    suspend fun fetchData(): String =
+        withContext(Dispatchers.IO) {
+            // Simulate IO operation
+            "data"
+        }
 
     // ALLOWED: Using external dispatchers is fine outside workflows
-    suspend fun processInBackground(): Int = withContext(Dispatchers.Default) {
-        // CPU-intensive work
-        (1..1000).sum()
-    }
+    suspend fun processInBackground(): Int =
+        withContext(Dispatchers.Default) {
+            // CPU-intensive work
+            (1..1000).sum()
+        }
 
     // ALLOWED: GlobalScope.async is fine in non-workflow code
     fun startAsync() {

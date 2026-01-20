@@ -1,10 +1,11 @@
-package testData.determinism
+package testData.determinism.coroutine
 
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.workflow.WorkflowContext
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * This workflow uses the WorkflowContext scope correctly.
@@ -15,15 +16,17 @@ class ValidWorkflow {
     @WorkflowRun
     suspend fun WorkflowContext.run(input: String): String {
         // VALID: Using async within WorkflowContext scope
-        val deferred1 = async {
-            sleep(100.milliseconds)
-            "result1"
-        }
+        val deferred1 =
+            async {
+                sleep(100.milliseconds)
+                "result1"
+            }
 
-        val deferred2 = async {
-            sleep(100.milliseconds)
-            "result2"
-        }
+        val deferred2 =
+            async {
+                sleep(100.milliseconds)
+                "result2"
+            }
 
         // VALID: Awaiting Deferreds that are children of the workflow
         val results = awaitAll(deferred1, deferred2)

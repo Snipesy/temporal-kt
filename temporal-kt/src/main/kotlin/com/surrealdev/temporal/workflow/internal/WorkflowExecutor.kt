@@ -251,11 +251,15 @@ internal class WorkflowExecutor(
         scope: CoroutineScope,
     ) {
         when {
-            job.hasInitializeWorkflow() -> handleInitialize(job.initializeWorkflow, activation, scope)
+            job.hasInitializeWorkflow() -> {
+                handleInitialize(job.initializeWorkflow, activation, scope)
+            }
+
             job.hasFireTimer() -> {
                 logger.debug("Timer fired: seq={}", job.fireTimer.seq)
                 state.resolveTimer(job.fireTimer.seq)
             }
+
             job.hasResolveActivity() -> {
                 val result = job.resolveActivity.result
                 val status =
@@ -269,31 +273,66 @@ internal class WorkflowExecutor(
                 logger.debug("Activity resolved: seq={}, status={}", job.resolveActivity.seq, status)
                 state.resolveActivity(job.resolveActivity.seq, result)
             }
+
             job.hasUpdateRandomSeed() -> {
                 state.randomSeed = job.updateRandomSeed.randomnessSeed
                 context?.updateRandomSeed(job.updateRandomSeed.randomnessSeed)
             }
-            job.hasNotifyHasPatch() -> handlePatch(job.notifyHasPatch)
-            job.hasSignalWorkflow() -> handleSignal(job.signalWorkflow)
-            job.hasDoUpdate() -> handleUpdate(job.doUpdate)
-            job.hasQueryWorkflow() -> handleQuery(job.queryWorkflow)
-            job.hasCancelWorkflow() -> handleCancel()
-            job.hasRemoveFromCache() -> handleEviction()
+
+            job.hasNotifyHasPatch() -> {
+                handlePatch(job.notifyHasPatch)
+            }
+
+            job.hasSignalWorkflow() -> {
+                handleSignal(job.signalWorkflow)
+            }
+
+            job.hasDoUpdate() -> {
+                handleUpdate(job.doUpdate)
+            }
+
+            job.hasQueryWorkflow() -> {
+                handleQuery(job.queryWorkflow)
+            }
+
+            job.hasCancelWorkflow() -> {
+                handleCancel()
+            }
+
+            job.hasRemoveFromCache() -> {
+                handleEviction()
+            }
+
             // Child workflow resolutions
-            job.hasResolveChildWorkflowExecutionStart() ->
+            job.hasResolveChildWorkflowExecutionStart() -> {
                 handleChildWorkflowStart(
                     job.resolveChildWorkflowExecutionStart,
                 )
-            job.hasResolveChildWorkflowExecution() -> handleChildWorkflowExecution(job.resolveChildWorkflowExecution)
+            }
+
+            job.hasResolveChildWorkflowExecution() -> {
+                handleChildWorkflowExecution(job.resolveChildWorkflowExecution)
+            }
+
             // External workflow operations
-            job.hasResolveSignalExternalWorkflow() -> handleSignalExternalWorkflow(job.resolveSignalExternalWorkflow)
-            job.hasResolveRequestCancelExternalWorkflow() ->
+            job.hasResolveSignalExternalWorkflow() -> {
+                handleSignalExternalWorkflow(job.resolveSignalExternalWorkflow)
+            }
+
+            job.hasResolveRequestCancelExternalWorkflow() -> {
                 handleCancelExternalWorkflow(
                     job.resolveRequestCancelExternalWorkflow,
                 )
+            }
+
             // Nexus operations
-            job.hasResolveNexusOperationStart() -> handleNexusOperationStart(job.resolveNexusOperationStart)
-            job.hasResolveNexusOperation() -> handleNexusOperation(job.resolveNexusOperation)
+            job.hasResolveNexusOperationStart() -> {
+                handleNexusOperationStart(job.resolveNexusOperationStart)
+            }
+
+            job.hasResolveNexusOperation() -> {
+                handleNexusOperation(job.resolveNexusOperation)
+            }
         }
     }
 

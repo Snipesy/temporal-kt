@@ -3,6 +3,7 @@ package com.surrealdev.temporal.compiler
 import org.jetbrains.kotlin.backend.common.extensions.IrGenerationExtension
 import org.jetbrains.kotlin.backend.common.extensions.IrPluginContext
 import org.jetbrains.kotlin.ir.declarations.IrModuleFragment
+import org.jetbrains.kotlin.ir.visitors.acceptVoid
 import java.io.File
 
 /**
@@ -27,6 +28,11 @@ class TemporalIrGenerationExtension(
         moduleFragment: IrModuleFragment,
         pluginContext: IrPluginContext,
     ) {
+        // First pass: Validate workflow determinism
+        val validator = WorkflowDeterminismValidator(pluginContext)
+        moduleFragment.acceptVoid(validator)
+
+        // Second pass: Collect DSL metadata
         val collector = TemporalDslCollector(pluginContext)
         moduleFragment.accept(collector, null)
 

@@ -1,0 +1,363 @@
+{
+  "defaultError": "This pattern is forbidden in workflow code as it may break deterministic replay.",
+  "rules": [
+    {
+      "name": "GlobalScope usage",
+      "match": {
+        "parameterKind": "DispatchReceiver",
+        "type": "kotlinx.coroutines.GlobalScope"
+      },
+      "error": "GlobalScope is forbidden in workflow code. Using GlobalScope breaks deterministic execution as it escapes the workflow's controlled execution context. Use WorkflowContext's coroutine scope instead (launch { } or async { } directly within the workflow)."
+    },
+    {
+      "name": "GlobalScope extension receiver",
+      "match": {
+        "parameterKind": "ExtensionReceiver",
+        "type": "kotlinx.coroutines.GlobalScope"
+      },
+      "error": "GlobalScope is forbidden in workflow code. Using GlobalScope breaks deterministic execution as it escapes the workflow's controlled execution context. Use WorkflowContext's coroutine scope instead (launch { } or async { } directly within the workflow)."
+    },
+    {
+      "name": "Dispatchers.IO property access",
+      "match": {
+        "parameterKind": "DispatchReceiver",
+        "type": "kotlinx.coroutines.Dispatchers",
+        "functionPattern": "<get-IO>"
+      },
+      "error": "Dispatchers.IO is forbidden in workflow code. Using external dispatchers breaks deterministic execution. Use WorkflowContext's coroutine scope instead."
+    },
+    {
+      "name": "Dispatchers.Default property access",
+      "match": {
+        "parameterKind": "DispatchReceiver",
+        "type": "kotlinx.coroutines.Dispatchers",
+        "functionPattern": "<get-Default>"
+      },
+      "error": "Dispatchers.Default is forbidden in workflow code. Using external dispatchers breaks deterministic execution. Use WorkflowContext's coroutine scope instead."
+    },
+    {
+      "name": "Dispatchers.Main property access",
+      "match": {
+        "parameterKind": "DispatchReceiver",
+        "type": "kotlinx.coroutines.Dispatchers",
+        "functionPattern": "<get-Main>"
+      },
+      "error": "Dispatchers.Main is forbidden in workflow code. Using external dispatchers breaks deterministic execution. Use WorkflowContext's coroutine scope instead."
+    },
+    {
+      "name": "withContext with forbidden dispatcher",
+      "match": {
+        "function": "kotlinx.coroutines.withContext",
+        "argumentTypes": [
+          "kotlinx.coroutines.Dispatchers.IO",
+          "kotlinx.coroutines.Dispatchers.Default",
+          "kotlinx.coroutines.Dispatchers.Main",
+          "kotlinx.coroutines.Dispatchers.Unconfined"
+        ]
+      },
+      "error": "withContext with external dispatchers is forbidden in workflow code. Switching to external dispatchers (IO, Default, Main) breaks deterministic replay. All workflow code must execute on the WorkflowCoroutineDispatcher. If you need concurrent execution, use async { } within the WorkflowContext scope instead."
+    },
+    {
+      "name": "createCoroutineUnintercepted intrinsic",
+      "match": {
+        "function": "kotlin.coroutines.intrinsics.createCoroutineUnintercepted"
+      },
+      "error": "createCoroutineUnintercepted is forbidden in workflow code. This low-level coroutine intrinsic bypasses dispatcher interception, breaking deterministic replay. Use standard coroutine builders (launch, async) within the WorkflowContext scope instead."
+    },
+    {
+      "name": "startCoroutineUninterceptedOrReturn intrinsic",
+      "match": {
+        "function": "kotlin.coroutines.intrinsics.startCoroutineUninterceptedOrReturn"
+      },
+      "error": "startCoroutineUninterceptedOrReturn is forbidden in workflow code. This low-level coroutine intrinsic bypasses dispatcher interception, breaking deterministic replay. Use standard coroutine builders (launch, async) within the WorkflowContext scope instead."
+    },
+    {
+      "name": "System.currentTimeMillis()",
+      "match": {
+        "function": "java.lang.System.currentTimeMillis"
+      },
+      "error": "System.currentTimeMillis() is forbidden in workflow code. System time is non-deterministic and will differ on replay. Use WorkflowContext.currentTimeMillis() instead."
+    },
+    {
+      "name": "System.nanoTime()",
+      "match": {
+        "function": "java.lang.System.nanoTime"
+      },
+      "error": "System.nanoTime() is forbidden in workflow code. System time is non-deterministic and will differ on replay. Use WorkflowContext time utilities instead."
+    },
+    {
+      "name": "Instant.now()",
+      "match": {
+        "function": "java.time.Instant.now"
+      },
+      "error": "Instant.now() is forbidden in workflow code. System time is non-deterministic and will differ on replay. Use WorkflowContext.currentTimeMillis() or WorkflowContext.now() instead."
+    },
+    {
+      "name": "LocalDateTime.now()",
+      "match": {
+        "function": "java.time.LocalDateTime.now"
+      },
+      "error": "LocalDateTime.now() is forbidden in workflow code. System time is non-deterministic and will differ on replay. Use WorkflowContext time utilities instead."
+    },
+    {
+      "name": "LocalDate.now()",
+      "match": {
+        "function": "java.time.LocalDate.now"
+      },
+      "error": "LocalDate.now() is forbidden in workflow code. System time is non-deterministic and will differ on replay. Use WorkflowContext time utilities instead."
+    },
+    {
+      "name": "LocalTime.now()",
+      "match": {
+        "function": "java.time.LocalTime.now"
+      },
+      "error": "LocalTime.now() is forbidden in workflow code. System time is non-deterministic and will differ on replay. Use WorkflowContext time utilities instead."
+    },
+    {
+      "name": "ZonedDateTime.now()",
+      "match": {
+        "function": "java.time.ZonedDateTime.now"
+      },
+      "error": "ZonedDateTime.now() is forbidden in workflow code. System time is non-deterministic and will differ on replay. Use WorkflowContext time utilities instead."
+    },
+    {
+      "name": "OffsetDateTime.now()",
+      "match": {
+        "function": "java.time.OffsetDateTime.now"
+      },
+      "error": "OffsetDateTime.now() is forbidden in workflow code. System time is non-deterministic and will differ on replay. Use WorkflowContext time utilities instead."
+    },
+    {
+      "name": "Clock.systemUTC()",
+      "match": {
+        "function": "java.time.Clock.systemUTC"
+      },
+      "error": "Clock.systemUTC() is forbidden in workflow code. System clocks are non-deterministic. Use WorkflowContext time utilities instead."
+    },
+    {
+      "name": "Clock.systemDefaultZone()",
+      "match": {
+        "function": "java.time.Clock.systemDefaultZone"
+      },
+      "error": "Clock.systemDefaultZone() is forbidden in workflow code. System clocks are non-deterministic. Use WorkflowContext time utilities instead."
+    },
+    {
+      "name": "Clock.system()",
+      "match": {
+        "function": "java.time.Clock.system"
+      },
+      "error": "Clock.system() is forbidden in workflow code. System clocks are non-deterministic. Use WorkflowContext time utilities instead."
+    },
+    {
+      "name": "kotlinx.datetime Clock.System.now()",
+      "match": {
+        "function": "kotlinx.datetime.Clock.System.now"
+      },
+      "error": "Clock.System.now() is forbidden in workflow code. System time is non-deterministic and will differ on replay. Use WorkflowContext time utilities instead."
+    },
+
+    {
+      "name": "java.util.Random usage",
+      "match": {
+        "parameterKind": "DispatchReceiver",
+        "type": "java.util.Random"
+      },
+      "error": "java.util.Random is forbidden in workflow code. Random values are non-deterministic and will differ on replay. Use WorkflowContext.random() instead."
+    },
+    {
+      "name": "kotlin.random.Random.nextInt()",
+      "match": {
+        "function": "kotlin.random.Random.nextInt"
+      },
+      "error": "kotlin.random.Random is forbidden in workflow code. Random values are non-deterministic and will differ on replay. Use WorkflowContext.random() instead."
+    },
+    {
+      "name": "kotlin.random.Random.nextLong()",
+      "match": {
+        "function": "kotlin.random.Random.nextLong"
+      },
+      "error": "kotlin.random.Random is forbidden in workflow code. Random values are non-deterministic and will differ on replay. Use WorkflowContext.random() instead."
+    },
+    {
+      "name": "kotlin.random.Random.nextDouble()",
+      "match": {
+        "function": "kotlin.random.Random.nextDouble"
+      },
+      "error": "kotlin.random.Random is forbidden in workflow code. Random values are non-deterministic and will differ on replay. Use WorkflowContext.random() instead."
+    },
+    {
+      "name": "kotlin.random.Random.nextFloat()",
+      "match": {
+        "function": "kotlin.random.Random.nextFloat"
+      },
+      "error": "kotlin.random.Random is forbidden in workflow code. Random values are non-deterministic and will differ on replay. Use WorkflowContext.random() instead."
+    },
+    {
+      "name": "kotlin.random.Random.nextBoolean()",
+      "match": {
+        "function": "kotlin.random.Random.nextBoolean"
+      },
+      "error": "kotlin.random.Random is forbidden in workflow code. Random values are non-deterministic and will differ on replay. Use WorkflowContext.random() instead."
+    },
+    {
+      "name": "kotlin.random.Random.nextBytes()",
+      "match": {
+        "function": "kotlin.random.Random.nextBytes"
+      },
+      "error": "kotlin.random.Random is forbidden in workflow code. Random values are non-deterministic and will differ on replay. Use WorkflowContext.random() instead."
+    },
+    {
+      "name": "SecureRandom usage",
+      "match": {
+        "parameterKind": "DispatchReceiver",
+        "type": "java.security.SecureRandom"
+      },
+      "error": "SecureRandom is forbidden in workflow code. Random values are non-deterministic and will differ on replay. Use WorkflowContext.random() instead."
+    },
+    {
+      "name": "UUID.randomUUID()",
+      "match": {
+        "function": "java.util.UUID.randomUUID"
+      },
+      "error": "UUID.randomUUID() is forbidden in workflow code. Random UUIDs are non-deterministic and will differ on replay. Use WorkflowContext.randomUUID() instead."
+    },
+
+    {
+      "name": "Thread.sleep()",
+      "match": {
+        "function": "java.lang.Thread.sleep"
+      },
+      "error": "Thread.sleep() is forbidden in workflow code. Blocking the workflow thread breaks deterministic execution. Use WorkflowContext.delay() instead."
+    },
+    {
+      "name": "Thread.currentThread()",
+      "match": {
+        "function": "java.lang.Thread.currentThread"
+      },
+      "error": "Thread.currentThread() is forbidden in workflow code. Thread operations are non-deterministic across replays."
+    },
+    {
+      "name": "Object.wait()",
+      "match": {
+        "function": "java.lang.Object.wait"
+      },
+      "error": "Object.wait() is forbidden in workflow code. Blocking the workflow thread breaks deterministic execution. Use WorkflowContext signals or conditions instead."
+    },
+    {
+      "name": "Object.notify()",
+      "match": {
+        "function": "java.lang.Object.notify"
+      },
+      "error": "Object.notify() is forbidden in workflow code. Thread synchronization primitives are non-deterministic. Use WorkflowContext signals instead."
+    },
+    {
+      "name": "Object.notifyAll()",
+      "match": {
+        "function": "java.lang.Object.notifyAll"
+      },
+      "error": "Object.notifyAll() is forbidden in workflow code. Thread synchronization primitives are non-deterministic. Use WorkflowContext signals instead."
+    },
+
+    {
+      "name": "System.getProperty()",
+      "match": {
+        "function": "java.lang.System.getProperty"
+      },
+      "error": "System.getProperty() is forbidden in workflow code. System properties may differ between original execution and replay. Pass configuration as workflow input instead."
+    },
+    {
+      "name": "System.getenv()",
+      "match": {
+        "function": "java.lang.System.getenv"
+      },
+      "error": "System.getenv() is forbidden in workflow code. Environment variables may differ between original execution and replay. Pass configuration as workflow input instead."
+    },
+    {
+      "name": "System.getProperties()",
+      "match": {
+        "function": "java.lang.System.getProperties"
+      },
+      "error": "System.getProperties() is forbidden in workflow code. System properties may differ between original execution and replay. Pass configuration as workflow input instead."
+    },
+    {
+      "name": "runBlocking usage",
+      "match": {
+        "function": "kotlinx.coroutines.runBlocking"
+      },
+      "error": "runBlocking is forbidden in workflow code. Blocking the workflow thread breaks deterministic execution and may cause deadlocks."
+    },
+    {
+      "name": "MainScope() usage",
+      "match": {
+        "function": "kotlinx.coroutines.MainScope"
+      },
+      "error": "MainScope() is forbidden in workflow code. MainScope is designed for UI applications and is tied to Dispatchers.Main, which breaks deterministic execution. Use WorkflowContext's coroutine scope instead."
+    },
+    {
+      "name": "newSingleThreadContext usage",
+      "match": {
+        "function": "kotlinx.coroutines.newSingleThreadContext"
+      },
+      "error": "newSingleThreadContext() is forbidden in workflow code. Creating custom thread contexts breaks deterministic execution as it escapes the workflow's controlled dispatcher. Use WorkflowContext's coroutine scope instead."
+    },
+    {
+      "name": "newFixedThreadPoolContext usage",
+      "match": {
+        "function": "kotlinx.coroutines.newFixedThreadPoolContext"
+      },
+      "error": "newFixedThreadPoolContext() is forbidden in workflow code. Creating custom thread pool contexts breaks deterministic execution as it escapes the workflow's controlled dispatcher. Use WorkflowContext's coroutine scope instead."
+    },
+    {
+      "name": "Executor.asCoroutineDispatcher usage",
+      "match": {
+        "function": "kotlinx.coroutines.asCoroutineDispatcher"
+      },
+      "error": "Executor.asCoroutineDispatcher() is forbidden in workflow code. Converting external executors to dispatchers breaks deterministic execution as it escapes the workflow's controlled dispatcher. Use WorkflowContext's coroutine scope instead."
+    },
+    {
+      "name": "Flow.flowOn usage",
+      "match": {
+        "function": "kotlinx.coroutines.flow.flowOn"
+      },
+      "error": "Flow.flowOn() is forbidden in workflow code. Switching flow emission context to external dispatchers breaks deterministic execution. All flow operations must execute on the WorkflowCoroutineDispatcher."
+    },
+    {
+      "name": "ThreadLocal.asContextElement usage",
+      "match": {
+        "function": "kotlinx.coroutines.asContextElement"
+      },
+      "error": "ThreadLocal.asContextElement() is forbidden in workflow code. Thread-local state is non-deterministic and may differ between original execution and replay. Pass state explicitly as workflow variables or arguments instead."
+    },
+    {
+      "name": "yield() usage",
+      "match": {
+        "function": "kotlinx.coroutines.yield"
+      },
+      "error": "yield() is forbidden in workflow code. Explicit yielding may cause non-deterministic thread scheduling and replay behavior. The WorkflowCoroutineDispatcher handles scheduling deterministically."
+    },
+    {
+      "name": "Dispatchers.Unconfined usage",
+      "match": {
+        "parameterKind": "DispatchReceiver",
+        "type": "kotlinx.coroutines.Dispatchers",
+        "functionPattern": "<get-Unconfined>"
+      },
+      "error": "Dispatchers.Unconfined is forbidden in workflow code. Unconfined dispatcher does not confine coroutine execution to any specific thread, making execution non-deterministic. Use WorkflowContext's coroutine scope instead."
+    },
+    {
+      "name": "CoroutineScope() constructor with custom dispatcher",
+      "match": {
+        "function": "kotlinx.coroutines.CoroutineScope"
+      },
+      "error": "Creating custom CoroutineScope instances is forbidden in workflow code. Custom scopes may use external dispatchers that break deterministic execution. Use WorkflowContext's coroutine scope (launch { } or async { } directly within the workflow) instead."
+    },
+    {
+      "name": "ExecutorCoroutineDispatcher usage",
+      "match": {
+        "parameterKind": "DispatchReceiver",
+        "type": "kotlinx.coroutines.ExecutorCoroutineDispatcher"
+      },
+      "error": "ExecutorCoroutineDispatcher is forbidden in workflow code. Executor-based dispatchers break deterministic execution as they use external thread pools. Use WorkflowContext's coroutine scope instead."
+    }
+  ]
+}

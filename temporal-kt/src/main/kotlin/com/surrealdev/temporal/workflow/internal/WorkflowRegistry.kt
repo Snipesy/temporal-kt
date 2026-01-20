@@ -69,9 +69,11 @@ internal class WorkflowRegistry {
                 runMethods.isEmpty() -> throw IllegalArgumentException(
                     "Workflow class ${klass.qualifiedName} has no @WorkflowRun method",
                 )
+
                 runMethods.size > 1 -> throw IllegalArgumentException(
                     "Workflow class ${klass.qualifiedName} has multiple @WorkflowRun methods. Only one is allowed.",
                 )
+
                 else -> runMethods.first()
             }
 

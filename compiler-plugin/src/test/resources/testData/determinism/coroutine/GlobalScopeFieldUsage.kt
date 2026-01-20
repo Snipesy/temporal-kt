@@ -1,4 +1,4 @@
-package testData.determinism
+package testData.determinism.coroutine
 
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
@@ -11,14 +11,16 @@ import kotlinx.coroutines.async
  * Expected error: "GlobalScope.async is forbidden in workflow code"
  */
 @Workflow("GlobalScopeWorkflow")
-class GlobalScopeUsage {
+class GlobalScopeFieldUsage {
+
+    val topLevel = GlobalScope
+        .async {
+            "This breaks determinism!"
+        }
+
     @WorkflowRun
     suspend fun WorkflowContext.run(): String {
-        // VIOLATION: Using GlobalScope escapes the workflow's controlled execution
-        GlobalScope.async {
-            "This breaks determinism!"
-        }.await()
-
+        topLevel.await()
         return "This should not compile"
     }
 }

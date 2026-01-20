@@ -1,4 +1,4 @@
-package testData.determinism
+package testData.determinism.coroutine
 
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun

@@ -1,4 +1,4 @@
-package testData.determinism
+package testData.determinism.coroutine
 
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
@@ -26,10 +26,11 @@ class IndirectWithContextUsage {
 
     // Regular suspend function (no WorkflowContext receiver)
     // VIOLATION: Uses withContext internally
-    private suspend fun fetchData(url: String): String = withContext(Dispatchers.IO) {
-        // This breaks determinism when called from workflow!
-        "data from $url"
-    }
+    private suspend fun fetchData(url: String): String =
+        withContext(Dispatchers.IO) {
+            // This breaks determinism when called from workflow!
+            "data from $url"
+        }
 }
 
 /**
@@ -46,9 +47,10 @@ class IndirectTopLevelCall {
 
 // Top-level suspend function that uses withContext
 // VIOLATION: When called from workflow, this breaks determinism
-suspend fun processDataInBackground(input: String): String = withContext(Dispatchers.Default) {
-    input.uppercase()
-}
+suspend fun processDataInBackground(input: String): String =
+    withContext(Dispatchers.Default) {
+        input.uppercase()
+    }
 
 /**
  * Correct version: suspend function that doesn't use withContext

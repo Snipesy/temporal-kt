@@ -205,6 +205,7 @@ internal class WorkflowState(
                 val payload = result.completed.result
                 pending.deferred.complete(payload)
             }
+
             result.hasFailed() -> {
                 val failure = result.failed.failure
                 pending.deferred.completeExceptionally(
@@ -215,11 +216,13 @@ internal class WorkflowState(
                     ),
                 )
             }
+
             result.hasCancelled() -> {
                 pending.deferred.completeExceptionally(
                     ActivityCancelledException("Activity was cancelled"),
                 )
             }
+
             result.hasBackoff() -> {
                 // For backoff, we don't resolve - the activity will be retried
                 // Re-register the pending activity
