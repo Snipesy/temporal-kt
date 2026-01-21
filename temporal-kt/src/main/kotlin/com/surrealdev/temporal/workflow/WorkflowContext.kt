@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.workflow
 
+import com.surrealdev.temporal.serialization.PayloadSerializer
 import kotlinx.coroutines.CoroutineScope
 import kotlin.time.Duration
 import kotlin.time.Instant
@@ -27,6 +28,14 @@ import kotlin.time.Instant
  * all coroutines run synchronously on the workflow task thread.
  */
 interface WorkflowContext : CoroutineScope {
+    /**
+     * The serializer for converting values to/from Temporal Payloads.
+     *
+     * Use this in runtime query handlers to serialize return values and
+     * deserialize arguments.
+     */
+    val serializer: PayloadSerializer
+
     /**
      * Information about the currently executing workflow.
      */
@@ -86,6 +95,62 @@ interface WorkflowContext : CoroutineScope {
         workflowType: String,
         options: ChildWorkflowOptions = ChildWorkflowOptions(),
     ): T
+
+    /**
+     * Registers or replaces a query handler at runtime.
+     *
+     * This allows workflows to dynamically register query handlers that weren't
+     * defined via @Query annotations. Pass null to unregister an existing handler.
+     *
+     * The handler receives raw Payload arguments and must return a Payload result.
+     * Use the serializer to convert to/from your domain types.
+     *
+     * Example:
+     * ```kotlin
+     * @WorkflowRun
+     * suspend fun WorkflowContext.run() {
+     *     setQueryHandler("customQuery") { payloads ->
+     *         // Deserialize args if needed: serializer.deserialize(typeInfo, payloads[0])
+     *         // Return serialized result
+     *         serializer.serialize(typeInfoOf<String>(), "Custom response")
+     *     }
+     * }
+     * ```
+     *
+     * @param name The query name to register
+     * @param handler The handler function receiving raw payloads and returning a payload, or null to unregister
+     */
+    fun setQueryHandler(
+        name: String,
+        handler: (suspend (List<io.temporal.api.common.v1.Payload>) -> io.temporal.api.common.v1.Payload)?,
+    )
+
+    /**
+     * Registers or replaces a dynamic query handler at runtime.
+     *
+     * A dynamic handler receives all queries that don't have a specific handler.
+     * The handler receives the query type name and raw Payload arguments.
+     *
+     * Example:
+     * ```kotlin
+     * @WorkflowRun
+     * suspend fun WorkflowContext.run() {
+     *     setDynamicQueryHandler { queryType, payloads ->
+     *         serializer.serialize(typeInfoOf<String>(), "Dynamic response for: $queryType")
+     *     }
+     * }
+     * ```
+     *
+     * @param handler The handler function, or null to unregister
+     */
+    fun setDynamicQueryHandler(
+        handler: (
+            suspend (
+                queryType: String,
+                args: List<io.temporal.api.common.v1.Payload>,
+            ) -> io.temporal.api.common.v1.Payload
+        )?,
+    )
 }
 
 /**

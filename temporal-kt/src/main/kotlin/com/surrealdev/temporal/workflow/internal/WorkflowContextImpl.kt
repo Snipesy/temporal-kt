@@ -34,7 +34,7 @@ import kotlin.time.toJavaDuration
 internal class WorkflowContextImpl(
     private val state: WorkflowState,
     override val info: WorkflowInfo,
-    private val serializer: PayloadSerializer,
+    override val serializer: PayloadSerializer,
     private val workflowDispatcher: WorkflowCoroutineDispatcher,
     parentJob: Job,
     private val mdcContext: MDCContext? = null,
@@ -42,6 +42,24 @@ internal class WorkflowContextImpl(
     // Create a child job for this workflow - failures propagate to parent
     private val job = Job(parentJob)
     private val deterministicRandom = DeterministicRandom(state.randomSeed)
+
+    /**
+     * Runtime-registered named query handlers.
+     * Keys are query names.
+     */
+    internal val runtimeQueryHandlers =
+        mutableMapOf<String, (suspend (List<io.temporal.api.common.v1.Payload>) -> io.temporal.api.common.v1.Payload)>()
+
+    /**
+     * Runtime-registered dynamic query handler (catches all unhandled queries).
+     */
+    internal var runtimeDynamicQueryHandler:
+        (
+            suspend (
+                queryType: String,
+                args: List<io.temporal.api.common.v1.Payload>,
+            ) -> io.temporal.api.common.v1.Payload
+        )? = null
 
     override val coroutineContext: CoroutineContext =
         if (mdcContext != null) job + workflowDispatcher + mdcContext else job + workflowDispatcher
@@ -202,6 +220,28 @@ internal class WorkflowContextImpl(
         throw UnsupportedOperationException(
             "Child workflows not yet implemented",
         )
+    }
+
+    override fun setQueryHandler(
+        name: String,
+        handler: (suspend (List<io.temporal.api.common.v1.Payload>) -> io.temporal.api.common.v1.Payload)?,
+    ) {
+        if (handler == null) {
+            runtimeQueryHandlers.remove(name)
+        } else {
+            runtimeQueryHandlers[name] = handler
+        }
+    }
+
+    override fun setDynamicQueryHandler(
+        handler: (
+            suspend (
+                queryType: String,
+                args: List<io.temporal.api.common.v1.Payload>,
+            ) -> io.temporal.api.common.v1.Payload
+        )?,
+    ) {
+        runtimeDynamicQueryHandler = handler
     }
 
     /**

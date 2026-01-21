@@ -44,6 +44,13 @@ internal class WorkflowExecutor(
     private var state: WorkflowState = WorkflowState(runId)
     private val logger = LoggerFactory.getLogger(WorkflowExecutor::class.java)
 
+    /**
+     * Accumulated query results during read-only mode.
+     * We can't use state.addCommand() in read-only mode, so we accumulate
+     * query results separately and add them after exiting read-only mode.
+     */
+    private val pendingQueryResults = mutableListOf<WorkflowCommands.WorkflowCommand>()
+
     /** MDC context for coroutine propagation with workflow identifiers. */
     private val mdcContext =
         MDCContext(
@@ -183,6 +190,11 @@ internal class WorkflowExecutor(
                         workflowDispatcher.processAllWork()
                     } finally {
                         state.isReadOnly = false
+                        // Flush accumulated query results as commands
+                        for (queryCommand in pendingQueryResults) {
+                            state.addCommand(queryCommand)
+                        }
+                        pendingQueryResults.clear()
                     }
                 }
 
@@ -461,9 +473,216 @@ internal class WorkflowExecutor(
         // TODO: Queue signal for processing by signal handlers
     }
 
-    private fun handleQuery(query: coresdk.workflow_activation.WorkflowActivationOuterClass.QueryWorkflow) {
-        // MVP: Queries not yet implemented
-        // TODO: Execute query handler and add QueryResult command
+    private suspend fun handleQuery(query: coresdk.workflow_activation.WorkflowActivationOuterClass.QueryWorkflow) {
+        val queryId = query.queryId
+        val queryType = query.queryType
+
+        logger.debug("Processing query: id={}, type={}", queryId, queryType)
+
+        val ctx = context as? WorkflowContextImpl
+
+        // Check runtime-registered handlers first (they take precedence)
+        val runtimeHandler = ctx?.runtimeQueryHandlers?.get(queryType)
+        val runtimeDynamicHandler = ctx?.runtimeDynamicQueryHandler
+
+        // Then check annotation-defined handlers
+        val annotationHandler = methodInfo.queryHandlers[queryType]
+        val annotationDynamicHandler = methodInfo.queryHandlers[null]
+
+        // Determine which handler to use:
+        // 1. Runtime handler for specific query type
+        // 2. Annotation handler for specific query type
+        // 3. Runtime dynamic handler
+        // 4. Annotation dynamic handler
+        when {
+            runtimeHandler != null -> {
+                handleRuntimeQuery(queryId, queryType, runtimeHandler, query.argumentsList, isDynamic = false)
+            }
+            annotationHandler != null -> {
+                handleAnnotationQuery(queryId, queryType, annotationHandler, query, isDynamic = false)
+            }
+            runtimeDynamicHandler != null -> {
+                handleRuntimeDynamicQuery(queryId, queryType, runtimeDynamicHandler, query.argumentsList)
+            }
+            annotationDynamicHandler != null -> {
+                handleAnnotationQuery(queryId, queryType, annotationDynamicHandler, query, isDynamic = true)
+            }
+            else -> {
+                logger.debug("No handler found for query type: {}", queryType)
+                addFailedQueryResult(queryId, "Unknown query type: $queryType")
+            }
+        }
+    }
+
+    /**
+     * Handles a runtime-registered query handler (specific query type).
+     * Runtime handlers receive raw Payloads and return a Payload directly.
+     */
+    private suspend fun handleRuntimeQuery(
+        queryId: String,
+        queryType: String,
+        handler: suspend (List<Payload>) -> Payload,
+        args: List<Payload>,
+        isDynamic: Boolean,
+    ) {
+        try {
+            val resultPayload = handler(args)
+            addSuccessQueryResult(queryId, resultPayload)
+        } catch (e: ReadOnlyContextException) {
+            logger.warn("Query handler attempted state mutation: {}", e.message)
+            addFailedQueryResult(queryId, "Query attempted state mutation: ${e.message}")
+        } catch (e: Exception) {
+            logger.warn("Query handler threw exception: {}", e.message)
+            addFailedQueryResult(queryId, "Query failed: ${e.message ?: e::class.simpleName}")
+        }
+    }
+
+    /**
+     * Handles a runtime-registered dynamic query handler.
+     * Dynamic handlers receive the query type name and raw Payloads, and return a Payload.
+     */
+    private suspend fun handleRuntimeDynamicQuery(
+        queryId: String,
+        queryType: String,
+        handler: suspend (queryType: String, args: List<Payload>) -> Payload,
+        args: List<Payload>,
+    ) {
+        try {
+            val resultPayload = handler(queryType, args)
+            addSuccessQueryResult(queryId, resultPayload)
+        } catch (e: ReadOnlyContextException) {
+            logger.warn("Query handler attempted state mutation: {}", e.message)
+            addFailedQueryResult(queryId, "Query attempted state mutation: ${e.message}")
+        } catch (e: Exception) {
+            logger.warn("Query handler threw exception: {}", e.message)
+            addFailedQueryResult(queryId, "Query failed: ${e.message ?: e::class.simpleName}")
+        }
+    }
+
+    /**
+     * Handles an annotation-defined query handler.
+     */
+    private suspend fun handleAnnotationQuery(
+        queryId: String,
+        queryType: String,
+        handler: QueryHandlerInfo,
+        query: coresdk.workflow_activation.WorkflowActivationOuterClass.QueryWorkflow,
+        isDynamic: Boolean,
+    ) {
+        try {
+            // For dynamic handlers, the first argument is the query type name
+            val args =
+                if (isDynamic) {
+                    val remainingParamTypes = handler.parameterTypes.drop(1)
+                    val deserializedArgs = deserializeArguments(query.argumentsList, remainingParamTypes)
+                    arrayOf(queryType, *deserializedArgs)
+                } else {
+                    deserializeArguments(query.argumentsList, handler.parameterTypes)
+                }
+
+            val result = invokeQueryHandler(handler, args)
+
+            // Serialize the result using the handler's declared return type
+            val payload =
+                if (result == Unit || handler.returnType.classifier == Unit::class) {
+                    Payload.getDefaultInstance()
+                } else {
+                    serializer.serialize(typeInfoOf(handler.returnType), result)
+                }
+
+            addSuccessQueryResult(queryId, payload)
+        } catch (e: ReadOnlyContextException) {
+            logger.warn("Query handler attempted state mutation: {}", e.message)
+            addFailedQueryResult(queryId, "Query attempted state mutation: ${e.message}")
+        } catch (e: java.lang.reflect.InvocationTargetException) {
+            val cause = e.targetException ?: e
+            logger.warn("Query handler threw exception: {}", cause.message)
+            addFailedQueryResult(queryId, "Query failed: ${cause.message ?: cause::class.simpleName}")
+        } catch (e: Exception) {
+            logger.warn("Query handler threw exception: {}", e.message)
+            addFailedQueryResult(queryId, "Query failed: ${e.message ?: e::class.simpleName}")
+        }
+    }
+
+    /**
+     * Invokes an annotation-defined query handler method.
+     */
+    private suspend fun invokeQueryHandler(
+        handler: QueryHandlerInfo,
+        args: Array<Any?>,
+    ): Any? {
+        val ctx = context ?: error("WorkflowContext not initialized")
+        val method = handler.handlerMethod ?: error("Handler method is null for annotation-defined handler")
+
+        return if (handler.hasContextReceiver) {
+            if (handler.isSuspend) {
+                method.callSuspend(methodInfo.implementation, ctx, *args)
+            } else {
+                method.call(methodInfo.implementation, ctx, *args)
+            }
+        } else {
+            if (handler.isSuspend) {
+                method.callSuspend(methodInfo.implementation, *args)
+            } else {
+                method.call(methodInfo.implementation, *args)
+            }
+        }
+    }
+
+    /**
+     * Adds a successful query result to the pending results.
+     */
+    private fun addSuccessQueryResult(
+        queryId: String,
+        payload: Payload,
+    ) {
+        val queryResult =
+            WorkflowCommands.QueryResult
+                .newBuilder()
+                .setQueryId(queryId)
+                .setSucceeded(
+                    WorkflowCommands.QuerySuccess
+                        .newBuilder()
+                        .setResponse(payload),
+                ).build()
+
+        val command =
+            WorkflowCommands.WorkflowCommand
+                .newBuilder()
+                .setRespondToQuery(queryResult)
+                .build()
+
+        pendingQueryResults.add(command)
+    }
+
+    /**
+     * Adds a failed query result to the pending results.
+     */
+    private fun addFailedQueryResult(
+        queryId: String,
+        errorMessage: String,
+    ) {
+        val failure =
+            Failure
+                .newBuilder()
+                .setMessage(errorMessage)
+                .setSource("Kotlin")
+                .build()
+
+        val queryResult =
+            WorkflowCommands.QueryResult
+                .newBuilder()
+                .setQueryId(queryId)
+                .setFailed(failure)
+                .build()
+
+        val command =
+            WorkflowCommands.WorkflowCommand
+                .newBuilder()
+                .setRespondToQuery(queryResult)
+                .build()
+
+        pendingQueryResults.add(command)
     }
 
     private fun handleCancel() {

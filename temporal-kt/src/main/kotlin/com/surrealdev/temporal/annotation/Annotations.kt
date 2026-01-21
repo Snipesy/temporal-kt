@@ -160,7 +160,7 @@ annotation class Signal(
  * class OrderWorkflow {
  *     private var status: OrderStatus = OrderStatus.PENDING
  *
- *     @Query("getStatus")
+ *     @Query("getStatus", description = "Returns the current order status")
  *     fun WorkflowContext.getOrderStatus(): OrderStatus {
  *         return status
  *     }
@@ -169,6 +169,8 @@ annotation class Signal(
  *
  * @param name The query name. If empty, the function name will be used.
  * @param dynamic If true, this handler receives all queries not handled by other handlers.
+ *                Dynamic handlers must have a String as their first parameter to receive the query type.
+ * @param description Human-readable description of what this query returns. Shown in Temporal UI/CLI.
  */
 @Target(AnnotationTarget.FUNCTION)
 @Retention(AnnotationRetention.RUNTIME)
@@ -176,6 +178,7 @@ annotation class Signal(
 annotation class Query(
     val name: String = "",
     val dynamic: Boolean = false,
+    val description: String = "",
 )
 
 /**
