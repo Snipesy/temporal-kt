@@ -2,6 +2,9 @@ package com.surrealdev.temporal.compiler
 
 import com.surrealdev.temporal.annotation.Workflow
 import org.jetbrains.kotlin.backend.common.extensions.IrPluginContext
+import org.jetbrains.kotlin.cli.common.messages.CompilerMessageLocationWithRange
+import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity
+import org.jetbrains.kotlin.cli.common.messages.MessageCollector
 import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.declarations.IrClass
 import org.jetbrains.kotlin.ir.declarations.IrFile
@@ -27,6 +30,7 @@ import org.jetbrains.kotlin.name.FqName
 @OptIn(UnsafeDuringIrConstructionAPI::class)
 class WorkflowDeterminismValidator(
     private val pluginContext: IrPluginContext,
+    private val messageCollector: MessageCollector,
 ) : IrVisitorVoid() {
     private val workflowAnnotationFqName = FqName(Workflow::class.qualifiedName!!)
     private var currentWorkflowClass: IrClass? = null
@@ -196,13 +200,28 @@ class WorkflowDeterminismValidator(
         rule: DeterminismRule,
     ) {
         val file = currentFile ?: error("No current file tracked")
-        val line = file.fileEntry.getLineNumber(expression.startOffset) + 1
-        val filePath = file.fileEntry.name
         val errorMessage = rule.error ?: rulesConfig.defaultError
 
-        error(
-            "[TEMPORAL] Workflow determinism violation at $filePath:$line\n" +
-                "  ${rule.name}: $errorMessage",
+        val line = file.fileEntry.getLineNumber(expression.startOffset) + 1
+        val column = file.fileEntry.getColumnNumber(expression.startOffset) + 1
+        val endLine = file.fileEntry.getLineNumber(expression.endOffset) + 1
+        val endColumn = file.fileEntry.getColumnNumber(expression.endOffset) + 1
+
+        // Report as a compiler error with location info so IDEs show red squigglies
+        val location =
+            CompilerMessageLocationWithRange.create(
+                path = file.fileEntry.name,
+                lineStart = line,
+                columnStart = column,
+                lineEnd = endLine,
+                columnEnd = endColumn,
+                lineContent = null,
+            )
+
+        messageCollector.report(
+            CompilerMessageSeverity.ERROR,
+            "[TEMPORAL] ${rule.name}: $errorMessage",
+            location,
         )
     }
 }

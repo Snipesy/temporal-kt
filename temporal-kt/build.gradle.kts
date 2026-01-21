@@ -1,7 +1,7 @@
 plugins {
     id("buildsrc.convention.kotlin-jvm")
+    id("buildsrc.convention.maven-publish")
     alias(libs.plugins.kotlinPluginSerialization)
-    `maven-publish`
     `java-test-fixtures`
 }
 
@@ -26,11 +26,14 @@ publishing {
     publications {
         create<MavenPublication>("maven") {
             from(components["java"])
+            groupId = project.group.toString()
+            artifactId = "temporal-kt"
+            version = project.version.toString()
 
             pom {
                 name.set("Temporal KT")
                 description.set("Kotlin-first SDK for Temporal")
-                url.set("https://github.com/anthropics/temporal-kt")
+                url.set("https://github.com/Snipesy/temporal-kt")
 
                 licenses {
                     license {

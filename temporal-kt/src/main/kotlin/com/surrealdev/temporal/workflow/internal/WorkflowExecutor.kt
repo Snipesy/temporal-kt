@@ -21,6 +21,7 @@ import org.slf4j.LoggerFactory
 import kotlin.reflect.KType
 import kotlin.reflect.full.callSuspend
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Instant
 import kotlin.time.toJavaDuration
 import kotlin.time.toKotlinInstant
 
@@ -369,7 +370,7 @@ internal class WorkflowExecutor(
                 namespace = namespace,
                 attempt = init.attempt,
                 startTime =
-                    kotlinx.datetime.Instant.fromEpochMilliseconds(
+                    Instant.fromEpochMilliseconds(
                         startTime.toEpochMilliseconds(),
                     ),
             )

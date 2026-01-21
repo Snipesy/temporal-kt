@@ -21,7 +21,7 @@ import kotlin.time.toJavaDuration
  *
  * This context provides deterministic operations within a workflow:
  * - Timer scheduling (via [sleep])
- * - Activity scheduling (via [scheduleActivity])
+ * - Activity scheduling (via [scheduleActivityDirect])
  * - Deterministic time and random values
  *
  * All operations that interact with the external world go through
@@ -184,7 +184,7 @@ internal class WorkflowContextImpl(
         deferred.await()
     }
 
-    override fun now(): kotlinx.datetime.Instant {
+    override fun now(): Instant {
         // Convert from kotlin.time.Instant to kotlinx.datetime.Instant
         return Instant.fromEpochMilliseconds(
             state.currentTime.toEpochMilliseconds(),

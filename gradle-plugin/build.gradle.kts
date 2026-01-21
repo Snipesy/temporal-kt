@@ -1,11 +1,9 @@
 plugins {
     id("buildsrc.convention.kotlin-jvm")
+    id("buildsrc.convention.maven-publish")
     `java-gradle-plugin`
-    `maven-publish`
+    id("com.github.gmazzo.buildconfig")
 }
-
-group = property("GROUP") as String
-version = property("VERSION") as String
 
 dependencies {
     // Kotlin Gradle Plugin API for KotlinCompilerPluginSupportPlugin
@@ -17,13 +15,45 @@ dependencies {
     testImplementation(kotlin("test"))
 }
 
+buildConfig {
+    packageName("com.surrealdev.temporal.gradle")
+    documentation.set("Build-time configuration for Temporal Gradle Plugin.")
+
+    buildConfigField("VERSION", project.version.toString())
+    buildConfigField("GROUP_ID", project.group.toString())
+    buildConfigField("COMPILER_PLUGIN_ARTIFACT_ID", "temporal-compiler-plugin")
+}
+
 gradlePlugin {
     plugins {
         create("temporalPlugin") {
-            id = "com.surrealdev.temporal"
+            id = "com.surrealdev.temporal-kt"
             implementationClass = "com.surrealdev.temporal.gradle.TemporalGradlePlugin"
             displayName = "Temporal Kotlin Plugin"
             description = "Gradle plugin for Temporal workflow DSL compilation and client stub generation"
+        }
+    }
+}
+
+// Configure the publication created by java-gradle-plugin
+afterEvaluate {
+    publishing {
+        publications {
+            named<MavenPublication>("pluginMaven") {
+                artifactId = "gradle-plugin"
+                pom {
+                    name.set("Temporal Kotlin Plugin")
+                    description.set("Gradle plugin for Temporal workflow DSL compilation and client stub generation")
+                    url.set("https://github.com/Snipesy/temporal-kt")
+
+                    licenses {
+                        license {
+                            name.set("Apache License, Version 2.0")
+                            url.set("https://opensource.org/license/apache-2-0")
+                        }
+                    }
+                }
+            }
         }
     }
 }

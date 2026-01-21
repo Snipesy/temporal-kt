@@ -22,11 +22,14 @@ class TemporalCompilerPluginRegistrar : CompilerPluginRegistrar() {
     override fun ExtensionStorage.registerExtensions(configuration: CompilerConfiguration) {
         val outputDir = configuration.get(TemporalPluginConfigurationKeys.OUTPUT_DIR)
         val enabled = configuration.get(TemporalPluginConfigurationKeys.ENABLED, true)
+        val messageCollector =
+            configuration.get(org.jetbrains.kotlin.config.CommonConfigurationKeys.MESSAGE_COLLECTOR_KEY)
+                ?: org.jetbrains.kotlin.cli.common.messages.MessageCollector.NONE
 
         if (!enabled) return
 
         IrGenerationExtension.registerExtension(
-            TemporalIrGenerationExtension(outputDir),
+            TemporalIrGenerationExtension(outputDir, messageCollector),
         )
     }
 }

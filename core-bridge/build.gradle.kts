@@ -2,6 +2,7 @@ import org.gradle.internal.os.OperatingSystem
 
 plugins {
     id("buildsrc.convention.kotlin-jvm")
+    id("buildsrc.convention.maven-publish")
     alias(libs.plugins.protobuf)
     id("com.github.gmazzo.buildconfig")
 }
@@ -210,4 +211,38 @@ buildConfig {
     documentation.set("Build-time configuration constants.")
 
     buildConfigField("TEMPORAL_CLI_VERSION", temporalCliVersion)
+}
+
+// Configure Dokka to exclude generated code to prevent OOM
+dokka {
+    dokkaSourceSets.configureEach {
+        // Exclude generated protobuf code from documentation
+        suppressedFiles.from(
+            fileTree("${layout.buildDirectory.get()}/generated/source/proto"),
+        )
+    }
+}
+
+publishing {
+    publications {
+        create<MavenPublication>("maven") {
+            from(components["java"])
+            groupId = project.group.toString()
+            artifactId = "core-bridge"
+            version = project.version.toString()
+
+            pom {
+                name.set("Temporal KT Core Bridge")
+                description.set("Kotlin FFM Bridge to Temporal Core SDK")
+                url.set("https://github.com/Snipesy/temporal-kt")
+
+                licenses {
+                    license {
+                        name.set("Apache License, Version 2.0")
+                        url.set("https://opensource.org/license/apache-2-0")
+                    }
+                }
+            }
+        }
+    }
 }

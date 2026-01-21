@@ -2,6 +2,7 @@ package com.surrealdev.temporal.workflow
 
 import kotlinx.coroutines.CoroutineScope
 import kotlin.time.Duration
+import kotlin.time.Instant
 
 /**
  * Context available within a workflow execution.
@@ -64,7 +65,7 @@ interface WorkflowContext : CoroutineScope {
      *
      * This is deterministic and safe to use in workflows.
      */
-    fun now(): kotlinx.datetime.Instant
+    fun now(): Instant
 
     /**
      * Generates a deterministic UUID.
@@ -104,7 +105,7 @@ data class WorkflowInfo(
     /** Attempt number (1-based). */
     val attempt: Int,
     /** When this workflow run started. */
-    val startTime: kotlinx.datetime.Instant,
+    val startTime: Instant,
 )
 
 /**

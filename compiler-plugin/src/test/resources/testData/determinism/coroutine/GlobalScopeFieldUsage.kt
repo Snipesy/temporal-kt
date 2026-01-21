@@ -12,11 +12,11 @@ import kotlinx.coroutines.async
  */
 @Workflow("GlobalScopeWorkflow")
 class GlobalScopeFieldUsage {
-
-    val topLevel = GlobalScope
-        .async {
-            "This breaks determinism!"
-        }
+    val topLevel =
+        GlobalScope
+            .async {
+                "This breaks determinism!"
+            }
 
     @WorkflowRun
     suspend fun WorkflowContext.run(): String {

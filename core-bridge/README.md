@@ -1,4 +1,4 @@
-# Core-Bridge
+# Module core-bridge
 
 This is the module that provides FFM bindings to the Temporal Core Rust library. It also generates the kotlin protobuf
 definitions used by the SDK-Core Rust library.

@@ -1,4 +1,4 @@
-# Gradle Plugin
+# Module gradle-plugin
 
 Gradle plugin to apply the Temporal compiler plugin to Kotlin projects. plugin to help satisfy 
 [TKT-0003](../proposals/TKT-0003-inline.md) and
