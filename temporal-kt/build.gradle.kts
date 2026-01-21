@@ -18,6 +18,7 @@ dependencies {
 
     testImplementation(kotlin("test"))
     testImplementation(libs.slf4jSimple)
+    testImplementation(libs.kotlinxCoroutinesTest)
 
     testFixturesImplementation(libs.kotlinxCoroutinesTest)
 }

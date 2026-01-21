@@ -139,8 +139,11 @@ internal class WorkflowExecutor(
                     processJob(job, activation, scope)
                 }
                 if (patchJobs.isNotEmpty()) {
-                    workflowDispatcher.processAllWork()
-                    state.checkConditions()
+                    // Process work until stable
+                    do {
+                        workflowDispatcher.processAllWork()
+                        state.checkConditions()
+                    } while (workflowDispatcher.hasPendingWork())
                 }
 
                 // Stage 2: Process signals and updates
@@ -149,8 +152,11 @@ internal class WorkflowExecutor(
                     processJob(job, activation, scope)
                 }
                 if (signalAndUpdateJobs.isNotEmpty()) {
-                    workflowDispatcher.processAllWork()
-                    state.checkConditions()
+                    // Process work until stable
+                    do {
+                        workflowDispatcher.processAllWork()
+                        state.checkConditions()
+                    } while (workflowDispatcher.hasPendingWork())
                 }
 
                 // Stage 3: Process non-query jobs (resolutions, cancellation, etc.)
@@ -159,8 +165,11 @@ internal class WorkflowExecutor(
                     processJob(job, activation, scope)
                 }
                 if (nonQueryJobs.isNotEmpty()) {
-                    workflowDispatcher.processAllWork()
-                    state.checkConditions()
+                    // Process work until stable
+                    do {
+                        workflowDispatcher.processAllWork()
+                        state.checkConditions()
+                    } while (workflowDispatcher.hasPendingWork())
                 }
 
                 // Stage 4: Process queries (read-only mode)
@@ -219,13 +228,13 @@ internal class WorkflowExecutor(
      * Checks if a job is a patch job (workflow versioning).
      * Patches must be processed first for correct versioning behavior.
      */
-    private fun isPatchJob(job: WorkflowActivationJob): Boolean = job.hasNotifyHasPatch()
+    internal fun isPatchJob(job: WorkflowActivationJob): Boolean = job.hasNotifyHasPatch()
 
     /**
      * Checks if a job is a signal or update job.
      * These can mutate workflow state and must be processed before queries.
      */
-    private fun isSignalOrUpdateJob(job: WorkflowActivationJob): Boolean =
+    internal fun isSignalOrUpdateJob(job: WorkflowActivationJob): Boolean =
         job.hasSignalWorkflow() ||
             job.hasDoUpdate()
 
@@ -234,7 +243,7 @@ internal class WorkflowExecutor(
      * These jobs can mutate state but are not signals/updates.
      * Explicitly excludes InitializeWorkflow (processed in Stage 0) and RemoveFromCache (early exit).
      */
-    private fun isNonQueryJob(job: WorkflowActivationJob): Boolean =
+    internal fun isNonQueryJob(job: WorkflowActivationJob): Boolean =
         job.hasFireTimer() ||
             job.hasResolveActivity() ||
             job.hasUpdateRandomSeed() ||

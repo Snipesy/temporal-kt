@@ -1,0 +1,479 @@
+package com.surrealdev.temporal.testing
+
+import com.google.protobuf.ByteString
+import com.google.protobuf.Duration
+import com.google.protobuf.Timestamp
+import coresdk.activity_result.ActivityResult
+import coresdk.child_workflow.ChildWorkflow
+import coresdk.workflow_activation.WorkflowActivationOuterClass.CancelWorkflow
+import coresdk.workflow_activation.WorkflowActivationOuterClass.DoUpdate
+import coresdk.workflow_activation.WorkflowActivationOuterClass.FireTimer
+import coresdk.workflow_activation.WorkflowActivationOuterClass.InitializeWorkflow
+import coresdk.workflow_activation.WorkflowActivationOuterClass.NotifyHasPatch
+import coresdk.workflow_activation.WorkflowActivationOuterClass.QueryWorkflow
+import coresdk.workflow_activation.WorkflowActivationOuterClass.RemoveFromCache
+import coresdk.workflow_activation.WorkflowActivationOuterClass.ResolveActivity
+import coresdk.workflow_activation.WorkflowActivationOuterClass.ResolveChildWorkflowExecution
+import coresdk.workflow_activation.WorkflowActivationOuterClass.ResolveChildWorkflowExecutionStart
+import coresdk.workflow_activation.WorkflowActivationOuterClass.ResolveChildWorkflowExecutionStartSuccess
+import coresdk.workflow_activation.WorkflowActivationOuterClass.ResolveNexusOperation
+import coresdk.workflow_activation.WorkflowActivationOuterClass.ResolveNexusOperationStart
+import coresdk.workflow_activation.WorkflowActivationOuterClass.ResolveRequestCancelExternalWorkflow
+import coresdk.workflow_activation.WorkflowActivationOuterClass.ResolveSignalExternalWorkflow
+import coresdk.workflow_activation.WorkflowActivationOuterClass.SignalWorkflow
+import coresdk.workflow_activation.WorkflowActivationOuterClass.UpdateRandomSeed
+import coresdk.workflow_activation.WorkflowActivationOuterClass.WorkflowActivation
+import coresdk.workflow_activation.WorkflowActivationOuterClass.WorkflowActivationJob
+import io.temporal.api.common.v1.Payload
+import io.temporal.api.failure.v1.Failure
+import java.util.UUID
+
+/**
+ * Factory functions for creating proto objects for testing purposes.
+ * These helpers allow creating activation jobs without mocking frameworks.
+ */
+object ProtoTestHelpers {
+    /**
+     * Creates a WorkflowActivation with the given jobs.
+     */
+    fun createActivation(
+        runId: String = UUID.randomUUID().toString(),
+        jobs: List<WorkflowActivationJob>,
+        timestamp: Timestamp? = Timestamp.newBuilder().setSeconds(1000).build(),
+        isReplaying: Boolean = false,
+        historyLength: Int = 1,
+    ): WorkflowActivation {
+        val builder =
+            WorkflowActivation
+                .newBuilder()
+                .setRunId(runId)
+                .setIsReplaying(isReplaying)
+                .setHistoryLength(historyLength)
+                .addAllJobs(jobs)
+
+        if (timestamp != null) {
+            builder.timestamp = timestamp
+        }
+
+        return builder.build()
+    }
+
+    /**
+     * Creates an InitializeWorkflow job.
+     */
+    fun initializeWorkflowJob(
+        workflowId: String = "test-workflow-${UUID.randomUUID()}",
+        workflowType: String = "TestWorkflow",
+        arguments: List<Payload> = emptyList(),
+        randomnessSeed: Long = 12345L,
+        attempt: Int = 1,
+    ): WorkflowActivationJob {
+        val initWorkflow =
+            InitializeWorkflow
+                .newBuilder()
+                .setWorkflowId(workflowId)
+                .setWorkflowType(workflowType)
+                .setRandomnessSeed(randomnessSeed)
+                .setAttempt(attempt)
+                .addAllArguments(arguments)
+                .build()
+
+        return WorkflowActivationJob
+            .newBuilder()
+            .setInitializeWorkflow(initWorkflow)
+            .build()
+    }
+
+    /**
+     * Creates a FireTimer job.
+     */
+    fun fireTimerJob(seq: Int): WorkflowActivationJob {
+        val fireTimer =
+            FireTimer
+                .newBuilder()
+                .setSeq(seq)
+                .build()
+
+        return WorkflowActivationJob
+            .newBuilder()
+            .setFireTimer(fireTimer)
+            .build()
+    }
+
+    /**
+     * Creates a ResolveActivity job with a completed result.
+     */
+    fun resolveActivityJobCompleted(
+        seq: Int,
+        result: Payload = Payload.getDefaultInstance(),
+    ): WorkflowActivationJob {
+        val completed =
+            ActivityResult.Success
+                .newBuilder()
+                .setResult(result)
+                .build()
+
+        val resolution =
+            ActivityResult.ActivityResolution
+                .newBuilder()
+                .setCompleted(completed)
+                .build()
+
+        val resolveActivity =
+            ResolveActivity
+                .newBuilder()
+                .setSeq(seq)
+                .setResult(resolution)
+                .build()
+
+        return WorkflowActivationJob
+            .newBuilder()
+            .setResolveActivity(resolveActivity)
+            .build()
+    }
+
+    /**
+     * Creates a ResolveActivity job with a failed result.
+     */
+    fun resolveActivityJobFailed(
+        seq: Int,
+        message: String = "Activity failed",
+    ): WorkflowActivationJob {
+        val failure =
+            Failure
+                .newBuilder()
+                .setMessage(message)
+                .build()
+
+        val failed =
+            ActivityResult.Failure
+                .newBuilder()
+                .setFailure(failure)
+                .build()
+
+        val resolution =
+            ActivityResult.ActivityResolution
+                .newBuilder()
+                .setFailed(failed)
+                .build()
+
+        val resolveActivity =
+            ResolveActivity
+                .newBuilder()
+                .setSeq(seq)
+                .setResult(resolution)
+                .build()
+
+        return WorkflowActivationJob
+            .newBuilder()
+            .setResolveActivity(resolveActivity)
+            .build()
+    }
+
+    /**
+     * Creates a ResolveActivity job with a cancelled result.
+     */
+    fun resolveActivityJobCancelled(seq: Int): WorkflowActivationJob {
+        val cancelled =
+            ActivityResult.Cancellation
+                .newBuilder()
+                .build()
+
+        val resolution =
+            ActivityResult.ActivityResolution
+                .newBuilder()
+                .setCancelled(cancelled)
+                .build()
+
+        val resolveActivity =
+            ResolveActivity
+                .newBuilder()
+                .setSeq(seq)
+                .setResult(resolution)
+                .build()
+
+        return WorkflowActivationJob
+            .newBuilder()
+            .setResolveActivity(resolveActivity)
+            .build()
+    }
+
+    /**
+     * Creates a QueryWorkflow job.
+     */
+    fun queryWorkflowJob(
+        queryId: String = UUID.randomUUID().toString(),
+        queryType: String = "TestQuery",
+        arguments: List<Payload> = emptyList(),
+    ): WorkflowActivationJob {
+        val query =
+            QueryWorkflow
+                .newBuilder()
+                .setQueryId(queryId)
+                .setQueryType(queryType)
+                .addAllArguments(arguments)
+                .build()
+
+        return WorkflowActivationJob
+            .newBuilder()
+            .setQueryWorkflow(query)
+            .build()
+    }
+
+    /**
+     * Creates a SignalWorkflow job.
+     */
+    fun signalWorkflowJob(
+        signalName: String = "TestSignal",
+        input: List<Payload> = emptyList(),
+    ): WorkflowActivationJob {
+        val signal =
+            SignalWorkflow
+                .newBuilder()
+                .setSignalName(signalName)
+                .addAllInput(input)
+                .build()
+
+        return WorkflowActivationJob
+            .newBuilder()
+            .setSignalWorkflow(signal)
+            .build()
+    }
+
+    /**
+     * Creates a DoUpdate job.
+     */
+    fun doUpdateJob(
+        id: String = UUID.randomUUID().toString(),
+        name: String = "TestUpdate",
+        input: List<Payload> = emptyList(),
+    ): WorkflowActivationJob {
+        val update =
+            DoUpdate
+                .newBuilder()
+                .setId(id)
+                .setName(name)
+                .addAllInput(input)
+                .build()
+
+        return WorkflowActivationJob
+            .newBuilder()
+            .setDoUpdate(update)
+            .build()
+    }
+
+    /**
+     * Creates a NotifyHasPatch job.
+     */
+    fun notifyHasPatchJob(patchId: String = "test-patch"): WorkflowActivationJob {
+        val patch =
+            NotifyHasPatch
+                .newBuilder()
+                .setPatchId(patchId)
+                .build()
+
+        return WorkflowActivationJob
+            .newBuilder()
+            .setNotifyHasPatch(patch)
+            .build()
+    }
+
+    /**
+     * Creates a CancelWorkflow job.
+     */
+    fun cancelWorkflowJob(): WorkflowActivationJob {
+        val cancel = CancelWorkflow.newBuilder().build()
+
+        return WorkflowActivationJob
+            .newBuilder()
+            .setCancelWorkflow(cancel)
+            .build()
+    }
+
+    /**
+     * Creates a RemoveFromCache (eviction) job.
+     */
+    fun removeFromCacheJob(message: String = "Cache eviction"): WorkflowActivationJob {
+        val remove =
+            RemoveFromCache
+                .newBuilder()
+                .setMessage(message)
+                .build()
+
+        return WorkflowActivationJob
+            .newBuilder()
+            .setRemoveFromCache(remove)
+            .build()
+    }
+
+    /**
+     * Creates an UpdateRandomSeed job.
+     */
+    fun updateRandomSeedJob(seed: Long = 54321L): WorkflowActivationJob {
+        val updateSeed =
+            UpdateRandomSeed
+                .newBuilder()
+                .setRandomnessSeed(seed)
+                .build()
+
+        return WorkflowActivationJob
+            .newBuilder()
+            .setUpdateRandomSeed(updateSeed)
+            .build()
+    }
+
+    /**
+     * Creates a ResolveChildWorkflowExecutionStart job (successful start).
+     */
+    fun resolveChildWorkflowStartJob(
+        seq: Int,
+        runId: String = UUID.randomUUID().toString(),
+    ): WorkflowActivationJob {
+        val succeeded =
+            ResolveChildWorkflowExecutionStartSuccess
+                .newBuilder()
+                .setRunId(runId)
+                .build()
+
+        val resolve =
+            ResolveChildWorkflowExecutionStart
+                .newBuilder()
+                .setSeq(seq)
+                .setSucceeded(succeeded)
+                .build()
+
+        return WorkflowActivationJob
+            .newBuilder()
+            .setResolveChildWorkflowExecutionStart(resolve)
+            .build()
+    }
+
+    /**
+     * Creates a ResolveChildWorkflowExecution job (completed).
+     */
+    fun resolveChildWorkflowExecutionJob(
+        seq: Int,
+        result: Payload = Payload.getDefaultInstance(),
+    ): WorkflowActivationJob {
+        val childResult =
+            ChildWorkflow.ChildWorkflowResult
+                .newBuilder()
+                .setCompleted(
+                    ChildWorkflow.Success
+                        .newBuilder()
+                        .setResult(result)
+                        .build(),
+                ).build()
+
+        val resolve =
+            ResolveChildWorkflowExecution
+                .newBuilder()
+                .setSeq(seq)
+                .setResult(childResult)
+                .build()
+
+        return WorkflowActivationJob
+            .newBuilder()
+            .setResolveChildWorkflowExecution(resolve)
+            .build()
+    }
+
+    /**
+     * Creates a ResolveSignalExternalWorkflow job.
+     */
+    fun resolveSignalExternalWorkflowJob(seq: Int): WorkflowActivationJob {
+        val resolve =
+            ResolveSignalExternalWorkflow
+                .newBuilder()
+                .setSeq(seq)
+                .build()
+
+        return WorkflowActivationJob
+            .newBuilder()
+            .setResolveSignalExternalWorkflow(resolve)
+            .build()
+    }
+
+    /**
+     * Creates a ResolveRequestCancelExternalWorkflow job.
+     */
+    fun resolveCancelExternalWorkflowJob(seq: Int): WorkflowActivationJob {
+        val resolve =
+            ResolveRequestCancelExternalWorkflow
+                .newBuilder()
+                .setSeq(seq)
+                .build()
+
+        return WorkflowActivationJob
+            .newBuilder()
+            .setResolveRequestCancelExternalWorkflow(resolve)
+            .build()
+    }
+
+    /**
+     * Creates a ResolveNexusOperationStart job.
+     */
+    fun resolveNexusOperationStartJob(seq: Int): WorkflowActivationJob {
+        val resolve =
+            ResolveNexusOperationStart
+                .newBuilder()
+                .setSeq(seq)
+                .build()
+
+        return WorkflowActivationJob
+            .newBuilder()
+            .setResolveNexusOperationStart(resolve)
+            .build()
+    }
+
+    /**
+     * Creates a ResolveNexusOperation job.
+     */
+    fun resolveNexusOperationJob(seq: Int): WorkflowActivationJob {
+        val resolve =
+            ResolveNexusOperation
+                .newBuilder()
+                .setSeq(seq)
+                .build()
+
+        return WorkflowActivationJob
+            .newBuilder()
+            .setResolveNexusOperation(resolve)
+            .build()
+    }
+
+    /**
+     * Creates a Timestamp from seconds and nanos.
+     */
+    fun timestamp(
+        seconds: Long,
+        nanos: Int = 0,
+    ): Timestamp =
+        Timestamp
+            .newBuilder()
+            .setSeconds(seconds)
+            .setNanos(nanos)
+            .build()
+
+    /**
+     * Creates a Duration from seconds.
+     */
+    fun duration(
+        seconds: Long,
+        nanos: Int = 0,
+    ): Duration =
+        Duration
+            .newBuilder()
+            .setSeconds(seconds)
+            .setNanos(nanos)
+            .build()
+
+    /**
+     * Creates a Payload from a string.
+     */
+    fun payload(data: String): Payload =
+        Payload
+            .newBuilder()
+            .setData(ByteString.copyFromUtf8(data))
+            .build()
+}

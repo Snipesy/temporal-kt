@@ -32,7 +32,6 @@ import org.jetbrains.kotlin.gradle.plugin.SubpluginOption
  */
 class TemporalGradlePlugin : KotlinCompilerPluginSupportPlugin {
     override fun apply(target: Project) {
-
         // Register the temporal extension for user configuration
         val extension =
             target.extensions.create(
@@ -45,7 +44,6 @@ class TemporalGradlePlugin : KotlinCompilerPluginSupportPlugin {
         extension.outputDir.convention(
             target.layout.buildDirectory.dir("generated/temporal"),
         )
-
     }
 
     /**
