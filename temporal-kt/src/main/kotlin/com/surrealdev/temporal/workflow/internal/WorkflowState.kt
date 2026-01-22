@@ -118,6 +118,18 @@ internal class WorkflowState(
     private val conditions = mutableListOf<Pair<() -> Boolean, CompletableDeferred<Unit>>>()
 
     /**
+     * Patches notified by Core during replay (from NotifyHasPatch jobs).
+     * When Core sends a NotifyHasPatch job, it means a patch marker exists in history.
+     */
+    private val notifiedPatches = mutableSetOf<String>()
+
+    /**
+     * Memoized patch results for deterministic behavior within a single execution.
+     * Once patched() is called for a patch ID, the result is cached here.
+     */
+    private val patchMemo = mutableMapOf<String, Boolean>()
+
+    /**
      * Commands accumulated during this activation.
      * Drained and sent back to the server at the end of activation processing.
      */
@@ -339,6 +351,45 @@ internal class WorkflowState(
     }
 
     /**
+     * Records that a patch was notified by Core.
+     * Called when a NotifyHasPatch job is processed.
+     *
+     * @param patchId The patch identifier from the NotifyHasPatch job
+     */
+    fun notifyPatch(patchId: String) {
+        notifiedPatches.add(patchId)
+    }
+
+    /**
+     * Checks if a patch was notified by Core (exists in history).
+     *
+     * @param patchId The patch identifier to check
+     * @return true if Core notified this patch (marker exists in history)
+     */
+    fun isPatchNotified(patchId: String): Boolean = patchId in notifiedPatches
+
+    /**
+     * Gets the memoized result for a patch ID.
+     *
+     * @param patchId The patch identifier
+     * @return The memoized result, or null if not yet evaluated
+     */
+    fun getPatchMemo(patchId: String): Boolean? = patchMemo[patchId]
+
+    /**
+     * Memoizes the result for a patch ID.
+     *
+     * @param patchId The patch identifier
+     * @param value The result to memoize
+     */
+    fun setPatchMemo(
+        patchId: String,
+        value: Boolean,
+    ) {
+        patchMemo[patchId] = value
+    }
+
+    /**
      * Adds a command to be sent at the end of this activation.
      * Throws [ReadOnlyContextException] if called in read-only mode (e.g., during query processing).
      */
@@ -386,6 +437,10 @@ internal class WorkflowState(
         // Cancel all pending conditions
         conditions.forEach { (_, deferred) -> deferred.cancel() }
         conditions.clear()
+
+        // Clear patch tracking
+        notifiedPatches.clear()
+        patchMemo.clear()
 
         commands.clear()
     }

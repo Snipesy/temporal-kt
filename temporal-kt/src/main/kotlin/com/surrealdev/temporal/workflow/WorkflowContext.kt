@@ -112,6 +112,33 @@ interface WorkflowContext : CoroutineScope {
     fun randomUuid(): String
 
     /**
+     * Checks if a patch (workflow version) has been applied.
+     *
+     * Use this for safe code evolution while maintaining replay compatibility:
+     * ```kotlin
+     * if (patched("v2-improved-retry")) {
+     *     // New code path
+     * } else {
+     *     // Legacy code path (for replaying old workflows)
+     * }
+     * ```
+     *
+     * **Behavior:**
+     * - **First execution:** Returns `true`, records patch marker in history
+     * - **Replay with marker:** Returns `true` (deterministic)
+     * - **Replay without marker:** Returns `false` (legacy path)
+     *
+     * **Best Practices:**
+     * - Use descriptive patch IDs (e.g., "v2-improved-retry", "fix-123-null-check")
+     * - Keep old code paths until all running workflows have completed
+     * - Remove old code and patch checks once all workflows use the new path
+     *
+     * @param patchId Unique identifier for this version change
+     * @return `true` if workflow should use new behavior, `false` for legacy path
+     */
+    fun patched(patchId: String): Boolean
+
+    /**
      * Starts a child workflow.
      *
      * @param T The child workflow interface type

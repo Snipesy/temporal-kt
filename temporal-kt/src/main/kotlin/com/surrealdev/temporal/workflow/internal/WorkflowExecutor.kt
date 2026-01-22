@@ -324,7 +324,7 @@ internal class WorkflowExecutor(
             }
 
             job.hasNotifyHasPatch() -> {
-                handlePatch(job.notifyHasPatch)
+                handlePatchJob(job.notifyHasPatch)
             }
 
             job.hasSignalWorkflow() -> {
@@ -522,11 +522,6 @@ internal class WorkflowExecutor(
         // Clear state on eviction
         state.clear()
         mainCoroutine?.cancel(WorkflowCancelledException())
-    }
-
-    private fun handlePatch(patch: coresdk.workflow_activation.WorkflowActivationOuterClass.NotifyHasPatch) {
-        // TODO: Implement patch tracking when workflow versioning is implemented
-        // For now, just acknowledge receipt - patches will be tracked in WorkflowState
     }
 
     private fun handleChildWorkflowStart(

@@ -283,6 +283,24 @@ internal class WorkflowContextImpl(
 
     override fun randomUuid(): String = deterministicRandom.randomUuid()
 
+    override fun patched(patchId: String): Boolean {
+        // Check memoized result first (ensures determinism within execution)
+        state.getPatchMemo(patchId)?.let { return it }
+
+        // Core logic: true if not replaying OR if patch was notified
+        val usePatch = !isReplaying || state.isPatchNotified(patchId)
+
+        // Memoize the result
+        state.setPatchMemo(patchId, usePatch)
+
+        // Send command only if using the patch
+        if (usePatch) {
+            state.addCommand(createSetPatchMarkerCommand(patchId))
+        }
+
+        return usePatch
+    }
+
     @Suppress("UNCHECKED_CAST")
     override suspend fun <T : Any> childWorkflow(
         workflowType: String,
