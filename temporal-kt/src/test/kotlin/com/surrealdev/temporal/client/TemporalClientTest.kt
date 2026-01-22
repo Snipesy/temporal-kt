@@ -3,9 +3,12 @@ package com.surrealdev.temporal.client
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.taskQueue
+import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
+import com.surrealdev.temporal.serialization.serialize
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext
+import io.temporal.api.common.v1.Payloads
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -60,11 +63,11 @@ class TemporalClientTest {
             }
 
             val client = client()
-            val handle =
-                client.startWorkflow<String>(
+            val handle: WorkflowHandle<String> =
+                client.startWorkflow(
                     workflowType = "GreetingWorkflow",
                     taskQueue = taskQueue,
-                    args = listOf("World"),
+                    arg = "World",
                 )
 
             assertNotNull(handle.workflowId)
@@ -87,12 +90,12 @@ class TemporalClientTest {
             }
 
             val client = client()
-            val handle =
-                client.startWorkflow<String>(
+            val handle: WorkflowHandle<String> =
+                client.startWorkflow(
                     workflowType = "GreetingWorkflow",
                     taskQueue = taskQueue,
                     workflowId = customWorkflowId,
-                    args = listOf("Test"),
+                    arg = "Test",
                 )
 
             assertEquals(customWorkflowId, handle.workflowId)
@@ -113,11 +116,11 @@ class TemporalClientTest {
             }
 
             val client = client()
-            val handle =
-                client.startWorkflow<String>(
+            val handle: WorkflowHandle<String> =
+                client.startWorkflow(
                     workflowType = "TimerTestWorkflow",
                     taskQueue = taskQueue,
-                    args = listOf(100L),
+                    arg = 100L,
                 )
 
             val result = handle.result(timeout = 30.seconds)
@@ -136,11 +139,11 @@ class TemporalClientTest {
             }
 
             val client = client()
-            val handle =
-                client.startWorkflow<String>(
+            val handle: WorkflowHandle<String> =
+                client.startWorkflow(
                     workflowType = "GreetingWorkflow",
                     taskQueue = taskQueue,
-                    args = listOf("History"),
+                    arg = "History",
                 )
 
             handle.result(timeout = 30.seconds)
@@ -164,11 +167,11 @@ class TemporalClientTest {
             }
 
             val client = client()
-            val handle =
-                client.startWorkflow<String>(
+            val handle: WorkflowHandle<String> =
+                client.startWorkflow(
                     workflowType = "TimerTestWorkflow",
                     taskQueue = taskQueue,
-                    args = listOf(50L),
+                    arg = 50L,
                 )
 
             handle.result(timeout = 30.seconds)
@@ -194,11 +197,11 @@ class TemporalClientTest {
             }
 
             val client = client()
-            val handle =
-                client.startWorkflow<String>(
+            val handle: WorkflowHandle<String> =
+                client.startWorkflow(
                     workflowType = "GreetingWorkflow",
                     taskQueue = taskQueue,
-                    args = listOf("Describe"),
+                    arg = "Describe",
                 )
 
             handle.result(timeout = 30.seconds)
@@ -221,12 +224,19 @@ class TemporalClientTest {
                 }
             }
 
+            // construct 2 args using payloads as temporal-kt will not support multiple arg serialization without
+            // reified
+            val pb = Payloads.newBuilder()
+            val serializer = KotlinxJsonSerializer()
+            pb.addPayloads(serializer.serialize(5))
+            pb.addPayloads(serializer.serialize(3))
+
             val client = client()
             val handle =
                 client.startWorkflow<Int>(
                     workflowType = "MultiArgWorkflow",
                     taskQueue = taskQueue,
-                    args = listOf(5, 3),
+                    args = pb.build(),
                 )
 
             val result = handle.result(timeout = 30.seconds)
@@ -245,8 +255,8 @@ class TemporalClientTest {
             }
 
             val client = client()
-            val handle =
-                client.startWorkflow<String>(
+            val handle: WorkflowHandle<String> =
+                client.startWorkflow(
                     workflowType = "NoArgWorkflow",
                     taskQueue = taskQueue,
                 )
@@ -270,12 +280,12 @@ class TemporalClientTest {
             val client = client()
 
             // Start the workflow
-            val originalHandle =
-                client.startWorkflow<String>(
+            val originalHandle: WorkflowHandle<String> =
+                client.startWorkflow(
                     workflowType = "GreetingWorkflow",
                     taskQueue = taskQueue,
                     workflowId = workflowId,
-                    args = listOf("Existing"),
+                    arg = "Existing",
                 )
 
             // Get a new handle to the same workflow

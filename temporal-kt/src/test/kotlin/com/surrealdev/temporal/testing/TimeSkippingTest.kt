@@ -3,6 +3,7 @@ package com.surrealdev.temporal.testing
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.taskQueue
+import com.surrealdev.temporal.client.startWorkflow
 import com.surrealdev.temporal.workflow.WorkflowContext
 import java.util.UUID
 import kotlin.test.Test

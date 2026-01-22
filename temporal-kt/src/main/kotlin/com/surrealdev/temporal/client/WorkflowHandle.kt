@@ -4,7 +4,6 @@ import com.surrealdev.temporal.client.history.WorkflowHistory
 import com.surrealdev.temporal.client.internal.WorkflowServiceClient
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.serialization.TypeInfo
-import com.surrealdev.temporal.serialization.typeInfoOf
 import io.temporal.api.common.v1.Payloads
 import io.temporal.api.common.v1.WorkflowExecution
 import io.temporal.api.enums.v1.EventType
@@ -39,6 +38,11 @@ interface WorkflowHandle<R> {
     val runId: String?
 
     /**
+     * Serializer associated with this workflow handle.
+     */
+    val serializer: PayloadSerializer
+
+    /**
      * Waits for the workflow to complete and returns the result.
      *
      * @param timeout Maximum time to wait for the result. Default is infinite.
@@ -54,13 +58,49 @@ interface WorkflowHandle<R> {
     /**
      * Sends a signal to the workflow.
      *
+     * This method uses raw payloads. You should use associated reified extension functions for type safety.
+     *
+     *
      * @param signalName The name of the signal to send.
      * @param args Arguments to pass with the signal.
      */
     suspend fun signal(
         signalName: String,
-        vararg args: Any?,
+        args: Payloads,
     )
+
+    /**
+     * Sends an update to the workflow and waits for the result.
+     *
+     * Updates are like signals but return a value. They also support
+     * validation before the update is accepted.
+     *
+     * This method uses raw payloads. You should use associated reified extension functions for type safety.
+     *
+     * @param updateName The name of the update to send.
+     * @param args Arguments to pass with the update.
+     * @return The update result.
+     */
+    suspend fun update(
+        updateName: String,
+        args: Payloads,
+    ): Payloads
+
+    /**
+     * Queries the workflow for its current state.
+     *
+     * Queries are read-only and do not affect workflow execution.
+     *
+     * This method uses raw payloads. You should use associated reified extension functions for type safety.
+     *
+     * @param queryType The type of query to execute.
+     * @param args Arguments to pass with the query.
+     * @return The query result.
+     */
+    suspend fun query(
+        queryType: String,
+        args: Payloads,
+    ): Payloads
 
     /**
      * Requests cancellation of the workflow.
@@ -105,7 +145,7 @@ internal class WorkflowHandleImpl<R>(
     override var runId: String?,
     private val resultTypeInfo: TypeInfo,
     private val serviceClient: WorkflowServiceClient,
-    private val serializer: PayloadSerializer,
+    override val serializer: PayloadSerializer,
 ) : WorkflowHandle<R> {
     override suspend fun result(timeout: Duration): R {
         val startTime = System.currentTimeMillis()
@@ -258,19 +298,8 @@ internal class WorkflowHandleImpl<R>(
 
     override suspend fun signal(
         signalName: String,
-        vararg args: Any?,
+        args: Payloads,
     ) {
-        val payloadsBuilder = Payloads.newBuilder()
-        args.forEach { arg ->
-            val typeInfo =
-                if (arg != null) {
-                    typeInfoOf(arg)
-                } else {
-                    typeInfoOf<Any?>()
-                }
-            payloadsBuilder.addPayloads(serializer.serialize(typeInfo, arg))
-        }
-
         val request =
             SignalWorkflowExecutionRequest
                 .newBuilder()
@@ -282,10 +311,114 @@ internal class WorkflowHandleImpl<R>(
                         .also { if (runId != null) it.setRunId(runId) }
                         .build(),
                 ).setSignalName(signalName)
-                .setInput(payloadsBuilder.build())
+                .setInput(args)
                 .build()
 
         serviceClient.signalWorkflowExecution(request)
+    }
+
+    override suspend fun update(
+        updateName: String,
+        args: Payloads,
+    ): Payloads {
+        val updateId =
+            java.util.UUID
+                .randomUUID()
+                .toString()
+
+        val request =
+            UpdateWorkflowExecutionRequest
+                .newBuilder()
+                .setNamespace(serviceClient.namespace)
+                .setWorkflowExecution(
+                    WorkflowExecution
+                        .newBuilder()
+                        .setWorkflowId(workflowId)
+                        .also { if (runId != null) it.setRunId(runId) }
+                        .build(),
+                ).setRequest(
+                    io.temporal.api.update.v1.Request
+                        .newBuilder()
+                        .setMeta(
+                            io.temporal.api.update.v1.Meta
+                                .newBuilder()
+                                .setUpdateId(updateId)
+                                .build(),
+                        ).setInput(
+                            io.temporal.api.update.v1.Input
+                                .newBuilder()
+                                .setName(updateName)
+                                .setArgs(args)
+                                .build(),
+                        ).build(),
+                ).setWaitPolicy(
+                    io.temporal.api.update.v1.WaitPolicy
+                        .newBuilder()
+                        .setLifecycleStage(
+                            io.temporal.api.enums.v1.UpdateWorkflowExecutionLifecycleStage
+                                .UPDATE_WORKFLOW_EXECUTION_LIFECYCLE_STAGE_COMPLETED,
+                        ).build(),
+                ).build()
+
+        val response = serviceClient.updateWorkflowExecution(request)
+
+        // Check for failure
+        if (response.hasOutcome() && response.outcome.hasFailure()) {
+            throw WorkflowUpdateFailedException(
+                workflowId = workflowId,
+                runId = runId,
+                updateName = updateName,
+                updateId = updateId,
+                message = response.outcome.failure.message,
+            )
+        } else if (response.hasOutcome() && response.outcome.hasSuccess()) {
+            return response.outcome.success
+        } else {
+            throw WorkflowUpdateFailedException(
+                workflowId = workflowId,
+                runId = runId,
+                updateName = updateName,
+                updateId = updateId,
+                message = "Update failed with unknown outcome",
+            )
+        }
+    }
+
+    override suspend fun query(
+        queryType: String,
+        args: Payloads,
+    ): Payloads {
+        val request =
+            QueryWorkflowRequest
+                .newBuilder()
+                .setNamespace(serviceClient.namespace)
+                .setExecution(
+                    WorkflowExecution
+                        .newBuilder()
+                        .setWorkflowId(workflowId)
+                        .also { if (runId != null) it.setRunId(runId) }
+                        .build(),
+                ).setQuery(
+                    io.temporal.api.query.v1.WorkflowQuery
+                        .newBuilder()
+                        .setQueryType(queryType)
+                        .setQueryArgs(args)
+                        .build(),
+                ).build()
+
+        val response = serviceClient.queryWorkflow(request)
+
+        // Check for query rejected
+        if (response.hasQueryRejected()) {
+            throw WorkflowQueryRejectedException(
+                workflowId = workflowId,
+                runId = runId,
+                queryType = queryType,
+                status = response.queryRejected.status.name,
+            )
+        }
+
+        return response.queryResult
     }
 
     override suspend fun cancel() {

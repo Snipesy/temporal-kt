@@ -45,61 +45,22 @@ private val logger = LoggerFactory.getLogger(TemporalClient::class.java)
 class TemporalClient internal constructor(
     private val coreClient: TemporalCoreClient,
     private val config: TemporalClientConfig,
-    private val serializer: PayloadSerializer,
+    val serializer: PayloadSerializer,
 ) {
     private val serviceClient = WorkflowServiceClient(coreClient, config.namespace)
 
     /**
-     * Starts a new workflow execution.
-     *
-     * @param R The expected result type of the workflow.
-     * @param workflowType The workflow type name.
-     * @param taskQueue The task queue to run the workflow on.
-     * @param workflowId The workflow ID. Auto-generated if not specified.
-     * @param args Arguments to pass to the workflow.
-     * @param options Additional workflow options.
-     * @return A handle to the started workflow execution.
+     * Internal method to start a new workflow execution.
      */
-    suspend inline fun <reified R> startWorkflow(
-        workflowType: String,
-        taskQueue: String,
-        workflowId: String = UUID.randomUUID().toString(),
-        args: List<Any?> = emptyList(),
-        options: WorkflowStartOptions = WorkflowStartOptions(),
-    ): WorkflowHandle<R> =
-        startWorkflowInternal(
-            workflowType = workflowType,
-            taskQueue = taskQueue,
-            workflowId = workflowId,
-            args = args,
-            options = options,
-            resultTypeInfo = typeInfoOf<R>(),
-        )
-
     @PublishedApi
     internal suspend fun <R> startWorkflowInternal(
         workflowType: String,
         taskQueue: String,
         workflowId: String,
-        args: List<Any?>,
+        args: Payloads,
         options: WorkflowStartOptions,
         resultTypeInfo: com.surrealdev.temporal.serialization.TypeInfo,
     ): WorkflowHandle<R> {
-        // Build payloads for arguments
-        val payloadsBuilder = Payloads.newBuilder()
-        args.forEachIndexed { index, arg ->
-            val typeInfo =
-                if (arg != null) {
-                    com.surrealdev.temporal.serialization.TypeInfo(
-                        type = arg::class.createType(nullable = false),
-                        reifiedClass = arg::class,
-                    )
-                } else {
-                    typeInfoOf<Any?>()
-                }
-            payloadsBuilder.addPayloads(serializer.serialize(typeInfo, arg))
-        }
-
         // Build the request
         val requestBuilder =
             StartWorkflowExecutionRequest
@@ -116,7 +77,7 @@ class TemporalClient internal constructor(
                         .newBuilder()
                         .setName(taskQueue)
                         .build(),
-                ).setInput(payloadsBuilder.build())
+                ).setInput(args)
                 .setRequestId(UUID.randomUUID().toString())
                 .setWorkflowIdReusePolicy(options.workflowIdReusePolicy.toProto())
                 .setWorkflowIdConflictPolicy(options.workflowIdConflictPolicy.toProto())
@@ -253,18 +214,6 @@ class TemporalClientConfig {
     /** Namespace to connect to. */
     var namespace: String = "default"
 
-    /** Whether to use TLS. */
+    /** Whether to use TLS. TODO */
     var useTls: Boolean = false
 }
-
-/**
- * Extension function to create a KType from KClass.
- * Used when only runtime class information is available.
- */
-private fun kotlin.reflect.KClass<*>.createType(nullable: Boolean = false): kotlin.reflect.KType =
-    object : kotlin.reflect.KType {
-        override val annotations: List<Annotation> = emptyList()
-        override val arguments: List<kotlin.reflect.KTypeProjection> = emptyList()
-        override val classifier: kotlin.reflect.KClassifier = this@createType
-        override val isMarkedNullable: Boolean = nullable
-    }
