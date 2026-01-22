@@ -128,9 +128,21 @@ class CompilerTestHarness(
     fun compile(
         sourceFiles: List<File>,
         registerExtensions: ((Project) -> Unit)? = null,
-    ): CompilationResult {
-        val messageCollector = TestMessageCollector()
+    ): CompilationResult = compile(sourceFiles, TestMessageCollector(), registerExtensions)
 
+    /**
+     * Compiles multiple source files with a provided message collector and optional IR generation extensions.
+     *
+     * @param sourceFiles The Kotlin source files to compile
+     * @param messageCollector The message collector to use for capturing compilation messages
+     * @param registerExtensions Optional callback to register IR extensions on the project
+     * @return CompilationResult containing success status and collected messages
+     */
+    fun compile(
+        sourceFiles: List<File>,
+        messageCollector: TestMessageCollector,
+        registerExtensions: ((Project) -> Unit)? = null,
+    ): CompilationResult {
         val configuration =
             CompilerConfiguration().apply {
                 this.messageCollector = messageCollector
@@ -195,13 +207,15 @@ class CompilerTestHarness(
     fun compileWithTemporalPlugin(
         sourceFile: File,
         outputDir: String? = null,
-    ): CompilationResult =
-        compile(sourceFile) { project ->
+    ): CompilationResult {
+        val messageCollector = TestMessageCollector()
+        return compile(listOf(sourceFile), messageCollector) { project ->
             IrGenerationExtension.registerExtension(
                 project,
-                TemporalIrGenerationExtension(outputDir),
+                TemporalIrGenerationExtension(outputDir, messageCollector),
             )
         }
+    }
 
     companion object {
         /**
