@@ -1,6 +1,9 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.annotation.Query
+import com.surrealdev.temporal.annotation.Signal
+import com.surrealdev.temporal.annotation.Update
+import com.surrealdev.temporal.annotation.UpdateValidator
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.WorkflowRegistration
@@ -38,6 +41,44 @@ internal data class QueryHandlerInfo(
 )
 
 /**
+ * Information about a registered signal handler method.
+ *
+ * @property signalName The signal name (null for dynamic handler that catches all unhandled signals)
+ * @property handlerMethod The method to invoke for this signal
+ * @property hasContextReceiver Whether the method uses WorkflowContext as an extension receiver
+ * @property isSuspend Whether the method is suspending
+ * @property parameterTypes The parameter types (excluding context receiver and signal name for dynamic handlers)
+ */
+internal data class SignalHandlerInfo(
+    val signalName: String?,
+    val handlerMethod: KFunction<*>,
+    val hasContextReceiver: Boolean,
+    val isSuspend: Boolean,
+    val parameterTypes: List<KType>,
+)
+
+/**
+ * Information about a registered update handler method.
+ *
+ * @property updateName The update name (null for dynamic handler that catches all unhandled updates)
+ * @property handlerMethod The method to invoke for this update
+ * @property validatorMethod The optional validator method to invoke before the update handler
+ * @property hasContextReceiver Whether the handler method uses WorkflowContext as an extension receiver
+ * @property isSuspend Whether the handler method is suspending
+ * @property parameterTypes The parameter types (excluding context receiver and update name for dynamic handlers)
+ * @property returnType The return type
+ */
+internal data class UpdateHandlerInfo(
+    val updateName: String?,
+    val handlerMethod: KFunction<*>,
+    val validatorMethod: KFunction<*>?,
+    val hasContextReceiver: Boolean,
+    val isSuspend: Boolean,
+    val parameterTypes: List<KType>,
+    val returnType: KType,
+)
+
+/**
  * Information about a registered workflow method.
  */
 internal data class WorkflowMethodInfo(
@@ -60,6 +101,16 @@ internal data class WorkflowMethodInfo(
      * Keys are query names (null key = dynamic handler).
      */
     val queryHandlers: Map<String?, QueryHandlerInfo> = emptyMap(),
+    /**
+     * Signal handlers for this workflow.
+     * Keys are signal names (null key = dynamic handler).
+     */
+    val signalHandlers: Map<String?, SignalHandlerInfo> = emptyMap(),
+    /**
+     * Update handlers for this workflow.
+     * Keys are update names (null key = dynamic handler).
+     */
+    val updateHandlers: Map<String?, UpdateHandlerInfo> = emptyMap(),
 )
 
 /**
@@ -126,6 +177,12 @@ internal class WorkflowRegistry {
         // Scan for @Query annotated methods
         val queryHandlers = scanQueryHandlers(klass, workflowType)
 
+        // Scan for @Signal annotated methods
+        val signalHandlers = scanSignalHandlers(klass, workflowType)
+
+        // Scan for @Update and @UpdateValidator annotated methods
+        val updateHandlers = scanUpdateHandlers(klass, workflowType)
+
         val info =
             WorkflowMethodInfo(
                 workflowType = workflowType,
@@ -136,6 +193,8 @@ internal class WorkflowRegistry {
                 hasContextReceiver = hasContextReceiver,
                 isSuspend = runMethod.isSuspend,
                 queryHandlers = queryHandlers,
+                signalHandlers = signalHandlers,
+                updateHandlers = updateHandlers,
             )
 
         workflows[workflowType] = info
@@ -206,6 +265,184 @@ internal class WorkflowRegistry {
                 )
 
             handlers[queryName] = handlerInfo
+        }
+
+        return handlers
+    }
+
+    /**
+     * Scans for @Signal annotated methods in a workflow class.
+     *
+     * @param klass The workflow class
+     * @param workflowType The workflow type name (for error messages)
+     * @return Map of signal name to handler info (null key = dynamic handler)
+     */
+    private fun scanSignalHandlers(
+        klass: kotlin.reflect.KClass<*>,
+        workflowType: String,
+    ): Map<String?, SignalHandlerInfo> {
+        val signalMethods = klass.declaredFunctions.filter { it.hasAnnotation<Signal>() }
+
+        if (signalMethods.isEmpty()) {
+            return emptyMap()
+        }
+
+        val handlers = mutableMapOf<String?, SignalHandlerInfo>()
+
+        for (method in signalMethods) {
+            method.isAccessible = true
+
+            val signalAnnotation = method.findAnnotation<Signal>()!!
+            val isDynamic = signalAnnotation.dynamic
+
+            // Determine signal name: null for dynamic, annotation value or function name otherwise
+            val signalName =
+                when {
+                    isDynamic -> null
+                    signalAnnotation.name.isNotBlank() -> signalAnnotation.name
+                    else -> method.name
+                }
+
+            // Check for duplicate signal names
+            if (handlers.containsKey(signalName)) {
+                val nameDesc = signalName ?: "dynamic"
+                throw IllegalArgumentException(
+                    "Workflow $workflowType has duplicate signal handler for '$nameDesc'. " +
+                        "Each signal name must have exactly one handler.",
+                )
+            }
+
+            // Check if method uses WorkflowContext as extension receiver
+            val extensionReceiver = method.extensionReceiverParameter
+            val signalHasContextReceiver = extensionReceiver?.type?.classifier == WorkflowContext::class
+
+            // Get parameter types (excluding the extension receiver)
+            val signalParamTypes = method.valueParameters.map { it.type }
+
+            val handlerInfo =
+                SignalHandlerInfo(
+                    signalName = signalName,
+                    handlerMethod = method,
+                    hasContextReceiver = signalHasContextReceiver,
+                    isSuspend = method.isSuspend,
+                    parameterTypes = signalParamTypes,
+                )
+
+            handlers[signalName] = handlerInfo
+        }
+
+        return handlers
+    }
+
+    /**
+     * Scans for @Update and @UpdateValidator annotated methods in a workflow class.
+     *
+     * @param klass The workflow class
+     * @param workflowType The workflow type name (for error messages)
+     * @return Map of update name to handler info (null key = dynamic handler)
+     */
+    private fun scanUpdateHandlers(
+        klass: kotlin.reflect.KClass<*>,
+        workflowType: String,
+    ): Map<String?, UpdateHandlerInfo> {
+        val updateMethods = klass.declaredFunctions.filter { it.hasAnnotation<Update>() }
+        val validatorMethods = klass.declaredFunctions.filter { it.hasAnnotation<UpdateValidator>() }
+
+        if (updateMethods.isEmpty()) {
+            // If there are validators but no updates, that's an error
+            if (validatorMethods.isNotEmpty()) {
+                throw IllegalArgumentException(
+                    "Workflow $workflowType has @UpdateValidator methods without matching @Update methods.",
+                )
+            }
+            return emptyMap()
+        }
+
+        // Build a map of update name -> validator method
+        val validatorsByName = mutableMapOf<String, KFunction<*>>()
+        for (validatorMethod in validatorMethods) {
+            validatorMethod.isAccessible = true
+            val validatorAnnotation = validatorMethod.findAnnotation<UpdateValidator>()!!
+            val updateName = validatorAnnotation.updateName
+
+            if (validatorsByName.containsKey(updateName)) {
+                throw IllegalArgumentException(
+                    "Workflow $workflowType has duplicate @UpdateValidator for update '$updateName'. " +
+                        "Each update can have at most one validator.",
+                )
+            }
+
+            validatorsByName[updateName] = validatorMethod
+        }
+
+        val handlers = mutableMapOf<String?, UpdateHandlerInfo>()
+
+        for (method in updateMethods) {
+            method.isAccessible = true
+
+            val updateAnnotation = method.findAnnotation<Update>()!!
+            val isDynamic = updateAnnotation.dynamic
+
+            // Determine update name: null for dynamic, annotation value or function name otherwise
+            val updateName =
+                when {
+                    isDynamic -> null
+                    updateAnnotation.name.isNotBlank() -> updateAnnotation.name
+                    else -> method.name
+                }
+
+            // Check for duplicate update names
+            if (handlers.containsKey(updateName)) {
+                val nameDesc = updateName ?: "dynamic"
+                throw IllegalArgumentException(
+                    "Workflow $workflowType has duplicate update handler for '$nameDesc'. " +
+                        "Each update name must have exactly one handler.",
+                )
+            }
+
+            // Check if method uses WorkflowContext as extension receiver
+            val extensionReceiver = method.extensionReceiverParameter
+            val updateHasContextReceiver = extensionReceiver?.type?.classifier == WorkflowContext::class
+
+            // Get parameter types (excluding the extension receiver)
+            val updateParamTypes = method.valueParameters.map { it.type }
+
+            // Look up the validator for this update (only for named updates)
+            val validatorMethod = if (updateName != null) validatorsByName[updateName] else null
+
+            val handlerInfo =
+                UpdateHandlerInfo(
+                    updateName = updateName,
+                    handlerMethod = method,
+                    validatorMethod = validatorMethod,
+                    hasContextReceiver = updateHasContextReceiver,
+                    isSuspend = method.isSuspend,
+                    parameterTypes = updateParamTypes,
+                    returnType = method.returnType,
+                )
+
+            handlers[updateName] = handlerInfo
+        }
+
+        // Check for validators without matching updates
+        val updateNames =
+            updateMethods
+                .map { method ->
+                    val ann = method.findAnnotation<Update>()!!
+                    when {
+                        ann.dynamic -> null
+                        ann.name.isNotBlank() -> ann.name
+                        else -> method.name
+                    }
+                }.filterNotNull()
+                .toSet()
+
+        for (validatorName in validatorsByName.keys) {
+            if (validatorName !in updateNames) {
+                throw IllegalArgumentException(
+                    "Workflow $workflowType has @UpdateValidator for '$validatorName' but no matching @Update handler.",
+                )
+            }
         }
 
         return handlers
