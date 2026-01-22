@@ -9,6 +9,8 @@ build/
 .idea/jarRepositories.xml
 .idea/compiler.xml
 .idea/libraries/
+.idea/copilot*.xml
+.idea/kotlin-plugins.xml
 *.iws
 *.iml
 *.ipr

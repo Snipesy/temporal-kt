@@ -6,7 +6,8 @@ plugins {
 }
 
 kotlin {
-    jvmToolchain(25)
+    // we are using 25 but kotlin dsl uses 24 and does weird things (Fixed in gradle 9.4.0)
+    jvmToolchain(24)
 }
 
 dependencies {
