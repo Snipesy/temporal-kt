@@ -1,8 +1,16 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.surrealdev.temporal.annotation.Query
+import com.surrealdev.temporal.annotation.Signal
+import com.surrealdev.temporal.annotation.Update
+import com.surrealdev.temporal.annotation.UpdateValidator
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.taskQueue
+import com.surrealdev.temporal.client.query
+import com.surrealdev.temporal.client.signal
+import com.surrealdev.temporal.client.startWorkflow
+import com.surrealdev.temporal.client.update
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext
@@ -10,6 +18,7 @@ import kotlinx.coroutines.async
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -551,6 +560,624 @@ class DeterminismIntegrationTest {
             handle.assertHistory {
                 completed()
                 timerCount(3)
+            }
+        }
+
+    // ================================================================
+    // Signal Handler Tests
+    // ================================================================
+
+    /**
+     * Workflow that receives signals and accumulates values.
+     */
+    @Workflow("SignalAccumulatorWorkflow")
+    class SignalAccumulatorWorkflow {
+        private val values = mutableListOf<String>()
+        private var done = false
+
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            awaitCondition { done }
+            return values.joinToString(",")
+        }
+
+        @Signal("addValue")
+        fun WorkflowContext.addValue(value: String) {
+            values.add(value)
+        }
+
+        @Signal("complete")
+        fun WorkflowContext.complete() {
+            done = true
+        }
+    }
+
+    @Test
+    fun `workflow receives and processes signals correctly`() =
+        runTemporalTest {
+            val taskQueue = "test-signal-${UUID.randomUUID()}"
+
+            application {
+                taskQueue(taskQueue) {
+                    workflow(SignalAccumulatorWorkflow())
+                }
+            }
+
+            val client = client()
+            val handle =
+                client.startWorkflow<String>(
+                    workflowType = "SignalAccumulatorWorkflow",
+                    taskQueue = taskQueue,
+                )
+
+            // Send multiple signals
+            handle.signal("addValue", "first")
+            handle.signal("addValue", "second")
+            handle.signal("addValue", "third")
+            handle.signal("complete")
+
+            val result = handle.result(timeout = 30.seconds)
+
+            assertEquals("first,second,third", result)
+
+            handle.assertHistory {
+                completed()
+            }
+        }
+
+    /**
+     * Workflow that demonstrates buffered signal replay.
+     * The signal handler is registered after signals arrive.
+     */
+    @Workflow("BufferedSignalReplayWorkflow")
+    class BufferedSignalReplayWorkflow {
+        private val values = mutableListOf<String>()
+        private var handlerRegistered = false
+        private var done = false
+
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            // Wait for trigger to register handler
+            awaitCondition { handlerRegistered }
+
+            // Register runtime handler - this should replay any buffered signals
+            setSignalHandler("dynamicValue") { payloads ->
+                val value =
+                    serializer.deserialize(
+                        com.surrealdev.temporal.serialization
+                            .typeInfoOf<String>(),
+                        payloads[0],
+                    ) as String
+                values.add("dynamic:$value")
+            }
+
+            // Wait for completion signal
+            awaitCondition { done }
+            return values.joinToString(",")
+        }
+
+        @Signal("registerHandler")
+        fun WorkflowContext.registerHandler() {
+            handlerRegistered = true
+        }
+
+        @Signal("complete")
+        fun WorkflowContext.complete() {
+            done = true
+        }
+    }
+
+    @Test
+    fun `buffered signals are replayed when handler is registered`() =
+        runTemporalTest {
+            val taskQueue = "test-buffered-signal-${UUID.randomUUID()}"
+
+            application {
+                taskQueue(taskQueue) {
+                    workflow(BufferedSignalReplayWorkflow())
+                }
+            }
+
+            val client = client()
+            val handle =
+                client.startWorkflow<String>(
+                    workflowType = "BufferedSignalReplayWorkflow",
+                    taskQueue = taskQueue,
+                )
+
+            // Send signals BEFORE handler is registered - they will be buffered
+            handle.signal("dynamicValue", "buffered1")
+            handle.signal("dynamicValue", "buffered2")
+
+            // Small delay to ensure signals are processed
+            kotlinx.coroutines.delay(100.milliseconds)
+
+            // Now register the handler - buffered signals should be replayed
+            handle.signal("registerHandler")
+
+            // Send more signals after handler is registered
+            handle.signal("dynamicValue", "live1")
+
+            // Complete the workflow
+            handle.signal("complete")
+
+            val result = handle.result(timeout = 30.seconds)
+
+            // All signals should be received: buffered ones replayed + live ones
+            assertTrue(result.contains("dynamic:buffered1"), "Should contain buffered1")
+            assertTrue(result.contains("dynamic:buffered2"), "Should contain buffered2")
+            assertTrue(result.contains("dynamic:live1"), "Should contain live1")
+
+            handle.assertHistory {
+                completed()
+            }
+        }
+
+    /**
+     * Workflow with dynamic signal handler that catches all signals.
+     */
+    @Workflow("DynamicSignalWorkflow")
+    class DynamicSignalWorkflow {
+        private val signals = mutableListOf<String>()
+        private var done = false
+
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            // Register dynamic handler to catch all signals
+            setDynamicSignalHandler { signalName, _ ->
+                if (signalName == "complete") {
+                    done = true
+                } else {
+                    signals.add(signalName)
+                }
+            }
+
+            awaitCondition { done }
+            return signals.sorted().joinToString(",")
+        }
+    }
+
+    @Test
+    fun `dynamic signal handler catches all signal types`() =
+        runTemporalTest {
+            val taskQueue = "test-dynamic-signal-${UUID.randomUUID()}"
+
+            application {
+                taskQueue(taskQueue) {
+                    workflow(DynamicSignalWorkflow())
+                }
+            }
+
+            val client = client()
+            val handle =
+                client.startWorkflow<String>(
+                    workflowType = "DynamicSignalWorkflow",
+                    taskQueue = taskQueue,
+                )
+
+            // Send various signal types
+            handle.signal("signalA")
+            handle.signal("signalB")
+            handle.signal("signalC")
+            handle.signal("complete")
+
+            val result = handle.result(timeout = 30.seconds)
+
+            assertEquals("signalA,signalB,signalC", result)
+
+            handle.assertHistory {
+                completed()
+            }
+        }
+
+    // ================================================================
+    // Update Handler Tests
+    // ================================================================
+
+    /**
+     * Workflow that handles updates with return values.
+     */
+    @Workflow("UpdateCounterWorkflow")
+    class UpdateCounterWorkflow {
+        private var counter = 0
+        private var done = false
+
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): Int {
+            awaitCondition { done }
+            return counter
+        }
+
+        @Update("increment")
+        fun WorkflowContext.increment(amount: Int): Int {
+            counter += amount
+            return counter
+        }
+
+        @Update("getCounter")
+        fun WorkflowContext.getCounter(): Int = counter
+
+        @Signal("complete")
+        fun WorkflowContext.complete() {
+            done = true
+        }
+    }
+
+    @Test
+    fun `workflow handles updates and returns values`() =
+        runTemporalTest(timeSkipping = true) {
+            val taskQueue = "test-update-${UUID.randomUUID()}"
+
+            application {
+                taskQueue(taskQueue) {
+                    workflow(UpdateCounterWorkflow())
+                }
+            }
+
+            val client = client()
+            val handle =
+                client.startWorkflow<Int>(
+                    workflowType = "UpdateCounterWorkflow",
+                    taskQueue = taskQueue,
+                )
+
+            // Send updates and verify return values
+            val result1: Int = handle.update("increment", 5)
+            assertEquals(5, result1)
+
+            val result2: Int = handle.update("increment", 3)
+            assertEquals(8, result2)
+
+            val result3: Int = handle.update("getCounter")
+            assertEquals(8, result3)
+
+            // Complete workflow
+            handle.signal("complete")
+
+            val finalResult = handle.result(timeout = 30.seconds)
+            assertEquals(8, finalResult)
+
+            handle.assertHistory {
+                completed()
+            }
+        }
+
+    /**
+     * Workflow with update validation.
+     */
+    @Workflow("ValidatedUpdateWorkflow")
+    class ValidatedUpdateWorkflow {
+        private var value = ""
+        private var done = false
+
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            awaitCondition { done }
+            return value
+        }
+
+        @Update("setValue")
+        fun WorkflowContext.setValue(newValue: String): String {
+            value = newValue
+            return "set:$value"
+        }
+
+        @UpdateValidator("setValue")
+        fun validateSetValue(newValue: String) {
+            if (newValue.isBlank()) {
+                throw IllegalArgumentException("Value cannot be blank")
+            }
+            if (newValue.length > 10) {
+                throw IllegalArgumentException("Value too long (max 10 chars)")
+            }
+        }
+
+        @Signal("complete")
+        fun WorkflowContext.complete() {
+            done = true
+        }
+    }
+
+    @Test
+    fun `update validator accepts valid input`() =
+        runTemporalTest {
+            val taskQueue = "test-validated-update-${UUID.randomUUID()}"
+
+            application {
+                taskQueue(taskQueue) {
+                    workflow(ValidatedUpdateWorkflow())
+                }
+            }
+
+            val client = client()
+            val handle =
+                client.startWorkflow<String>(
+                    workflowType = "ValidatedUpdateWorkflow",
+                    taskQueue = taskQueue,
+                )
+
+            // Valid update should succeed
+            val result: String = handle.update("setValue", "hello")
+            assertEquals("set:hello", result)
+
+            handle.signal("complete")
+
+            val finalResult = handle.result(timeout = 30.seconds)
+            assertEquals("hello", finalResult)
+
+            handle.assertHistory {
+                completed()
+            }
+        }
+
+    @Test
+    fun `update validator rejects invalid input`() =
+        runTemporalTest {
+            val taskQueue = "test-rejected-update-${UUID.randomUUID()}"
+
+            application {
+                taskQueue(taskQueue) {
+                    workflow(ValidatedUpdateWorkflow())
+                }
+            }
+
+            val client = client()
+            val handle =
+                client.startWorkflow<String>(
+                    workflowType = "ValidatedUpdateWorkflow",
+                    taskQueue = taskQueue,
+                )
+
+            // Invalid update (blank) should be rejected
+            assertFailsWith<Exception> {
+                handle.update<String, String, String>("setValue", "")
+            }
+
+            // Invalid update (too long) should be rejected
+            assertFailsWith<Exception> {
+                handle.update<String, String, String>("setValue", "this is way too long")
+            }
+
+            // Valid update should still work after rejections
+            val result: String = handle.update("setValue", "valid")
+            assertEquals("set:valid", result)
+
+            handle.signal("complete")
+
+            val finalResult = handle.result(timeout = 30.seconds)
+            assertEquals("valid", finalResult)
+
+            handle.assertHistory {
+                completed()
+            }
+        }
+
+    // ================================================================
+    // Query Handler Tests
+    // ================================================================
+
+    /**
+     * Workflow with query handlers.
+     */
+    @Workflow("QueryableWorkflow")
+    class QueryableWorkflow {
+        private var counter = 0
+        private val history = mutableListOf<String>()
+
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): Int {
+            repeat(5) { i ->
+                sleep(50.milliseconds)
+                counter++
+                history.add("step-$i")
+            }
+            return counter
+        }
+
+        @Query("getCounter")
+        fun WorkflowContext.getCounter(): Int = counter
+
+        @Query("getHistory")
+        fun WorkflowContext.getHistory(): List<String> = history.toList()
+    }
+
+    @Test
+    fun `workflow responds to queries during execution`() =
+        runTemporalTest {
+            val taskQueue = "test-query-${UUID.randomUUID()}"
+
+            application {
+                taskQueue(taskQueue) {
+                    workflow(QueryableWorkflow())
+                }
+            }
+
+            val client = client()
+            val handle =
+                client.startWorkflow<Int>(
+                    workflowType = "QueryableWorkflow",
+                    taskQueue = taskQueue,
+                )
+
+            // Query during execution - counter may be in progress
+            kotlinx.coroutines.delay(100.milliseconds)
+            val midCounter: Int = handle.query("getCounter")
+            assertTrue(midCounter >= 0, "Counter should be non-negative")
+
+            // Wait for completion
+            val finalResult = handle.result(timeout = 30.seconds)
+            assertEquals(5, finalResult, "Final counter should be 5")
+
+            // Query after completion
+            val finalCounter: Int = handle.query("getCounter")
+            assertEquals(5, finalCounter, "Final counter query should be 5 when querried after complete")
+
+            val history: List<String> = handle.query("getHistory")
+            assertEquals(5, history.size, "Workflow history should be 5 steps")
+            assertEquals("step-0", history[0])
+            assertEquals("step-4", history[4])
+
+            handle.assertHistory {
+                completed()
+                timerCount(5)
+            }
+        }
+
+    /**
+     * Workflow with runtime-registered query handler.
+     */
+    @Workflow("RuntimeQueryWorkflow")
+    class RuntimeQueryWorkflow {
+        private var secret = "initial"
+
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            // Register a runtime query handler
+            setQueryHandler("getSecret") { _ ->
+                serializer.serialize(
+                    com.surrealdev.temporal.serialization
+                        .typeInfoOf<String>(),
+                    secret,
+                )
+            }
+
+            sleep(100.milliseconds)
+            secret = "updated"
+
+            sleep(100.milliseconds)
+            return secret
+        }
+    }
+
+    @Test
+    fun `runtime query handler works correctly`() =
+        runTemporalTest {
+            val taskQueue = "test-runtime-query-${UUID.randomUUID()}"
+
+            application {
+                taskQueue(taskQueue) {
+                    workflow(RuntimeQueryWorkflow())
+                }
+            }
+
+            val client = client()
+            val handle =
+                client.startWorkflow<String>(
+                    workflowType = "RuntimeQueryWorkflow",
+                    taskQueue = taskQueue,
+                )
+
+            // Wait a bit for workflow to start and register handler
+            kotlinx.coroutines.delay(50.milliseconds)
+
+            // Query should work
+            val secret1: String = handle.query("getSecret")
+            assertTrue(secret1 == "initial" || secret1 == "updated", "Secret should be initial or updated")
+
+            // Wait for completion
+            val result = handle.result(timeout = 30.seconds)
+            assertEquals("updated", result)
+
+            // Query after completion should return final value
+            val finalSecret: String = handle.query("getSecret")
+            assertEquals("updated", finalSecret)
+
+            handle.assertHistory {
+                completed()
+                timerCount(2)
+            }
+        }
+
+    // ================================================================
+    // Combined Signal, Update, and Query Tests
+    // ================================================================
+
+    /**
+     * Workflow that uses signals, updates, and queries together.
+     */
+    @Workflow("CombinedHandlersWorkflow")
+    class CombinedHandlersWorkflow {
+        private val items = mutableListOf<String>()
+        private var done = false
+
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            awaitCondition { done }
+            return items.joinToString(",")
+        }
+
+        @Signal("addItem")
+        fun WorkflowContext.addItem(item: String) {
+            items.add("signal:$item")
+        }
+
+        @Update("addItemWithConfirm")
+        fun WorkflowContext.addItemWithConfirm(item: String): Int {
+            items.add("update:$item")
+            return items.size
+        }
+
+        @Query("getItems")
+        fun WorkflowContext.getItems(): List<String> = items.toList()
+
+        @Query("getCount")
+        fun WorkflowContext.getCount(): Int = items.size
+
+        @Signal("complete")
+        fun WorkflowContext.complete() {
+            done = true
+        }
+    }
+
+    @Test
+    fun `workflow handles signals, updates, and queries together`() =
+        runTemporalTest {
+            val taskQueue = "test-combined-${UUID.randomUUID()}"
+
+            application {
+                taskQueue(taskQueue) {
+                    workflow(CombinedHandlersWorkflow())
+                }
+            }
+
+            val client = client()
+            val handle =
+                client.startWorkflow<String>(
+                    workflowType = "CombinedHandlersWorkflow",
+                    taskQueue = taskQueue,
+                )
+
+            // Use signal
+            handle.signal("addItem", "A")
+
+            // Query count
+            kotlinx.coroutines.delay(50.milliseconds)
+            val count1: Int = handle.query("getCount")
+            assertEquals(1, count1)
+
+            // Use update
+            val count2: Int = handle.update("addItemWithConfirm", "B")
+            assertEquals(2, count2)
+
+            // Use signal again
+            handle.signal("addItem", "C")
+
+            // Query items
+            kotlinx.coroutines.delay(50.milliseconds)
+            val items: List<String> = handle.query("getItems")
+            assertEquals(3, items.size)
+            assertTrue(items.contains("signal:A"))
+            assertTrue(items.contains("update:B"))
+            assertTrue(items.contains("signal:C"))
+
+            // Complete
+            handle.signal("complete")
+
+            val result = handle.result(timeout = 30.seconds)
+            assertEquals("signal:A,update:B,signal:C", result)
+
+            handle.assertHistory {
+                completed()
             }
         }
 }

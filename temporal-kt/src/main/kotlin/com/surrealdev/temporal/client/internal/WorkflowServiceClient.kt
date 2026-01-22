@@ -5,6 +5,8 @@ import io.temporal.api.workflowservice.v1.DescribeWorkflowExecutionRequest
 import io.temporal.api.workflowservice.v1.DescribeWorkflowExecutionResponse
 import io.temporal.api.workflowservice.v1.GetWorkflowExecutionHistoryRequest
 import io.temporal.api.workflowservice.v1.GetWorkflowExecutionHistoryResponse
+import io.temporal.api.workflowservice.v1.QueryWorkflowRequest
+import io.temporal.api.workflowservice.v1.QueryWorkflowResponse
 import io.temporal.api.workflowservice.v1.RequestCancelWorkflowExecutionRequest
 import io.temporal.api.workflowservice.v1.RequestCancelWorkflowExecutionResponse
 import io.temporal.api.workflowservice.v1.SignalWorkflowExecutionRequest
@@ -13,6 +15,8 @@ import io.temporal.api.workflowservice.v1.StartWorkflowExecutionRequest
 import io.temporal.api.workflowservice.v1.StartWorkflowExecutionResponse
 import io.temporal.api.workflowservice.v1.TerminateWorkflowExecutionRequest
 import io.temporal.api.workflowservice.v1.TerminateWorkflowExecutionResponse
+import io.temporal.api.workflowservice.v1.UpdateWorkflowExecutionRequest
+import io.temporal.api.workflowservice.v1.UpdateWorkflowExecutionResponse
 
 /**
  * Internal low-level client for making workflow service RPC calls.
@@ -103,5 +107,29 @@ internal class WorkflowServiceClient(
                 request = request.toByteArray(),
             )
         return RequestCancelWorkflowExecutionResponse.parseFrom(responseBytes)
+    }
+
+    /**
+     * Sends an update to a workflow execution and waits for the result.
+     */
+    suspend fun updateWorkflowExecution(request: UpdateWorkflowExecutionRequest): UpdateWorkflowExecutionResponse {
+        val responseBytes =
+            coreClient.workflowServiceCall(
+                rpc = "UpdateWorkflowExecution",
+                request = request.toByteArray(),
+            )
+        return UpdateWorkflowExecutionResponse.parseFrom(responseBytes)
+    }
+
+    /**
+     * Queries a workflow execution for its current state.
+     */
+    suspend fun queryWorkflow(request: QueryWorkflowRequest): QueryWorkflowResponse {
+        val responseBytes =
+            coreClient.workflowServiceCall(
+                rpc = "QueryWorkflow",
+                request = request.toByteArray(),
+            )
+        return QueryWorkflowResponse.parseFrom(responseBytes)
     }
 }

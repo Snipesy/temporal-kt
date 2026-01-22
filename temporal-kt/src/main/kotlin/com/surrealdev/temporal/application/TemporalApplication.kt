@@ -253,11 +253,18 @@ internal data class TaskQueueConfig(
 
 /**
  * Registration info for a workflow.
+ *
+ * @property workflowType The workflow type name
+ * @property implementation The workflow implementation instance (used to scan for methods)
+ * @property instanceFactory Optional factory to create workflow instances. If null, a factory
+ *   will be created that calls the no-arg constructor. For tests that need to inspect workflow
+ *   state, this can be set to `{ implementation }` to reuse the same instance.
  */
 @PublishedApi
 internal data class WorkflowRegistration(
     val workflowType: String,
     val implementation: Any,
+    val instanceFactory: (() -> Any)? = null,
 )
 
 /**

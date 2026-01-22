@@ -47,11 +47,13 @@ class WorkflowExecutorJobOrderingTest {
                 as kotlin.reflect.KFunction<*>
 
         // Create WorkflowMethodInfo with correct parameter order
+        val testInstance = this
         val workflowMethodInfo =
             WorkflowMethodInfo(
                 workflowType = "TestWorkflow",
                 runMethod = dummyMethod,
-                implementation = this,
+                workflowClass = this::class,
+                instanceFactory = { testInstance },
                 parameterTypes = emptyList(),
                 returnType = kotlin.reflect.typeOf<Unit>(),
                 hasContextReceiver = false,

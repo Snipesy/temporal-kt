@@ -20,6 +20,7 @@ import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import kotlin.reflect.KType
 import kotlin.reflect.full.callSuspend
+import kotlin.reflect.full.extensionReceiverParameter
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Instant
 import kotlin.time.toJavaDuration
@@ -75,6 +76,12 @@ internal class WorkflowExecutor(
     private var context: WorkflowContextImpl? = null
     private var mainCoroutine: Deferred<Any?>? = null
     private var workflowInfo: WorkflowInfo? = null
+
+    /**
+     * The workflow instance for this specific run.
+     * Created fresh for each workflow execution to ensure clean state.
+     */
+    private var workflowInstance: Any? = null
 
     // Job for the workflow execution - provides unified scope for structured concurrency
     private var workflowExecutionJob: kotlinx.coroutines.Job? = null
@@ -136,58 +143,48 @@ internal class WorkflowExecutor(
                 // Stage 0: Process initialization if present
                 if (initJob != null) {
                     processJob(initJob, activation, scope)
-                    // Process queued work to start the workflow coroutine
-                    workflowDispatcher.processAllWork()
+                    runOnce(checkConditions = true)
                 }
 
                 // Stage 1: Process patches
-                // Patches must be processed first for correct workflow versioning
                 for (job in patchJobs) {
                     processJob(job, activation, scope)
                 }
                 if (patchJobs.isNotEmpty()) {
-                    // Process work until stable
-                    do {
-                        workflowDispatcher.processAllWork()
-                        state.checkConditions()
-                    } while (workflowDispatcher.hasPendingWork())
+                    runOnce(checkConditions = false)
                 }
 
                 // Stage 2: Process signals and updates
-                // These can mutate workflow state and may satisfy pending conditions
                 for (job in signalAndUpdateJobs) {
                     processJob(job, activation, scope)
                 }
                 if (signalAndUpdateJobs.isNotEmpty()) {
-                    // Process work until stable
-                    do {
-                        workflowDispatcher.processAllWork()
-                        state.checkConditions()
-                    } while (workflowDispatcher.hasPendingWork())
+                    runOnce(checkConditions = true)
                 }
 
                 // Stage 3: Process non-query jobs (resolutions, cancellation, etc.)
-                // These resume suspended workflow operations
                 for (job in nonQueryJobs) {
                     processJob(job, activation, scope)
                 }
                 if (nonQueryJobs.isNotEmpty()) {
-                    // Process work until stable
-                    do {
-                        workflowDispatcher.processAllWork()
-                        state.checkConditions()
-                    } while (workflowDispatcher.hasPendingWork())
+                    runOnce(checkConditions = true)
                 }
 
-                // Stage 4: Process queries (read-only mode)
-                // Queries must not mutate workflow state to ensure deterministic replay
+                // Check for workflow completion BEFORE processing queries.
+                val mainResult = mainCoroutine
+                if (mainResult != null && mainResult.isCompleted && queryJobs.isEmpty()) {
+                    logger.debug("Main workflow coroutine completed, building terminal completion")
+                    return@withContext buildTerminalCompletion(mainResult)
+                }
+
+                // Stage 4: Process queries (read-only mode, no condition checking)
                 if (queryJobs.isNotEmpty()) {
                     state.isReadOnly = true
                     try {
                         for (job in queryJobs) {
                             processJob(job, activation, scope)
                         }
-                        workflowDispatcher.processAllWork()
+                        runOnce(checkConditions = false)
                     } finally {
                         state.isReadOnly = false
                         // Flush accumulated query results as commands
@@ -198,14 +195,7 @@ internal class WorkflowExecutor(
                     }
                 }
 
-                // Check if workflow completed
-                val mainResult = mainCoroutine
-                if (mainResult != null && mainResult.isCompleted) {
-                    logger.debug("Main workflow coroutine completed, building terminal completion")
-                    return@withContext buildTerminalCompletion(mainResult)
-                }
-
-                // Return accumulated commands
+                // Return accumulated commands (query responses only if queries were processed)
                 buildSuccessCompletion()
             } catch (e: Exception) {
                 buildFailureCompletion(e)
@@ -266,6 +256,27 @@ internal class WorkflowExecutor(
             job.hasResolveRequestCancelExternalWorkflow() ||
             job.hasResolveNexusOperationStart() ||
             job.hasResolveNexusOperation()
+
+    /**
+     * Runs one iteration of the workflow event loop, processing all queued work.
+     *
+     * - Check conditions that may have been satisfied by job handlers
+     *
+     * @param checkConditions Whether to check await conditions after processing tasks.
+     *                        Should be true for stages that can mutate state (signals, updates, resolutions).
+     *                        Should be false for patches and queries.
+     */
+    private fun runOnce(checkConditions: Boolean) {
+        do {
+            // Process all ready tasks (inner loop in Python's _run_once)
+            workflowDispatcher.processAllWork()
+
+            // Check conditions which may add to the ready list
+            if (checkConditions) {
+                state.checkConditions()
+            }
+        } while (workflowDispatcher.hasPendingWork())
+    }
 
     private suspend fun processJob(
         job: WorkflowActivationJob,
@@ -399,6 +410,10 @@ internal class WorkflowExecutor(
         // Update random seed
         state.randomSeed = init.randomnessSeed
 
+        // Create a fresh workflow instance for this run
+        // This ensures each execution has clean state and replay doesn't accumulate state
+        workflowInstance = methodInfo.instanceFactory()
+
         // Create the workflow execution job as a child of the scope's Job
         val parentJob = scope.coroutineContext[kotlinx.coroutines.Job]
         workflowExecutionJob = kotlinx.coroutines.Job(parentJob)
@@ -437,16 +452,16 @@ internal class WorkflowExecutor(
                 if (methodInfo.hasContextReceiver) {
                     // Method has WorkflowContext as extension receiver
                     if (methodInfo.isSuspend) {
-                        method.callSuspend(methodInfo.implementation, ctx, *args)
+                        method.callSuspend(workflowInstance!!, ctx, *args)
                     } else {
-                        method.call(methodInfo.implementation, ctx, *args)
+                        method.call(workflowInstance!!, ctx, *args)
                     }
                 } else {
                     // Method does not use context receiver
                     if (methodInfo.isSuspend) {
-                        method.callSuspend(methodInfo.implementation, *args)
+                        method.callSuspend(workflowInstance!!, *args)
                     } else {
-                        method.call(methodInfo.implementation, *args)
+                        method.call(workflowInstance!!, *args)
                     }
                 }
             } catch (e: java.lang.reflect.InvocationTargetException) {
@@ -468,9 +483,123 @@ internal class WorkflowExecutor(
                 serializer.deserialize(typeInfoOf(type), payload)
             }.toTypedArray()
 
-    private fun handleSignal(signal: coresdk.workflow_activation.WorkflowActivationOuterClass.SignalWorkflow) {
-        // MVP: Signals not yet implemented
-        // TODO: Queue signal for processing by signal handlers
+    private suspend fun handleSignal(signal: coresdk.workflow_activation.WorkflowActivationOuterClass.SignalWorkflow) {
+        val signalName = signal.signalName
+        val inputPayloads = signal.inputList
+
+        logger.debug("Processing signal: name={}, args={}", signalName, inputPayloads.size)
+
+        val ctx = context as? WorkflowContextImpl
+
+        // Check runtime-registered handlers first (they take precedence)
+        val runtimeHandler = ctx?.runtimeSignalHandlers?.get(signalName)
+        val runtimeDynamicHandler = ctx?.runtimeDynamicSignalHandler
+
+        // Then check annotation-defined handlers
+        val annotationHandler = methodInfo.signalHandlers[signalName]
+        val annotationDynamicHandler = methodInfo.signalHandlers[null]
+
+        // Determine which handler to use:
+        // 1. Runtime handler for specific signal
+        // 2. Annotation handler for specific signal
+        // 3. Runtime dynamic handler
+        // 4. Annotation dynamic handler
+        // 5. Buffer the signal for later
+        when {
+            runtimeHandler != null -> {
+                invokeRuntimeSignalHandler(runtimeHandler, inputPayloads)
+            }
+            annotationHandler != null -> {
+                invokeAnnotationSignalHandler(annotationHandler, signal, isDynamic = false)
+            }
+            runtimeDynamicHandler != null -> {
+                invokeRuntimeDynamicSignalHandler(runtimeDynamicHandler, signalName, inputPayloads)
+            }
+            annotationDynamicHandler != null -> {
+                invokeAnnotationSignalHandler(annotationDynamicHandler, signal, isDynamic = true)
+            }
+            else -> {
+                // Buffer the signal for later when a handler is registered
+                logger.debug("No handler found for signal '{}', buffering for later", signalName)
+                ctx?.bufferedSignals?.getOrPut(signalName) { mutableListOf() }?.add(signal)
+            }
+        }
+    }
+
+    /**
+     * Invokes a runtime-registered signal handler.
+     */
+    private suspend fun invokeRuntimeSignalHandler(
+        handler: suspend (List<Payload>) -> Unit,
+        args: List<Payload>,
+    ) {
+        try {
+            handler(args)
+        } catch (e: Exception) {
+            // Signal handlers should not fail the workflow
+            // Log the error but continue
+            logger.warn("Signal handler threw exception: {}", e.message, e)
+        }
+    }
+
+    /**
+     * Invokes a runtime-registered dynamic signal handler.
+     */
+    private suspend fun invokeRuntimeDynamicSignalHandler(
+        handler: suspend (signalName: String, args: List<Payload>) -> Unit,
+        signalName: String,
+        args: List<Payload>,
+    ) {
+        try {
+            handler(signalName, args)
+        } catch (e: Exception) {
+            // Signal handlers should not fail the workflow
+            logger.warn("Dynamic signal handler threw exception: {}", e.message, e)
+        }
+    }
+
+    /**
+     * Invokes an annotation-defined signal handler.
+     */
+    private suspend fun invokeAnnotationSignalHandler(
+        handler: SignalHandlerInfo,
+        signal: coresdk.workflow_activation.WorkflowActivationOuterClass.SignalWorkflow,
+        isDynamic: Boolean,
+    ) {
+        try {
+            val ctx = context ?: error("WorkflowContext not initialized")
+            val method = handler.handlerMethod
+
+            // For dynamic handlers, the first argument is the signal name
+            val args =
+                if (isDynamic) {
+                    val remainingParamTypes = handler.parameterTypes.drop(1)
+                    val deserializedArgs = deserializeArguments(signal.inputList, remainingParamTypes)
+                    arrayOf(signal.signalName, *deserializedArgs)
+                } else {
+                    deserializeArguments(signal.inputList, handler.parameterTypes)
+                }
+
+            if (handler.hasContextReceiver) {
+                if (handler.isSuspend) {
+                    method.callSuspend(workflowInstance!!, ctx, *args)
+                } else {
+                    method.call(workflowInstance!!, ctx, *args)
+                }
+            } else {
+                if (handler.isSuspend) {
+                    method.callSuspend(workflowInstance!!, *args)
+                } else {
+                    method.call(workflowInstance!!, *args)
+                }
+            }
+        } catch (e: java.lang.reflect.InvocationTargetException) {
+            val cause = e.targetException ?: e
+            logger.warn("Signal handler threw exception: {}", cause.message, cause)
+        } catch (e: Exception) {
+            // Signal handlers should not fail the workflow
+            logger.warn("Signal handler threw exception: {}", e.message, e)
+        }
     }
 
     private suspend fun handleQuery(query: coresdk.workflow_activation.WorkflowActivationOuterClass.QueryWorkflow) {
@@ -616,15 +745,15 @@ internal class WorkflowExecutor(
 
         return if (handler.hasContextReceiver) {
             if (handler.isSuspend) {
-                method.callSuspend(methodInfo.implementation, ctx, *args)
+                method.callSuspend(workflowInstance!!, ctx, *args)
             } else {
-                method.call(methodInfo.implementation, ctx, *args)
+                method.call(workflowInstance!!, ctx, *args)
             }
         } else {
             if (handler.isSuspend) {
-                method.callSuspend(methodInfo.implementation, *args)
+                method.callSuspend(workflowInstance!!, *args)
             } else {
-                method.call(methodInfo.implementation, *args)
+                method.call(workflowInstance!!, *args)
             }
         }
     }
@@ -717,9 +846,342 @@ internal class WorkflowExecutor(
         // For now, just acknowledge receipt - patches will be tracked in WorkflowState
     }
 
-    private fun handleUpdate(update: coresdk.workflow_activation.WorkflowActivationOuterClass.DoUpdate) {
-        // TODO: Implement update handlers when updates are implemented
-        // Updates are similar to signals but expect a response
+    private suspend fun handleUpdate(update: coresdk.workflow_activation.WorkflowActivationOuterClass.DoUpdate) {
+        val updateName = update.name
+        val protocolInstanceId = update.protocolInstanceId
+        val inputPayloads = update.inputList
+        val runValidator = update.runValidator
+
+        logger.debug(
+            "Processing update: name={}, id={}, protocol_instance_id={}, run_validator={}",
+            updateName,
+            update.id,
+            protocolInstanceId,
+            runValidator,
+        )
+
+        val ctx = context
+
+        // Check runtime-registered handlers first (they take precedence)
+        val runtimeHandler = ctx?.runtimeUpdateHandlers?.get(updateName)
+        val runtimeDynamicHandler = ctx?.runtimeDynamicUpdateHandler
+
+        // Then check annotation-defined handlers
+        val annotationHandler = methodInfo.updateHandlers[updateName]
+        val annotationDynamicHandler = methodInfo.updateHandlers[null]
+
+        // Determine which handler to use:
+        // 1. Runtime handler for specific update
+        // 2. Annotation handler for specific update
+        // 3. Runtime dynamic handler
+        // 4. Annotation dynamic handler
+        when {
+            runtimeHandler != null -> {
+                invokeRuntimeUpdateHandler(
+                    runtimeHandler,
+                    protocolInstanceId,
+                    inputPayloads,
+                    runValidator,
+                )
+            }
+            annotationHandler != null -> {
+                invokeAnnotationUpdateHandler(
+                    annotationHandler,
+                    update,
+                    isDynamic = false,
+                )
+            }
+            runtimeDynamicHandler != null -> {
+                invokeRuntimeDynamicUpdateHandler(
+                    runtimeDynamicHandler,
+                    protocolInstanceId,
+                    updateName,
+                    inputPayloads,
+                    runValidator,
+                )
+            }
+            annotationDynamicHandler != null -> {
+                invokeAnnotationUpdateHandler(
+                    annotationDynamicHandler,
+                    update,
+                    isDynamic = true,
+                )
+            }
+            else -> {
+                // Unlike signals, updates fail immediately if no handler exists
+                logger.debug("No handler found for update '{}', rejecting", updateName)
+                addUpdateRejectedCommand(protocolInstanceId, "Unknown update type: $updateName")
+            }
+        }
+    }
+
+    /**
+     * Invokes a runtime-registered update handler.
+     */
+    private suspend fun invokeRuntimeUpdateHandler(
+        handler: UpdateHandlerEntry,
+        protocolInstanceId: String,
+        args: List<Payload>,
+        runValidator: Boolean,
+    ) {
+        try {
+            // Run validator if requested (in read-only mode)
+            if (runValidator && handler.validator != null) {
+                state.isReadOnly = true
+                try {
+                    handler.validator.invoke(args)
+                } finally {
+                    state.isReadOnly = false
+                }
+            }
+
+            // Accept the update
+            addUpdateAcceptedCommand(protocolInstanceId)
+
+            // Execute the handler
+            val resultPayload = handler.handler(args)
+
+            // Complete with result
+            addUpdateCompletedCommand(protocolInstanceId, resultPayload)
+        } catch (e: ReadOnlyContextException) {
+            logger.warn("Update validator attempted state mutation: {}", e.message)
+            addUpdateRejectedCommand(protocolInstanceId, "Validator attempted state mutation: ${e.message}")
+        } catch (e: IllegalArgumentException) {
+            // Validation failure
+            logger.warn("Update validation failed: {}", e.message)
+            addUpdateRejectedCommand(protocolInstanceId, e.message ?: "Validation failed")
+        } catch (e: Exception) {
+            logger.warn("Update handler threw exception: {}", e.message, e)
+            addUpdateRejectedCommand(protocolInstanceId, "Update failed: ${e.message ?: e::class.simpleName}")
+        }
+    }
+
+    /**
+     * Invokes a runtime-registered dynamic update handler.
+     */
+    private suspend fun invokeRuntimeDynamicUpdateHandler(
+        handler: DynamicUpdateHandlerEntry,
+        protocolInstanceId: String,
+        updateName: String,
+        args: List<Payload>,
+        runValidator: Boolean,
+    ) {
+        try {
+            // Run validator if requested (in read-only mode)
+            if (runValidator && handler.validator != null) {
+                state.isReadOnly = true
+                try {
+                    handler.validator.invoke(updateName, args)
+                } finally {
+                    state.isReadOnly = false
+                }
+            }
+
+            // Accept the update
+            addUpdateAcceptedCommand(protocolInstanceId)
+
+            // Execute the handler
+            val resultPayload = handler.handler(updateName, args)
+
+            // Complete with result
+            addUpdateCompletedCommand(protocolInstanceId, resultPayload)
+        } catch (e: ReadOnlyContextException) {
+            logger.warn("Update validator attempted state mutation: {}", e.message)
+            addUpdateRejectedCommand(protocolInstanceId, "Validator attempted state mutation: ${e.message}")
+        } catch (e: IllegalArgumentException) {
+            // Validation failure
+            logger.warn("Update validation failed: {}", e.message)
+            addUpdateRejectedCommand(protocolInstanceId, e.message ?: "Validation failed")
+        } catch (e: Exception) {
+            logger.warn("Dynamic update handler threw exception: {}", e.message, e)
+            addUpdateRejectedCommand(protocolInstanceId, "Update failed: ${e.message ?: e::class.simpleName}")
+        }
+    }
+
+    /**
+     * Invokes an annotation-defined update handler.
+     */
+    private suspend fun invokeAnnotationUpdateHandler(
+        handler: UpdateHandlerInfo,
+        update: coresdk.workflow_activation.WorkflowActivationOuterClass.DoUpdate,
+        isDynamic: Boolean,
+    ) {
+        val protocolInstanceId = update.protocolInstanceId
+        val runValidator = update.runValidator
+
+        try {
+            val ctx = context ?: error("WorkflowContext not initialized")
+            val method = handler.handlerMethod
+
+            // For dynamic handlers, the first argument is the update name
+            val args =
+                if (isDynamic) {
+                    val remainingParamTypes = handler.parameterTypes.drop(1)
+                    val deserializedArgs = deserializeArguments(update.inputList, remainingParamTypes)
+                    arrayOf(update.name, *deserializedArgs)
+                } else {
+                    deserializeArguments(update.inputList, handler.parameterTypes)
+                }
+
+            // Run validator if requested (in read-only mode)
+            if (runValidator && handler.validatorMethod != null) {
+                state.isReadOnly = true
+                try {
+                    invokeValidatorMethod(handler.validatorMethod, args, ctx)
+                } finally {
+                    state.isReadOnly = false
+                }
+            }
+
+            // Accept the update
+            addUpdateAcceptedCommand(protocolInstanceId)
+
+            // Execute the handler
+            val result =
+                if (handler.hasContextReceiver) {
+                    if (handler.isSuspend) {
+                        method.callSuspend(workflowInstance!!, ctx, *args)
+                    } else {
+                        method.call(workflowInstance!!, ctx, *args)
+                    }
+                } else {
+                    if (handler.isSuspend) {
+                        method.callSuspend(workflowInstance!!, *args)
+                    } else {
+                        method.call(workflowInstance!!, *args)
+                    }
+                }
+
+            // Serialize the result
+            val resultPayload =
+                if (result == Unit || handler.returnType.classifier == Unit::class) {
+                    Payload.getDefaultInstance()
+                } else {
+                    serializer.serialize(typeInfoOf(handler.returnType), result)
+                }
+
+            // Complete with result
+            addUpdateCompletedCommand(protocolInstanceId, resultPayload)
+        } catch (e: ReadOnlyContextException) {
+            logger.warn("Update validator attempted state mutation: {}", e.message)
+            addUpdateRejectedCommand(protocolInstanceId, "Validator attempted state mutation: ${e.message}")
+        } catch (e: java.lang.reflect.InvocationTargetException) {
+            val cause = e.targetException ?: e
+            if (cause is IllegalArgumentException) {
+                // Validation failure
+                logger.warn("Update validation failed: {}", cause.message)
+                addUpdateRejectedCommand(protocolInstanceId, cause.message ?: "Validation failed")
+            } else {
+                logger.warn("Update handler threw exception: {}", cause.message, cause)
+                addUpdateRejectedCommand(
+                    protocolInstanceId,
+                    "Update failed: ${cause.message ?: cause::class.simpleName}",
+                )
+            }
+        } catch (e: IllegalArgumentException) {
+            // Validation failure
+            logger.warn("Update validation failed: {}", e.message)
+            addUpdateRejectedCommand(protocolInstanceId, e.message ?: "Validation failed")
+        } catch (e: Exception) {
+            logger.warn("Update handler threw exception: {}", e.message, e)
+            addUpdateRejectedCommand(protocolInstanceId, "Update failed: ${e.message ?: e::class.simpleName}")
+        }
+    }
+
+    /**
+     * Invokes an update validator method.
+     */
+    private fun invokeValidatorMethod(
+        validator: kotlin.reflect.KFunction<*>,
+        args: Array<Any?>,
+        ctx: WorkflowContextImpl,
+    ) {
+        // Validators cannot be suspend functions
+        // Check if validator uses WorkflowContext as extension receiver
+        val extensionReceiver = validator.extensionReceiverParameter
+        val hasContextReceiver =
+            extensionReceiver?.type?.classifier == com.surrealdev.temporal.workflow.WorkflowContext::class
+
+        if (hasContextReceiver) {
+            validator.call(workflowInstance!!, ctx, *args)
+        } else {
+            validator.call(workflowInstance!!, *args)
+        }
+    }
+
+    /**
+     * Adds an update accepted command.
+     */
+    private fun addUpdateAcceptedCommand(protocolInstanceId: String) {
+        val updateResponse =
+            WorkflowCommands.UpdateResponse
+                .newBuilder()
+                .setProtocolInstanceId(protocolInstanceId)
+                .setAccepted(
+                    com.google.protobuf.Empty
+                        .getDefaultInstance(),
+                ).build()
+
+        val command =
+            WorkflowCommands.WorkflowCommand
+                .newBuilder()
+                .setUpdateResponse(updateResponse)
+                .build()
+
+        state.addCommand(command)
+    }
+
+    /**
+     * Adds an update rejected command.
+     */
+    private fun addUpdateRejectedCommand(
+        protocolInstanceId: String,
+        message: String,
+    ) {
+        val failure =
+            Failure
+                .newBuilder()
+                .setMessage(message)
+                .setSource("Kotlin")
+                .build()
+
+        val updateResponse =
+            WorkflowCommands.UpdateResponse
+                .newBuilder()
+                .setProtocolInstanceId(protocolInstanceId)
+                .setRejected(failure)
+                .build()
+
+        val command =
+            WorkflowCommands.WorkflowCommand
+                .newBuilder()
+                .setUpdateResponse(updateResponse)
+                .build()
+
+        state.addCommand(command)
+    }
+
+    /**
+     * Adds an update completed command.
+     */
+    private fun addUpdateCompletedCommand(
+        protocolInstanceId: String,
+        payload: Payload,
+    ) {
+        val updateResponse =
+            WorkflowCommands.UpdateResponse
+                .newBuilder()
+                .setProtocolInstanceId(protocolInstanceId)
+                .setCompleted(payload)
+                .build()
+
+        val command =
+            WorkflowCommands.WorkflowCommand
+                .newBuilder()
+                .setUpdateResponse(updateResponse)
+                .build()
+
+        state.addCommand(command)
     }
 
     private fun handleChildWorkflowStart(

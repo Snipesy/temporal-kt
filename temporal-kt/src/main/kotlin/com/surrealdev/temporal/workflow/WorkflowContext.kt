@@ -151,6 +151,121 @@ interface WorkflowContext : CoroutineScope {
             ) -> io.temporal.api.common.v1.Payload
         )?,
     )
+
+    /**
+     * Registers or replaces a signal handler at runtime.
+     *
+     * This allows workflows to dynamically register signal handlers that weren't
+     * defined via @Signal annotations. Pass null to unregister an existing handler.
+     *
+     * The handler receives raw Payload arguments. Signal handlers return Unit.
+     * Unhandled signals are buffered and replayed when a handler is registered.
+     *
+     * Example:
+     * ```kotlin
+     * @WorkflowRun
+     * suspend fun WorkflowContext.run() {
+     *     setSignalHandler("approveOrder") { payloads ->
+     *         val approval = serializer.deserialize(typeInfoOf<Approval>(), payloads[0])
+     *         // Process the signal
+     *     }
+     * }
+     * ```
+     *
+     * @param name The signal name to register
+     * @param handler The handler function receiving raw payloads, or null to unregister
+     */
+    fun setSignalHandler(
+        name: String,
+        handler: (suspend (List<io.temporal.api.common.v1.Payload>) -> Unit)?,
+    )
+
+    /**
+     * Registers or replaces a dynamic signal handler at runtime.
+     *
+     * A dynamic handler receives all signals that don't have a specific handler.
+     * The handler receives the signal name and raw Payload arguments.
+     *
+     * Example:
+     * ```kotlin
+     * @WorkflowRun
+     * suspend fun WorkflowContext.run() {
+     *     setDynamicSignalHandler { signalName, payloads ->
+     *         // Handle any signal dynamically
+     *     }
+     * }
+     * ```
+     *
+     * @param handler The handler function, or null to unregister
+     */
+    fun setDynamicSignalHandler(
+        handler: (suspend (signalName: String, args: List<io.temporal.api.common.v1.Payload>) -> Unit)?,
+    )
+
+    /**
+     * Registers or replaces an update handler at runtime.
+     *
+     * This allows workflows to dynamically register update handlers that weren't
+     * defined via @Update annotations. Pass null to unregister an existing handler.
+     *
+     * The handler receives raw Payload arguments and must return a Payload result.
+     * Unlike signals, updates fail immediately if no handler exists.
+     *
+     * Example:
+     * ```kotlin
+     * @WorkflowRun
+     * suspend fun WorkflowContext.run() {
+     *     setUpdateHandler("addItem") { payloads ->
+     *         val item = serializer.deserialize(typeInfoOf<Item>(), payloads[0])
+     *         items.add(item)
+     *         serializer.serialize(typeInfoOf<Int>(), items.size)
+     *     }
+     * }
+     * ```
+     *
+     * @param name The update name to register
+     * @param handler The handler function receiving raw payloads and returning a payload, or null to unregister
+     * @param validator Optional synchronous validator that runs before the handler (in read-only mode)
+     */
+    fun setUpdateHandler(
+        name: String,
+        handler: (suspend (List<io.temporal.api.common.v1.Payload>) -> io.temporal.api.common.v1.Payload)?,
+        validator: ((List<io.temporal.api.common.v1.Payload>) -> Unit)? = null,
+    )
+
+    /**
+     * Registers or replaces a dynamic update handler at runtime.
+     *
+     * A dynamic handler receives all updates that don't have a specific handler.
+     * The handler receives the update name and raw Payload arguments.
+     *
+     * Example:
+     * ```kotlin
+     * @WorkflowRun
+     * suspend fun WorkflowContext.run() {
+     *     setDynamicUpdateHandler(
+     *         handler = { updateName, payloads ->
+     *             serializer.serialize(typeInfoOf<String>(), "Handled: $updateName")
+     *         },
+     *         validator = { updateName, payloads ->
+     *             require(payloads.isNotEmpty()) { "Update must have arguments" }
+     *         }
+     *     )
+     * }
+     * ```
+     *
+     * @param handler The handler function, or null to unregister
+     * @param validator Optional synchronous validator that runs before the handler (in read-only mode)
+     */
+    fun setDynamicUpdateHandler(
+        handler: (
+            suspend (
+                updateName: String,
+                args: List<io.temporal.api.common.v1.Payload>,
+            ) -> io.temporal.api.common.v1.Payload
+        )?,
+        validator: ((updateName: String, args: List<io.temporal.api.common.v1.Payload>) -> Unit)? = null,
+    )
 }
 
 /**

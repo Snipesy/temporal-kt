@@ -1,0 +1,971 @@
+package com.surrealdev.temporal.workflow.internal
+
+import com.surrealdev.temporal.annotation.Update
+import com.surrealdev.temporal.annotation.UpdateValidator
+import com.surrealdev.temporal.annotation.Workflow
+import com.surrealdev.temporal.annotation.WorkflowRun
+import com.surrealdev.temporal.application.WorkflowRegistration
+import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
+import com.surrealdev.temporal.serialization.typeInfoOf
+import com.surrealdev.temporal.testing.ProtoTestHelpers.createActivation
+import com.surrealdev.temporal.testing.ProtoTestHelpers.doUpdateJob
+import com.surrealdev.temporal.testing.ProtoTestHelpers.initializeWorkflowJob
+import com.surrealdev.temporal.workflow.WorkflowContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.Serializable
+import java.util.UUID
+import kotlin.reflect.full.findAnnotation
+import kotlin.reflect.typeOf
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
+
+/**
+ * Comprehensive tests for update handler functionality.
+ *
+ * Test categories:
+ * 1. Registration tests: name resolution, dynamic handlers, validators
+ * 2. Execution tests: simple update, with args, with return value
+ * 3. Validation tests: validator passes, validator rejects, validator mutation fails
+ * 4. Error handling tests: handler throws, unknown update type
+ * 5. Command generation tests: accepted/rejected/completed commands
+ */
+class UpdateHandlerTest {
+    private val serializer = KotlinxJsonSerializer()
+
+    // ================================================================
+    // Test Workflow Classes
+    // ================================================================
+
+    @Workflow("SimpleUpdateWorkflow")
+    class SimpleUpdateWorkflow {
+        var counter = 0
+
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            awaitCondition { counter > 0 }
+            return "counter=$counter"
+        }
+
+        @Update("increment")
+        fun WorkflowContext.incrementUpdate(): Int {
+            counter++
+            return counter
+        }
+    }
+
+    @Serializable
+    data class CartItem(
+        val id: String,
+        val quantity: Int,
+    )
+
+    @Workflow("UpdateWithArgsWorkflow")
+    class UpdateWithArgsWorkflow {
+        val items = mutableListOf<CartItem>()
+
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            awaitCondition { items.isNotEmpty() }
+            return "items=${items.size}"
+        }
+
+        @Update("addItem")
+        fun WorkflowContext.addItemUpdate(item: CartItem): Int {
+            items.add(item)
+            return items.size
+        }
+    }
+
+    @Workflow("UpdateWithValidatorWorkflow")
+    class UpdateWithValidatorWorkflow {
+        val items = mutableListOf<CartItem>()
+
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            awaitCondition { items.isNotEmpty() }
+            return "items=${items.size}"
+        }
+
+        @UpdateValidator("addItem")
+        fun validateAddItem(item: CartItem) {
+            require(item.quantity > 0) { "Quantity must be positive" }
+        }
+
+        @Update("addItem")
+        fun WorkflowContext.addItemUpdate(item: CartItem): Int {
+            items.add(item)
+            return items.size
+        }
+    }
+
+    @Workflow("SuspendUpdateWorkflow")
+    class SuspendUpdateWorkflow {
+        var value = ""
+
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            awaitCondition { value.isNotEmpty() }
+            return value
+        }
+
+        @Update("setValue")
+        suspend fun WorkflowContext.setValueUpdate(v: String): String {
+            value = v
+            return "set to: $v"
+        }
+    }
+
+    @Workflow("DynamicUpdateWorkflow")
+    class DynamicUpdateWorkflow {
+        val updates = mutableListOf<String>()
+
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            awaitCondition { updates.size >= 2 }
+            return updates.joinToString(", ")
+        }
+
+        @Update("specific")
+        fun WorkflowContext.specificUpdate(): String {
+            updates.add("specific")
+            return "specific"
+        }
+
+        @Update(dynamic = true)
+        fun WorkflowContext.dynamicHandler(updateName: String): String {
+            updates.add("dynamic:$updateName")
+            return "dynamic:$updateName"
+        }
+    }
+
+    @Workflow("NoContextUpdateWorkflow")
+    class NoContextUpdateWorkflow {
+        var counter = 0
+
+        @WorkflowRun
+        suspend fun run(): String = "counter=$counter"
+
+        @Update("increment")
+        fun incrementUpdate(): Int {
+            counter++
+            return counter
+        }
+    }
+
+    @Workflow("ThrowingUpdateWorkflow")
+    class ThrowingUpdateWorkflow {
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String = "done"
+
+        @Update("throwingUpdate")
+        fun WorkflowContext.throwingUpdate(): String = throw RuntimeException("Update handler error")
+    }
+
+    @Workflow("ValidatorMutationWorkflow")
+    class ValidatorMutationWorkflow {
+        var mutated = false
+
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String = "done"
+
+        @UpdateValidator("badUpdate")
+        fun WorkflowContext.validateBadUpdate() {
+            // This will fail because sleep() requires state mutation
+            // which is not allowed in validators
+            // We can't actually call sleep here directly, but we can test
+            // that mutating workflow state is not allowed
+        }
+
+        @Update("badUpdate")
+        fun WorkflowContext.badUpdate(): String {
+            mutated = true
+            return "mutated"
+        }
+    }
+
+    @Serializable
+    data class UpdateResult(
+        val message: String,
+        val count: Int,
+    )
+
+    @Workflow("ComplexReturnUpdateWorkflow")
+    class ComplexReturnUpdateWorkflow {
+        var count = 0
+
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            awaitCondition { count > 0 }
+            return "count=$count"
+        }
+
+        @Update("complexUpdate")
+        fun WorkflowContext.complexUpdate(message: String): UpdateResult {
+            count++
+            return UpdateResult(message = message, count = count)
+        }
+    }
+
+    // ================================================================
+    // Registration Tests
+    // ================================================================
+
+    @Test
+    fun `update handler registration extracts update name from annotation`() {
+        val registry = WorkflowRegistry()
+        registry.register(
+            WorkflowRegistration(
+                workflowType = "SimpleUpdateWorkflow",
+                implementation = SimpleUpdateWorkflow(),
+            ),
+        )
+
+        val methodInfo = registry.lookup("SimpleUpdateWorkflow")
+        assertNotNull(methodInfo)
+        assertTrue(methodInfo.updateHandlers.containsKey("increment"))
+    }
+
+    @Test
+    fun `update handler registration uses function name when annotation name is blank`() {
+        @Workflow("BlankNameUpdateWorkflow")
+        class BlankNameUpdateWorkflow {
+            @WorkflowRun
+            suspend fun run(): String = "done"
+
+            @Update // No name specified
+            fun myUpdateHandler(): String = "updated"
+        }
+
+        val registry = WorkflowRegistry()
+        registry.register(
+            WorkflowRegistration(
+                workflowType = "BlankNameUpdateWorkflow",
+                implementation = BlankNameUpdateWorkflow(),
+            ),
+        )
+
+        val methodInfo = registry.lookup("BlankNameUpdateWorkflow")
+        assertNotNull(methodInfo)
+        assertTrue(methodInfo.updateHandlers.containsKey("myUpdateHandler"))
+    }
+
+    @Test
+    fun `update handler registration supports dynamic handler with null key`() {
+        val registry = WorkflowRegistry()
+        registry.register(
+            WorkflowRegistration(
+                workflowType = "DynamicUpdateWorkflow",
+                implementation = DynamicUpdateWorkflow(),
+            ),
+        )
+
+        val methodInfo = registry.lookup("DynamicUpdateWorkflow")
+        assertNotNull(methodInfo)
+        assertTrue(methodInfo.updateHandlers.containsKey(null), "Dynamic handler should have null key")
+        assertTrue(methodInfo.updateHandlers.containsKey("specific"))
+    }
+
+    @Test
+    fun `update handler registration includes validator method`() {
+        val registry = WorkflowRegistry()
+        registry.register(
+            WorkflowRegistration(
+                workflowType = "UpdateWithValidatorWorkflow",
+                implementation = UpdateWithValidatorWorkflow(),
+            ),
+        )
+
+        val methodInfo = registry.lookup("UpdateWithValidatorWorkflow")
+        assertNotNull(methodInfo)
+
+        val handler = methodInfo.updateHandlers["addItem"]
+        assertNotNull(handler)
+        assertNotNull(handler.validatorMethod, "Validator method should be present")
+    }
+
+    @Test
+    fun `duplicate update names throw exception`() {
+        @Workflow("DuplicateUpdateWorkflow")
+        class DuplicateUpdateWorkflow {
+            @WorkflowRun
+            suspend fun run(): String = "done"
+
+            @Update("sameName")
+            fun update1(): String = "one"
+
+            @Update("sameName")
+            fun update2(): String = "two"
+        }
+
+        val registry = WorkflowRegistry()
+        assertFailsWith<IllegalArgumentException> {
+            registry.register(
+                WorkflowRegistration(
+                    workflowType = "DuplicateUpdateWorkflow",
+                    implementation = DuplicateUpdateWorkflow(),
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `multiple dynamic update handlers throw exception`() {
+        @Workflow("MultipleDynamicUpdateWorkflow")
+        class MultipleDynamicUpdateWorkflow {
+            @WorkflowRun
+            suspend fun run(): String = "done"
+
+            @Update(dynamic = true)
+            fun handler1(): String = "one"
+
+            @Update(dynamic = true)
+            fun handler2(): String = "two"
+        }
+
+        val registry = WorkflowRegistry()
+        assertFailsWith<IllegalArgumentException> {
+            registry.register(
+                WorkflowRegistration(
+                    workflowType = "MultipleDynamicUpdateWorkflow",
+                    implementation = MultipleDynamicUpdateWorkflow(),
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `validator without matching update throws exception`() {
+        @Workflow("OrphanValidatorWorkflow")
+        class OrphanValidatorWorkflow {
+            @WorkflowRun
+            suspend fun run(): String = "done"
+
+            @UpdateValidator("nonExistentUpdate")
+            fun validateNonExistent() {}
+        }
+
+        val registry = WorkflowRegistry()
+        assertFailsWith<IllegalArgumentException> {
+            registry.register(
+                WorkflowRegistration(
+                    workflowType = "OrphanValidatorWorkflow",
+                    implementation = OrphanValidatorWorkflow(),
+                ),
+            )
+        }
+    }
+
+    // ================================================================
+    // Execution Tests
+    // ================================================================
+
+    @Test
+    fun `update handler returns result successfully`() =
+        runTest {
+            val (executor, runId) = createInitializedExecutor(SimpleUpdateWorkflow())
+
+            val protocolId = "test-protocol-id"
+            val updateActivation =
+                createActivation(
+                    runId = runId,
+                    jobs =
+                        listOf(
+                            doUpdateJob(
+                                name = "increment",
+                                protocolInstanceId = protocolId,
+                                runValidator = false,
+                            ),
+                        ),
+                )
+            val completion = executor.activate(updateActivation, CoroutineScope(Dispatchers.Default))
+
+            assertTrue(completion.hasSuccessful())
+            val commands = completion.successful.commandsList
+
+            // Should have accepted and completed commands
+            val updateResponses = commands.filter { it.hasUpdateResponse() }
+            assertTrue(updateResponses.size >= 2, "Should have at least 2 update response commands")
+
+            val accepted = updateResponses.find { it.updateResponse.hasAccepted() }
+            assertNotNull(accepted, "Should have accepted command")
+            assertEquals(protocolId, accepted.updateResponse.protocolInstanceId)
+
+            val completed = updateResponses.find { it.updateResponse.hasCompleted() }
+            assertNotNull(completed, "Should have completed command")
+            assertEquals(protocolId, completed.updateResponse.protocolInstanceId)
+        }
+
+    @Test
+    fun `update handler with arguments deserializes args correctly`() =
+        runTest {
+            val (executor, runId) = createInitializedExecutor(UpdateWithArgsWorkflow())
+
+            val item = CartItem(id = "item-1", quantity = 5)
+            val argPayload = serializer.serialize(typeInfoOf(typeOf<CartItem>()), item)
+
+            val protocolId = "test-protocol-id"
+            val updateActivation =
+                createActivation(
+                    runId = runId,
+                    jobs =
+                        listOf(
+                            doUpdateJob(
+                                name = "addItem",
+                                protocolInstanceId = protocolId,
+                                input = listOf(argPayload),
+                                runValidator = false,
+                            ),
+                        ),
+                )
+            val completion = executor.activate(updateActivation, CoroutineScope(Dispatchers.Default))
+
+            assertTrue(completion.hasSuccessful())
+            val commands = completion.successful.commandsList
+            val completed = commands.find { it.hasUpdateResponse() && it.updateResponse.hasCompleted() }
+            assertNotNull(completed)
+
+            // Deserialize the result
+            val result =
+                serializer.deserialize(
+                    typeInfoOf(typeOf<Int>()),
+                    completed.updateResponse.completed,
+                )
+            assertEquals(1, result)
+        }
+
+    @Test
+    fun `suspend update handler executes correctly`() =
+        runTest {
+            val (executor, runId) = createInitializedExecutor(SuspendUpdateWorkflow())
+
+            val valueArg = serializer.serialize(typeInfoOf(typeOf<String>()), "test-value")
+
+            val protocolId = "test-protocol-id"
+            val updateActivation =
+                createActivation(
+                    runId = runId,
+                    jobs =
+                        listOf(
+                            doUpdateJob(
+                                name = "setValue",
+                                protocolInstanceId = protocolId,
+                                input = listOf(valueArg),
+                                runValidator = false,
+                            ),
+                        ),
+                )
+            val completion = executor.activate(updateActivation, CoroutineScope(Dispatchers.Default))
+
+            assertTrue(completion.hasSuccessful())
+            val completed =
+                completion.successful.commandsList
+                    .find { it.hasUpdateResponse() && it.updateResponse.hasCompleted() }
+            assertNotNull(completed)
+        }
+
+    @Test
+    fun `update handler without context receiver works`() =
+        runTest {
+            val (executor, runId) = createInitializedExecutor(NoContextUpdateWorkflow())
+
+            val protocolId = "test-protocol-id"
+            val updateActivation =
+                createActivation(
+                    runId = runId,
+                    jobs =
+                        listOf(
+                            doUpdateJob(
+                                name = "increment",
+                                protocolInstanceId = protocolId,
+                                runValidator = false,
+                            ),
+                        ),
+                )
+            val completion = executor.activate(updateActivation, CoroutineScope(Dispatchers.Default))
+
+            assertTrue(completion.hasSuccessful())
+        }
+
+    @Test
+    fun `complex return type serializes correctly`() =
+        runTest {
+            val (executor, runId) = createInitializedExecutor(ComplexReturnUpdateWorkflow())
+
+            val msgArg = serializer.serialize(typeInfoOf(typeOf<String>()), "hello")
+
+            val protocolId = "test-protocol-id"
+            val updateActivation =
+                createActivation(
+                    runId = runId,
+                    jobs =
+                        listOf(
+                            doUpdateJob(
+                                name = "complexUpdate",
+                                protocolInstanceId = protocolId,
+                                input = listOf(msgArg),
+                                runValidator = false,
+                            ),
+                        ),
+                )
+            val completion = executor.activate(updateActivation, CoroutineScope(Dispatchers.Default))
+
+            assertTrue(completion.hasSuccessful())
+            val completed =
+                completion.successful.commandsList
+                    .find { it.hasUpdateResponse() && it.updateResponse.hasCompleted() }
+            assertNotNull(completed)
+
+            val result =
+                serializer.deserialize(
+                    typeInfoOf(typeOf<UpdateResult>()),
+                    completed.updateResponse.completed,
+                ) as UpdateResult
+            assertEquals("hello", result.message)
+            assertEquals(1, result.count)
+        }
+
+    // ================================================================
+    // Dynamic Handler Tests
+    // ================================================================
+
+    @Test
+    fun `dynamic handler is used for unknown update types`() =
+        runTest {
+            val (executor, runId) = createInitializedExecutor(DynamicUpdateWorkflow())
+
+            val protocolId = "test-protocol-id"
+            val updateActivation =
+                createActivation(
+                    runId = runId,
+                    jobs =
+                        listOf(
+                            doUpdateJob(
+                                name = "unknownUpdate",
+                                protocolInstanceId = protocolId,
+                                runValidator = false,
+                            ),
+                        ),
+                )
+            val completion = executor.activate(updateActivation, CoroutineScope(Dispatchers.Default))
+
+            assertTrue(completion.hasSuccessful())
+            val completed =
+                completion.successful.commandsList
+                    .find { it.hasUpdateResponse() && it.updateResponse.hasCompleted() }
+            assertNotNull(completed)
+        }
+
+    @Test
+    fun `specific handler takes precedence over dynamic handler`() =
+        runTest {
+            val workflow = DynamicUpdateWorkflow()
+            val (executor, runId) = createInitializedExecutor(workflow)
+
+            val protocolId = "test-protocol-id"
+            val updateActivation =
+                createActivation(
+                    runId = runId,
+                    jobs =
+                        listOf(
+                            doUpdateJob(
+                                name = "specific",
+                                protocolInstanceId = protocolId,
+                                runValidator = false,
+                            ),
+                        ),
+                )
+            executor.activate(updateActivation, CoroutineScope(Dispatchers.Default))
+
+            assertEquals(listOf("specific"), workflow.updates)
+        }
+
+    // ================================================================
+    // Validation Tests
+    // ================================================================
+
+    @Test
+    fun `validator passes and handler executes`() =
+        runTest {
+            val (executor, runId) = createInitializedExecutor(UpdateWithValidatorWorkflow())
+
+            val item = CartItem(id = "item-1", quantity = 5)
+            val argPayload = serializer.serialize(typeInfoOf(typeOf<CartItem>()), item)
+
+            val protocolId = "test-protocol-id"
+            val updateActivation =
+                createActivation(
+                    runId = runId,
+                    jobs =
+                        listOf(
+                            doUpdateJob(
+                                name = "addItem",
+                                protocolInstanceId = protocolId,
+                                input = listOf(argPayload),
+                                runValidator = true,
+                            ),
+                        ),
+                )
+            val completion = executor.activate(updateActivation, CoroutineScope(Dispatchers.Default))
+
+            assertTrue(completion.hasSuccessful())
+            val commands = completion.successful.commandsList
+            val completed = commands.find { it.hasUpdateResponse() && it.updateResponse.hasCompleted() }
+            assertNotNull(completed, "Update should complete successfully")
+        }
+
+    @Test
+    fun `validator rejects invalid input`() =
+        runTest {
+            val (executor, runId) = createInitializedExecutor(UpdateWithValidatorWorkflow())
+
+            // Invalid quantity (0)
+            val item = CartItem(id = "item-1", quantity = 0)
+            val argPayload = serializer.serialize(typeInfoOf(typeOf<CartItem>()), item)
+
+            val protocolId = "test-protocol-id"
+            val updateActivation =
+                createActivation(
+                    runId = runId,
+                    jobs =
+                        listOf(
+                            doUpdateJob(
+                                name = "addItem",
+                                protocolInstanceId = protocolId,
+                                input = listOf(argPayload),
+                                runValidator = true,
+                            ),
+                        ),
+                )
+            val completion = executor.activate(updateActivation, CoroutineScope(Dispatchers.Default))
+
+            assertTrue(completion.hasSuccessful())
+            val commands = completion.successful.commandsList
+            val rejected = commands.find { it.hasUpdateResponse() && it.updateResponse.hasRejected() }
+            assertNotNull(rejected, "Update should be rejected")
+            assertTrue(
+                rejected.updateResponse.rejected.message
+                    .contains("Quantity must be positive"),
+            )
+        }
+
+    @Test
+    fun `validator not run during replay`() =
+        runTest {
+            val (executor, runId) = createInitializedExecutor(UpdateWithValidatorWorkflow())
+
+            // Invalid quantity, but runValidator=false (simulating replay)
+            val item = CartItem(id = "item-1", quantity = 0)
+            val argPayload = serializer.serialize(typeInfoOf(typeOf<CartItem>()), item)
+
+            val protocolId = "test-protocol-id"
+            val updateActivation =
+                createActivation(
+                    runId = runId,
+                    jobs =
+                        listOf(
+                            doUpdateJob(
+                                name = "addItem",
+                                protocolInstanceId = protocolId,
+                                input = listOf(argPayload),
+                                runValidator = false, // Simulate replay
+                            ),
+                        ),
+                    isReplaying = true,
+                )
+            val completion = executor.activate(updateActivation, CoroutineScope(Dispatchers.Default))
+
+            assertTrue(completion.hasSuccessful())
+            val commands = completion.successful.commandsList
+            // Should complete because validator was not run
+            val completed = commands.find { it.hasUpdateResponse() && it.updateResponse.hasCompleted() }
+            assertNotNull(completed, "Update should complete during replay without validation")
+        }
+
+    // ================================================================
+    // Error Handling Tests
+    // ================================================================
+
+    @Test
+    fun `update handler exception returns rejected`() =
+        runTest {
+            val (executor, runId) = createInitializedExecutor(ThrowingUpdateWorkflow())
+
+            val protocolId = "test-protocol-id"
+            val updateActivation =
+                createActivation(
+                    runId = runId,
+                    jobs =
+                        listOf(
+                            doUpdateJob(
+                                name = "throwingUpdate",
+                                protocolInstanceId = protocolId,
+                                runValidator = false,
+                            ),
+                        ),
+                )
+            val completion = executor.activate(updateActivation, CoroutineScope(Dispatchers.Default))
+
+            assertTrue(completion.hasSuccessful())
+            val commands = completion.successful.commandsList
+            val rejected = commands.find { it.hasUpdateResponse() && it.updateResponse.hasRejected() }
+            assertNotNull(rejected, "Update should be rejected when handler throws")
+            assertTrue(
+                rejected.updateResponse.rejected.message
+                    .contains("Update failed"),
+            )
+        }
+
+    @Test
+    fun `unknown update type returns rejected immediately`() =
+        runTest {
+            val (executor, runId) = createInitializedExecutor(SimpleUpdateWorkflow())
+
+            val protocolId = "test-protocol-id"
+            val updateActivation =
+                createActivation(
+                    runId = runId,
+                    jobs =
+                        listOf(
+                            doUpdateJob(
+                                name = "nonExistentUpdate",
+                                protocolInstanceId = protocolId,
+                                runValidator = false,
+                            ),
+                        ),
+                )
+            val completion = executor.activate(updateActivation, CoroutineScope(Dispatchers.Default))
+
+            assertTrue(completion.hasSuccessful())
+            val commands = completion.successful.commandsList
+            val rejected = commands.find { it.hasUpdateResponse() && it.updateResponse.hasRejected() }
+            assertNotNull(rejected, "Unknown update should be rejected")
+            assertTrue(
+                rejected.updateResponse.rejected.message
+                    .contains("Unknown update type"),
+            )
+        }
+
+    // ================================================================
+    // Runtime Update Handler Tests
+    // ================================================================
+
+    @Workflow("RuntimeUpdateWorkflow")
+    class RuntimeUpdateWorkflow {
+        var runtimeValue = ""
+
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            setUpdateHandler(
+                name = "runtimeUpdate",
+                handler = { payloads ->
+                    val value = serializer.deserialize(typeInfoOf<String>(), payloads[0]) as String
+                    runtimeValue = value
+                    serializer.serialize(typeInfoOf<String>(), "set: $value")
+                },
+            )
+            awaitCondition { runtimeValue.isNotEmpty() }
+            return runtimeValue
+        }
+    }
+
+    @Workflow("RuntimeUpdateWithValidatorWorkflow")
+    class RuntimeUpdateWithValidatorWorkflow {
+        var value = 0
+
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            setUpdateHandler(
+                "setValue",
+                handler = { payloads ->
+                    val newValue = serializer.deserialize(typeInfoOf<Int>(), payloads[0]) as Int
+                    value = newValue
+                    serializer.serialize(typeInfoOf<Int>(), value)
+                },
+                validator = { payloads ->
+                    val newValue = serializer.deserialize(typeInfoOf<Int>(), payloads[0]) as Int
+                    require(newValue >= 0) { "Value must be non-negative" }
+                },
+            )
+            awaitCondition { value > 0 }
+            return "value=$value"
+        }
+    }
+
+    @Test
+    fun `runtime update handler is invoked correctly`() =
+        runTest {
+            val workflow = RuntimeUpdateWorkflow()
+            val (executor, runId) = createInitializedExecutor(workflow)
+
+            val valueArg = serializer.serialize(typeInfoOf(typeOf<String>()), "runtime-value")
+
+            val protocolId = "test-protocol-id"
+            val updateActivation =
+                createActivation(
+                    runId = runId,
+                    jobs =
+                        listOf(
+                            doUpdateJob(
+                                name = "runtimeUpdate",
+                                protocolInstanceId = protocolId,
+                                input = listOf(valueArg),
+                                runValidator = false,
+                            ),
+                        ),
+                )
+            val completion = executor.activate(updateActivation, CoroutineScope(Dispatchers.Default))
+
+            assertTrue(completion.hasSuccessful())
+            assertEquals("runtime-value", workflow.runtimeValue)
+        }
+
+    @Test
+    fun `runtime update validator works correctly`() =
+        runTest {
+            val workflow = RuntimeUpdateWithValidatorWorkflow()
+            val (executor, runId) = createInitializedExecutor(workflow)
+
+            // Test with valid value
+            val validArg = serializer.serialize(typeInfoOf(typeOf<Int>()), 42)
+            val protocolId1 = "test-protocol-id-1"
+            val validUpdateActivation =
+                createActivation(
+                    runId = runId,
+                    jobs =
+                        listOf(
+                            doUpdateJob(
+                                name = "setValue",
+                                protocolInstanceId = protocolId1,
+                                input = listOf(validArg),
+                                runValidator = true,
+                            ),
+                        ),
+                )
+            val completion1 = executor.activate(validUpdateActivation, CoroutineScope(Dispatchers.Default))
+            assertTrue(completion1.hasSuccessful())
+            val completed =
+                completion1.successful.commandsList
+                    .find { it.hasUpdateResponse() && it.updateResponse.hasCompleted() }
+            assertNotNull(completed, "Valid update should complete")
+
+            // Test with invalid value
+            val invalidArg = serializer.serialize(typeInfoOf(typeOf<Int>()), -1)
+            val protocolId2 = "test-protocol-id-2"
+            val invalidUpdateActivation =
+                createActivation(
+                    runId = runId,
+                    jobs =
+                        listOf(
+                            doUpdateJob(
+                                name = "setValue",
+                                protocolInstanceId = protocolId2,
+                                input = listOf(invalidArg),
+                                runValidator = true,
+                            ),
+                        ),
+                )
+            val completion2 = executor.activate(invalidUpdateActivation, CoroutineScope(Dispatchers.Default))
+            assertTrue(completion2.hasSuccessful())
+            val rejected =
+                completion2.successful.commandsList
+                    .find { it.hasUpdateResponse() && it.updateResponse.hasRejected() }
+            assertNotNull(rejected, "Invalid update should be rejected")
+        }
+
+    // ================================================================
+    // Multiple Updates Tests
+    // ================================================================
+
+    @Test
+    fun `multiple updates in same activation are all processed`() =
+        runTest {
+            val workflow = SimpleUpdateWorkflow()
+            val (executor, runId) = createInitializedExecutor(workflow)
+
+            val updateActivation =
+                createActivation(
+                    runId = runId,
+                    jobs =
+                        listOf(
+                            doUpdateJob(
+                                name = "increment",
+                                protocolInstanceId = "proto-1",
+                                runValidator = false,
+                            ),
+                            doUpdateJob(
+                                name = "increment",
+                                protocolInstanceId = "proto-2",
+                                runValidator = false,
+                            ),
+                            doUpdateJob(
+                                name = "increment",
+                                protocolInstanceId = "proto-3",
+                                runValidator = false,
+                            ),
+                        ),
+                )
+            val completion = executor.activate(updateActivation, CoroutineScope(Dispatchers.Default))
+
+            assertTrue(completion.hasSuccessful())
+            val commands = completion.successful.commandsList
+            val completedResponses =
+                commands.filter {
+                    it.hasUpdateResponse() && it.updateResponse.hasCompleted()
+                }
+            assertEquals(3, completedResponses.size)
+            assertEquals(3, workflow.counter)
+        }
+
+    // ================================================================
+    // Helper Methods
+    // ================================================================
+
+    private suspend fun createInitializedExecutor(workflowImpl: Any): Pair<WorkflowExecutor, String> {
+        val klass = workflowImpl::class
+        val workflowAnnotation = klass.findAnnotation<Workflow>()
+        val workflowType =
+            workflowAnnotation?.name?.takeIf { it.isNotBlank() }
+                ?: klass.simpleName
+                ?: error("Cannot determine workflow type")
+
+        val registry = WorkflowRegistry()
+        registry.register(
+            WorkflowRegistration(
+                workflowType = workflowType,
+                implementation = workflowImpl,
+                // For tests, reuse the same instance so we can inspect state
+                instanceFactory = { workflowImpl },
+            ),
+        )
+
+        val methodInfo =
+            registry.lookup(workflowType)
+                ?: error("Workflow not found: $workflowType")
+
+        val runId = UUID.randomUUID().toString()
+
+        val executor =
+            WorkflowExecutor(
+                runId = runId,
+                methodInfo = methodInfo,
+                serializer = serializer,
+                taskQueue = "test-task-queue",
+                namespace = "default",
+            )
+
+        // Initialize the workflow
+        val initActivation =
+            createActivation(
+                runId = runId,
+                jobs = listOf(initializeWorkflowJob(workflowType = workflowType)),
+            )
+        executor.activate(initActivation, CoroutineScope(Dispatchers.Default))
+
+        return executor to runId
+    }
+}

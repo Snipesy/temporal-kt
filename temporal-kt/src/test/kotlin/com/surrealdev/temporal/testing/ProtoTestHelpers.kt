@@ -242,18 +242,28 @@ object ProtoTestHelpers {
 
     /**
      * Creates a DoUpdate job.
+     *
+     * @param id A workflow-unique identifier for this update
+     * @param protocolInstanceId The protocol message instance ID (used for response tracking)
+     * @param name The name of the update handler
+     * @param input The input payloads to the update
+     * @param runValidator If true, lang must run the update's validator before the handler
      */
     fun doUpdateJob(
         id: String = UUID.randomUUID().toString(),
+        protocolInstanceId: String = "update-protocol-${UUID.randomUUID()}",
         name: String = "TestUpdate",
         input: List<Payload> = emptyList(),
+        runValidator: Boolean = true,
     ): WorkflowActivationJob {
         val update =
             DoUpdate
                 .newBuilder()
                 .setId(id)
+                .setProtocolInstanceId(protocolInstanceId)
                 .setName(name)
                 .addAllInput(input)
+                .setRunValidator(runValidator)
                 .build()
 
         return WorkflowActivationJob

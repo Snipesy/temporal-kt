@@ -184,3 +184,42 @@ class WorkflowAlreadyExistsException(
     message: String = "Workflow already exists (workflowId=$workflowId, existingRunId=$existingRunId)",
     cause: Throwable? = null,
 ) : WorkflowException(message, cause)
+
+/**
+ * Exception thrown when a workflow update fails.
+ *
+ * @property workflowId The workflow ID
+ * @property runId The run ID
+ * @property updateName The name of the update that failed
+ * @property updateId The ID of the update that failed
+ */
+class WorkflowUpdateFailedException(
+    val workflowId: String,
+    val runId: String?,
+    val updateName: String,
+    val updateId: String,
+    message: String,
+    cause: Throwable? = null,
+) : WorkflowException(
+        "Workflow update '$updateName' failed (workflowId=$workflowId, runId=$runId, updateId=$updateId): $message",
+        cause,
+    )
+
+/**
+ * Exception thrown when a workflow query is rejected.
+ *
+ * @property workflowId The workflow ID
+ * @property runId The run ID
+ * @property queryType The type of query that was rejected
+ * @property status The rejection status
+ */
+class WorkflowQueryRejectedException(
+    val workflowId: String,
+    val runId: String?,
+    val queryType: String,
+    val status: String,
+    cause: Throwable? = null,
+) : WorkflowException(
+        "Workflow query '$queryType' rejected (workflowId=$workflowId, runId=$runId): $status",
+        cause,
+    )

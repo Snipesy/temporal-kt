@@ -3,6 +3,7 @@ package com.surrealdev.temporal.workflow.internal
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.taskQueue
+import com.surrealdev.temporal.client.startWorkflow
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext
@@ -227,10 +228,10 @@ class WorkflowCoroutineDispatcherTimeTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow<String, Int>(
                     workflowType = "MultipleTimersWorkflow",
                     taskQueue = taskQueue,
-                    args = listOf(3),
+                    arg = 3,
                 )
 
             val result = handle.result(timeout = 30.seconds)
@@ -285,10 +286,10 @@ class WorkflowCoroutineDispatcherTimeTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<Int>(
+                client.startWorkflow<Int, Int>(
                     workflowType = "ComputeAndSleepWorkflow",
                     taskQueue = taskQueue,
-                    args = listOf(5),
+                    arg = 5,
                 )
 
             val result = handle.result(timeout = 30.seconds)
@@ -314,10 +315,10 @@ class WorkflowCoroutineDispatcherTimeTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow<String, String>(
                     workflowType = "ImmediateReturnWorkflow",
                     taskQueue = taskQueue,
-                    args = listOf("test"),
+                    arg = "test",
                 )
 
             val result = handle.result(timeout = 30.seconds)

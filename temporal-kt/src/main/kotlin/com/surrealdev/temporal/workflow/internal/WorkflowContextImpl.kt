@@ -9,6 +9,7 @@ import com.surrealdev.temporal.workflow.WorkflowInfo
 import coresdk.workflow_commands.WorkflowCommands
 import io.temporal.api.common.v1.Payload
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.slf4j.MDCContext
 import kotlin.coroutines.CoroutineContext
 import kotlin.reflect.KType
@@ -48,7 +49,7 @@ internal class WorkflowContextImpl(
      * Keys are query names.
      */
     internal val runtimeQueryHandlers =
-        mutableMapOf<String, (suspend (List<io.temporal.api.common.v1.Payload>) -> io.temporal.api.common.v1.Payload)>()
+        mutableMapOf<String, (suspend (List<Payload>) -> Payload)>()
 
     /**
      * Runtime-registered dynamic query handler (catches all unhandled queries).
@@ -57,9 +58,40 @@ internal class WorkflowContextImpl(
         (
             suspend (
                 queryType: String,
-                args: List<io.temporal.api.common.v1.Payload>,
-            ) -> io.temporal.api.common.v1.Payload
+                args: List<Payload>,
+            ) -> Payload
         )? = null
+
+    /**
+     * Runtime-registered named signal handlers.
+     * Keys are signal names.
+     */
+    internal val runtimeSignalHandlers =
+        mutableMapOf<String, suspend (List<Payload>) -> Unit>()
+
+    /**
+     * Runtime-registered dynamic signal handler (catches all unhandled signals).
+     */
+    internal var runtimeDynamicSignalHandler:
+        (suspend (signalName: String, args: List<Payload>) -> Unit)? = null
+
+    /**
+     * Buffered signals waiting for handlers to be registered.
+     * Keys are signal names, values are lists of signal inputs.
+     */
+    internal val bufferedSignals =
+        mutableMapOf<String, MutableList<coresdk.workflow_activation.WorkflowActivationOuterClass.SignalWorkflow>>()
+
+    /**
+     * Runtime-registered named update handlers.
+     * Keys are update names.
+     */
+    internal val runtimeUpdateHandlers = mutableMapOf<String, UpdateHandlerEntry>()
+
+    /**
+     * Runtime-registered dynamic update handler (catches all unhandled updates).
+     */
+    internal var runtimeDynamicUpdateHandler: DynamicUpdateHandlerEntry? = null
 
     override val coroutineContext: CoroutineContext =
         if (mdcContext != null) job + workflowDispatcher + mdcContext else job + workflowDispatcher
@@ -224,7 +256,7 @@ internal class WorkflowContextImpl(
 
     override fun setQueryHandler(
         name: String,
-        handler: (suspend (List<io.temporal.api.common.v1.Payload>) -> io.temporal.api.common.v1.Payload)?,
+        handler: (suspend (List<Payload>) -> Payload)?,
     ) {
         if (handler == null) {
             runtimeQueryHandlers.remove(name)
@@ -237,11 +269,69 @@ internal class WorkflowContextImpl(
         handler: (
             suspend (
                 queryType: String,
-                args: List<io.temporal.api.common.v1.Payload>,
-            ) -> io.temporal.api.common.v1.Payload
+                args: List<Payload>,
+            ) -> Payload
         )?,
     ) {
         runtimeDynamicQueryHandler = handler
+    }
+
+    override fun setSignalHandler(
+        name: String,
+        handler: (suspend (List<Payload>) -> Unit)?,
+    ) {
+        if (handler == null) {
+            runtimeSignalHandlers.remove(name)
+        } else {
+            runtimeSignalHandlers[name] = handler
+            // Immediately launch tasks for any buffered signals
+            // These tasks are queued to the WorkflowCoroutineDispatcher and will
+            // execute during the next processAllWork() call, matching Python SDK behavior
+            bufferedSignals.remove(name)?.let { signals ->
+                for (signal in signals) {
+                    launch { handler(signal.inputList) }
+                }
+            }
+        }
+    }
+
+    override fun setDynamicSignalHandler(handler: (suspend (signalName: String, args: List<Payload>) -> Unit)?) {
+        runtimeDynamicSignalHandler = handler
+        if (handler != null) {
+            // Immediately launch tasks for all buffered signals
+            // These tasks are queued to the WorkflowCoroutineDispatcher and will
+            // execute during the next processAllWork() call, matching Python SDK behavior
+            for ((signalName, signals) in bufferedSignals) {
+                for (signal in signals) {
+                    launch { handler(signalName, signal.inputList) }
+                }
+            }
+            bufferedSignals.clear()
+        }
+    }
+
+    override fun setUpdateHandler(
+        name: String,
+        handler: (suspend (List<Payload>) -> Payload)?,
+        validator: ((List<Payload>) -> Unit)?,
+    ) {
+        if (handler == null) {
+            runtimeUpdateHandlers.remove(name)
+        } else {
+            runtimeUpdateHandlers[name] = UpdateHandlerEntry(handler, validator)
+        }
+    }
+
+    override fun setDynamicUpdateHandler(
+        handler: (suspend (updateName: String, args: List<Payload>) -> Payload)?,
+        validator: ((updateName: String, args: List<Payload>) -> Unit)?,
+    ) {
+        runtimeDynamicUpdateHandler =
+            if (handler != null) {
+                DynamicUpdateHandlerEntry(handler, validator)
+            } else {
+                null
+            }
     }
 
     /**
@@ -250,6 +340,22 @@ internal class WorkflowContextImpl(
     val isReplaying: Boolean
         get() = state.isReplaying
 }
+
+/**
+ * Entry for a runtime-registered update handler.
+ */
+internal data class UpdateHandlerEntry(
+    val handler: suspend (List<Payload>) -> Payload,
+    val validator: ((List<Payload>) -> Unit)?,
+)
+
+/**
+ * Entry for a runtime-registered dynamic update handler.
+ */
+internal data class DynamicUpdateHandlerEntry(
+    val handler: suspend (updateName: String, args: List<Payload>) -> Payload,
+    val validator: ((updateName: String, args: List<Payload>) -> Unit)?,
+)
 
 /**
  * Converts a Kotlin [Duration] to a protobuf [com.google.protobuf.Duration].

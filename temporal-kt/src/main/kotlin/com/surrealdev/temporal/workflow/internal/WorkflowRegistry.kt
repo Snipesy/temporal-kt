@@ -86,8 +86,10 @@ internal data class WorkflowMethodInfo(
     val workflowType: String,
     /** The @WorkflowRun method to invoke. */
     val runMethod: KFunction<*>,
-    /** The workflow implementation instance (used as a factory). */
-    val implementation: Any,
+    /** The workflow class for creating new instances. */
+    val workflowClass: kotlin.reflect.KClass<*>,
+    /** Factory function to create a new workflow instance for each run. */
+    val instanceFactory: () -> Any,
     /** The parameter types (excluding context receiver). */
     val parameterTypes: List<KType>,
     /** The return type. */
@@ -183,11 +185,24 @@ internal class WorkflowRegistry {
         // Scan for @Update and @UpdateValidator annotated methods
         val updateHandlers = scanUpdateHandlers(klass, workflowType)
 
+        // Create a factory function that creates new workflow instances
+        // This ensures each workflow run gets a fresh instance with clean state
+        val instanceFactory: () -> Any =
+            registration.instanceFactory ?: run {
+                val primaryConstructor =
+                    klass.constructors.find { it.parameters.isEmpty() }
+                        ?: error("Workflow class ${klass.qualifiedName} must have a no-arg constructor")
+                primaryConstructor.isAccessible = true
+                // pragma
+                { primaryConstructor.call() }
+            }
+
         val info =
             WorkflowMethodInfo(
                 workflowType = workflowType,
                 runMethod = runMethod,
-                implementation = implementation,
+                workflowClass = klass,
+                instanceFactory = instanceFactory,
                 parameterTypes = parameterTypes,
                 returnType = runMethod.returnType,
                 hasContextReceiver = hasContextReceiver,

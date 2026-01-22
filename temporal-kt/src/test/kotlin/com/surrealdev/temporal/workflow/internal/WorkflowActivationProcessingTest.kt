@@ -507,11 +507,13 @@ class WorkflowActivationProcessingTest {
                 .members
                 .first { it.name == "createTestExecutor" } as KFunction<*>
 
+        val testInstance = this
         val workflowMethodInfo =
             WorkflowMethodInfo(
                 workflowType = "TestWorkflow",
                 runMethod = dummyMethod,
-                implementation = this,
+                workflowClass = this::class,
+                instanceFactory = { testInstance },
                 parameterTypes = emptyList(),
                 returnType = typeOf<Unit>(),
                 hasContextReceiver = false,
