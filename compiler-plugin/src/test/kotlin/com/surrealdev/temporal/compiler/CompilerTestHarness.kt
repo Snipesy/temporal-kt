@@ -1,36 +1,32 @@
 package com.surrealdev.temporal.compiler
 
-import com.surrealdev.temporal.compiler.ir.TemporalIrGenerationExtension
-import org.jetbrains.kotlin.backend.common.extensions.IrGenerationExtension
-import org.jetbrains.kotlin.cli.common.config.addKotlinSourceRoot
+import org.jetbrains.kotlin.cli.common.ExitCode
+import org.jetbrains.kotlin.cli.common.arguments.K2JVMCompilerArguments
 import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity
 import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSourceLocation
 import org.jetbrains.kotlin.cli.common.messages.MessageCollector
-import org.jetbrains.kotlin.cli.jvm.compiler.EnvironmentConfigFiles
-import org.jetbrains.kotlin.cli.jvm.compiler.KotlinCoreEnvironment
-import org.jetbrains.kotlin.cli.jvm.compiler.KotlinToJVMBytecodeCompiler
-import org.jetbrains.kotlin.cli.jvm.config.addJvmClasspathRoots
-import org.jetbrains.kotlin.com.intellij.openapi.project.Project
+import org.jetbrains.kotlin.cli.common.messages.MessageRenderer
+import org.jetbrains.kotlin.cli.common.messages.PrintingMessageCollector
+import org.jetbrains.kotlin.cli.jvm.K2JVMCompiler
+import org.jetbrains.kotlin.compiler.plugin.CompilerPluginRegistrar
 import org.jetbrains.kotlin.compiler.plugin.ExperimentalCompilerApi
-import org.jetbrains.kotlin.config.CompilerConfiguration
-import org.jetbrains.kotlin.config.JVMConfigurationKeys
 import org.jetbrains.kotlin.config.JvmTarget
-import org.jetbrains.kotlin.config.messageCollector
-import org.jetbrains.kotlin.config.moduleName
+import org.jetbrains.kotlin.config.Services
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.PrintStream
+import java.nio.file.Files
 
 /**
- * Test harness for embedded Kotlin compilation with IR generation extensions.
+ * Test harness for Kotlin compilation with compiler plugins.
  *
- * This utility provides a reusable way to compile Kotlin source files with
- * custom compiler plugins in tests, capturing compilation results and errors.
+ * Uses K2JVMCompiler directly for proper K2/FIR and IR extension support.
+ * Plugins are discovered via service locator (META-INF/services) using TestPluginRegistrar.
  *
  * Usage:
  * ```kotlin
  * val harness = CompilerTestHarness()
- * val result = harness.compile(sourceFile) { project ->
- *     IrGenerationExtension.registerExtension(project, MyExtension())
- * }
+ * val result = harness.compile(sourceFile, listOf(MyPluginRegistrar()))
  * assertTrue(result.success)
  * ```
  */
@@ -68,12 +64,6 @@ class CompilerTestHarness(
         val errors: List<String> get() = _errors
         val warnings: List<String> get() = _warnings
 
-        /** Add an error message (used internally for exception handling) */
-        internal fun addError(message: String) {
-            hasErrors = true
-            _errors.add(message)
-        }
-
         override fun clear() {
             _errors.clear()
             _warnings.clear()
@@ -107,115 +97,135 @@ class CompilerTestHarness(
     }
 
     /**
-     * Compiles the given source file with optional IR generation extensions.
+     * Compiles a single source file with the given plugin registrars.
      *
      * @param sourceFile The Kotlin source file to compile
-     * @param registerExtensions Optional callback to register IR extensions on the project.
-     *                           The callback receives the project instance for extension registration.
+     * @param pluginRegistrars Plugin registrars to use for compilation
      * @return CompilationResult containing success status and collected messages
      */
     fun compile(
         sourceFile: File,
-        registerExtensions: ((Project) -> Unit)? = null,
-    ): CompilationResult = compile(listOf(sourceFile), registerExtensions)
+        pluginRegistrars: List<CompilerPluginRegistrar>,
+    ): CompilationResult = compile(listOf(sourceFile), pluginRegistrars)
 
     /**
-     * Compiles multiple source files with optional IR generation extensions.
+     * Compiles multiple source files with the given plugin registrars.
+     *
+     * Uses K2JVMCompiler directly for proper FIR and IR extension support.
+     * Plugins are passed via thread-local to TestPluginRegistrar which is
+     * discovered by the compiler via service locator mechanism.
      *
      * @param sourceFiles The Kotlin source files to compile
-     * @param registerExtensions Optional callback to register IR extensions on the project
+     * @param pluginRegistrars Plugin registrars to use for compilation
      * @return CompilationResult containing success status and collected messages
      */
     fun compile(
         sourceFiles: List<File>,
-        registerExtensions: ((Project) -> Unit)? = null,
-    ): CompilationResult = compile(sourceFiles, TestMessageCollector(), registerExtensions)
-
-    /**
-     * Compiles multiple source files with a provided message collector and optional IR generation extensions.
-     *
-     * @param sourceFiles The Kotlin source files to compile
-     * @param messageCollector The message collector to use for capturing compilation messages
-     * @param registerExtensions Optional callback to register IR extensions on the project
-     * @return CompilationResult containing success status and collected messages
-     */
-    fun compile(
-        sourceFiles: List<File>,
-        messageCollector: TestMessageCollector,
-        registerExtensions: ((Project) -> Unit)? = null,
+        pluginRegistrars: List<CompilerPluginRegistrar>,
     ): CompilationResult {
-        val configuration =
-            CompilerConfiguration().apply {
-                this.messageCollector = messageCollector
-                this.moduleName = this@CompilerTestHarness.moduleName
-                put(JVMConfigurationKeys.JVM_TARGET, jvmTarget)
+        val messageCollector = TestMessageCollector()
+        val outputDir = Files.createTempDirectory("k2-compile-output").toFile()
 
-                // Set JDK home for module-based Java (JDK 9+)
-                put(JVMConfigurationKeys.JDK_HOME, File(System.getProperty("java.home")))
+        try {
+            // Set up thread-local parameters for TestPluginRegistrar
+            TestPluginRegistrar.threadLocalParameters.set(
+                TestPluginRegistrar.ThreadLocalParameters(pluginRegistrars),
+            )
 
-                // Add source files to compilation
-                sourceFiles.forEach { file ->
-                    addKotlinSourceRoot(file.absolutePath)
+            // Build compiler arguments
+            val args =
+                K2JVMCompilerArguments().apply {
+                    freeArgs = sourceFiles.map { it.absolutePath }
+                    destination = outputDir.absolutePath
+                    classpath = buildClasspath().joinToString(File.pathSeparator) { it.absolutePath }
+                    jdkHome = System.getProperty("java.home")
+                    jvmTarget = this@CompilerTestHarness.jvmTarget.description
+                    noStdlib = true
+                    noReflect = true
+                    moduleName = this@CompilerTestHarness.moduleName
+                    // Add test resources to plugin classpath for TestPluginRegistrar discovery
+                    pluginClasspaths = findTestPluginClasspath()
                 }
 
-                // Add classpath dependencies
-                addJvmClasspathRoots(buildClasspath())
-            }
+            // Capture compiler output
+            val outputStream = ByteArrayOutputStream()
+            val printStream = PrintStream(outputStream)
 
-        val disposable =
-            org.jetbrains.kotlin.com.intellij.openapi.util.Disposer
-                .newDisposable()
-        try {
-            val environment =
-                KotlinCoreEnvironment.createForProduction(
-                    disposable,
-                    configuration,
-                    EnvironmentConfigFiles.JVM_CONFIG_FILES,
+            val printingCollector =
+                PrintingMessageCollector(
+                    printStream,
+                    MessageRenderer.PLAIN_RELATIVE_PATHS,
+                    false,
                 )
 
-            // Register extensions if provided
-            registerExtensions?.invoke(environment.project)
+            // Create a delegating collector that captures messages
+            val delegatingCollector =
+                object : MessageCollector {
+                    override fun clear() {
+                        messageCollector.clear()
+                        printingCollector.clear()
+                    }
 
-            val success =
-                try {
-                    KotlinToJVMBytecodeCompiler.analyzeAndGenerate(environment) != null
-                } catch (e: Exception) {
-                    // Plugin may throw errors as exceptions
-                    messageCollector.addError(e.message ?: e.toString())
-                    false
+                    override fun hasErrors(): Boolean = messageCollector.hasErrors() || printingCollector.hasErrors()
+
+                    override fun report(
+                        severity: CompilerMessageSeverity,
+                        message: String,
+                        location: CompilerMessageSourceLocation?,
+                    ) {
+                        messageCollector.report(severity, message, location)
+                        printingCollector.report(severity, message, location)
+                    }
                 }
 
+            // Run compiler
+            val exitCode = K2JVMCompiler().exec(delegatingCollector, Services.EMPTY, args)
+
             return CompilationResult(
-                success = success && !messageCollector.hasErrors(),
+                success = exitCode == ExitCode.OK && !messageCollector.hasErrors(),
                 errors = messageCollector.errors,
                 warnings = messageCollector.warnings,
             )
         } finally {
-            org.jetbrains.kotlin.com.intellij.openapi.util.Disposer
-                .dispose(disposable)
+            TestPluginRegistrar.threadLocalParameters.remove()
+            outputDir.deleteRecursively()
         }
     }
 
     /**
-     * Compiles a source file with the Temporal IR generation extension.
-     *
-     * This is a convenience method for testing the Temporal compiler plugin.
-     *
-     * @param sourceFile The Kotlin source file to compile
-     * @param outputDir Optional output directory for generated metadata
-     * @return CompilationResult containing success status and collected messages
+     * Finds the classpath entry containing our test resources (META-INF/services).
      */
-    fun compileWithTemporalPlugin(
-        sourceFile: File,
-        outputDir: String? = null,
-    ): CompilationResult {
-        val messageCollector = TestMessageCollector()
-        return compile(listOf(sourceFile), messageCollector) { project ->
-            IrGenerationExtension.registerExtension(
-                project,
-                TemporalIrGenerationExtension(outputDir, messageCollector),
-            )
+    private fun findTestPluginClasspath(): Array<String> {
+        val resourceName = "META-INF/services/org.jetbrains.kotlin.compiler.plugin.CompilerPluginRegistrar"
+        val classpathEntries = mutableListOf<String>()
+
+        // Look for the test resources directory or JAR containing our TestPluginRegistrar
+        val urls = this::class.java.classLoader.getResources(resourceName)
+        for (url in urls.asSequence()) {
+            val path =
+                when (url.protocol) {
+                    "file" -> {
+                        // Remove the resource path suffix to get the root
+                        val fullPath = url.path
+                        fullPath.removeSuffix("/$resourceName")
+                    }
+                    "jar" -> {
+                        // Extract JAR path from jar:file:/path/to/file.jar!/META-INF/...
+                        val jarPath = url.path.substringBefore("!")
+                        if (jarPath.startsWith("file:")) jarPath.removePrefix("file:") else jarPath
+                    }
+                    else -> null
+                }
+            if (path != null && File(path).exists()) {
+                // Check if this contains our TestPluginRegistrar
+                val content = url.readText()
+                if (content.contains("TestPluginRegistrar")) {
+                    classpathEntries.add(path)
+                }
+            }
         }
+
+        return classpathEntries.toTypedArray()
     }
 
     companion object {

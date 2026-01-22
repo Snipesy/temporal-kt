@@ -21,7 +21,7 @@ buildConfig {
 
     buildConfigField("VERSION", project.version.toString())
     buildConfigField("GROUP_ID", project.group.toString())
-    buildConfigField("COMPILER_PLUGIN_ARTIFACT_ID", "temporal-compiler-plugin")
+    buildConfigField("COMPILER_PLUGIN_ARTIFACT_ID", "compiler-plugin")
 }
 
 gradlePlugin {
@@ -40,18 +40,9 @@ afterEvaluate {
     publishing {
         publications {
             named<MavenPublication>("pluginMaven") {
-                artifactId = "gradle-plugin"
                 pom {
-                    name.set("Temporal Kotlin Plugin")
+                    name.set("Temporal Kotlin Gradle Plugin")
                     description.set("Gradle plugin for Temporal workflow DSL compilation and client stub generation")
-                    url.set("https://github.com/Snipesy/temporal-kt")
-
-                    licenses {
-                        license {
-                            name.set("Apache License, Version 2.0")
-                            url.set("https://opensource.org/license/apache-2-0")
-                        }
-                    }
                 }
             }
         }

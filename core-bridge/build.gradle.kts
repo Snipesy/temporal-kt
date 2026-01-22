@@ -152,17 +152,77 @@ val copyNativeLibWindowsx8664 by tasks.registering(Copy::class) {
     into(nativeLibsDir.map { it.dir("native/windows-x86_64") })
 }
 
-// Build all platforms task
-val cargoBuildAll by tasks.registering {
-    description = "Build Rust native library for all supported platforms"
+// Cross-compilation for macOS x86_64 (requires cargo-zigbuild)
+val cargoBuildDarwinx8664 by tasks.registering(Exec::class) {
+    description = "Build native library for darwin-x86_64 (requires cargo-zigbuild)"
     group = "build"
-    dependsOn(cargoBuild, cargoBuildLinuxx8664, cargoBuildLinuxAarch64, cargoBuildWindowsx8664)
+    workingDir = file("rust/sdk-core/crates/sdk-core-c-bridge")
+    commandLine("cargo-zigbuild", "build", "--release", "--target", "x86_64-apple-darwin")
+
+    inputs.files(
+        fileTree("rust/sdk-core") {
+            include("**/*.rs", "**/Cargo.toml", "**/Cargo.lock")
+        },
+    )
+    outputs.file("rust/sdk-core/target/x86_64-apple-darwin/release/lib$nativeLibName.dylib")
+}
+
+val copyNativeLibDarwinx8664 by tasks.registering(Copy::class) {
+    description = "Copy native library for darwin-x86_64 to build directory"
+    group = "build"
+    dependsOn(cargoBuildDarwinx8664)
+
+    from("rust/sdk-core/target/x86_64-apple-darwin/release/lib$nativeLibName.dylib")
+    into(nativeLibsDir.map { it.dir("native/darwin-x86_64") })
+}
+
+// Cross-compilation for macOS aarch64 (Apple Silicon) (requires cargo-zigbuild)
+val cargoBuildDarwinAarch64 by tasks.registering(Exec::class) {
+    description = "Build native library for darwin-aarch64 (requires cargo-zigbuild)"
+    group = "build"
+    workingDir = file("rust/sdk-core/crates/sdk-core-c-bridge")
+    commandLine("cargo-zigbuild", "build", "--release", "--target", "aarch64-apple-darwin")
+
+    inputs.files(
+        fileTree("rust/sdk-core") {
+            include("**/*.rs", "**/Cargo.toml", "**/Cargo.lock")
+        },
+    )
+    outputs.file("rust/sdk-core/target/aarch64-apple-darwin/release/lib$nativeLibName.dylib")
+}
+
+val copyNativeLibDarwinAarch64 by tasks.registering(Copy::class) {
+    description = "Copy native library for darwin-aarch64 to build directory"
+    group = "build"
+    dependsOn(cargoBuildDarwinAarch64)
+
+    from("rust/sdk-core/target/aarch64-apple-darwin/release/lib$nativeLibName.dylib")
+    into(nativeLibsDir.map { it.dir("native/darwin-aarch64") })
+}
+
+// Build all platforms task (for cross-compilation from Linux)
+val cargoBuildAll by tasks.registering {
+    description = "Build Rust native library for all supported platforms (requires cargo-zigbuild)"
+    group = "build"
+    dependsOn(
+        cargoBuildLinuxx8664,
+        cargoBuildLinuxAarch64,
+        cargoBuildWindowsx8664,
+        cargoBuildDarwinx8664,
+        cargoBuildDarwinAarch64,
+    )
 }
 
 val copyAllNativeLibs by tasks.registering {
     description = "Copy all native libraries to build directory"
     group = "build"
-    dependsOn(copyNativeLib, copyNativeLibLinuxx8664, copyNativeLibLinuxAarch64, copyNativeLibWindowsx8664)
+    dependsOn(
+        copyNativeLibLinuxx8664,
+        copyNativeLibLinuxAarch64,
+        copyNativeLibWindowsx8664,
+        copyNativeLibDarwinx8664,
+        copyNativeLibDarwinAarch64,
+    )
 }
 
 // Include native libs from build directory in resources and sdk-core protos
@@ -227,21 +287,10 @@ publishing {
     publications {
         create<MavenPublication>("maven") {
             from(components["java"])
-            groupId = project.group.toString()
-            artifactId = "core-bridge"
-            version = project.version.toString()
 
             pom {
                 name.set("Temporal KT Core Bridge")
                 description.set("Kotlin FFM Bridge to Temporal Core SDK")
-                url.set("https://github.com/Snipesy/temporal-kt")
-
-                licenses {
-                    license {
-                        name.set("Apache License, Version 2.0")
-                        url.set("https://opensource.org/license/apache-2-0")
-                    }
-                }
             }
         }
     }

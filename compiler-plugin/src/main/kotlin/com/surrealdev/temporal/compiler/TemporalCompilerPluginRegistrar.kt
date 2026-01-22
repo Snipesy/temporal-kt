@@ -1,6 +1,5 @@
 package com.surrealdev.temporal.compiler
 
-import com.google.auto.service.AutoService
 import com.surrealdev.temporal.compiler.ir.TemporalIrGenerationExtension
 import org.jetbrains.kotlin.backend.common.extensions.IrGenerationExtension
 import org.jetbrains.kotlin.cli.common.messages.MessageCollector
@@ -16,7 +15,6 @@ import org.jetbrains.kotlin.config.CompilerConfiguration
  * to extract workflow/activity metadata for client stub generation.
  */
 @OptIn(ExperimentalCompilerApi::class)
-@AutoService(CompilerPluginRegistrar::class)
 class TemporalCompilerPluginRegistrar : CompilerPluginRegistrar() {
     override val supportsK2: Boolean = true
 
@@ -31,6 +29,7 @@ class TemporalCompilerPluginRegistrar : CompilerPluginRegistrar() {
 
         if (!enabled) return
 
+        // Register IR extension for compile-time validation and code generation
         IrGenerationExtension.registerExtension(
             TemporalIrGenerationExtension(outputDir, messageCollector),
         )

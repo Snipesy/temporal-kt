@@ -8,8 +8,50 @@ on:
     branches: [main]
 
 jobs:
+  # Build native library for Linux (CI platform)
+  build-native:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+
+      - name: Set up Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Cache Rust build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            core-bridge/rust/sdk-core/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('core-bridge/rust/sdk-core/**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build native library
+        working-directory: core-bridge/rust/sdk-core/crates/sdk-core-c-bridge
+        run: cargo build --release
+
+      - name: Collect native library
+        run: |
+          mkdir -p native-libs/native/linux-x86_64
+          cp core-bridge/rust/sdk-core/target/release/libtemporalio_sdk_core_c_bridge.so \
+             native-libs/native/linux-x86_64/
+
+      - name: Upload native library artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-libs
+          path: native-libs/
+          retention-days: 1
+
+  # Build and test Kotlin/Java code
   build:
     runs-on: ubuntu-latest
+    needs: build-native
 
     steps:
       - uses: actions/checkout@v4
@@ -22,14 +64,20 @@ jobs:
           java-version: '25'
           distribution: 'graalvm'
 
-      - name: Set up Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-
       - name: Install Protobuf
         run: sudo apt-get install -y protobuf-compiler
+
+      - name: Download native library
+        uses: actions/download-artifact@v4
+        with:
+          name: native-libs
+          path: core-bridge/build/native-libs/
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build and test
-        run: gradle build
+        run: |
+          gradle build \
+            -x cargoBuild \
+            -x copyNativeLib

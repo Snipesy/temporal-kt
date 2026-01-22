@@ -42,8 +42,20 @@ pluginManager.withPlugin("java") {
 publishing {
     publications {
         withType<MavenPublication> {
+            // Default to project name as artifactId (can be overridden in module)
+            // groupId and version are inherited from project automatically
+
             pom {
-                // Complete POM metadata for Maven Central compliance
+                // Default URL for all modules
+                url.set("https://github.com/Snipesy/temporal-kt")
+
+                licenses {
+                    license {
+                        name.set("Apache License, Version 2.0")
+                        url.set("https://opensource.org/license/apache-2-0")
+                    }
+                }
+
                 scm {
                     url.set("https://github.com/Snipesy/temporal-kt")
                     connection.set("scm:git:https://github.com/Snipesy/temporal-kt.git")

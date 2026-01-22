@@ -1,3 +1,5 @@
+@file:OptIn(org.jetbrains.kotlin.compiler.plugin.ExperimentalCompilerApi::class)
+
 package com.surrealdev.temporal.compiler
 
 import java.io.File
@@ -7,14 +9,17 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Tests for the WorkflowDeterminismValidator compiler plugin.
+ * Tests for the IR-based WorkflowDeterminismValidator.
  *
- * These tests actually compile test source files with the plugin enabled
+ * These tests compile test source files with the IR validator plugin enabled
  * and verify that determinism violations are detected at compile time.
+ *
+ * Uses IR-only plugin registrar to isolate IR validation behavior.
  */
 class WorkflowDeterminismValidatorTest {
     private val testDataPath = File("src/test/resources/testData/determinism/coroutine")
     private val harness = CompilerTestHarness()
+    private val irOnlyPlugin = listOf(IrOnlyPluginRegistrar())
 
     // ===== Tests for INVALID workflows (should fail compilation) =====
 
@@ -23,7 +28,7 @@ class WorkflowDeterminismValidatorTest {
         val sourceFile = File(testDataPath, "GlobalScopeUsage.kt")
         assertTrue(sourceFile.exists(), "Test file should exist: ${sourceFile.absolutePath}")
 
-        val result = harness.compileWithTemporalPlugin(sourceFile)
+        val result = harness.compile(sourceFile, irOnlyPlugin)
 
         assertFalse(result.success, "Compilation should fail for GlobalScope.async usage")
         assertContains(
@@ -38,7 +43,7 @@ class WorkflowDeterminismValidatorTest {
         val sourceFile = File(testDataPath, "GlobalScopeLaunch.kt")
         assertTrue(sourceFile.exists(), "Test file should exist: ${sourceFile.absolutePath}")
 
-        val result = harness.compileWithTemporalPlugin(sourceFile)
+        val result = harness.compile(sourceFile, irOnlyPlugin)
 
         assertFalse(result.success, "Compilation should fail for GlobalScope.launch usage")
         assertContains(
@@ -53,7 +58,7 @@ class WorkflowDeterminismValidatorTest {
         val sourceFile = File(testDataPath, "WithContextIoUsage.kt")
         assertTrue(sourceFile.exists(), "Test file should exist: ${sourceFile.absolutePath}")
 
-        val result = harness.compileWithTemporalPlugin(sourceFile)
+        val result = harness.compile(sourceFile, irOnlyPlugin)
 
         assertFalse(result.success, "Compilation should fail for withContext(Dispatchers.IO)")
         assertTrue(
@@ -69,7 +74,7 @@ class WorkflowDeterminismValidatorTest {
         val sourceFile = File(testDataPath, "DispatchersDefaultUsage.kt")
         assertTrue(sourceFile.exists(), "Test file should exist: ${sourceFile.absolutePath}")
 
-        val result = harness.compileWithTemporalPlugin(sourceFile)
+        val result = harness.compile(sourceFile, irOnlyPlugin)
 
         assertFalse(result.success, "Compilation should fail for withContext(Dispatchers.Default)")
         assertTrue(
@@ -87,7 +92,7 @@ class WorkflowDeterminismValidatorTest {
         val sourceFile = File(testDataPath, "ValidWorkflow.kt")
         assertTrue(sourceFile.exists(), "Test file should exist: ${sourceFile.absolutePath}")
 
-        val result = harness.compileWithTemporalPlugin(sourceFile)
+        val result = harness.compile(sourceFile, irOnlyPlugin)
 
         assertTrue(
             result.success,
@@ -100,7 +105,7 @@ class WorkflowDeterminismValidatorTest {
         val sourceFile = File(testDataPath, "CorrectAsyncUsage.kt")
         assertTrue(sourceFile.exists(), "Test file should exist: ${sourceFile.absolutePath}")
 
-        val result = harness.compileWithTemporalPlugin(sourceFile)
+        val result = harness.compile(sourceFile, irOnlyPlugin)
 
         assertTrue(
             result.success,
@@ -113,7 +118,7 @@ class WorkflowDeterminismValidatorTest {
         val sourceFile = File(testDataPath, "NonWorkflowClass.kt")
         assertTrue(sourceFile.exists(), "Test file should exist: ${sourceFile.absolutePath}")
 
-        val result = harness.compileWithTemporalPlugin(sourceFile)
+        val result = harness.compile(sourceFile, irOnlyPlugin)
 
         assertTrue(
             result.success,
@@ -126,7 +131,7 @@ class WorkflowDeterminismValidatorTest {
         val sourceFile = File(testDataPath, "IndirectDefferedUsage.kt")
         assertTrue(sourceFile.exists(), "Test file should exist: ${sourceFile.absolutePath}")
 
-        val result = harness.compileWithTemporalPlugin(sourceFile)
+        val result = harness.compile(sourceFile, irOnlyPlugin)
 
         assertFalse(result.success, "Indirect GlobalScope.async usage should fail compilation")
         assertContains(
@@ -141,7 +146,7 @@ class WorkflowDeterminismValidatorTest {
         val sourceFile = File(testDataPath, "GlobalScopeFieldUsage.kt")
         assertTrue(sourceFile.exists(), "Test file should exist: ${sourceFile.absolutePath}")
 
-        val result = harness.compileWithTemporalPlugin(sourceFile)
+        val result = harness.compile(sourceFile, irOnlyPlugin)
 
         assertFalse(result.success, "GlobalScope field usage should fail compilation")
         assertContains(

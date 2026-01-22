@@ -1,6 +1,5 @@
 package com.surrealdev.temporal.compiler
 
-import com.google.auto.service.AutoService
 import org.jetbrains.kotlin.compiler.plugin.AbstractCliOption
 import org.jetbrains.kotlin.compiler.plugin.CliOption
 import org.jetbrains.kotlin.compiler.plugin.CommandLineProcessor
@@ -23,7 +22,6 @@ object TemporalPluginConfigurationKeys {
  * Processes command line options for the Temporal compiler plugin.
  */
 @OptIn(ExperimentalCompilerApi::class)
-@AutoService(CommandLineProcessor::class)
 class TemporalCommandLineProcessor : CommandLineProcessor {
     override val pluginId: String = PLUGIN_ID
 
