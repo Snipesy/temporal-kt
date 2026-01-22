@@ -178,7 +178,26 @@ private fun buildApplication(
     // Apply connection settings from config
     builder.connection(config.temporal.connection)
 
-    // Apply additional DSL configuration
+    // Apply deployment settings from config
+    config.temporal.deployment?.let { deploymentConfig ->
+        if (deploymentConfig.deploymentName.isNotBlank() && deploymentConfig.buildId.isNotBlank()) {
+            // Parse versioning behavior from YAML string
+            val versioningBehavior =
+                try {
+                    VersioningBehavior.valueOf(deploymentConfig.defaultVersioningBehavior.uppercase())
+                } catch (_: IllegalArgumentException) {
+                    VersioningBehavior.UNSPECIFIED
+                }
+
+            builder.deployment(
+                WorkerDeploymentVersion(deploymentConfig.deploymentName, deploymentConfig.buildId),
+                deploymentConfig.useWorkerVersioning,
+                versioningBehavior,
+            )
+        }
+    }
+
+    // Apply additional DSL configuration (can override YAML)
     builder.configure()
 
     val application = builder.build()

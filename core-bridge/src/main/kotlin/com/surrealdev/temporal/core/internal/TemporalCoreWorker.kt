@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.core.internal
 
+import com.surrealdev.temporal.core.CoreWorkerDeploymentOptions
 import com.surrealdev.temporal.core.TemporalCoreException
 import io.temporal.sdkbridge.TemporalCoreByteArrayRefArray
 import io.temporal.sdkbridge.TemporalCoreFixedSizeSlotSupplier
@@ -8,6 +9,8 @@ import io.temporal.sdkbridge.TemporalCorePollerBehaviorSimpleMaximum
 import io.temporal.sdkbridge.TemporalCoreSlotSupplier
 import io.temporal.sdkbridge.TemporalCoreTunerHolder
 import io.temporal.sdkbridge.TemporalCoreWorkerCallback
+import io.temporal.sdkbridge.TemporalCoreWorkerDeploymentOptions
+import io.temporal.sdkbridge.TemporalCoreWorkerDeploymentVersion
 import io.temporal.sdkbridge.TemporalCoreWorkerOptions
 import io.temporal.sdkbridge.TemporalCoreWorkerOrFail
 import io.temporal.sdkbridge.TemporalCoreWorkerPollCallback
@@ -68,6 +71,7 @@ internal object TemporalCoreWorker {
      * @param namespace The namespace
      * @param taskQueue The task queue to poll
      * @param maxCachedWorkflows Maximum cached workflow executions
+     * @param deploymentOptions Optional deployment versioning options
      * @return Pointer to the worker
      * @throws TemporalCoreException if worker creation fails
      */
@@ -80,6 +84,7 @@ internal object TemporalCoreWorker {
         workflows: Boolean = true,
         activities: Boolean = true,
         nexus: Boolean = false,
+        deploymentOptions: CoreWorkerDeploymentOptions? = null,
     ): MemorySegment {
         val options =
             buildWorkerOptions(
@@ -90,6 +95,7 @@ internal object TemporalCoreWorker {
                 workflows = workflows,
                 activities = activities,
                 nexus = nexus,
+                deploymentOptions = deploymentOptions,
             )
 
         val result = CoreBridge.temporal_core_worker_new(arena, clientPtr, options)
@@ -484,6 +490,7 @@ internal object TemporalCoreWorker {
         workflows: Boolean,
         activities: Boolean,
         nexus: Boolean,
+        deploymentOptions: CoreWorkerDeploymentOptions? = null,
     ): MemorySegment {
         val options = TemporalCoreWorkerOptions.allocate(arena)
 
@@ -497,11 +504,43 @@ internal object TemporalCoreWorker {
         )
         TemporalCoreWorkerOptions.max_cached_workflows(options, maxCachedWorkflows)
 
-        // Set versioning strategy to None
+        // Set versioning strategy based on deployment options
         val versioningStrategy = TemporalCoreWorkerVersioningStrategy.allocate(arena)
-        TemporalCoreWorkerVersioningStrategy.tag(versioningStrategy, CoreBridge.None())
-        val versioningNone = TemporalCoreWorkerVersioningNone.allocate(arena)
-        TemporalCoreWorkerVersioningStrategy.none(versioningStrategy, versioningNone)
+        if (deploymentOptions != null) {
+            // Use deployment-based versioning
+            TemporalCoreWorkerVersioningStrategy.tag(versioningStrategy, CoreBridge.DeploymentBased())
+
+            // Get the deployment_based segment from the versioning strategy union
+            val deploymentBasedSegment = TemporalCoreWorkerVersioningStrategy.deployment_based(versioningStrategy)
+
+            // Set version
+            val versionSegment = TemporalCoreWorkerDeploymentOptions.version(deploymentBasedSegment)
+            TemporalCoreWorkerDeploymentVersion.deployment_name(
+                versionSegment,
+                TemporalCoreFfmUtil.createByteArrayRef(arena, deploymentOptions.version.deploymentName),
+            )
+            TemporalCoreWorkerDeploymentVersion.build_id(
+                versionSegment,
+                TemporalCoreFfmUtil.createByteArrayRef(arena, deploymentOptions.version.buildId),
+            )
+
+            // Set use_worker_versioning flag
+            TemporalCoreWorkerDeploymentOptions.use_worker_versioning(
+                deploymentBasedSegment,
+                deploymentOptions.useWorkerVersioning,
+            )
+
+            // Set default versioning behavior
+            TemporalCoreWorkerDeploymentOptions.default_versioning_behavior(
+                deploymentBasedSegment,
+                deploymentOptions.defaultVersioningBehavior,
+            )
+        } else {
+            // No versioning
+            TemporalCoreWorkerVersioningStrategy.tag(versioningStrategy, CoreBridge.None())
+            val versioningNone = TemporalCoreWorkerVersioningNone.allocate(arena)
+            TemporalCoreWorkerVersioningStrategy.none(versioningStrategy, versioningNone)
+        }
         TemporalCoreWorkerOptions.versioning_strategy(options, versioningStrategy)
 
         // Set task types

@@ -1,7 +1,11 @@
 package com.surrealdev.temporal.testing
 
+import com.surrealdev.temporal.annotation.TemporalDsl
 import com.surrealdev.temporal.application.TemporalApplication
 import com.surrealdev.temporal.application.TemporalApplicationBuilder
+import com.surrealdev.temporal.application.VersioningBehavior
+import com.surrealdev.temporal.application.WorkerDeploymentOptions
+import com.surrealdev.temporal.application.WorkerDeploymentVersion
 import com.surrealdev.temporal.client.TemporalClient
 import com.surrealdev.temporal.client.TemporalClientImpl
 import com.surrealdev.temporal.core.EphemeralServer
@@ -57,12 +61,14 @@ import kotlin.time.Duration.Companion.seconds
  * }
  * ```
  */
+@TemporalDsl
 class TemporalTestApplicationBuilder internal constructor(
     private val server: EphemeralServer,
     private val parentCoroutineContext: CoroutineContext,
 ) {
     private var _application: TemporalApplication? = null
     private var configured = false
+    private var deploymentOptions: WorkerDeploymentOptions? = null
 
     /**
      * The test server instance, if time-skipping is enabled.
@@ -72,6 +78,24 @@ class TemporalTestApplicationBuilder internal constructor(
      */
     val testServer: TemporalTestServer?
         get() = server as? TemporalTestServer
+
+    /**
+     * Configures worker deployment versioning for the test application.
+     *
+     * This must be called before [application] to take effect.
+     *
+     * @param version The deployment version identifying this worker
+     * @param useVersioning If true (default), worker participates in versioned task routing
+     * @param defaultVersioningBehavior Default behavior for workflows that don't specify their own
+     */
+    fun deployment(
+        version: WorkerDeploymentVersion,
+        useVersioning: Boolean = true,
+        defaultVersioningBehavior: VersioningBehavior = VersioningBehavior.UNSPECIFIED,
+    ) {
+        check(!configured) { "deployment() must be called before application()" }
+        deploymentOptions = WorkerDeploymentOptions(version, useVersioning, defaultVersioningBehavior)
+    }
 
     /**
      * Configures and starts the Temporal application.
@@ -88,9 +112,15 @@ class TemporalTestApplicationBuilder internal constructor(
         // Build the application with connection pre-configured to the server
         val appBuilder = TemporalApplicationBuilder(parentCoroutineContext)
         appBuilder.connection {
-            target = "http://${server.targetUrl}"
+            target = "http://${this@TemporalTestApplicationBuilder.server.targetUrl}"
             namespace = "default"
         }
+
+        // Apply deployment options if configured
+        deploymentOptions?.let { options ->
+            appBuilder.deployment(options.version, options.useWorkerVersioning)
+        }
+
         _application = appBuilder.build()
 
         // Apply user configuration on the built application

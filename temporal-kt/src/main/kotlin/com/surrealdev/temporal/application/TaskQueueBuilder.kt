@@ -1,5 +1,7 @@
 package com.surrealdev.temporal.application
 
+import com.surrealdev.temporal.annotation.TemporalDsl
+
 /**
  * Builder for configuring a task queue with workflows and activities.
  *

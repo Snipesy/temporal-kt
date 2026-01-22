@@ -6,6 +6,30 @@ import java.lang.foreign.MemorySegment
 import com.surrealdev.temporal.core.internal.TemporalCoreWorker as InternalWorker
 
 /**
+ * Identifies a worker deployment version for the core bridge.
+ *
+ * @property deploymentName Name of the deployment (e.g., "llm_srv", "payment-service")
+ * @property buildId Build ID within the deployment (e.g., "1.0", "v2.3.5")
+ */
+data class CoreWorkerDeploymentVersion(
+    val deploymentName: String,
+    val buildId: String,
+)
+
+/**
+ * Deployment options for worker versioning in the core bridge.
+ *
+ * @property version The deployment version identifying this worker
+ * @property useWorkerVersioning If true, worker participates in versioned task routing
+ * @property defaultVersioningBehavior Default versioning behavior value (0=UNSPECIFIED, 1=PINNED, 2=AUTO_UPGRADE)
+ */
+data class CoreWorkerDeploymentOptions(
+    val version: CoreWorkerDeploymentVersion,
+    val useWorkerVersioning: Boolean = true,
+    val defaultVersioningBehavior: Int = 0,
+)
+
+/**
  * Configuration options for a Temporal worker.
  */
 data class WorkerConfig(
@@ -13,6 +37,7 @@ data class WorkerConfig(
     val enableWorkflows: Boolean = true,
     val enableActivities: Boolean = true,
     val enableNexus: Boolean = false,
+    val deploymentOptions: CoreWorkerDeploymentOptions? = null,
 )
 
 /**
@@ -88,6 +113,7 @@ class TemporalWorker private constructor(
                         workflows = config.enableWorkflows,
                         activities = config.enableActivities,
                         nexus = config.enableNexus,
+                        deploymentOptions = config.deploymentOptions,
                     )
                 TemporalWorker(
                     handle = workerPtr,

@@ -1,8 +1,8 @@
 package com.surrealdev.temporal.serialization
 
+import com.surrealdev.temporal.annotation.TemporalDsl
 import com.surrealdev.temporal.application.PluginKey
 import com.surrealdev.temporal.application.TemporalApplication
-import com.surrealdev.temporal.application.TemporalDsl
 import com.surrealdev.temporal.application.TemporalPlugin
 import com.surrealdev.temporal.application.TemporalPluginFactory
 import kotlinx.serialization.json.Json

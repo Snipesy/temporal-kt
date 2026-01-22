@@ -1,11 +1,15 @@
 package com.surrealdev.temporal.application
 
+import com.surrealdev.temporal.annotation.TemporalDsl
 import com.surrealdev.temporal.application.worker.ManagedWorker
 import com.surrealdev.temporal.client.TemporalClient
 import com.surrealdev.temporal.client.TemporalClientConfig
+import com.surrealdev.temporal.core.CoreWorkerDeploymentOptions
+import com.surrealdev.temporal.core.CoreWorkerDeploymentVersion
 import com.surrealdev.temporal.core.TemporalCoreClient
 import com.surrealdev.temporal.core.TemporalRuntime
 import com.surrealdev.temporal.core.TemporalWorker
+import com.surrealdev.temporal.core.WorkerConfig
 import com.surrealdev.temporal.serialization.payloadSerializer
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
@@ -91,6 +95,20 @@ open class TemporalApplication internal constructor(
         for (taskQueueConfig in taskQueues) {
             val effectiveNamespace = taskQueueConfig.namespace ?: config.connection.namespace
 
+            // Convert application deployment options to core-bridge format
+            val coreDeploymentOptions =
+                config.deployment?.let { appDeployment ->
+                    CoreWorkerDeploymentOptions(
+                        version =
+                            CoreWorkerDeploymentVersion(
+                                deploymentName = appDeployment.version.deploymentName,
+                                buildId = appDeployment.version.buildId,
+                            ),
+                        useWorkerVersioning = appDeployment.useWorkerVersioning,
+                        defaultVersioningBehavior = appDeployment.defaultVersioningBehavior.value,
+                    )
+                }
+
             // Create the core bridge worker
             val coreWorker =
                 TemporalWorker.create(
@@ -98,6 +116,10 @@ open class TemporalApplication internal constructor(
                     client = client,
                     taskQueue = taskQueueConfig.name,
                     namespace = effectiveNamespace,
+                    config =
+                        WorkerConfig(
+                            deploymentOptions = coreDeploymentOptions,
+                        ),
                 )
 
             // Wrap in ManagedWorker
@@ -218,6 +240,7 @@ open class TemporalApplication internal constructor(
  */
 internal data class TemporalApplicationConfig(
     val connection: ConnectionConfig,
+    val deployment: WorkerDeploymentOptions? = null,
 )
 
 /**
