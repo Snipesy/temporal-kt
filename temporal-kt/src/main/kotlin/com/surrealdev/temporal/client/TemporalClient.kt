@@ -5,7 +5,7 @@ import com.surrealdev.temporal.client.internal.WorkflowServiceClient
 import com.surrealdev.temporal.core.TemporalCoreClient
 import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
 import com.surrealdev.temporal.serialization.PayloadSerializer
-import com.surrealdev.temporal.serialization.typeInfoOf
+import com.surrealdev.temporal.serialization.TypeInfo
 import io.temporal.api.common.v1.Payloads
 import io.temporal.api.common.v1.WorkflowType
 import io.temporal.api.taskqueue.v1.TaskQueue
@@ -13,7 +13,7 @@ import io.temporal.api.workflowservice.v1.StartWorkflowExecutionRequest
 import org.slf4j.LoggerFactory
 import java.util.UUID
 
-private val logger = LoggerFactory.getLogger(TemporalClient::class.java)
+private val logger = LoggerFactory.getLogger(TemporalClientImpl::class.java)
 
 /**
  * Client for interacting with the Temporal service.
@@ -42,24 +42,100 @@ private val logger = LoggerFactory.getLogger(TemporalClient::class.java)
  * val history = existingHandle.getHistory()
  * ```
  */
-class TemporalClient internal constructor(
-    private val coreClient: TemporalCoreClient,
-    private val config: TemporalClientConfig,
-    val serializer: PayloadSerializer,
-) {
-    private val serviceClient = WorkflowServiceClient(coreClient, config.namespace)
+interface TemporalClient {
+    /**
+     * The payload serializer used by this client.
+     */
+    val serializer: PayloadSerializer
 
     /**
-     * Internal method to start a new workflow execution.
+     * Starts a new workflow execution. This is an internal API - use the
+     * `startWorkflow` extension functions instead for type-safe workflow starting.
      */
-    @PublishedApi
-    internal suspend fun <R> startWorkflowInternal(
+    suspend fun <R> startWorkflowInternal(
         workflowType: String,
         taskQueue: String,
         workflowId: String,
         args: Payloads,
         options: WorkflowStartOptions,
-        resultTypeInfo: com.surrealdev.temporal.serialization.TypeInfo,
+        resultTypeInfo: TypeInfo,
+    ): WorkflowHandle<R>
+
+    /**
+     * Gets a handle to an existing workflow. This is an internal API - use the
+     * `getWorkflowHandle` extension function instead for type-safe access.
+     */
+    fun <R> getWorkflowHandleInternal(
+        workflowId: String,
+        runId: String?,
+        resultTypeInfo: TypeInfo,
+    ): WorkflowHandle<R>
+
+    /**
+     * Closes the client connection.
+     */
+    suspend fun close()
+
+    companion object {
+        /**
+         * Creates a new client connected to the specified Temporal service.
+         *
+         * @param coreClient The low-level core client.
+         * @param namespace The namespace to use.
+         * @param serializer The payload serializer. Defaults to JSON serializer.
+         */
+        fun create(
+            coreClient: TemporalCoreClient,
+            namespace: String = "default",
+            serializer: PayloadSerializer = KotlinxJsonSerializer.default(),
+        ): TemporalClient {
+            val config =
+                TemporalClientConfig().apply {
+                    this.target = coreClient.targetUrl
+                    this.namespace = namespace
+                }
+            return TemporalClientImpl(coreClient, config, serializer)
+        }
+    }
+}
+
+/**
+ * Gets a handle to an existing workflow execution.
+ *
+ * @param R The expected result type of the workflow.
+ * @param workflowId The workflow ID.
+ * @param runId Optional run ID. If not specified, the latest run is used.
+ * @return A handle to the workflow execution.
+ */
+inline fun <reified R> TemporalClient.getWorkflowHandle(
+    workflowId: String,
+    runId: String? = null,
+): WorkflowHandle<R> =
+    getWorkflowHandleInternal(
+        workflowId = workflowId,
+        runId = runId,
+        resultTypeInfo =
+            com.surrealdev.temporal.serialization
+                .typeInfoOf<R>(),
+    )
+
+/**
+ * Default implementation of [TemporalClient].
+ */
+class TemporalClientImpl internal constructor(
+    private val coreClient: TemporalCoreClient,
+    private val config: TemporalClientConfig,
+    override val serializer: PayloadSerializer,
+) : TemporalClient {
+    internal val serviceClient = WorkflowServiceClient(coreClient, config.namespace)
+
+    override suspend fun <R> startWorkflowInternal(
+        workflowType: String,
+        taskQueue: String,
+        workflowId: String,
+        args: Payloads,
+        options: WorkflowStartOptions,
+        resultTypeInfo: TypeInfo,
     ): WorkflowHandle<R> {
         // Build the request
         val requestBuilder =
@@ -140,29 +216,10 @@ class TemporalClient internal constructor(
         )
     }
 
-    /**
-     * Gets a handle to an existing workflow execution.
-     *
-     * @param R The expected result type of the workflow.
-     * @param workflowId The workflow ID.
-     * @param runId Optional run ID. If not specified, the latest run is used.
-     * @return A handle to the workflow execution.
-     */
-    inline fun <reified R> getWorkflowHandle(
-        workflowId: String,
-        runId: String? = null,
-    ): WorkflowHandle<R> =
-        getWorkflowHandleInternal(
-            workflowId = workflowId,
-            runId = runId,
-            resultTypeInfo = typeInfoOf<R>(),
-        )
-
-    @PublishedApi
-    internal fun <R> getWorkflowHandleInternal(
+    override fun <R> getWorkflowHandleInternal(
         workflowId: String,
         runId: String?,
-        resultTypeInfo: com.surrealdev.temporal.serialization.TypeInfo,
+        resultTypeInfo: TypeInfo,
     ): WorkflowHandle<R> =
         WorkflowHandleImpl(
             workflowId = workflowId,
@@ -172,35 +229,8 @@ class TemporalClient internal constructor(
             serializer = serializer,
         )
 
-    /**
-     * Closes the client connection.
-     *
-     * Note: The underlying core client may be shared with other components.
-     */
-    suspend fun close() {
+    override suspend fun close() {
         // Currently no-op since the core client is managed by the application
-    }
-
-    companion object {
-        /**
-         * Creates a new client connected to the specified Temporal service.
-         *
-         * @param coreClient The low-level core client.
-         * @param namespace The namespace to use.
-         * @param serializer The payload serializer. Defaults to JSON serializer.
-         */
-        fun create(
-            coreClient: TemporalCoreClient,
-            namespace: String = "default",
-            serializer: PayloadSerializer = KotlinxJsonSerializer.default(),
-        ): TemporalClient {
-            val config =
-                TemporalClientConfig().apply {
-                    this.target = coreClient.targetUrl
-                    this.namespace = namespace
-                }
-            return TemporalClient(coreClient, config, serializer)
-        }
     }
 }
 

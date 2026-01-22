@@ -4,7 +4,6 @@ import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext
-import kotlinx.coroutines.delay
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.milliseconds
@@ -57,11 +56,8 @@ class WorkflowExecutionTest {
                 }
             }
 
-            // Give the worker time to start polling and register with the server
-            delay(500)
-
-            // If we get here without crashing, the workflow registration and
-            // worker polling are working correctly
+            // application {} waits for worker to be ready, so if we get here
+            // without crashing, the workflow registration is working correctly
         }
 
     @Test
@@ -74,8 +70,6 @@ class WorkflowExecutionTest {
                     workflow(TimerWorkflow())
                 }
             }
-
-            delay(500)
         }
 
     @Test
@@ -88,8 +82,6 @@ class WorkflowExecutionTest {
                     workflow(PlainWorkflow())
                 }
             }
-
-            delay(500)
         }
 
     @Test
@@ -104,7 +96,5 @@ class WorkflowExecutionTest {
                     workflow(PlainWorkflow())
                 }
             }
-
-            delay(500)
         }
 }

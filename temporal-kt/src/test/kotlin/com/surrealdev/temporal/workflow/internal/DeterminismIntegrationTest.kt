@@ -14,14 +14,39 @@ import com.surrealdev.temporal.client.update
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
+
+/**
+ * Polls a query until the expected condition is met or timeout.
+ */
+private suspend inline fun <T> pollUntil(
+    timeout: Duration = 15.seconds,
+    crossinline condition: (T) -> Boolean,
+    crossinline query: suspend () -> T,
+): T =
+    // bypass 'runTest' context
+    withContext(Dispatchers.Default.limitedParallelism(1)) {
+        withTimeout(timeout) {
+            while (true) {
+                val result = query()
+                if (condition(result)) return@withTimeout result
+                kotlinx.coroutines.yield()
+            }
+            @Suppress("UNREACHABLE_CODE")
+            throw AssertionError("Unreachable")
+        }
+    }
 
 /**
  * Integration tests for determinism fixes.
@@ -689,14 +714,20 @@ class DeterminismIntegrationTest {
             handle.signal("dynamicValue", "buffered1")
             handle.signal("dynamicValue", "buffered2")
 
-            // Small delay to ensure signals are processed
-            kotlinx.coroutines.delay(100.milliseconds)
+            // Advance time to ensure signals are processed in a separate workflow task
+            skipTime(100.milliseconds)
 
             // Now register the handler - buffered signals should be replayed
             handle.signal("registerHandler")
 
+            // Advance time to allow handler registration to complete
+            skipTime(100.milliseconds)
+
             // Send more signals after handler is registered
             handle.signal("dynamicValue", "live1")
+
+            // Advance time before completing
+            skipTime(100.milliseconds)
 
             // Complete the workflow
             handle.signal("complete")
@@ -999,8 +1030,7 @@ class DeterminismIntegrationTest {
                     taskQueue = taskQueue,
                 )
 
-            // Query during execution - counter may be in progress
-            kotlinx.coroutines.delay(100.milliseconds)
+            // Query during execution - counter may be in progress (any non-negative value is valid)
             val midCounter: Int = handle.query("getCounter")
             assertTrue(midCounter >= 0, "Counter should be non-negative")
 
@@ -1067,11 +1097,16 @@ class DeterminismIntegrationTest {
                     taskQueue = taskQueue,
                 )
 
-            // Wait a bit for workflow to start and register handler
-            kotlinx.coroutines.delay(50.milliseconds)
-
-            // Query should work
-            val secret1: String = handle.query("getSecret")
+            // Poll until query handler is registered (returns a valid value)
+            val secret1: String =
+                pollUntil(condition = { it: String -> it == "initial" || it == "updated" }) {
+                    try {
+                        val s: String = handle.query("getSecret")
+                        s
+                    } catch (_: Exception) {
+                        "" // Return empty string if query fails (handler not registered yet)
+                    }
+                }
             assertTrue(secret1 == "initial" || secret1 == "updated", "Secret should be initial or updated")
 
             // Wait for completion
@@ -1150,21 +1185,27 @@ class DeterminismIntegrationTest {
             // Use signal
             handle.signal("addItem", "A")
 
-            // Query count
-            kotlinx.coroutines.delay(50.milliseconds)
-            val count1: Int = handle.query("getCount")
+            // Poll until signal is processed
+            val count1: Int =
+                pollUntil(condition = { it: Int -> it >= 1 }) {
+                    val c: Int = handle.query("getCount")
+                    c
+                }
             assertEquals(1, count1)
 
-            // Use update
+            // Use update (updates are synchronous, so no polling needed)
             val count2: Int = handle.update("addItemWithConfirm", "B")
             assertEquals(2, count2)
 
             // Use signal again
             handle.signal("addItem", "C")
 
-            // Query items
-            kotlinx.coroutines.delay(50.milliseconds)
-            val items: List<String> = handle.query("getItems")
+            // Poll until signal is processed
+            val items: List<String> =
+                pollUntil(condition = { it: List<String> -> it.size >= 3 }) {
+                    val i: List<String> = handle.query("getItems")
+                    i
+                }
             assertEquals(3, items.size)
             assertTrue(items.contains("signal:A"))
             assertTrue(items.contains("update:B"))

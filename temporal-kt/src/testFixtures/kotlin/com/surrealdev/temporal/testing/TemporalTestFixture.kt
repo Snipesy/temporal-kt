@@ -3,6 +3,7 @@ package com.surrealdev.temporal.testing
 import com.surrealdev.temporal.application.TemporalApplication
 import com.surrealdev.temporal.application.TemporalApplicationBuilder
 import com.surrealdev.temporal.client.TemporalClient
+import com.surrealdev.temporal.client.TemporalClientImpl
 import com.surrealdev.temporal.core.EphemeralServer
 import com.surrealdev.temporal.core.TemporalDevServer
 import com.surrealdev.temporal.core.TemporalRuntime
@@ -49,11 +50,9 @@ import kotlin.time.Duration.Companion.seconds
  *         }
  *     }
  *
- *     // Timers will be skipped automatically!
- *     unlockTimeSkipping() // Enable auto time-skip
- *
  *     val client = client()
- *     // Start workflow with 1-hour timer - completes instantly
+ *     // Start workflow with 1-hour timer - completes instantly when result() is called
+ *     // Time skipping is automatically unlocked during result() and locked again after
  *     val result = client.startWorkflow(...).result()
  * }
  * ```
@@ -104,11 +103,21 @@ class TemporalTestApplicationBuilder internal constructor(
     /**
      * Gets a workflow client for interacting with Temporal.
      *
+     * When using a test server (timeSkipping = true), this returns a [TemporalTestClient]
+     * that automatically manages time skipping around workflow result awaits.
+     *
      * @throws IllegalStateException if [application] hasn't been called
      */
     suspend fun client(): TemporalClient {
         checkStarted()
-        return _application!!.client()
+        val baseClient = _application!!.client()
+
+        // Wrap in TemporalTestClient if using a test server for time-skipping support
+        return if (testServer != null) {
+            TemporalTestClient(baseClient as TemporalClientImpl, testServer!!)
+        } else {
+            baseClient
+        }
     }
 
     /**
@@ -227,7 +236,7 @@ class TemporalTestApplicationBuilder internal constructor(
  *         }
  *     }
  *
- *     // Time skipping is auto-unlocked, so timers complete instantly
+ *     // Time skipping is automatically managed - unlocked during result(), locked otherwise
  *     val client = client()
  *     val result = client.startWorkflow(...).result() // 1-hour timer completes instantly
  * }
@@ -238,7 +247,7 @@ class TemporalTestApplicationBuilder internal constructor(
  *                     long timers (hours/days) to complete in milliseconds.
  */
 fun runTemporalTest(
-    timeSkipping: Boolean = false,
+    timeSkipping: Boolean = true,
     block: suspend TemporalTestApplicationBuilder.() -> Unit,
 ): TestResult = runTemporalTest(EmptyCoroutineContext, timeSkipping, block)
 
@@ -251,7 +260,7 @@ fun runTemporalTest(
  */
 fun runTemporalTest(
     parentCoroutineContext: CoroutineContext,
-    timeSkipping: Boolean = false,
+    timeSkipping: Boolean = true,
     block: suspend TemporalTestApplicationBuilder.() -> Unit,
 ): TestResult =
     runTest(context = parentCoroutineContext, timeout = 60.seconds) {
@@ -270,7 +279,7 @@ fun runTemporalTest(
  */
 suspend fun TestScope.runTestApplication(
     parentCoroutineContext: CoroutineContext = EmptyCoroutineContext,
-    timeSkipping: Boolean = false,
+    timeSkipping: Boolean = true,
     block: suspend TemporalTestApplicationBuilder.() -> Unit,
 ) {
     TemporalRuntime.create().use { runtime ->
@@ -283,9 +292,9 @@ suspend fun TestScope.runTestApplication(
 
         if (timeSkipping) {
             TemporalTestServer.start(runtime, timeoutSeconds = 120).use { testServer ->
-                // Auto-unlock time skipping so timers advance automatically
-                // Users can call lockTimeSkipping() if they need manual control
-                testServer.unlockTimeSkipping()
+                // Time skipping starts LOCKED (Python SDK behavior)
+                // It will be automatically unlocked when awaiting workflow results
+                // via TemporalTestClient/TimeSkippingWorkflowHandle
 
                 val builder =
                     TemporalTestApplicationBuilder(
