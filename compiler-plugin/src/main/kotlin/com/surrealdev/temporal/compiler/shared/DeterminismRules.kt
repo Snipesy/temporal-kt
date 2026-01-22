@@ -1,4 +1,4 @@
-package com.surrealdev.temporal.compiler
+package com.surrealdev.temporal.compiler.shared
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json

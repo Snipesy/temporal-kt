@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.compiler
 
+import com.surrealdev.temporal.compiler.ir.TemporalIrGenerationExtension
 import org.jetbrains.kotlin.backend.common.extensions.IrGenerationExtension
 import org.jetbrains.kotlin.cli.common.config.addKotlinSourceRoot
 import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity

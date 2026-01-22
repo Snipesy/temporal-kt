@@ -1,5 +1,6 @@
-package com.surrealdev.temporal.compiler
+package com.surrealdev.temporal.compiler.ir
 
+import com.surrealdev.temporal.compiler.shared.TemporalMetadata
 import org.jetbrains.kotlin.backend.common.extensions.IrGenerationExtension
 import org.jetbrains.kotlin.backend.common.extensions.IrPluginContext
 import org.jetbrains.kotlin.cli.common.messages.MessageCollector

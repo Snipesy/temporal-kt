@@ -1,4 +1,4 @@
-package com.surrealdev.temporal.compiler
+package com.surrealdev.temporal.compiler.shared
 
 /**
  * Represents metadata extracted from a Temporal workflow definition.

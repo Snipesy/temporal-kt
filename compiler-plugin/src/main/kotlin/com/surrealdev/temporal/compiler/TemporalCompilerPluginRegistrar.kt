@@ -1,9 +1,12 @@
 package com.surrealdev.temporal.compiler
 
 import com.google.auto.service.AutoService
+import com.surrealdev.temporal.compiler.ir.TemporalIrGenerationExtension
 import org.jetbrains.kotlin.backend.common.extensions.IrGenerationExtension
+import org.jetbrains.kotlin.cli.common.messages.MessageCollector
 import org.jetbrains.kotlin.compiler.plugin.CompilerPluginRegistrar
 import org.jetbrains.kotlin.compiler.plugin.ExperimentalCompilerApi
+import org.jetbrains.kotlin.config.CommonConfigurationKeys
 import org.jetbrains.kotlin.config.CompilerConfiguration
 
 /**
@@ -23,8 +26,8 @@ class TemporalCompilerPluginRegistrar : CompilerPluginRegistrar() {
         val outputDir = configuration.get(TemporalPluginConfigurationKeys.OUTPUT_DIR)
         val enabled = configuration.get(TemporalPluginConfigurationKeys.ENABLED, true)
         val messageCollector =
-            configuration.get(org.jetbrains.kotlin.config.CommonConfigurationKeys.MESSAGE_COLLECTOR_KEY)
-                ?: org.jetbrains.kotlin.cli.common.messages.MessageCollector.NONE
+            configuration.get(CommonConfigurationKeys.MESSAGE_COLLECTOR_KEY)
+                ?: MessageCollector.NONE
 
         if (!enabled) return
 

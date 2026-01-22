@@ -1,6 +1,8 @@
-package com.surrealdev.temporal.compiler
+package com.surrealdev.temporal.compiler.ir
 
 import com.surrealdev.temporal.annotation.Workflow
+import com.surrealdev.temporal.compiler.shared.DeterminismRule
+import com.surrealdev.temporal.compiler.shared.DeterminismRulesLoader
 import org.jetbrains.kotlin.backend.common.extensions.IrPluginContext
 import org.jetbrains.kotlin.cli.common.messages.CompilerMessageLocationWithRange
 import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity

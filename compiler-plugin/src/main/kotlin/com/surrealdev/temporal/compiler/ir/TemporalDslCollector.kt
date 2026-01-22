@@ -1,5 +1,10 @@
-package com.surrealdev.temporal.compiler
+package com.surrealdev.temporal.compiler.ir
 
+import com.surrealdev.temporal.compiler.shared.ActivityMetadata
+import com.surrealdev.temporal.compiler.shared.TaskQueueMetadata
+import com.surrealdev.temporal.compiler.shared.TemporalMetadata
+import com.surrealdev.temporal.compiler.shared.TypeInfo
+import com.surrealdev.temporal.compiler.shared.WorkflowMetadata
 import org.jetbrains.kotlin.backend.common.extensions.IrPluginContext
 import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.declarations.IrFile
