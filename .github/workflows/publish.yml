@@ -11,86 +11,8 @@ on:
         type: string
 
 jobs:
-  # Build native libraries for all platforms
-  build-native-libs:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: 'recursive'
-
-      - name: Set up Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: stable
-          target: |
-            x86_64-unknown-linux-gnu
-            aarch64-unknown-linux-gnu
-            x86_64-pc-windows-gnu
-            aarch64-apple-darwin
-            x86_64-apple-darwin
-
-      - name: Install cargo-zigbuild
-        run: |
-          pip3 install ziglang
-          cargo install cargo-zigbuild
-
-      - name: Install cross-compilation dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y mingw-w64
-
-      - name: Build Linux x86_64
-        working-directory: core-bridge/rust/sdk-core/crates/sdk-core-c-bridge
-        run: cargo-zigbuild build --release --target x86_64-unknown-linux-gnu
-
-      - name: Build Linux aarch64
-        working-directory: core-bridge/rust/sdk-core/crates/sdk-core-c-bridge
-        run: cargo-zigbuild build --release --target aarch64-unknown-linux-gnu
-
-      - name: Build Windows x86_64
-        working-directory: core-bridge/rust/sdk-core/crates/sdk-core-c-bridge
-        run: cargo-zigbuild build --release --target x86_64-pc-windows-gnu
-
-      - name: Build macOS x86_64
-        working-directory: core-bridge/rust/sdk-core/crates/sdk-core-c-bridge
-        run: cargo-zigbuild build --release --target x86_64-apple-darwin
-
-      - name: Build macOS aarch64 (Apple Silicon)
-        working-directory: core-bridge/rust/sdk-core/crates/sdk-core-c-bridge
-        run: cargo-zigbuild build --release --target aarch64-apple-darwin
-
-      - name: Collect native libraries
-        run: |
-          mkdir -p native-libs/native/linux-x86_64
-          mkdir -p native-libs/native/linux-aarch64
-          mkdir -p native-libs/native/windows-x86_64
-          mkdir -p native-libs/native/darwin-x86_64
-          mkdir -p native-libs/native/darwin-aarch64
-
-          cp core-bridge/rust/sdk-core/target/x86_64-unknown-linux-gnu/release/libtemporalio_sdk_core_c_bridge.so \
-             native-libs/native/linux-x86_64/
-          cp core-bridge/rust/sdk-core/target/aarch64-unknown-linux-gnu/release/libtemporalio_sdk_core_c_bridge.so \
-             native-libs/native/linux-aarch64/
-          cp core-bridge/rust/sdk-core/target/x86_64-pc-windows-gnu/release/temporalio_sdk_core_c_bridge.dll \
-             native-libs/native/windows-x86_64/
-          cp core-bridge/rust/sdk-core/target/x86_64-apple-darwin/release/libtemporalio_sdk_core_c_bridge.dylib \
-             native-libs/native/darwin-x86_64/
-          cp core-bridge/rust/sdk-core/target/aarch64-apple-darwin/release/libtemporalio_sdk_core_c_bridge.dylib \
-             native-libs/native/darwin-aarch64/
-
-      - name: Upload native libraries artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: native-libs
-          path: native-libs/
-          retention-days: 1
-
-  # Publish to Maven Central
   publish:
     runs-on: ubuntu-latest
-    needs: build-native-libs
 
     steps:
       - uses: actions/checkout@v4
@@ -103,14 +25,25 @@ jobs:
           java-version: '25'
           distribution: 'graalvm'
 
-      - name: Install Protobuf
-        run: sudo apt-get install -y protobuf-compiler
-
-      - name: Download native libraries
-        uses: actions/download-artifact@v4
+      - name: Set up Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          name: native-libs
-          path: core-bridge/build/native-libs/
+          toolchain: stable
+          target: |
+            x86_64-unknown-linux-gnu
+            aarch64-unknown-linux-gnu
+            x86_64-pc-windows-gnu
+            aarch64-apple-darwin
+
+      - name: Install cargo-zigbuild
+        run: |
+          pip3 install ziglang
+          cargo install cargo-zigbuild
+
+      - name: Install cross-compilation dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mingw-w64 protobuf-compiler
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -130,28 +63,14 @@ jobs:
           echo "Publishing version: ${{ inputs.version }}"
           sed -i "s/version=.*/version=${{ inputs.version }}/" gradle.properties
 
-      - name: Build and Publish to Maven Central
+      - name: Build native libraries and publish to Maven Central
         env:
           OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
           OSSRH_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
           SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
         run: |
-          # Skip all native build and copy tasks since we downloaded pre-built libraries
-          gradle publishAllPublicationsToMavenCentralRepository \
-            -x cargoBuild \
-            -x copyNativeLib \
-            -x cargoBuildLinuxx8664 \
-            -x copyNativeLibLinuxx8664 \
-            -x cargoBuildLinuxAarch64 \
-            -x copyNativeLibLinuxAarch64 \
-            -x cargoBuildWindowsx8664 \
-            -x copyNativeLibWindowsx8664 \
-            -x cargoBuildDarwinx8664 \
-            -x copyNativeLibDarwinx8664 \
-            -x cargoBuildDarwinAarch64 \
-            -x copyNativeLibDarwinAarch64 \
-            --no-daemon
+          gradle copyAllNativeLibs publishAllPublicationsToMavenCentralRepository --no-daemon
 
       - name: Close and Release Staging Repository
         if: "!contains(github.event.release.tag_name, '-')"
