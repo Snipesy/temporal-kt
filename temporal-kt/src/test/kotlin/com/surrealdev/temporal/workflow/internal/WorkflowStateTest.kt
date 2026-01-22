@@ -655,4 +655,89 @@ class WorkflowStateTest {
 
         assertEquals("test-run-id-123", state.runId)
     }
+
+    // ================================================================
+    // Condition Removal Tests
+    // ================================================================
+
+    @Test
+    fun `removeCondition removes and returns true when deferred exists`() {
+        val state = WorkflowState("test-run-id")
+        val deferred = state.registerCondition { false }
+
+        val removed = state.removeCondition(deferred)
+
+        assertTrue(removed)
+        // Verify the condition is no longer tracked by checking that checkConditions
+        // doesn't complete the deferred (since it's been removed)
+        state.checkConditions()
+        assertFalse(deferred.isCompleted)
+    }
+
+    @Test
+    fun `removeCondition returns false when deferred not found`() {
+        val state = WorkflowState("test-run-id")
+        val unknownDeferred = kotlinx.coroutines.CompletableDeferred<Unit>()
+
+        val removed = state.removeCondition(unknownDeferred)
+
+        assertFalse(removed)
+    }
+
+    @Test
+    fun `removeCondition does not affect other conditions`() {
+        val state = WorkflowState("test-run-id")
+        var condition1Met = false
+        var condition2Met = false
+        val deferred1 = state.registerCondition { condition1Met }
+        val deferred2 = state.registerCondition { condition2Met }
+
+        // Remove first condition
+        state.removeCondition(deferred1)
+
+        // Second condition should still work
+        condition2Met = true
+        state.checkConditions()
+
+        assertFalse(deferred1.isCompleted)
+        assertTrue(deferred2.isCompleted)
+    }
+
+    @Test
+    fun `checkConditions skips already completed deferreds`() {
+        val state = WorkflowState("test-run-id")
+        val deferred = state.registerCondition { false }
+
+        // Simulate external cancellation (like from withTimeout)
+        deferred.cancel()
+
+        // Should not throw, should remove the cancelled condition
+        state.checkConditions()
+
+        // Verify it was cleaned up (would throw if not removed on second call
+        // since the predicate would be evaluated again)
+        state.checkConditions()
+    }
+
+    @Test
+    fun `checkConditions removes cancelled conditions from registry`() {
+        val state = WorkflowState("test-run-id")
+        var otherConditionMet = false
+        val cancelledDeferred =
+            state.registerCondition {
+                throw IllegalStateException("Should not be called after cancellation")
+            }
+        val otherDeferred = state.registerCondition { otherConditionMet }
+
+        // Cancel the first condition
+        cancelledDeferred.cancel()
+
+        // This should skip the cancelled condition and not throw
+        state.checkConditions()
+
+        // Verify the other condition still works
+        otherConditionMet = true
+        state.checkConditions()
+        assertTrue(otherDeferred.isCompleted)
+    }
 }

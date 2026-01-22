@@ -1221,4 +1221,201 @@ class DeterminismIntegrationTest {
                 completed()
             }
         }
+
+    // ================================================================
+    // awaitCondition with Timeout Tests
+    // ================================================================
+
+    /**
+     * Workflow that demonstrates awaitCondition timeout functionality.
+     * The condition will never be true, so the timeout should fire.
+     */
+    @Workflow("AwaitConditionTimeoutWorkflow")
+    class AwaitConditionTimeoutWorkflow {
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String =
+            try {
+                // Wait for a condition that will never be true, with a short timeout
+                awaitCondition(
+                    timeout = 100.milliseconds,
+                    timeoutSummary = "waiting for approval",
+                ) { false }
+                "condition met"
+            } catch (e: com.surrealdev.temporal.workflow.WorkflowConditionTimeoutException) {
+                "timeout: ${e.summary}"
+            }
+    }
+
+    @Test
+    fun `workflow with awaitCondition timeout catches exception`() =
+        runTemporalTest(timeSkipping = true) {
+            val taskQueue = "test-await-timeout-${UUID.randomUUID()}"
+
+            application {
+                taskQueue(taskQueue) {
+                    workflow(AwaitConditionTimeoutWorkflow())
+                }
+            }
+
+            val client = client()
+            val handle =
+                client.startWorkflow<String>(
+                    workflowType = "AwaitConditionTimeoutWorkflow",
+                    taskQueue = taskQueue,
+                )
+
+            val result = handle.result(timeout = 30.seconds)
+            assertEquals("timeout: waiting for approval", result)
+
+            handle.assertHistory {
+                completed()
+            }
+        }
+
+    /**
+     * Workflow where the condition is satisfied before the timeout.
+     */
+    @Workflow("ConditionBeforeTimeoutWorkflow")
+    class ConditionBeforeTimeoutWorkflow {
+        private var approved = false
+
+        @Signal("approve")
+        fun approve() {
+            approved = true
+        }
+
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String =
+            try {
+                awaitCondition(
+                    timeout = 10.seconds,
+                    timeoutSummary = "waiting for approval signal",
+                ) { approved }
+                "approved"
+            } catch (e: com.surrealdev.temporal.workflow.WorkflowConditionTimeoutException) {
+                "timeout"
+            }
+    }
+
+    @Test
+    fun `workflow with awaitCondition completes when condition met before timeout`() =
+        runTemporalTest {
+            val taskQueue = "test-condition-before-timeout-${UUID.randomUUID()}"
+
+            application {
+                taskQueue(taskQueue) {
+                    workflow(ConditionBeforeTimeoutWorkflow())
+                }
+            }
+
+            val client = client()
+            val handle =
+                client.startWorkflow<String>(
+                    workflowType = "ConditionBeforeTimeoutWorkflow",
+                    taskQueue = taskQueue,
+                )
+
+            // Send signal to satisfy condition before timeout
+            handle.signal("approve")
+
+            val result = handle.result(timeout = 30.seconds)
+            assertEquals("approved", result)
+
+            handle.assertHistory {
+                completed()
+            }
+        }
+
+    /**
+     * Workflow that demonstrates awaitCondition with no timeout (backwards compatibility).
+     */
+    @Workflow("AwaitConditionNoTimeoutWorkflow")
+    class AwaitConditionNoTimeoutWorkflow {
+        private var done = false
+
+        @Signal("complete")
+        fun complete() {
+            done = true
+        }
+
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            // Wait indefinitely (no timeout) - original behavior
+            awaitCondition { done }
+            return "done"
+        }
+    }
+
+    @Test
+    fun `workflow with awaitCondition without timeout waits indefinitely`() =
+        runTemporalTest {
+            val taskQueue = "test-await-no-timeout-${UUID.randomUUID()}"
+
+            application {
+                taskQueue(taskQueue) {
+                    workflow(AwaitConditionNoTimeoutWorkflow())
+                }
+            }
+
+            val client = client()
+            val handle =
+                client.startWorkflow<String>(
+                    workflowType = "AwaitConditionNoTimeoutWorkflow",
+                    taskQueue = taskQueue,
+                )
+
+            // Signal to complete
+            handle.signal("complete")
+
+            val result = handle.result(timeout = 30.seconds)
+            assertEquals("done", result)
+
+            handle.assertHistory {
+                completed()
+            }
+        }
+
+    /**
+     * Workflow where the condition is already true when awaitCondition is called.
+     */
+    @Workflow("ConditionAlreadyTrueWorkflow")
+    class ConditionAlreadyTrueWorkflow {
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            // Condition is already true
+            awaitCondition(
+                timeout = 1.seconds,
+                timeoutSummary = "should not timeout",
+            ) { true }
+            return "immediate"
+        }
+    }
+
+    @Test
+    fun `workflow with awaitCondition returns immediately when condition already true`() =
+        runTemporalTest {
+            val taskQueue = "test-condition-already-true-${UUID.randomUUID()}"
+
+            application {
+                taskQueue(taskQueue) {
+                    workflow(ConditionAlreadyTrueWorkflow())
+                }
+            }
+
+            val client = client()
+            val handle =
+                client.startWorkflow<String>(
+                    workflowType = "ConditionAlreadyTrueWorkflow",
+                    taskQueue = taskQueue,
+                )
+
+            val result = handle.result(timeout = 30.seconds)
+            assertEquals("immediate", result)
+
+            // Should complete without any timers being created
+            handle.assertHistory {
+                completed()
+                timerCount(0)
+            }
+        }
 }

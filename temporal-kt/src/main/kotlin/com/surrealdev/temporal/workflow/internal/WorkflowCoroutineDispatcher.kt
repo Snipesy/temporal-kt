@@ -3,18 +3,20 @@ package com.surrealdev.temporal.workflow.internal
 import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Delay
+import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.InternalCoroutinesApi
 import kotlin.coroutines.CoroutineContext
 
 /**
- * Functional interface for scheduling workflow timers.
+ * Interface for scheduling workflow timers.
  *
- * This allows the dispatcher to delegate [kotlinx.coroutines.delay] calls
- * to the workflow's durable timer system.
+ * This allows the dispatcher to delegate [kotlinx.coroutines.delay] and
+ * [kotlinx.coroutines.withTimeout] calls to the workflow's durable timer system.
  */
-internal fun interface WorkflowTimerScheduler {
+internal interface WorkflowTimerScheduler {
     /**
      * Schedules a timer that will resume the continuation after the specified delay.
+     * Used by [kotlinx.coroutines.delay].
      *
      * @param delayMillis The delay in milliseconds
      * @param continuation The continuation to resume when the timer fires
@@ -23,6 +25,19 @@ internal fun interface WorkflowTimerScheduler {
         delayMillis: Long,
         continuation: CancellableContinuation<Unit>,
     )
+
+    /**
+     * Schedules a timer that will execute a callback after the specified delay.
+     * Used by [kotlinx.coroutines.withTimeout] for timeout handling.
+     *
+     * @param delayMillis The delay in milliseconds
+     * @param block The callback to execute when the timer fires
+     * @return A handle that can be used to cancel the timer
+     */
+    fun scheduleTimeoutCallback(
+        delayMillis: Long,
+        block: Runnable,
+    ): DisposableHandle
 }
 
 /**
@@ -76,6 +91,27 @@ internal class WorkflowCoroutineDispatcher(
             throw IllegalStateException(
                 "Cannot use kotlinx.coroutines.delay() inside a workflow. " +
                     "Use WorkflowContext.sleep() instead for durable timers that survive replay.",
+            )
+        }
+    }
+
+    /**
+     * Intercepts timeout scheduling from [kotlinx.coroutines.withTimeout].
+     *
+     * When a [timerScheduler] is configured, this delegates to the workflow's
+     * durable timer system, making withTimeout() work correctly in workflows.
+     */
+    override fun invokeOnTimeout(
+        timeMillis: Long,
+        block: Runnable,
+        context: CoroutineContext,
+    ): DisposableHandle {
+        if (timerScheduler != null) {
+            return timerScheduler.scheduleTimeoutCallback(timeMillis, block)
+        } else {
+            throw IllegalStateException(
+                "Cannot use kotlinx.coroutines.withTimeout() inside a workflow. " +
+                    "Use WorkflowContext.awaitCondition() with timeout for durable timeouts that survive replay.",
             )
         }
     }

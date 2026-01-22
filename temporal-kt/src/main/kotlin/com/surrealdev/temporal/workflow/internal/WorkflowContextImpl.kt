@@ -220,6 +220,29 @@ internal class WorkflowContextImpl(
     }
 
     override suspend fun awaitCondition(condition: () -> Boolean) {
+        awaitConditionInternal(condition, timeout = null, timeoutSummary = null)
+    }
+
+    override suspend fun awaitCondition(
+        timeout: Duration,
+        timeoutSummary: String?,
+        condition: () -> Boolean,
+    ) {
+        awaitConditionInternal(condition, timeout, timeoutSummary)
+    }
+
+    /**
+     * Internal implementation for awaiting a condition with optional timeout.
+     *
+     * @param condition The condition to wait for
+     * @param timeout Optional timeout duration; null means wait indefinitely
+     * @param timeoutSummary Optional description for debugging
+     */
+    private suspend fun awaitConditionInternal(
+        condition: () -> Boolean,
+        timeout: Duration?,
+        timeoutSummary: String?,
+    ) {
         // Check the condition immediately - if already true, no need to wait
         if (condition()) {
             return
@@ -229,17 +252,34 @@ internal class WorkflowContextImpl(
         // The condition will be checked deterministically after signals/updates and non-query jobs
         val deferred = state.registerCondition(condition)
 
-        // Await the deferred - it will complete when the condition becomes true
-        // or throw if the condition evaluation fails
-        deferred.await()
+        if (timeout == null) {
+            // No timeout - simple await
+            deferred.await()
+        } else {
+            try {
+                // Use coroutine withTimeout - it uses delay() which is intercepted
+                // by WorkflowTimerScheduler to create durable timers
+                kotlinx.coroutines.withTimeout(timeout) {
+                    deferred.await()
+                }
+            } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                // Clean up the condition from registry
+                state.removeCondition(deferred)
+                // Rethrow as custom exception with context
+                throw com.surrealdev.temporal.workflow.WorkflowConditionTimeoutException(
+                    message = timeoutSummary ?: "Condition wait timed out after $timeout",
+                    timeout = timeout,
+                    summary = timeoutSummary,
+                    cause = e,
+                )
+            }
+        }
     }
 
-    override fun now(): Instant {
-        // Convert from kotlin.time.Instant to kotlinx.datetime.Instant
-        return Instant.fromEpochMilliseconds(
+    override fun now(): Instant =
+        Instant.fromEpochMilliseconds(
             state.currentTime.toEpochMilliseconds(),
         )
-    }
 
     override fun randomUuid(): String = deterministicRandom.randomUuid()
 

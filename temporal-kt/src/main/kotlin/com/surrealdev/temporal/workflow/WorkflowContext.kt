@@ -65,9 +65,37 @@ interface WorkflowContext : CoroutineScope {
     /**
      * Suspends the workflow until the specified condition is met.
      *
+     * The condition is checked immediately upon calling this method. If it returns true,
+     * this method returns immediately.
+     *
+     * This overload waits indefinitely and supports trailing lambda syntax:
+     * ```kotlin
+     * awaitCondition { counter >= target }
+     * ```
+     *
      * @param condition A function that returns true when the workflow should continue
      */
     suspend fun awaitCondition(condition: () -> Boolean)
+
+    /**
+     * Suspends the workflow until the specified condition is met or timeout occurs.
+     *
+     * The condition is checked immediately upon calling this method. If it returns true,
+     * this method returns immediately without creating any timers.
+     *
+     * If a timeout is specified and the condition is not met within the timeout duration,
+     * a [WorkflowConditionTimeoutException] is thrown.
+     *
+     * @param timeout Maximum duration to wait before timing out
+     * @param timeoutSummary Optional description for debugging (included in exception message)
+     * @param condition A function that returns true when the workflow should continue
+     * @throws WorkflowConditionTimeoutException if timeout expires before condition is met
+     */
+    suspend fun awaitCondition(
+        timeout: Duration,
+        timeoutSummary: String? = null,
+        condition: () -> Boolean,
+    )
 
     /**
      * Gets the current workflow time.

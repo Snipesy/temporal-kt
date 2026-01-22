@@ -64,13 +64,23 @@ internal class WorkflowExecutor(
         )
 
     // Create dispatcher with a timer scheduler that delegates to the workflow's timer system.
-    // This allows kotlinx.coroutines.delay() to work correctly in workflows by creating
-    // durable timers that survive replay.
+    // This allows kotlinx.coroutines.delay() and withTimeout() to work correctly in workflows
+    // by creating durable timers that survive replay.
     private val workflowDispatcher =
         WorkflowCoroutineDispatcher(
             timerScheduler =
-                WorkflowTimerScheduler { delayMillis, continuation ->
-                    scheduleTimerForContinuation(delayMillis, continuation)
+                object : WorkflowTimerScheduler {
+                    override fun scheduleTimer(
+                        delayMillis: Long,
+                        continuation: kotlinx.coroutines.CancellableContinuation<Unit>,
+                    ) {
+                        scheduleTimerForContinuation(delayMillis, continuation)
+                    }
+
+                    override fun scheduleTimeoutCallback(
+                        delayMillis: Long,
+                        block: Runnable,
+                    ): kotlinx.coroutines.DisposableHandle = scheduleTimeoutCallbackTimer(delayMillis, block)
                 },
         )
     private var context: WorkflowContextImpl? = null
@@ -290,7 +300,13 @@ internal class WorkflowExecutor(
 
             job.hasFireTimer() -> {
                 logger.debug("Timer fired: seq={}", job.fireTimer.seq)
-                state.resolveTimer(job.fireTimer.seq)
+                val callback = state.resolveTimer(job.fireTimer.seq)
+                // If there's a timeout callback (from withTimeout), execute it
+                if (callback != null) {
+                    workflowDispatcher.dispatch(kotlin.coroutines.EmptyCoroutineContext) {
+                        callback.run()
+                    }
+                }
             }
 
             job.hasResolveActivity() -> {
@@ -1364,34 +1380,16 @@ internal class WorkflowExecutor(
     fun isEviction(activation: WorkflowActivation): Boolean = activation.jobsList.any { it.hasRemoveFromCache() }
 
     /**
-     * Schedules a durable timer for a continuation.
+     * Creates a StartTimer command and adds it to the workflow state.
      *
-     * This is called by the [WorkflowCoroutineDispatcher] when [kotlinx.coroutines.delay]
-     * is used in a workflow. It creates a proper durable timer command and registers
-     * the continuation to be resumed when the timer fires.
-     *
+     * @param seq The sequence number for the timer
      * @param delayMillis The delay in milliseconds
-     * @param continuation The continuation to resume when the timer fires
      */
-    private fun scheduleTimerForContinuation(
+    private fun createAndAddTimerCommand(
+        seq: Int,
         delayMillis: Long,
-        continuation: CancellableContinuation<Unit>,
     ) {
-        // Handle zero or negative delay - resume immediately
-        if (delayMillis <= 0) {
-            logger.debug("Timer with zero/negative delay ({}ms), resuming immediately", delayMillis)
-            // Queue the continuation to be resumed on the next dispatcher cycle
-            workflowDispatcher.dispatch(continuation.context) {
-                continuation.resumeWith(Result.success(Unit))
-            }
-            return
-        }
-
-        val seq = state.nextSeq()
-        logger.debug("Scheduling timer: seq={}, delay={}ms", seq, delayMillis)
         val duration = delayMillis.milliseconds
-
-        // Build the StartTimer command
         val javaDuration = duration.toJavaDuration()
         val protoDuration =
             com.google.protobuf.Duration
@@ -1411,8 +1409,90 @@ internal class WorkflowExecutor(
                 ).build()
 
         state.addCommand(command)
+    }
 
-        // Register the continuation to be resumed when the timer fires
+    /**
+     * Creates a CancelTimer command and adds it to the workflow state.
+     *
+     * @param seq The sequence number of the timer to cancel
+     */
+    private fun createAndAddCancelTimerCommand(seq: Int) {
+        val cancelCommand =
+            WorkflowCommands.WorkflowCommand
+                .newBuilder()
+                .setCancelTimer(
+                    WorkflowCommands.CancelTimer
+                        .newBuilder()
+                        .setSeq(seq),
+                ).build()
+        state.addCommand(cancelCommand)
+    }
+
+    /**
+     * Schedules a durable timer for a continuation.
+     *
+     * This is called by the [WorkflowCoroutineDispatcher] when [kotlinx.coroutines.delay]
+     * is used in a workflow. It creates a proper durable timer command and registers
+     * the continuation to be resumed when the timer fires.
+     *
+     * @param delayMillis The delay in milliseconds
+     * @param continuation The continuation to resume when the timer fires
+     */
+    private fun scheduleTimerForContinuation(
+        delayMillis: Long,
+        continuation: CancellableContinuation<Unit>,
+    ) {
+        // Handle zero or negative delay - resume immediately
+        if (delayMillis <= 0) {
+            logger.debug("Timer with zero/negative delay ({}ms), resuming immediately", delayMillis)
+            workflowDispatcher.dispatch(continuation.context) {
+                continuation.resumeWith(Result.success(Unit))
+            }
+            return
+        }
+
+        val seq = state.nextSeq()
+        logger.debug("Scheduling timer: seq={}, delay={}ms", seq, delayMillis)
+
+        createAndAddTimerCommand(seq, delayMillis)
         state.registerTimerContinuation(seq, continuation)
+    }
+
+    /**
+     * Schedules a durable timer for a timeout callback.
+     *
+     * This is called by the [WorkflowCoroutineDispatcher] when [kotlinx.coroutines.withTimeout]
+     * is used in a workflow. It creates a proper durable timer command and registers
+     * the callback to be executed when the timer fires.
+     *
+     * @param delayMillis The delay in milliseconds
+     * @param block The callback to execute when the timer fires
+     * @return A handle that can be used to cancel the timeout
+     */
+    private fun scheduleTimeoutCallbackTimer(
+        delayMillis: Long,
+        block: Runnable,
+    ): kotlinx.coroutines.DisposableHandle {
+        // Handle zero or negative delay - execute immediately
+        if (delayMillis <= 0) {
+            logger.debug("Timeout with zero/negative delay ({}ms), executing immediately", delayMillis)
+            workflowDispatcher.dispatch(kotlin.coroutines.EmptyCoroutineContext) {
+                block.run()
+            }
+            return kotlinx.coroutines.DisposableHandle { }
+        }
+
+        val seq = state.nextSeq()
+        logger.debug("Scheduling timeout callback: seq={}, delay={}ms", seq, delayMillis)
+
+        createAndAddTimerCommand(seq, delayMillis)
+        state.registerTimeoutCallback(seq, block)
+
+        // Return a handle that can cancel the timeout
+        return kotlinx.coroutines.DisposableHandle {
+            if (state.cancelTimeoutCallback(seq)) {
+                createAndAddCancelTimerCommand(seq)
+            }
+        }
     }
 }

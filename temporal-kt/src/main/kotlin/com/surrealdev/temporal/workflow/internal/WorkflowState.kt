@@ -100,6 +100,12 @@ internal class WorkflowState(
     private val pendingTimerContinuations = ConcurrentHashMap<Int, CancellableContinuation<Unit>>()
 
     /**
+     * Pending timeout callback operations, keyed by sequence number.
+     * Used by kotlinx.coroutines.withTimeout() interception.
+     */
+    private val pendingTimeoutCallbacks = ConcurrentHashMap<Int, Runnable>()
+
+    /**
      * Pending activity operations, keyed by sequence number.
      */
     private val pendingActivities = ConcurrentHashMap<Int, PendingActivity>()
@@ -164,15 +170,47 @@ internal class WorkflowState(
     }
 
     /**
+     * Registers a timeout callback to be executed when the timer fires.
+     * Used by kotlinx.coroutines.withTimeout() interception.
+     *
+     * @param seq The sequence number for this timer
+     * @param callback The callback to run when the timer fires
+     */
+    fun registerTimeoutCallback(
+        seq: Int,
+        callback: Runnable,
+    ) {
+        if (isReadOnly) {
+            throw ReadOnlyContextException(
+                "Cannot register timeout callback in read-only mode (e.g., during query processing)",
+            )
+        }
+        pendingTimeoutCallbacks[seq] = callback
+    }
+
+    /**
+     * Cancels a pending timeout callback by its sequence number.
+     * Used when the operation completes before the timeout fires.
+     *
+     * @param seq The sequence number of the timeout to cancel
+     * @return true if the callback was found and removed, false otherwise
+     */
+    fun cancelTimeoutCallback(seq: Int): Boolean = pendingTimeoutCallbacks.remove(seq) != null
+
+    /**
      * Resolves a timer by its sequence number.
      * Called when a FireTimer job is received in an activation.
-     * Handles both deferred-based and continuation-based timers.
+     * Handles deferred-based, continuation-based, and callback-based timers.
+     *
+     * @return The timeout callback to execute, or null if none
      */
-    fun resolveTimer(seq: Int) {
+    fun resolveTimer(seq: Int): Runnable? {
         // Try deferred-based timer first
         pendingTimers.remove(seq)?.complete(Unit)
         // Then try continuation-based timer
         pendingTimerContinuations.remove(seq)?.resume(Unit)
+        // Return timeout callback if present (caller should execute it)
+        return pendingTimeoutCallbacks.remove(seq)
     }
 
     /**
@@ -250,14 +288,43 @@ internal class WorkflowState(
     }
 
     /**
+     * Removes a condition from the registry by its deferred.
+     * Called for cleanup when the await is cancelled (e.g., by timeout).
+     *
+     * @param deferred The deferred associated with the condition to remove
+     * @return true if the condition was found and removed, false otherwise
+     */
+    fun removeCondition(deferred: CompletableDeferred<Unit>): Boolean {
+        val iterator = conditions.iterator()
+        while (iterator.hasNext()) {
+            val (_, condDeferred) = iterator.next()
+            if (condDeferred === deferred) {
+                iterator.remove()
+                return true
+            }
+        }
+        return false
+    }
+
+    /**
      * Checks all registered conditions and completes any whose predicates are now true.
      * This is called after processing signals/updates and non-query jobs to allow
      * condition-based workflow logic to proceed deterministically.
+     *
+     * Conditions that are already completed (e.g., cancelled by timeout) are removed
+     * without evaluating their predicates.
      */
     fun checkConditions() {
         val iterator = conditions.iterator()
         while (iterator.hasNext()) {
             val (predicate, deferred) = iterator.next()
+
+            // Skip if already completed (e.g., canceled by timeout)
+            if (deferred.isCompleted) {
+                iterator.remove()
+                continue
+            }
+
             try {
                 if (predicate()) {
                     deferred.complete(Unit)
@@ -308,6 +375,9 @@ internal class WorkflowState(
         // Cancel all pending timers (continuation-based)
         pendingTimerContinuations.values.forEach { it.cancel() }
         pendingTimerContinuations.clear()
+
+        // Clear all pending timeout callbacks (no need to cancel, just discard)
+        pendingTimeoutCallbacks.clear()
 
         // Cancel all pending activities
         pendingActivities.values.forEach { it.deferred.cancel() }
