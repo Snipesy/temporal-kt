@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.application.worker
 
+import com.google.protobuf.ByteString
 import com.surrealdev.temporal.activity.internal.ActivityDispatcher
 import com.surrealdev.temporal.activity.internal.ActivityRegistry
 import com.surrealdev.temporal.application.TaskQueueConfig
@@ -7,8 +8,10 @@ import com.surrealdev.temporal.core.TemporalWorker
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.workflow.internal.WorkflowDispatcher
 import com.surrealdev.temporal.workflow.internal.WorkflowRegistry
+import coresdk.activityHeartbeat
 import coresdk.activity_task.ActivityTaskOuterClass
 import coresdk.workflow_activation.WorkflowActivationOuterClass
+import io.temporal.api.common.v1.Payload
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineName
@@ -91,9 +94,36 @@ internal class ManagedWorker(
             serializer = serializer,
             taskQueue = config.name,
             maxConcurrent = config.maxConcurrentActivities,
-            // TODO: Implement heartbeat
-            heartbeatFn = { _, _ -> },
+            heartbeatFn = { taskToken, details ->
+                recordActivityHeartbeat(taskToken, details)
+            },
         )
+
+    /**
+     * Records an activity heartbeat to the Core SDK.
+     *
+     * The Core SDK handles heartbeat batching internally and sends heartbeats
+     * to the server asynchronously. If cancellation is requested, the Core SDK
+     * will send a Cancel task through the normal [pollActivityTasks] mechanism.
+     */
+    private fun recordActivityHeartbeat(
+        taskToken: ByteArray,
+        details: ByteArray?,
+    ) {
+        val heartbeat =
+            activityHeartbeat {
+                this.taskToken = ByteString.copyFrom(taskToken)
+                if (details != null) {
+                    this.details +=
+                        Payload
+                            .newBuilder()
+                            .setData(ByteString.copyFrom(details))
+                            .build()
+                }
+            }
+        coreWorker.recordActivityHeartbeat(heartbeat.toByteArray())
+    }
+
     private val workflowDispatcher =
         WorkflowDispatcher(
             registry = workflowRegistry,
@@ -243,12 +273,32 @@ internal class ManagedWorker(
                 val activityInfo = if (task.hasStart()) "type=${task.start.activityType}" else "cancel"
                 logger.debug("[pollActivityTasks] Received activity task: $activityInfo")
 
-                // Dispatch to activity executor (in a separate coroutine for parallelism)
-                launch {
+                // Dispatch to activity executor in its own coroutine context
+                // Each activity gets its own context with MDC for logging
+                val activityMdcContext =
+                    if (task.hasStart()) {
+                        MDCContext(
+                            mapOf(
+                                "taskQueue" to config.name,
+                                "namespace" to namespace,
+                                "activityType" to task.start.activityType,
+                                "activityId" to task.start.activityId,
+                                "workflowId" to task.start.workflowExecution.workflowId,
+                                "runId" to task.start.workflowExecution.runId,
+                            ),
+                        )
+                    } else {
+                        mdcContext // Cancel tasks use base MDC
+                    }
+
+                launch(activityMdcContext + CoroutineName("Activity-$activityInfo")) {
                     try {
                         val completion = activityDispatcher.dispatch(task)
-                        coreWorker.completeActivityTask(completion.toByteArray())
-                        logger.debug("[pollActivityTasks] Completed activity: $activityInfo")
+                        if (completion != null) {
+                            // Start tasks return completion; Cancel tasks return null
+                            coreWorker.completeActivityTask(completion.toByteArray())
+                            logger.debug("[pollActivityTasks] Completed activity: $activityInfo")
+                        }
                     } catch (e: Exception) {
                         logger.warn("[pollActivityTasks] Error dispatching activity: ${e.message}")
                         e.printStackTrace()

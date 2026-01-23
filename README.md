@@ -86,9 +86,8 @@ class MyWorkflow {
     }
 }
 
-@Activity("MyActivity")
 class MyActivity {
-    @ActivityMethod
+    @Activity
     suspend fun ActivityContext.greet(name: String): String = "Hello, $name"
 }
 

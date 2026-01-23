@@ -2,9 +2,7 @@ package com.surrealdev.temporal.activity.internal
 
 import com.surrealdev.temporal.activity.ActivityContext
 import com.surrealdev.temporal.annotation.Activity
-import com.surrealdev.temporal.annotation.ActivityMethod
 import com.surrealdev.temporal.application.ActivityRegistration
-import kotlin.reflect.KClass
 import kotlin.reflect.KFunction
 import kotlin.reflect.KType
 import kotlin.reflect.full.declaredFunctions
@@ -18,7 +16,7 @@ import kotlin.reflect.jvm.isAccessible
  * Information about a registered activity method.
  */
 internal data class ActivityMethodInfo(
-    /** The full activity type name (e.g., "GreetingActivity::greet"). */
+    /** The activity type name (e.g., "greet"). */
     val activityType: String,
     /** The method to invoke. */
     val method: KFunction<*>,
@@ -37,7 +35,7 @@ internal data class ActivityMethodInfo(
 /**
  * Registry for activity method implementations.
  *
- * Scans activity classes for methods annotated with @ActivityMethod and
+ * Scans activity classes for methods annotated with @Activity and
  * provides lookup by activity type name.
  */
 internal class ActivityRegistry {
@@ -46,7 +44,7 @@ internal class ActivityRegistry {
     /**
      * Registers an activity implementation.
      *
-     * Scans the implementation for @ActivityMethod annotations and registers each method.
+     * Scans the implementation for @Activity annotations and registers each method.
      *
      * @param registration The activity registration containing the implementation
      * @throws IllegalArgumentException if no activity methods are found or duplicate types exist
@@ -55,70 +53,34 @@ internal class ActivityRegistry {
         val implementation = registration.implementation
         val klass = implementation::class
 
-        // Get the activity prefix from @Activity annotation or use the provided type
-        val activityAnnotation = klass.findAnnotation<Activity>()
-        val activityPrefix =
-            when {
-                registration.activityType.isNotBlank() -> registration.activityType
-                activityAnnotation?.name?.isNotBlank() == true -> activityAnnotation.name
-                else -> klass.simpleName ?: error("Cannot determine activity type for ${klass.qualifiedName}")
-            }
-
-        // Find all methods annotated with @ActivityMethod
-        val activityMethods = klass.declaredFunctions.filter { it.hasAnnotation<ActivityMethod>() }
+        // Find all methods annotated with @Activity
+        val activityMethods = klass.declaredFunctions.filter { it.hasAnnotation<Activity>() }
 
         if (activityMethods.isEmpty()) {
-            // If no @ActivityMethod annotations, check if class has @Activity
-            // and treat all public methods as activity methods (convenience mode)
-            if (activityAnnotation != null) {
-                registerAllPublicMethods(klass, implementation, activityPrefix)
-            } else {
-                throw IllegalArgumentException(
-                    "Activity class ${klass.qualifiedName} has no @ActivityMethod annotations. " +
-                        "Either annotate methods with @ActivityMethod or the class with @Activity.",
-                )
-            }
+            throw IllegalArgumentException(
+                "Activity class ${klass.qualifiedName} has no @Activity annotations. ",
+            )
         } else {
             // Register explicitly annotated methods
             for (method in activityMethods) {
-                registerMethod(method, implementation, activityPrefix)
+                registerMethod(method, implementation)
             }
-        }
-    }
-
-    private fun registerAllPublicMethods(
-        klass: KClass<*>,
-        instance: Any,
-        activityPrefix: String,
-    ) {
-        val publicMethods =
-            klass.declaredFunctions.filter {
-                // Exclude standard Object methods and internal methods
-                it.name !in setOf("equals", "hashCode", "toString", "copy") &&
-                    !it.name.startsWith("component")
-            }
-
-        for (method in publicMethods) {
-            registerMethod(method, instance, activityPrefix)
         }
     }
 
     private fun registerMethod(
         method: KFunction<*>,
         instance: Any,
-        activityPrefix: String,
     ) {
         method.isAccessible = true
 
-        val methodAnnotation = method.findAnnotation<ActivityMethod>()
-        val methodName =
+        // Get the activity name from @Activity annotation or use function name
+        val activityAnnotation = method.findAnnotation<Activity>()
+        val activityType =
             when {
-                methodAnnotation?.name?.isNotBlank() == true -> methodAnnotation.name
+                activityAnnotation?.name?.isNotBlank() == true -> activityAnnotation.name
                 else -> method.name
             }
-
-        // Build full activity type: "ActivityClass::methodName"
-        val activityType = "$activityPrefix::$methodName"
 
         // Check for duplicate registration
         if (methods.containsKey(activityType)) {
@@ -152,7 +114,7 @@ internal class ActivityRegistry {
     /**
      * Looks up an activity method by its type name.
      *
-     * @param activityType The activity type name (e.g., "GreetingActivity::greet")
+     * @param activityType The activity type name (e.g., "greet")
      * @return The activity method info, or null if not found
      */
     fun lookup(activityType: String): ActivityMethodInfo? = methods[activityType]

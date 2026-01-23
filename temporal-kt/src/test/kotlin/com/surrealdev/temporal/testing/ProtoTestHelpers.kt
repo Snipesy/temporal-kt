@@ -5,6 +5,7 @@ import com.google.protobuf.Duration
 import com.google.protobuf.Timestamp
 import coresdk.activity_result.ActivityResult
 import coresdk.child_workflow.ChildWorkflow
+import coresdk.workflow_activation.WorkflowActivationOuterClass
 import coresdk.workflow_activation.WorkflowActivationOuterClass.CancelWorkflow
 import coresdk.workflow_activation.WorkflowActivationOuterClass.DoUpdate
 import coresdk.workflow_activation.WorkflowActivationOuterClass.FireTimer
@@ -359,6 +360,68 @@ object ProtoTestHelpers {
     }
 
     /**
+     * Creates a ResolveChildWorkflowExecutionStart job (failed to start).
+     */
+    fun resolveChildWorkflowStartFailedJob(
+        seq: Int,
+        workflowId: String = "child-workflow-id",
+        workflowType: String = "ChildWorkflow",
+        cause: ChildWorkflow.StartChildWorkflowExecutionFailedCause =
+            ChildWorkflow.StartChildWorkflowExecutionFailedCause
+                .START_CHILD_WORKFLOW_EXECUTION_FAILED_CAUSE_WORKFLOW_ALREADY_EXISTS,
+    ): WorkflowActivationJob {
+        val failed =
+            WorkflowActivationOuterClass.ResolveChildWorkflowExecutionStartFailure
+                .newBuilder()
+                .setWorkflowId(workflowId)
+                .setWorkflowType(workflowType)
+                .setCause(cause)
+                .build()
+
+        val resolve =
+            ResolveChildWorkflowExecutionStart
+                .newBuilder()
+                .setSeq(seq)
+                .setFailed(failed)
+                .build()
+
+        return WorkflowActivationJob
+            .newBuilder()
+            .setResolveChildWorkflowExecutionStart(resolve)
+            .build()
+    }
+
+    /**
+     * Creates a ResolveChildWorkflowExecutionStart job (cancelled before start).
+     */
+    fun resolveChildWorkflowStartCancelledJob(
+        seq: Int,
+        message: String = "Child workflow cancelled before start",
+    ): WorkflowActivationJob {
+        val cancelled =
+            WorkflowActivationOuterClass.ResolveChildWorkflowExecutionStartCancelled
+                .newBuilder()
+                .setFailure(
+                    Failure
+                        .newBuilder()
+                        .setMessage(message)
+                        .build(),
+                ).build()
+
+        val resolve =
+            ResolveChildWorkflowExecutionStart
+                .newBuilder()
+                .setSeq(seq)
+                .setCancelled(cancelled)
+                .build()
+
+        return WorkflowActivationJob
+            .newBuilder()
+            .setResolveChildWorkflowExecutionStart(resolve)
+            .build()
+    }
+
+    /**
      * Creates a ResolveChildWorkflowExecution job (completed).
      */
     fun resolveChildWorkflowExecutionJob(
@@ -373,6 +436,74 @@ object ProtoTestHelpers {
                         .newBuilder()
                         .setResult(result)
                         .build(),
+                ).build()
+
+        val resolve =
+            ResolveChildWorkflowExecution
+                .newBuilder()
+                .setSeq(seq)
+                .setResult(childResult)
+                .build()
+
+        return WorkflowActivationJob
+            .newBuilder()
+            .setResolveChildWorkflowExecution(resolve)
+            .build()
+    }
+
+    /**
+     * Creates a ResolveChildWorkflowExecution job (failed).
+     */
+    fun resolveChildWorkflowExecutionFailedJob(
+        seq: Int,
+        message: String = "Child workflow failed",
+    ): WorkflowActivationJob {
+        val childResult =
+            ChildWorkflow.ChildWorkflowResult
+                .newBuilder()
+                .setFailed(
+                    ChildWorkflow.Failure
+                        .newBuilder()
+                        .setFailure(
+                            Failure
+                                .newBuilder()
+                                .setMessage(message)
+                                .build(),
+                        ).build(),
+                ).build()
+
+        val resolve =
+            ResolveChildWorkflowExecution
+                .newBuilder()
+                .setSeq(seq)
+                .setResult(childResult)
+                .build()
+
+        return WorkflowActivationJob
+            .newBuilder()
+            .setResolveChildWorkflowExecution(resolve)
+            .build()
+    }
+
+    /**
+     * Creates a ResolveChildWorkflowExecution job (cancelled).
+     */
+    fun resolveChildWorkflowExecutionCancelledJob(
+        seq: Int,
+        message: String = "Child workflow cancelled",
+    ): WorkflowActivationJob {
+        val childResult =
+            ChildWorkflow.ChildWorkflowResult
+                .newBuilder()
+                .setCancelled(
+                    ChildWorkflow.Cancellation
+                        .newBuilder()
+                        .setFailure(
+                            Failure
+                                .newBuilder()
+                                .setMessage(message)
+                                .build(),
+                        ).build(),
                 ).build()
 
         val resolve =

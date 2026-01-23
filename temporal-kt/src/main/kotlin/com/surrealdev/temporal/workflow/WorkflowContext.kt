@@ -1,7 +1,9 @@
 package com.surrealdev.temporal.workflow
 
 import com.surrealdev.temporal.serialization.PayloadSerializer
+import io.temporal.api.common.v1.Payloads
 import kotlinx.coroutines.CoroutineScope
+import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration
 import kotlin.time.Instant
 
@@ -10,6 +12,9 @@ import kotlin.time.Instant
  *
  * This context provides access to workflow information and operations like
  * scheduling activities, timers, and child workflows.
+ *
+ * As a [CoroutineContext.Element], it can be accessed from any coroutine
+ * running within the workflow's scope using `coroutineContext[WorkflowContext]`.
  *
  * Usage:
  * ```kotlin
@@ -23,11 +28,25 @@ import kotlin.time.Instant
  * }
  * ```
  *
+ * Or accessing from nested coroutines:
+ * ```kotlin
+ * suspend fun nestedFunction() {
+ *     val ctx = coroutineContext[WorkflowContext]!!
+ *     ctx.sleep(5.seconds)
+ * }
+ * ```
+ *
  * As a [CoroutineScope], workflow code can use structured concurrency with
  * deterministic execution. The scope uses a custom dispatcher that ensures
  * all coroutines run synchronously on the workflow task thread.
  */
-interface WorkflowContext : CoroutineScope {
+interface WorkflowContext :
+    CoroutineScope,
+    CoroutineContext.Element {
+    companion object Key : CoroutineContext.Key<WorkflowContext>
+
+    override val key: CoroutineContext.Key<*> get() = Key
+
     /**
      * The serializer for converting values to/from Temporal Payloads.
      *
@@ -52,6 +71,27 @@ interface WorkflowContext : CoroutineScope {
         activityType: String,
         options: ActivityOptions = ActivityOptions(),
     ): T
+
+    /**
+     * Starts an activity and returns a handle to track its execution.
+     *
+     * This is the low-level method. For easier usage with type inference,
+     * use the extension functions [startActivity].
+     *
+     * @param R The expected result type of the activity
+     * @param activityType The activity type name (e.g., "greet")
+     * @param args Serialized arguments to pass to the activity
+     * @param options Configuration for the activity
+     * @param returnType The KType for result deserialization
+     * @return A handle to the activity for awaiting results or cancellation
+     * @throws IllegalArgumentException if neither startToCloseTimeout nor scheduleToCloseTimeout is set
+     */
+    suspend fun <R> startActivity(
+        activityType: String,
+        args: Payloads,
+        options: ActivityOptions = ActivityOptions(),
+        returnType: kotlin.reflect.KType? = null,
+    ): ActivityHandle<R>
 
     /**
      * Suspends the workflow for the specified duration.
@@ -139,17 +179,24 @@ interface WorkflowContext : CoroutineScope {
     fun patched(patchId: String): Boolean
 
     /**
-     * Starts a child workflow.
+     * Starts a child workflow and returns a handle to interact with it.
      *
-     * @param T The child workflow interface type
+     * This is the low-level method. For easier usage with type inference,
+     * use the extension functions [startChildWorkflow].
+     *
+     * @param R The expected result type of the child workflow
      * @param workflowType The workflow type name
+     * @param args Serialized arguments to pass to the child workflow
      * @param options Configuration for the child workflow
-     * @return A handle to the child workflow
+     * @param returnType The KType for result deserialization (used by extension functions)
+     * @return A handle to the child workflow for awaiting results or cancellation
      */
-    suspend fun <T : Any> childWorkflow(
+    suspend fun <R> startChildWorkflow(
         workflowType: String,
+        args: Payloads,
         options: ChildWorkflowOptions = ChildWorkflowOptions(),
-    ): T
+        returnType: kotlin.reflect.KType? = null,
+    ): ChildWorkflowHandle<R>
 
     /**
      * Registers or replaces a query handler at runtime.
@@ -345,21 +392,69 @@ data class WorkflowInfo(
 
 /**
  * Options for activity execution within a workflow.
+ *
+ * At least one of [startToCloseTimeout] or [scheduleToCloseTimeout] must be set.
+ *
+ * Timeout relationships:
+ * - scheduleToCloseTimeout >= startToCloseTimeout (if both set)
+ * - scheduleToStartTimeout < scheduleToCloseTimeout (if both set)
+ * - heartbeatTimeout is required for cancellation to be detected promptly
  */
 data class ActivityOptions(
     /** Maximum time for a single activity execution attempt. */
     val startToCloseTimeout: Duration? = null,
-    /** Maximum time from activity scheduling to completion. */
+    /** Maximum time from activity scheduling to completion (including retries). */
     val scheduleToCloseTimeout: Duration? = null,
-    /** Maximum time from activity scheduling to worker pickup. */
+    /**
+     * Maximum time from activity scheduling to worker pickup.
+     * Non-retryable - exceeding this timeout fails the activity immediately.
+     * Must be less than scheduleToCloseTimeout if both are set.
+     */
     val scheduleToStartTimeout: Duration? = null,
-    /** Heartbeat timeout for long-running activities. */
+    /**
+     * Maximum time between heartbeats. Required for cancellation detection.
+     * If not set, activity won't receive cancellation requests until it completes.
+     * Heartbeat timeout should typically be shorter than startToCloseTimeout.
+     */
     val heartbeatTimeout: Duration? = null,
-    /** Retry policy for the activity. */
-    val retryPolicy: RetryPolicy? = null,
+    /**
+     * Custom activity ID. If null, generated deterministically as the seq number.
+     * Custom IDs must be unique within the workflow execution.
+     */
+    val activityId: String? = null,
     /** Task queue to run the activity on. Defaults to workflow's task queue. */
     val taskQueue: String? = null,
-)
+    /**
+     * Retry policy for the activity. Uses server defaults if null.
+     * Note: This uses the workflow-level RetryPolicy class for consistency.
+     */
+    val retryPolicy: RetryPolicy? = null,
+    /** How to handle cancellation of this activity. */
+    val cancellationType: ActivityCancellationType = ActivityCancellationType.TRY_CANCEL,
+    /** Whether this activity should run on a versioned worker. */
+    val versioningIntent: VersioningIntent = VersioningIntent.UNSPECIFIED,
+    /** Headers for context propagation, tracing, and auth. Payloads allow typed serialization. */
+    val headers: Map<String, io.temporal.api.common.v1.Payload>? = null,
+    /**
+     * Priority for this activity task. Higher priority tasks are scheduled first.
+     * Note: Server support for priority is not yet available. This is a placeholder.
+     * Value range: 0 (lowest) to 100 (highest), default is 0.
+     */
+    val priority: Int = 0,
+    /** If true, worker won't attempt eager execution even if slots available. */
+    val disableEagerExecution: Boolean = false,
+) {
+    init {
+        if (startToCloseTimeout == null && scheduleToCloseTimeout == null) {
+            throw IllegalArgumentException("At least one of startToCloseTimeout or scheduleToCloseTimeout must be set")
+        }
+        if (scheduleToStartTimeout != null && scheduleToCloseTimeout != null) {
+            require(scheduleToStartTimeout < scheduleToCloseTimeout) {
+                "scheduleToStartTimeout must be less than scheduleToCloseTimeout"
+            }
+        }
+    }
+}
 
 /**
  * Options for child workflow execution.
@@ -377,7 +472,52 @@ data class ChildWorkflowOptions(
     val retryPolicy: RetryPolicy? = null,
     /** How to handle parent close. */
     val parentClosePolicy: ParentClosePolicy = ParentClosePolicy.TERMINATE,
+    /** How to handle cancellation of the child workflow. */
+    val cancellationType: ChildWorkflowCancellationType = ChildWorkflowCancellationType.WAIT_CANCELLATION_COMPLETED,
 )
+
+/**
+ * Handle to a running or completed child workflow.
+ *
+ * Obtain a handle by calling [WorkflowContext.startChildWorkflow] or related extension functions.
+ *
+ * @param R The result type of the child workflow
+ */
+interface ChildWorkflowHandle<R> {
+    /**
+     * The workflow ID of this child workflow.
+     */
+    val id: String
+
+    /**
+     * The run ID of the first execution of this child workflow.
+     * Available after the child workflow has started.
+     */
+    val firstExecutionRunId: String?
+
+    /**
+     * Waits for the child workflow to complete and returns its result.
+     *
+     * @return The result of the child workflow
+     * @throws ChildWorkflowFailureException if the child workflow failed
+     * @throws ChildWorkflowCancelledException if the child workflow was cancelled
+     * @throws ChildWorkflowStartFailureException if the child workflow failed to start
+     */
+    suspend fun result(): R
+
+    /**
+     * Requests cancellation of the child workflow.
+     *
+     * The behavior depends on the [ChildWorkflowCancellationType] set in the options:
+     * - ABANDON: Returns immediately, child continues running
+     * - TRY_CANCEL: Sends cancel request, returns immediately
+     * - WAIT_CANCELLATION_REQUESTED: Waits for cancel request acknowledgment
+     * - WAIT_CANCELLATION_COMPLETED: Waits for child to fully complete cancellation
+     *
+     * @param reason Optional reason for cancellation (for debugging)
+     */
+    fun cancel(reason: String = "Cancelled by parent workflow")
+}
 
 /**
  * Policy for retrying failed operations.
@@ -407,4 +547,71 @@ enum class ParentClosePolicy {
 
     /** Cancel the child workflow. */
     REQUEST_CANCEL,
+}
+
+/**
+ * Determines how child workflow cancellation is handled.
+ */
+enum class ChildWorkflowCancellationType {
+    /**
+     * Don't send a cancel request if already scheduled.
+     * The child workflow continues running independently.
+     */
+    ABANDON,
+
+    /**
+     * Send a cancel request and immediately report the child as cancelled.
+     * Does not wait for the child to acknowledge or complete.
+     */
+    TRY_CANCEL,
+
+    /**
+     * Send a cancel request and wait for the child to fully complete its cancellation.
+     * The parent will block until the child finishes (cancelled, completed, or failed).
+     */
+    WAIT_CANCELLATION_COMPLETED,
+
+    /**
+     * Send a cancel request and wait for the cancel request to be acknowledged.
+     * The parent will block until the server confirms the cancel was requested.
+     */
+    WAIT_CANCELLATION_REQUESTED,
+}
+
+/**
+ * Determines how activity cancellation is handled.
+ */
+enum class ActivityCancellationType {
+    /**
+     * Immediately report the activity as cancelled without waiting.
+     * The activity may still be running on the worker.
+     * This is the default behavior.
+     */
+    TRY_CANCEL,
+
+    /**
+     * Wait for the activity to confirm cancellation before reporting.
+     * Requires the activity to heartbeat to receive the cancellation.
+     */
+    WAIT_CANCELLATION_COMPLETED,
+
+    /**
+     * Don't request cancellation, just stop waiting for the result.
+     * The activity continues running independently.
+     */
+    ABANDON,
+}
+
+/**
+ * Specifies whether an activity should run on a versioned worker.
+ */
+enum class VersioningIntent {
+    /** Use the workflow's current version behavior. */
+    UNSPECIFIED,
+
+    /** Run on any available worker regardless of version. */
+    DEFAULT,
+
+    /** Run on a worker with a compatible build ID. */
+    COMPATIBLE,
 }

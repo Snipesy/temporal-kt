@@ -10,15 +10,13 @@ data class WorkflowArg(
     val count: Int = 0
 )
 
-@Workflow("MyWorkflow")
 interface MyWorkflow {
-    @WorkflowRun
+    @Activity
     suspend fun WorkflowContext.execute(arg: WorkflowArg): String
 }
 
-@Activity("MyActivity")
 interface MyActivity {
-    @ActivityMethod
+    @Activity
     suspend fun ActivityContext.greet(name: String): String
 }
 

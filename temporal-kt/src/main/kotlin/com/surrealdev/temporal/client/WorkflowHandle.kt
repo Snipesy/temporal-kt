@@ -292,7 +292,7 @@ internal class WorkflowHandleImpl<R>(
             }
 
             else -> {
-                throw WorkflowException("Unexpected close event type: ${event.eventType}")
+                throw IllegalStateException("Unexpected close event type: ${event.eventType}")
             }
         }
 

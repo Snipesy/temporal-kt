@@ -34,11 +34,21 @@ internal class ActivityContextImpl(
     }
 
     override suspend fun heartbeat(details: Any?) {
+        // Check cancellation before heartbeating
+        if (_isCancellationRequested) {
+            throw ActivityCancelledException("Activity cancellation was requested")
+        }
+
         val heartbeatPayload =
             details?.let {
                 serializer.serialize(typeInfoOf(it), it)
             }
         heartbeatFn(taskToken.toByteArray(), heartbeatPayload?.toByteArray())
+
+        // Check cancellation after heartbeating (in case it was set during the call)
+        if (_isCancellationRequested) {
+            throw ActivityCancelledException("Activity cancellation was requested")
+        }
     }
 
     override val isCancellationRequested: Boolean

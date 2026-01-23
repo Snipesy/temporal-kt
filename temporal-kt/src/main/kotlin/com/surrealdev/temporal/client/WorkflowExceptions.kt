@@ -5,7 +5,7 @@ import io.temporal.api.failure.v1.Failure
 /**
  * Base exception for workflow-related errors.
  */
-open class WorkflowException(
+sealed class WorkflowException(
     message: String,
     cause: Throwable? = null,
 ) : RuntimeException(message, cause)

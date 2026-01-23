@@ -21,6 +21,9 @@ dependencies {
     testImplementation(libs.kotlinxCoroutinesTest)
 
     testFixturesImplementation(libs.kotlinxCoroutinesTest)
+    testFixturesImplementation(project(":core-bridge"))
+    testFixturesImplementation(libs.protobufJava)
+    testFixturesImplementation(libs.protobufKotlin)
 }
 
 publishing {

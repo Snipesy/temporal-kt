@@ -42,15 +42,19 @@ internal suspend fun WorkflowExecutor.handleQuery(
         runtimeHandler != null -> {
             handleRuntimeQuery(queryId, queryType, runtimeHandler, query.argumentsList, isDynamic = false)
         }
+
         annotationHandler != null -> {
             handleAnnotationQuery(queryId, queryType, annotationHandler, query, isDynamic = false)
         }
+
         runtimeDynamicHandler != null -> {
             handleRuntimeDynamicQuery(queryId, queryType, runtimeDynamicHandler, query.argumentsList)
         }
+
         annotationDynamicHandler != null -> {
             handleAnnotationQuery(queryId, queryType, annotationDynamicHandler, query, isDynamic = true)
         }
+
         else -> {
             logger.debug("No handler found for query type: {}", queryType)
             addFailedQueryResult(queryId, "Unknown query type: $queryType")

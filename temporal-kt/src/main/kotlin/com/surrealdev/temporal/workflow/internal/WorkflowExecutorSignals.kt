@@ -40,15 +40,19 @@ internal suspend fun WorkflowExecutor.handleSignal(
         runtimeHandler != null -> {
             invokeRuntimeSignalHandler(runtimeHandler, inputPayloads)
         }
+
         annotationHandler != null -> {
             invokeAnnotationSignalHandler(annotationHandler, signal, isDynamic = false)
         }
+
         runtimeDynamicHandler != null -> {
             invokeRuntimeDynamicSignalHandler(runtimeDynamicHandler, signalName, inputPayloads)
         }
+
         annotationDynamicHandler != null -> {
             invokeAnnotationSignalHandler(annotationDynamicHandler, signal, isDynamic = true)
         }
+
         else -> {
             // Buffer the signal for later when a handler is registered
             logger.debug("No handler found for signal '{}', buffering for later", signalName)

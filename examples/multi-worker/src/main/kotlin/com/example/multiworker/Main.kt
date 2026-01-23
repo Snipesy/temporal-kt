@@ -2,7 +2,6 @@ package com.example.multiworker
 
 import com.surrealdev.temporal.activity.ActivityContext
 import com.surrealdev.temporal.annotation.Activity
-import com.surrealdev.temporal.annotation.ActivityMethod
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.embeddedTemporal
@@ -132,15 +131,14 @@ class CreateOrderWorkflow {
     }
 }
 
-@Activity("InventoryActivity")
 class InventoryActivity {
-    @ActivityMethod
+    @Activity
     suspend fun ActivityContext.checkStock(items: List<String>): Map<String, Int> {
         println("Checking stock for: $items")
         return items.associateWith { 100 } // All items in stock
     }
 
-    @ActivityMethod
+    @Activity
     suspend fun ActivityContext.reserveStock(
         orderId: String,
         items: List<String>,
@@ -151,9 +149,8 @@ class InventoryActivity {
     }
 }
 
-@Activity("PaymentActivity")
 class PaymentActivity {
-    @ActivityMethod
+    @Activity
     suspend fun ActivityContext.chargeCard(
         orderId: String,
         amount: Double,
@@ -203,9 +200,8 @@ class NotificationWorkflow {
     }
 }
 
-@Activity("EmailActivity")
 class EmailActivity {
-    @ActivityMethod
+    @Activity
     suspend fun ActivityContext.sendEmail(
         to: String,
         subject: String,
@@ -217,9 +213,8 @@ class EmailActivity {
     }
 }
 
-@Activity("SmsActivity")
 class SmsActivity {
-    @ActivityMethod
+    @Activity
     suspend fun ActivityContext.sendSms(
         phoneNumber: String,
         message: String,
@@ -275,9 +270,8 @@ class DailyReportWorkflow {
     }
 }
 
-@Activity("AggregationActivity")
 class AggregationActivity {
-    @ActivityMethod
+    @Activity
     suspend fun ActivityContext.aggregateMetrics(
         date: String,
         metrics: List<String>,

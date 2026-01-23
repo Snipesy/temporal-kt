@@ -2,7 +2,6 @@ package com.example.configdriven
 
 import com.surrealdev.temporal.activity.ActivityContext
 import com.surrealdev.temporal.annotation.Activity
-import com.surrealdev.temporal.annotation.ActivityMethod
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.TemporalApplication
@@ -110,9 +109,8 @@ class OrderWorkflow {
  *
  * In a real application, this would connect to an inventory management system.
  */
-@Activity("InventoryActivity")
 class InventoryActivity {
-    @ActivityMethod
+    @Activity
     suspend fun ActivityContext.checkInventory(items: List<String>): Boolean {
         println("Checking inventory for ${items.size} items")
         // Simulate inventory check
@@ -120,7 +118,7 @@ class InventoryActivity {
         return true
     }
 
-    @ActivityMethod
+    @Activity
     suspend fun ActivityContext.reserveItems(
         orderId: String,
         items: List<String>,
@@ -136,9 +134,8 @@ class InventoryActivity {
  *
  * In a real application, this would integrate with a payment gateway.
  */
-@Activity("PaymentActivity")
 class PaymentActivity {
-    @ActivityMethod
+    @Activity
     suspend fun ActivityContext.processPayment(
         orderId: String,
         amount: Double,
@@ -149,7 +146,7 @@ class PaymentActivity {
         return true
     }
 
-    @ActivityMethod
+    @Activity
     suspend fun ActivityContext.refundPayment(
         orderId: String,
         amount: Double,

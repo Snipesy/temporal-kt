@@ -224,6 +224,29 @@ class TemporalWorker private constructor(
     }
 
     /**
+     * Records an activity heartbeat.
+     *
+     * This is a synchronous operation because the Core SDK handles heartbeat
+     * batching internally. The heartbeat is queued and sent to the server
+     * asynchronously by the Core SDK.
+     *
+     * If cancellation is requested, the Core SDK will send a Cancel task
+     * through the normal [pollActivityTask] mechanism.
+     *
+     * @param heartbeat The heartbeat protobuf bytes (ActivityHeartbeat message)
+     * @throws TemporalCoreException if recording fails
+     */
+    fun recordActivityHeartbeat(heartbeat: ByteArray) {
+        ensureOpen()
+        Arena.ofConfined().use { arena ->
+            val error = InternalWorker.recordActivityHeartbeat(handle, arena, heartbeat)
+            if (error != null) {
+                throw TemporalCoreException("Failed to record activity heartbeat: $error")
+            }
+        }
+    }
+
+    /**
      * Initiates graceful shutdown of the worker.
      *
      * After calling this method, poll methods will return null once all

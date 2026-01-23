@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.activity
 
+import kotlin.coroutines.CoroutineContext
 import kotlin.time.Instant
 
 /**
@@ -8,18 +9,36 @@ import kotlin.time.Instant
  * This context provides access to activity information and operations like
  * heartbeating and cancellation checking.
  *
+ * As a [CoroutineContext.Element], it can be accessed from any coroutine
+ * running within the activity's scope using `coroutineContext[ActivityContext]`.
+ *
  * Usage:
  * ```kotlin
- * @Activity("MyActivity")
  * class MyActivity {
- *     @ActivityMethod
- *     suspend fun ActivityContext.greet(name: String): String {
+ *     @Activity
+ *     suspend fun greet(name: String): String {
+ *         // Access context from coroutine context
+ *         val ctx = coroutineContext[ActivityContext]!!
+ *         ctx.heartbeat("Processing $name")
  *         return "Hello, $name"
  *     }
  * }
  * ```
+ *
+ * Or as an extension receiver:
+ * ```kotlin
+ * @Activity
+ * suspend fun ActivityContext.greet(name: String): String {
+ *     heartbeat("Processing $name")
+ *     return "Hello, $name"
+ * }
+ * ```
  */
-interface ActivityContext {
+interface ActivityContext : CoroutineContext.Element {
+    companion object Key : CoroutineContext.Key<ActivityContext>
+
+    override val key: CoroutineContext.Key<*> get() = Key
+
     /**
      * Information about the currently executing activity.
      */

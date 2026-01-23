@@ -1,13 +1,14 @@
 package com.surrealdev.temporal.workflow.internal
 
 import coresdk.activity_result.ActivityResult
+import coresdk.child_workflow.ChildWorkflow
+import coresdk.workflow_activation.WorkflowActivationOuterClass.ResolveChildWorkflowExecutionStart
 import coresdk.workflow_commands.WorkflowCommands.WorkflowCommand
-import io.temporal.api.common.v1.Payload
 import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.CompletableDeferred
 import java.util.concurrent.ConcurrentHashMap
+import java.util.logging.Logger
 import kotlin.coroutines.resume
-import kotlin.reflect.KType
 import kotlin.time.Instant
 import kotlin.time.toKotlinInstant
 
@@ -26,6 +27,10 @@ import kotlin.time.toKotlinInstant
 internal class WorkflowState(
     val runId: String,
 ) {
+    companion object {
+        private val logger = Logger.getLogger(WorkflowState::class.java.name)
+    }
+
     /**
      * Sequence number counter for deterministic operation ordering.
      * Incremented for each timer, activity, child workflow, etc.
@@ -42,7 +47,32 @@ internal class WorkflowState(
                 "Cannot generate sequence number in read-only mode (e.g., during query processing)",
             )
         }
-        return nextSeq++
+
+        val seq = nextSeq++
+
+        // Check for MAX_VALUE before field wraps around
+        if (seq == Int.MAX_VALUE) {
+            throw IllegalStateException(
+                "Sequence overflow at MAX_VALUE. runId=$runId",
+            )
+        }
+
+        // Overflow protection warnings (check field value after increment)
+        when (nextSeq) {
+            1_000_000_000 -> {
+                logger.warning(
+                    "Workflow reached 1 billion operations. runId=$runId",
+                )
+            }
+
+            2_000_000_000 -> {
+                logger.severe(
+                    "CRITICAL: Workflow reached 2 billion operations. runId=$runId",
+                )
+            }
+        }
+
+        return seq
     }
 
     /**
@@ -108,7 +138,12 @@ internal class WorkflowState(
     /**
      * Pending activity operations, keyed by sequence number.
      */
-    private val pendingActivities = ConcurrentHashMap<Int, PendingActivity>()
+    private val pendingActivities = ConcurrentHashMap<Int, ActivityHandleImpl<*>>()
+
+    /**
+     * Pending child workflow operations, keyed by sequence number.
+     */
+    private val pendingChildWorkflows = ConcurrentHashMap<Int, ChildWorkflowHandleImpl<*>>()
 
     /**
      * Registered conditions waiting to be satisfied.
@@ -226,59 +261,83 @@ internal class WorkflowState(
     }
 
     /**
-     * Registers a pending activity and returns a deferred to await its completion.
+     * Registers a pending activity handle.
      */
     fun registerActivity(
         seq: Int,
-        returnType: KType,
-    ): CompletableDeferred<Payload?> {
+        handle: ActivityHandleImpl<*>,
+    ) {
         if (isReadOnly) {
             throw ReadOnlyContextException("Cannot register activity in read-only mode (e.g., during query processing)")
         }
-        val deferred = CompletableDeferred<Payload?>()
-        pendingActivities[seq] = PendingActivity(deferred, returnType)
-        return deferred
+        pendingActivities[seq] = handle
     }
 
     /**
+     * Gets a pending activity by its sequence number.
+     */
+    fun getActivity(seq: Int): ActivityHandleImpl<*>? = pendingActivities[seq]
+
+    /**
      * Resolves an activity by its sequence number.
-     * Called when a ResolveActivity job is received in an activation.
+     * Delegates to ActivityHandleImpl.resolve() for all exception mapping.
      */
     fun resolveActivity(
         seq: Int,
         result: ActivityResult.ActivityResolution,
     ) {
-        val pending = pendingActivities.remove(seq) ?: return
+        val handle = pendingActivities.remove(seq) ?: return
+        handle.resolve(result)
+    }
 
-        when {
-            result.hasCompleted() -> {
-                val payload = result.completed.result
-                pending.deferred.complete(payload)
-            }
-
-            result.hasFailed() -> {
-                val failure = result.failed.failure
-                pending.deferred.completeExceptionally(
-                    ActivityFailureException(
-                        message = failure.message,
-                        activityType = "", // TODO: Get from pending info
-                        cause = failure.cause?.let { ActivityFailureException(it.message) },
-                    ),
-                )
-            }
-
-            result.hasCancelled() -> {
-                pending.deferred.completeExceptionally(
-                    ActivityCancelledException("Activity was cancelled"),
-                )
-            }
-
-            result.hasBackoff() -> {
-                // For backoff, we don't resolve - the activity will be retried
-                // Re-register the pending activity
-                pendingActivities[seq] = pending
-            }
+    /**
+     * Registers a pending child workflow handle.
+     * The handle manages its own deferreds for start and execution resolution.
+     */
+    fun registerChildWorkflow(
+        seq: Int,
+        handle: ChildWorkflowHandleImpl<*>,
+    ) {
+        if (isReadOnly) {
+            throw ReadOnlyContextException(
+                "Cannot register child workflow in read-only mode (e.g., during query processing)",
+            )
         }
+        pendingChildWorkflows[seq] = handle
+    }
+
+    /**
+     * Gets a pending child workflow by its sequence number.
+     */
+    fun getChildWorkflow(seq: Int): ChildWorkflowHandleImpl<*>? = pendingChildWorkflows[seq]
+
+    /**
+     * Resolves a child workflow start by its sequence number.
+     * Called when a ResolveChildWorkflowExecutionStart job is received.
+     */
+    fun resolveChildWorkflowStart(
+        seq: Int,
+        resolution: ResolveChildWorkflowExecutionStart,
+    ) {
+        val handle = pendingChildWorkflows[seq] ?: return
+        handle.resolveStart(resolution)
+
+        // If start failed, remove from pending (no execution resolution will come)
+        if (resolution.hasFailed() || resolution.hasCancelled()) {
+            pendingChildWorkflows.remove(seq)
+        }
+    }
+
+    /**
+     * Resolves a child workflow execution by its sequence number.
+     * Called when a ResolveChildWorkflowExecution job is received.
+     */
+    fun resolveChildWorkflowExecution(
+        seq: Int,
+        result: ChildWorkflow.ChildWorkflowResult,
+    ) {
+        val handle = pendingChildWorkflows.remove(seq) ?: return
+        handle.resolveExecution(result)
     }
 
     /**
@@ -301,7 +360,7 @@ internal class WorkflowState(
 
     /**
      * Removes a condition from the registry by its deferred.
-     * Called for cleanup when the await is cancelled (e.g., by timeout).
+     * Called for cleanup when the await is canceled (e.g., by timeout).
      *
      * @param deferred The deferred associated with the condition to remove
      * @return true if the condition was found and removed, false otherwise
@@ -323,7 +382,7 @@ internal class WorkflowState(
      * This is called after processing signals/updates and non-query jobs to allow
      * condition-based workflow logic to proceed deterministically.
      *
-     * Conditions that are already completed (e.g., cancelled by timeout) are removed
+     * Conditions that are already completed (e.g., canceled by timeout) are removed
      * without evaluating their predicates.
      */
     fun checkConditions() {
@@ -431,8 +490,15 @@ internal class WorkflowState(
         pendingTimeoutCallbacks.clear()
 
         // Cancel all pending activities
-        pendingActivities.values.forEach { it.deferred.cancel() }
+        pendingActivities.values.forEach { it.resultDeferred.cancel() }
         pendingActivities.clear()
+
+        // Cancel all pending child workflows
+        pendingChildWorkflows.values.forEach {
+            it.startDeferred.cancel()
+            it.executionDeferred.cancel()
+        }
+        pendingChildWorkflows.clear()
 
         // Cancel all pending conditions
         conditions.forEach { (_, deferred) -> deferred.cancel() }
@@ -447,14 +513,6 @@ internal class WorkflowState(
 }
 
 /**
- * Holds a pending activity's deferred and its return type for deserialization.
- */
-internal data class PendingActivity(
-    val deferred: CompletableDeferred<Payload?>,
-    val returnType: KType,
-)
-
-/**
  * Exception thrown when an activity fails.
  */
 class ActivityFailureException(
@@ -462,13 +520,6 @@ class ActivityFailureException(
     val activityType: String = "",
     cause: Throwable? = null,
 ) : RuntimeException(message, cause)
-
-/**
- * Exception thrown when an activity is cancelled.
- */
-class ActivityCancelledException(
-    message: String = "Activity was cancelled",
-) : RuntimeException(message)
 
 /**
  * Exception thrown when attempting to mutate workflow state in read-only mode.

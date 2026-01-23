@@ -2,12 +2,13 @@ package com.example.helloworld
 
 import com.surrealdev.temporal.activity.ActivityContext
 import com.surrealdev.temporal.annotation.Activity
-import com.surrealdev.temporal.annotation.ActivityMethod
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.embeddedTemporal
 import com.surrealdev.temporal.application.taskQueue
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.startActivity
+import com.surrealdev.temporal.workflow.workflow
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -16,7 +17,6 @@ import kotlin.time.Duration.Companion.seconds
  * This example shows how to:
  * - Create an embedded Temporal application
  * - Define a workflow with the @Workflow and @WorkflowRun annotations
- * - Define an activity with the @Activity and @ActivityMethod annotations
  * - Register workflows and activities on a task queue
  *
  * Prerequisites:
@@ -66,20 +66,32 @@ class GreetingWorkflow {
      * @return A personalized greeting message
      */
     @WorkflowRun
-    suspend fun WorkflowContext.run(name: String): String {
+    suspend fun run(name: String): String {
         // Log workflow start (will appear in workflow history)
         println("Workflow started for: $name")
 
         // Wait a bit to demonstrate timers
-        sleep(1.seconds)
+        workflow().sleep(1.seconds)
 
         // Generate a unique greeting ID using deterministic random
-        val greetingId = randomUuid().take(8)
+        val greetingId = workflow().randomUuid().take(8)
 
-        // The greeting is composed locally since we don't have activity invocation yet
-        // In a full implementation, we would call:
-        // val greeting = activity<GreetingActivity>().formatGreeting(name)
-        val greeting = "Hello, $name! (ID: $greetingId)"
+        val x = SimpleActivities::processData
+
+        // Call the activity to format the greeting
+        // Using string-based API (activity type from @Activity annotation)
+        val greeting =
+            workflow()
+                .startActivity<String, String>(
+                    GreetingActivity::formatGreeting,
+                    arg = name,
+                    scheduleToCloseTimeout = 10.seconds,
+                ).result()
+
+        // Alternative: Use reflection-based API with function reference
+        // This automatically extracts the activity type from the @Activity annotation.
+        // For extension functions, use: GreetingActivity::class.declaredFunctions.first { it.name == "formatGreeting" }
+        // Or for simpler cases with regular functions, just: MyActivity::myFunction
 
         println("Workflow completed with: $greeting")
         return greeting
@@ -96,7 +108,6 @@ class GreetingWorkflow {
  * Activities are where side effects happen - they can make network calls,
  * access databases, or perform any other non-deterministic operations.
  */
-@Activity("GreetingActivity")
 class GreetingActivity {
     /**
      * Formats a greeting message for the given name.
@@ -104,8 +115,8 @@ class GreetingActivity {
      * @param name The name to include in the greeting
      * @return A formatted greeting message
      */
-    @ActivityMethod
-    suspend fun ActivityContext.formatGreeting(name: String): String {
+    @Activity("formatGreeting")
+    fun formatGreeting(name: String): String {
         // In a real application, this might call an external service
         // or access a database to get personalized greeting templates
         println("Activity: Formatting greeting for $name")
@@ -123,7 +134,7 @@ class GreetingActivity {
      * @param language The language code (e.g., "en", "es", "fr")
      * @return A localized greeting
      */
-    @ActivityMethod
+    @Activity
     suspend fun ActivityContext.getLocalizedGreeting(
         name: String,
         language: String,
@@ -137,5 +148,60 @@ class GreetingActivity {
                 else -> "Hello"
             }
         return "$greeting, $name!"
+    }
+}
+
+// =============================================================================
+// Example: Simple Activities (for demonstrating reflection-based API)
+// =============================================================================
+
+/**
+ * Simple activity class with regular functions (not extension functions).
+ * This demonstrates the reflection-based API where you can pass function references.
+ */
+class SimpleActivities {
+    /**
+     * A simple calculation activity.
+     * The @Activity annotation specifies a custom name.
+     */
+    @Activity("calculate")
+    fun performCalculation(
+        x: Int,
+        y: Int,
+    ): Int = x + y
+
+    /**
+     * Another activity that uses the function name as the activity type.
+     */
+    @Activity
+    fun processData(data: String): String = data.uppercase()
+}
+
+/**
+ * Workflow demonstrating reflection-based activity invocation.
+ */
+@Workflow("ReflectionDemoWorkflow")
+class ReflectionDemoWorkflow {
+    @WorkflowRun
+    suspend fun WorkflowContext.run(): String {
+        // Using function reference - activity type is automatically extracted
+        // from the @Activity annotation (which says "calculate")
+        val sum =
+            startActivity<Int, Int, Int>(
+                SimpleActivities::performCalculation,
+                arg1 = 10,
+                arg2 = 20,
+                scheduleToCloseTimeout = 10.seconds,
+            ).result()
+
+        // Using function reference - activity type defaults to function name "processData"
+        val processed =
+            startActivity<String, String>(
+                SimpleActivities::processData,
+                arg = "hello",
+                scheduleToCloseTimeout = 10.seconds,
+            ).result()
+
+        return "Sum: $sum, Processed: $processed"
     }
 }

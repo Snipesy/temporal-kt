@@ -49,10 +49,20 @@ interface TemporalClient {
     val serializer: PayloadSerializer
 
     /**
-     * Starts a new workflow execution. This is an internal API - use the
-     * `startWorkflow` extension functions instead for type-safe workflow starting.
+     * Starts a new workflow execution and returns a handle to it.
+     *
+     * This uses raw payloads for arguments. For type-safe overloads, use the reified extension functions.
+     *
+     * @param R The expected result type of the workflow.
+     * @param workflowType The workflow type name.
+     * @param taskQueue The task queue to run the workflow on.
+     * @param workflowId The workflow ID.
+     * @param args Arguments to pass to the workflow.
+     * @param options Additional workflow options.
+     * @param resultTypeInfo Type information for the expected result type.
+     * @return A handle to the started workflow execution.
      */
-    suspend fun <R> startWorkflowInternal(
+    suspend fun <R> startWorkflow(
         workflowType: String,
         taskQueue: String,
         workflowId: String,
@@ -64,6 +74,12 @@ interface TemporalClient {
     /**
      * Gets a handle to an existing workflow. This is an internal API - use the
      * `getWorkflowHandle` extension function instead for type-safe access.
+     *
+     * @param R The expected result type of the workflow.
+     * @param workflowId The workflow ID.
+     * @param runId Optional run ID. If not specified, the latest run is used.
+     * @param resultTypeInfo Type information for the expected result type.
+     * @return A handle to the workflow execution.
      */
     fun <R> getWorkflowHandleInternal(
         workflowId: String,
@@ -129,7 +145,7 @@ class TemporalClientImpl internal constructor(
 ) : TemporalClient {
     internal val serviceClient = WorkflowServiceClient(coreClient, config.namespace)
 
-    override suspend fun <R> startWorkflowInternal(
+    override suspend fun <R> startWorkflow(
         workflowType: String,
         taskQueue: String,
         workflowId: String,

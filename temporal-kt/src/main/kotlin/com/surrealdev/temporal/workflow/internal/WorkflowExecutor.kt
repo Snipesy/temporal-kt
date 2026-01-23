@@ -524,18 +524,6 @@ internal class WorkflowExecutor(
         mainCoroutine?.cancel(WorkflowCancelledException())
     }
 
-    private fun handleChildWorkflowStart(
-        start: coresdk.workflow_activation.WorkflowActivationOuterClass.ResolveChildWorkflowExecutionStart,
-    ) {
-        // TODO: Implement child workflow start resolution when child workflows are implemented
-    }
-
-    private fun handleChildWorkflowExecution(
-        execution: coresdk.workflow_activation.WorkflowActivationOuterClass.ResolveChildWorkflowExecution,
-    ) {
-        // TODO: Implement child workflow execution resolution when child workflows are implemented
-    }
-
     private fun handleSignalExternalWorkflow(
         signal: coresdk.workflow_activation.WorkflowActivationOuterClass.ResolveSignalExternalWorkflow,
     ) {

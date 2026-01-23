@@ -33,7 +33,7 @@ class TemporalTestClient internal constructor(
     override val serializer: PayloadSerializer
         get() = delegate.serializer
 
-    override suspend fun <R> startWorkflowInternal(
+    override suspend fun <R> startWorkflow(
         workflowType: String,
         taskQueue: String,
         workflowId: String,
@@ -42,7 +42,7 @@ class TemporalTestClient internal constructor(
         resultTypeInfo: TypeInfo,
     ): WorkflowHandle<R> {
         val handle =
-            delegate.startWorkflowInternal<R>(
+            delegate.startWorkflow<R>(
                 workflowType = workflowType,
                 taskQueue = taskQueue,
                 workflowId = workflowId,

@@ -56,6 +56,7 @@ internal suspend fun WorkflowExecutor.handleUpdate(
                 runValidator,
             )
         }
+
         annotationHandler != null -> {
             invokeAnnotationUpdateHandler(
                 annotationHandler,
@@ -63,6 +64,7 @@ internal suspend fun WorkflowExecutor.handleUpdate(
                 isDynamic = false,
             )
         }
+
         runtimeDynamicHandler != null -> {
             invokeRuntimeDynamicUpdateHandler(
                 runtimeDynamicHandler,
@@ -72,6 +74,7 @@ internal suspend fun WorkflowExecutor.handleUpdate(
                 runValidator,
             )
         }
+
         annotationDynamicHandler != null -> {
             invokeAnnotationUpdateHandler(
                 annotationDynamicHandler,
@@ -79,6 +82,7 @@ internal suspend fun WorkflowExecutor.handleUpdate(
                 isDynamic = true,
             )
         }
+
         else -> {
             // Unlike signals, updates fail immediately if no handler exists
             logger.debug("No handler found for update '{}', rejecting", updateName)

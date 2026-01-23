@@ -23,7 +23,7 @@ suspend inline fun <reified R> TemporalClient.startWorkflow(
     args: Payloads,
     options: WorkflowStartOptions = WorkflowStartOptions(),
 ): WorkflowHandle<R> =
-    this.startWorkflowInternal(
+    this.startWorkflow(
         workflowType = workflowType,
         taskQueue = taskQueue,
         workflowId = workflowId,
@@ -54,7 +54,7 @@ suspend inline fun <reified R, reified T> TemporalClient.startWorkflow(
     val payloadsBuilder = Payloads.newBuilder()
     payloadsBuilder.addPayloads(serializer.serialize(arg))
 
-    return this.startWorkflowInternal(
+    return this.startWorkflow(
         workflowType = workflowType,
         taskQueue = taskQueue,
         workflowId = workflowId,
@@ -68,7 +68,6 @@ suspend inline fun <reified R, reified T> TemporalClient.startWorkflow(
  * Starts a new workflow execution without arguments.
  *
  * @param R The expected result type of the workflow.
- * @param T The type of the argument to pass to the workflow.
  * @param workflowType The workflow type name.
  * @param taskQueue The task queue to run the workflow on.
  * @param workflowId The workflow ID. Auto-generated if not specified.
@@ -82,7 +81,7 @@ suspend inline fun <reified R> TemporalClient.startWorkflow(
     options: WorkflowStartOptions = WorkflowStartOptions(),
 ): WorkflowHandle<R> {
     val payloadsBuilder = Payloads.newBuilder()
-    return this.startWorkflowInternal(
+    return this.startWorkflow(
         workflowType = workflowType,
         taskQueue = taskQueue,
         workflowId = workflowId,

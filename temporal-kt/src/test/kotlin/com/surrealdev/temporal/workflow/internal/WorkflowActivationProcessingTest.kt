@@ -86,12 +86,24 @@ class WorkflowActivationProcessingTest {
 
             // Register some pending operations
             val timerDeferred = state.registerTimer(1)
-            val activityDeferred = state.registerActivity(2, typeOf<String>())
+            val activityHandle =
+                ActivityHandleImpl<String>(
+                    activityId = "test",
+                    seq = 2,
+                    activityType = "Test::run",
+                    state = state,
+                    serializer =
+                        com.surrealdev.temporal.serialization
+                            .KotlinxJsonSerializer(),
+                    returnType = typeOf<String>(),
+                    cancellationType = com.surrealdev.temporal.workflow.ActivityCancellationType.TRY_CANCEL,
+                )
+            state.registerActivity(2, activityHandle)
             val conditionDeferred = state.registerCondition { false }
 
             // All should be pending
             assertFalse(timerDeferred.isCompleted)
-            assertFalse(activityDeferred.isCompleted)
+            assertFalse(activityHandle.resultDeferred.isCompleted)
             assertFalse(conditionDeferred.isCompleted)
 
             // Simulate eviction
@@ -100,7 +112,7 @@ class WorkflowActivationProcessingTest {
 
             // All pending operations should be cancelled
             assertTrue(timerDeferred.isCancelled)
-            assertTrue(activityDeferred.isCancelled)
+            assertTrue(activityHandle.resultDeferred.isCancelled)
             assertTrue(conditionDeferred.isCancelled)
         }
 

@@ -58,56 +58,35 @@ annotation class Workflow(
 annotation class WorkflowRun
 
 /**
- * Marks a class as a Temporal activity definition.
+ * Marks a method as a Temporal activity.
  *
  * Activities are the building blocks of workflows that perform side effects
  * and interact with external systems.
  *
- * Example:
- * ```kotlin
- * @Activity("GreetingActivity")
- * class GreetingActivity {
- *     @ActivityMethod
- *     suspend fun ActivityContext.greet(name: String): String {
- *         return "Hello, $name!"
- *     }
- * }
- * ```
+ * The activity name is registered directly as provided (or the function name if not specified).
+ * There is no automatic prefixing with class names.
  *
- * @param name The activity type name prefix. If empty, the class name will be used.
- *             Individual method names are appended to form the full activity type.
- */
-@Target(AnnotationTarget.CLASS)
-@Retention(AnnotationRetention.RUNTIME)
-@MustBeDocumented
-annotation class Activity(
-    val name: String = "",
-)
-
-/**
- * Marks a method as an activity method.
- *
- * Must be used within a class annotated with [Activity].
- * Multiple methods can be annotated within a single activity class.
- *
- * The method should:
- * - Be a suspending function
- * - Use [com.surrealdev.temporal.activity.ActivityContext] as a receiver
+ * The method can optionally use [com.surrealdev.temporal.activity.ActivityContext] as a receiver
+ * to access activity information and heartbeat functionality.
  *
  * Example:
  * ```kotlin
- * @ActivityMethod("customName")
- * suspend fun ActivityContext.greet(name: String): String {
- *     return "Hello, $name!"
+ * @Activity("greet")
+ * fun greet(name: String): String = "Hello, $name!"
+ *
+ * @Activity  // Uses function name "processOrder"
+ * suspend fun ActivityContext.processOrder(order: Order): Result {
+ *     heartbeat("Processing...")
+ *     return doWork(order)
  * }
  * ```
  *
- * @param name The activity method name. If empty, the function name will be used.
+ * @param name The activity type name. If empty, the function name will be used.
  */
 @Target(AnnotationTarget.FUNCTION)
 @Retention(AnnotationRetention.RUNTIME)
 @MustBeDocumented
-annotation class ActivityMethod(
+annotation class Activity(
     val name: String = "",
 )
 

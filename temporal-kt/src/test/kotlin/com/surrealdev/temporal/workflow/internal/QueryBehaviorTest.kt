@@ -68,7 +68,17 @@ class QueryBehaviorTest {
             }
 
             assertFailsWith<ReadOnlyContextException> {
-                state.registerActivity(1, typeOf<String>())
+                val handle =
+                    ActivityHandleImpl<String>(
+                        activityId = "test",
+                        seq = 1,
+                        activityType = "Test::run",
+                        state = state,
+                        serializer = KotlinxJsonSerializer(),
+                        returnType = typeOf<String>(),
+                        cancellationType = com.surrealdev.temporal.workflow.ActivityCancellationType.TRY_CANCEL,
+                    )
+                state.registerActivity(1, handle)
             }
 
             assertFailsWith<ReadOnlyContextException> {

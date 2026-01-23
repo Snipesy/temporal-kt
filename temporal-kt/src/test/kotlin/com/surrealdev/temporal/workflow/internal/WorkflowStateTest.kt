@@ -1,10 +1,18 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.surrealdev.temporal.activity.ActivityCancelledException
+import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
 import com.surrealdev.temporal.testing.ProtoTestHelpers.timestamp
+import com.surrealdev.temporal.workflow.ActivityCancellationType
 import coresdk.activity_result.ActivityResult
 import io.temporal.api.common.v1.Payload
 import io.temporal.api.failure.v1.Failure
 import kotlinx.coroutines.test.runTest
+import java.util.logging.Handler
+import java.util.logging.Level
+import java.util.logging.LogRecord
+import java.util.logging.Logger
+import kotlin.reflect.typeOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -96,23 +104,47 @@ class WorkflowStateTest {
     fun `registerActivity throws ReadOnlyContextException when isReadOnly is true`() {
         val state = WorkflowState("test-run-id")
         state.isReadOnly = true
+        val serializer = KotlinxJsonSerializer()
+
+        val handle =
+            ActivityHandleImpl<String>(
+                activityId = "test",
+                seq = 1,
+                activityType = "Test::run",
+                state = state,
+                serializer = serializer,
+                returnType = typeOf<String>(),
+                cancellationType = ActivityCancellationType.TRY_CANCEL,
+            )
 
         val exception =
             assertFailsWith<ReadOnlyContextException> {
-                state.registerActivity(1, kotlin.reflect.typeOf<String>())
+                state.registerActivity(1, handle)
             }
         assertTrue(exception.message!!.contains("read-only"))
     }
 
     @Test
-    fun `registerActivity returns deferred when isReadOnly is false`() {
+    fun `registerActivity stores handle when isReadOnly is false`() {
         val state = WorkflowState("test-run-id")
         state.isReadOnly = false
+        val serializer = KotlinxJsonSerializer()
 
-        val deferred = state.registerActivity(1, kotlin.reflect.typeOf<String>())
+        val handle =
+            ActivityHandleImpl<String>(
+                activityId = "test",
+                seq = 1,
+                activityType = "Test::run",
+                state = state,
+                serializer = serializer,
+                returnType = typeOf<String>(),
+                cancellationType = ActivityCancellationType.TRY_CANCEL,
+            )
 
-        assertNotNull(deferred)
-        assertFalse(deferred.isCompleted)
+        state.registerActivity(1, handle)
+
+        val retrieved = state.getActivity(1)
+        assertNotNull(retrieved)
     }
 
     @Test
@@ -402,12 +434,25 @@ class WorkflowStateTest {
     // ================================================================
 
     @Test
-    fun `resolveActivity with completed result completes deferred`() =
+    fun `resolveActivity with completed result completes handle`() =
         runTest {
             val state = WorkflowState("test-run-id")
+            state.isReadOnly = false
+            val serializer = KotlinxJsonSerializer()
 
-            val deferred = state.registerActivity(1, kotlin.reflect.typeOf<String>())
-            assertFalse(deferred.isCompleted)
+            val handle =
+                ActivityHandleImpl<String>(
+                    activityId = "test",
+                    seq = 1,
+                    activityType = "Test::run",
+                    state = state,
+                    serializer = serializer,
+                    returnType = typeOf<String>(),
+                    cancellationType = ActivityCancellationType.TRY_CANCEL,
+                )
+
+            state.registerActivity(1, handle)
+            assertFalse(handle.isDone)
 
             val resultPayload = Payload.newBuilder().build()
             val completed =
@@ -423,18 +468,29 @@ class WorkflowStateTest {
 
             state.resolveActivity(1, resolution)
 
-            assertTrue(deferred.isCompleted)
-            val result = deferred.await()
-            assertEquals(resultPayload, result)
+            assertTrue(handle.isDone)
         }
 
     @Test
     fun `resolveActivity with failed result completes exceptionally`() =
         runTest {
             val state = WorkflowState("test-run-id")
+            state.isReadOnly = false
+            val serializer = KotlinxJsonSerializer()
 
-            val deferred = state.registerActivity(1, kotlin.reflect.typeOf<String>())
-            assertFalse(deferred.isCompleted)
+            val handle =
+                ActivityHandleImpl<String>(
+                    activityId = "test",
+                    seq = 1,
+                    activityType = "Test::run",
+                    state = state,
+                    serializer = serializer,
+                    returnType = typeOf<String>(),
+                    cancellationType = ActivityCancellationType.TRY_CANCEL,
+                )
+
+            state.registerActivity(1, handle)
+            assertFalse(handle.isDone)
 
             val failure =
                 Failure
@@ -454,11 +510,11 @@ class WorkflowStateTest {
 
             state.resolveActivity(1, resolution)
 
-            assertTrue(deferred.isCompleted)
+            assertTrue(handle.isDone)
 
             val exception =
-                assertFailsWith<ActivityFailureException> {
-                    deferred.await()
+                assertFailsWith<com.surrealdev.temporal.workflow.ActivityFailureException> {
+                    handle.result()
                 }
             assertEquals("Activity failed!", exception.message)
         }
@@ -467,9 +523,22 @@ class WorkflowStateTest {
     fun `resolveActivity with cancelled result completes exceptionally`() =
         runTest {
             val state = WorkflowState("test-run-id")
+            state.isReadOnly = false
+            val serializer = KotlinxJsonSerializer()
 
-            val deferred = state.registerActivity(1, kotlin.reflect.typeOf<String>())
-            assertFalse(deferred.isCompleted)
+            val handle =
+                ActivityHandleImpl<String>(
+                    activityId = "test",
+                    seq = 1,
+                    activityType = "Test::run",
+                    state = state,
+                    serializer = serializer,
+                    returnType = typeOf<String>(),
+                    cancellationType = ActivityCancellationType.TRY_CANCEL,
+                )
+
+            state.registerActivity(1, handle)
+            assertFalse(handle.isDone)
 
             val cancelled = ActivityResult.Cancellation.newBuilder().build()
             val resolution =
@@ -480,10 +549,10 @@ class WorkflowStateTest {
 
             state.resolveActivity(1, resolution)
 
-            assertTrue(deferred.isCompleted)
+            assertTrue(handle.isDone)
 
-            assertFailsWith<ActivityCancelledException> {
-                deferred.await()
+            assertFailsWith<com.surrealdev.temporal.workflow.ActivityCancelledException> {
+                handle.result()
             }
         }
 
@@ -506,13 +575,26 @@ class WorkflowStateTest {
     fun `activities cleared on eviction via clear()`() =
         runTest {
             val state = WorkflowState("test-run-id")
+            state.isReadOnly = false
+            val serializer = KotlinxJsonSerializer()
 
-            val deferred = state.registerActivity(1, kotlin.reflect.typeOf<String>())
-            assertFalse(deferred.isCompleted)
+            val handle =
+                ActivityHandleImpl<String>(
+                    activityId = "test",
+                    seq = 1,
+                    activityType = "Test::run",
+                    state = state,
+                    serializer = serializer,
+                    returnType = typeOf<String>(),
+                    cancellationType = ActivityCancellationType.TRY_CANCEL,
+                )
+
+            state.registerActivity(1, handle)
+            assertFalse(handle.resultDeferred.isCompleted)
 
             state.clear()
 
-            assertTrue(deferred.isCancelled)
+            assertTrue(handle.resultDeferred.isCancelled)
         }
 
     // ================================================================
@@ -622,10 +704,22 @@ class WorkflowStateTest {
     fun `clear resets all pending operations`() =
         runTest {
             val state = WorkflowState("test-run-id")
+            state.isReadOnly = false
+            val serializer = KotlinxJsonSerializer()
 
             // Register various operations
             val timerDeferred = state.registerTimer(1)
-            val activityDeferred = state.registerActivity(1, kotlin.reflect.typeOf<String>())
+            val handle =
+                ActivityHandleImpl<String>(
+                    activityId = "test",
+                    seq = 2,
+                    activityType = "Test::run",
+                    state = state,
+                    serializer = serializer,
+                    returnType = typeOf<String>(),
+                    cancellationType = ActivityCancellationType.TRY_CANCEL,
+                )
+            state.registerActivity(2, handle)
             val conditionDeferred = state.registerCondition { false }
             state.addCommand(
                 coresdk.workflow_commands.WorkflowCommands.WorkflowCommand
@@ -635,7 +729,7 @@ class WorkflowStateTest {
 
             // Verify all are active
             assertFalse(timerDeferred.isCompleted)
-            assertFalse(activityDeferred.isCompleted)
+            assertFalse(handle.resultDeferred.isCompleted)
             assertFalse(conditionDeferred.isCompleted)
             assertTrue(state.hasCommands())
 
@@ -644,7 +738,7 @@ class WorkflowStateTest {
 
             // Verify all are cancelled/cleared
             assertTrue(timerDeferred.isCancelled)
-            assertTrue(activityDeferred.isCancelled)
+            assertTrue(handle.resultDeferred.isCancelled)
             assertTrue(conditionDeferred.isCancelled)
             assertFalse(state.hasCommands())
         }
@@ -740,4 +834,281 @@ class WorkflowStateTest {
         state.checkConditions()
         assertTrue(otherDeferred.isCompleted)
     }
+
+    // ================================================================
+    // NextSeq Overflow Tests (Sprint 4)
+    // ================================================================
+
+    @Test
+    fun `nextSeq logs warning at 1 billion operations`() {
+        val state = WorkflowState("test-run")
+        state.isReadOnly = false
+
+        // Use reflection to set nextSeq to 999,999,999
+        val field = WorkflowState::class.java.getDeclaredField("nextSeq")
+        field.isAccessible = true
+        field.setInt(state, 999_999_999)
+
+        // Capture logs
+        val handler = TestLogHandler()
+        val logger = Logger.getLogger(WorkflowState::class.java.name)
+        val originalLevel = logger.level
+        val originalUseParentHandlers = logger.useParentHandlers
+        logger.level = Level.ALL
+        logger.useParentHandlers = false
+        logger.addHandler(handler)
+        handler.level = Level.ALL
+
+        val seq = state.nextSeq()
+        assertEquals(999_999_999, seq)
+        assertTrue(
+            handler.warnings.any { it.contains("1 billion") },
+            "Expected warning message about 1 billion operations but got: ${handler.warnings}",
+        )
+
+        logger.removeHandler(handler)
+        logger.level = originalLevel
+        logger.useParentHandlers = originalUseParentHandlers
+    }
+
+    @Test
+    fun `nextSeq logs severe warning at 2 billion operations`() {
+        val state = WorkflowState("test-run")
+        state.isReadOnly = false
+
+        // Use reflection to set nextSeq to 1,999,999,999
+        val field = WorkflowState::class.java.getDeclaredField("nextSeq")
+        field.isAccessible = true
+        field.setInt(state, 1_999_999_999)
+
+        // Capture logs
+        val handler = TestLogHandler()
+        val logger = Logger.getLogger(WorkflowState::class.java.name)
+        val originalLevel = logger.level
+        val originalUseParentHandlers = logger.useParentHandlers
+        logger.level = Level.ALL
+        logger.useParentHandlers = false
+        logger.addHandler(handler)
+        handler.level = Level.ALL
+
+        val seq = state.nextSeq()
+        assertEquals(1_999_999_999, seq)
+        assertTrue(
+            handler.severeMessages.any { it.contains("CRITICAL") && it.contains("2 billion") },
+            "Expected severe message about 2 billion operations but got: ${handler.severeMessages}",
+        )
+
+        logger.removeHandler(handler)
+        logger.level = originalLevel
+        logger.useParentHandlers = originalUseParentHandlers
+    }
+
+    @Test
+    fun `nextSeq throws IllegalStateException at MAX_VALUE`() {
+        val state = WorkflowState("test-run")
+        state.isReadOnly = false
+
+        // Set to MAX_VALUE
+        val field = WorkflowState::class.java.getDeclaredField("nextSeq")
+        field.isAccessible = true
+        field.setInt(state, Int.MAX_VALUE)
+
+        val exception =
+            assertFailsWith<IllegalStateException> {
+                state.nextSeq()
+            }
+        assertTrue(exception.message!!.contains("Sequence overflow"))
+    }
+
+    @Test
+    fun `nextSeq increments normally below thresholds`() {
+        val state = WorkflowState("test-run")
+        state.isReadOnly = false
+
+        // Verify normal operation
+        val seq1 = state.nextSeq()
+        val seq2 = state.nextSeq()
+        assertEquals(1, seq1)
+        assertEquals(2, seq2)
+    }
+
+    // ================================================================
+    // Handle Integration Tests (Sprint 4)
+    // ================================================================
+
+    @Test
+    fun `registerActivity stores handle in pending activities map`() =
+        runTest {
+            val state = WorkflowState("test-run")
+            state.isReadOnly = false
+            val serializer = KotlinxJsonSerializer()
+
+            val handle =
+                ActivityHandleImpl<String>(
+                    activityId = "test-activity",
+                    seq = 42,
+                    activityType = "TestActivity::run",
+                    state = state,
+                    serializer = serializer,
+                    returnType = typeOf<String>(),
+                    cancellationType = ActivityCancellationType.TRY_CANCEL,
+                )
+
+            state.registerActivity(42, handle)
+
+            val retrieved = state.getActivity(42)
+            assertNotNull(retrieved)
+            assertEquals(42, retrieved.seq)
+        }
+
+    @Test
+    fun `getActivity returns null for non-existent seq`() {
+        val state = WorkflowState("test-run")
+        state.isReadOnly = false
+
+        val retrieved = state.getActivity(999)
+        assertEquals(null, retrieved)
+    }
+
+    @Test
+    fun `resolveActivity delegates to handle and removes from pending`() =
+        runTest {
+            val state = WorkflowState("test-run")
+            state.isReadOnly = false
+            val serializer = KotlinxJsonSerializer()
+
+            val handle =
+                ActivityHandleImpl<String>(
+                    activityId = "test-activity",
+                    seq = 1,
+                    activityType = "TestActivity::run",
+                    state = state,
+                    serializer = serializer,
+                    returnType = typeOf<String>(),
+                    cancellationType = ActivityCancellationType.TRY_CANCEL,
+                )
+
+            state.registerActivity(1, handle)
+            assertNotNull(state.getActivity(1))
+
+            // Resolve with completed result
+            val resultPayload = Payload.newBuilder().build()
+            val completed =
+                ActivityResult.Success
+                    .newBuilder()
+                    .setResult(resultPayload)
+                    .build()
+            val resolution =
+                ActivityResult.ActivityResolution
+                    .newBuilder()
+                    .setCompleted(completed)
+                    .build()
+
+            state.resolveActivity(1, resolution)
+
+            // Handle should be removed from pending
+            assertEquals(null, state.getActivity(1))
+            // Handle should be completed
+            assertTrue(handle.isDone)
+        }
+
+    @Test
+    fun `resolveActivity handles non-existent activity gracefully - no exception`() {
+        val state = WorkflowState("test-run")
+        state.isReadOnly = false
+
+        val completed = ActivityResult.Success.newBuilder().build()
+        val resolution =
+            ActivityResult.ActivityResolution
+                .newBuilder()
+                .setCompleted(completed)
+                .build()
+
+        // Should not throw for non-existent activity
+        state.resolveActivity(999, resolution)
+    }
+
+    // ================================================================
+    // Cleanup Tests (Sprint 4)
+    // ================================================================
+
+    @Test
+    fun `clear cancels activity handles via resultDeferred`() =
+        runTest {
+            val state = WorkflowState("test-run")
+            state.isReadOnly = false
+            val serializer = KotlinxJsonSerializer()
+
+            val handle =
+                ActivityHandleImpl<String>(
+                    activityId = "test",
+                    seq = 1,
+                    activityType = "Test::run",
+                    state = state,
+                    serializer = serializer,
+                    returnType = typeOf<String>(),
+                    cancellationType = ActivityCancellationType.TRY_CANCEL,
+                )
+
+            state.registerActivity(1, handle)
+            state.clear()
+
+            assertTrue(handle.resultDeferred.isCancelled)
+        }
+
+    @Test
+    fun `clear handles multiple activities correctly`() =
+        runTest {
+            val state = WorkflowState("test-run")
+            state.isReadOnly = false
+            val serializer = KotlinxJsonSerializer()
+
+            val handle1 =
+                ActivityHandleImpl<String>(
+                    activityId = "test1",
+                    seq = 1,
+                    activityType = "Test::run",
+                    state = state,
+                    serializer = serializer,
+                    returnType = typeOf<String>(),
+                    cancellationType = ActivityCancellationType.TRY_CANCEL,
+                )
+
+            val handle2 =
+                ActivityHandleImpl<Int>(
+                    activityId = "test2",
+                    seq = 2,
+                    activityType = "Test::run",
+                    state = state,
+                    serializer = serializer,
+                    returnType = typeOf<Int>(),
+                    cancellationType = ActivityCancellationType.TRY_CANCEL,
+                )
+
+            state.registerActivity(1, handle1)
+            state.registerActivity(2, handle2)
+            state.clear()
+
+            assertTrue(handle1.resultDeferred.isCancelled)
+            assertTrue(handle2.resultDeferred.isCancelled)
+        }
+}
+
+/**
+ * Test log handler for capturing log messages.
+ */
+class TestLogHandler : Handler() {
+    val warnings = mutableListOf<String>()
+    val severeMessages = mutableListOf<String>()
+
+    override fun publish(record: LogRecord) {
+        when (record.level) {
+            Level.WARNING -> warnings.add(record.message)
+            Level.SEVERE -> severeMessages.add(record.message)
+        }
+    }
+
+    override fun flush() {}
+
+    override fun close() {}
 }

@@ -209,12 +209,16 @@ class CompilerTestHarness(
                         val fullPath = url.path
                         fullPath.removeSuffix("/$resourceName")
                     }
+
                     "jar" -> {
                         // Extract JAR path from jar:file:/path/to/file.jar!/META-INF/...
                         val jarPath = url.path.substringBefore("!")
                         if (jarPath.startsWith("file:")) jarPath.removePrefix("file:") else jarPath
                     }
-                    else -> null
+
+                    else -> {
+                        null
+                    }
                 }
             if (path != null && File(path).exists()) {
                 // Check if this contains our TestPluginRegistrar

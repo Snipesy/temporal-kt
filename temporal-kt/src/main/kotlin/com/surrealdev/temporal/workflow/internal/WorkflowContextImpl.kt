@@ -1,18 +1,27 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.serialization.PayloadSerializer
-import com.surrealdev.temporal.serialization.typeInfoOf
+import com.surrealdev.temporal.workflow.ActivityCancellationType
+import com.surrealdev.temporal.workflow.ActivityHandle
 import com.surrealdev.temporal.workflow.ActivityOptions
+import com.surrealdev.temporal.workflow.ChildWorkflowCancellationType
+import com.surrealdev.temporal.workflow.ChildWorkflowHandle
 import com.surrealdev.temporal.workflow.ChildWorkflowOptions
+import com.surrealdev.temporal.workflow.ParentClosePolicy
+import com.surrealdev.temporal.workflow.VersioningIntent
 import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.WorkflowInfo
+import coresdk.child_workflow.ChildWorkflow
 import coresdk.workflow_commands.WorkflowCommands
 import io.temporal.api.common.v1.Payload
+import io.temporal.api.common.v1.Payloads
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.slf4j.MDCContext
+import java.util.logging.Logger
 import kotlin.coroutines.CoroutineContext
 import kotlin.reflect.KType
+import kotlin.reflect.typeOf
 import kotlin.time.Duration
 import kotlin.time.Instant
 import kotlin.time.toJavaDuration
@@ -22,7 +31,7 @@ import kotlin.time.toJavaDuration
  *
  * This context provides deterministic operations within a workflow:
  * - Timer scheduling (via [sleep])
- * - Activity scheduling (via [scheduleActivityDirect])
+ * - Activity scheduling (via [startActivity])
  * - Deterministic time and random values
  *
  * All operations that interact with the external world go through
@@ -40,6 +49,10 @@ internal class WorkflowContextImpl(
     parentJob: Job,
     private val mdcContext: MDCContext? = null,
 ) : WorkflowContext {
+    companion object {
+        private val logger = Logger.getLogger(WorkflowContextImpl::class.java.name)
+    }
+
     // Create a child job for this workflow - failures propagate to parent
     private val job = Job(parentJob)
     private val deterministicRandom = DeterministicRandom(state.randomSeed)
@@ -93,8 +106,15 @@ internal class WorkflowContextImpl(
      */
     internal var runtimeDynamicUpdateHandler: DynamicUpdateHandlerEntry? = null
 
-    override val coroutineContext: CoroutineContext =
-        if (mdcContext != null) job + workflowDispatcher + mdcContext else job + workflowDispatcher
+    override val coroutineContext: CoroutineContext
+        get() =
+            if (mdcContext !=
+                null
+            ) {
+                job + workflowDispatcher + mdcContext + this
+            } else {
+                job + workflowDispatcher + this
+            }
 
     /**
      * Updates the random seed (called when UpdateRandomSeed job is received).
@@ -112,40 +132,136 @@ internal class WorkflowContextImpl(
         // For MVP, return a stub that throws when methods are called
         // TODO: Implement proper activity proxy with dynamic proxy or code generation
         throw UnsupportedOperationException(
-            "Activity proxy not yet implemented. Use scheduleActivityDirect instead.",
+            "Activity proxy not yet implemented. ",
         )
     }
 
     /**
-     * Directly schedules an activity and waits for its result.
+     * Starts an activity execution and returns a handle for managing it.
      *
-     * This is a simpler approach than the proxy-based activity() method
-     * and is suitable for the MVP.
-     *
-     * @param activityType The activity type name (e.g., "GreeterActivity::greet")
-     * @param args Arguments to pass to the activity
-     * @param options Activity execution options
-     * @param returnType The expected return type for deserialization
-     * @return The activity result
+     * @throws IllegalArgumentException if validation fails (invalid timeouts, priority, etc.)
+     * @throws ReadOnlyContextException if called during query processing
      */
-    @Suppress("UNCHECKED_CAST")
-    suspend fun <R> scheduleActivityDirect(
+    override suspend fun <R> startActivity(
         activityType: String,
-        args: List<Any?>,
-        argTypes: List<KType>,
+        args: Payloads,
         options: ActivityOptions,
-        returnType: KType,
-    ): R {
-        val seq = state.nextSeq()
-        val activityId = "$seq"
+        returnType: KType?,
+    ): ActivityHandle<R> {
+        logger.fine("Starting activity: type=$activityType, options=$options")
 
-        // Serialize arguments
-        val argumentPayloads =
-            args.zip(argTypes).map { (arg, type) ->
-                serializer.serialize(typeInfoOf(type), arg)
+        // ========== Section 1: Validation ==========
+
+        // 1. Activity type validation
+        require(activityType.isNotBlank()) {
+            "activityType must not be blank"
+        }
+
+        // 2. Timeout requirements - at least one required
+        require(options.startToCloseTimeout != null || options.scheduleToCloseTimeout != null) {
+            "At least one of startToCloseTimeout or scheduleToCloseTimeout must be set"
+        }
+
+        // 3. Timeout positivity checks
+        options.startToCloseTimeout?.let { timeout ->
+            require(timeout.isPositive()) {
+                "startToCloseTimeout must be positive, got: $timeout"
+            }
+        }
+
+        options.scheduleToCloseTimeout?.let { timeout ->
+            require(timeout.isPositive()) {
+                "scheduleToCloseTimeout must be positive, got: $timeout"
+            }
+        }
+
+        options.scheduleToStartTimeout?.let { timeout ->
+            require(timeout.isPositive()) {
+                "scheduleToStartTimeout must be positive, got: $timeout"
+            }
+        }
+
+        options.heartbeatTimeout?.let { timeout ->
+            require(timeout.isPositive()) {
+                "heartbeatTimeout must be positive, got: $timeout"
+            }
+        }
+
+        // 4. Timeout relationships
+        if (options.startToCloseTimeout != null && options.scheduleToCloseTimeout != null) {
+            require(options.scheduleToCloseTimeout >= options.startToCloseTimeout) {
+                "scheduleToCloseTimeout (${options.scheduleToCloseTimeout}) must be >= " +
+                    "startToCloseTimeout (${options.startToCloseTimeout})"
+            }
+        }
+
+        if (options.scheduleToStartTimeout != null && options.scheduleToCloseTimeout != null) {
+            require(options.scheduleToStartTimeout <= options.scheduleToCloseTimeout) {
+                "scheduleToStartTimeout (${options.scheduleToStartTimeout}) must be <= " +
+                    "scheduleToCloseTimeout (${options.scheduleToCloseTimeout})"
+            }
+        }
+
+        // 4b. Three-timeout relationship validation
+        if (options.scheduleToStartTimeout != null &&
+            options.startToCloseTimeout != null &&
+            options.scheduleToCloseTimeout != null
+        ) {
+            val sum = options.scheduleToStartTimeout + options.startToCloseTimeout
+            require(sum <= options.scheduleToCloseTimeout) {
+                "scheduleToStartTimeout (${options.scheduleToStartTimeout}) + " +
+                    "startToCloseTimeout (${options.startToCloseTimeout}) = $sum " +
+                    "must be <= scheduleToCloseTimeout (${options.scheduleToCloseTimeout})"
+            }
+        }
+
+        // 5. Heartbeat warning (not an error)
+        if (options.heartbeatTimeout != null && options.startToCloseTimeout != null) {
+            if (options.heartbeatTimeout >= options.startToCloseTimeout) {
+                logger.warning(
+                    "heartbeatTimeout (${options.heartbeatTimeout}) >= startToCloseTimeout " +
+                        "(${options.startToCloseTimeout}). Heartbeat timeout should typically be " +
+                        "shorter than startToCloseTimeout for effective cancellation detection.",
+                )
+            }
+        }
+
+        // 6. Priority validation
+        require(options.priority in 0..100) {
+            "priority must be in range 0-100, got: ${options.priority}"
+        }
+
+        // 7. RetryPolicy validation
+        options.retryPolicy?.let { policy ->
+            require(policy.backoffCoefficient > 1.0) {
+                "RetryPolicy backoffCoefficient must be > 1.0, got: ${policy.backoffCoefficient}"
             }
 
-        // Build the ScheduleActivity command using Java builder API
+            require(policy.maximumAttempts >= 0) {
+                "RetryPolicy maximumAttempts must be >= 0, got: ${policy.maximumAttempts}"
+            }
+
+            if (policy.maximumInterval != null) {
+                require(policy.maximumInterval >= policy.initialInterval) {
+                    "RetryPolicy maximumInterval (${policy.maximumInterval}) must be >= " +
+                        "initialInterval (${policy.initialInterval})"
+                }
+            }
+        }
+
+        logger.fine("Activity validation passed: type=$activityType")
+
+        // ========== Section 2: Sequence & ID Generation ==========
+
+        val seq = state.nextSeq()
+        val activityId = options.activityId ?: "$seq"
+
+        logger.fine("Generated activity identifiers: type=$activityType, id=$activityId, seq=$seq")
+
+        // ========== Section 3: Command Building ==========
+
+        logger.fine("Building ScheduleActivity command: type=$activityType, id=$activityId")
+
         val scheduleActivityBuilder =
             WorkflowCommands.ScheduleActivity
                 .newBuilder()
@@ -153,9 +269,9 @@ internal class WorkflowContextImpl(
                 .setActivityId(activityId)
                 .setActivityType(activityType)
                 .setTaskQueue(options.taskQueue ?: info.taskQueue)
-                .addAllArguments(argumentPayloads)
+                .addAllArguments(args.payloadsList)
 
-        // Set timeouts
+        // Set optional timeouts
         options.startToCloseTimeout?.let {
             scheduleActivityBuilder.setStartToCloseTimeout(it.toProtoDuration())
         }
@@ -169,6 +285,34 @@ internal class WorkflowContextImpl(
             scheduleActivityBuilder.setHeartbeatTimeout(it.toProtoDuration())
         }
 
+        // Set retry policy if provided
+        options.retryPolicy?.let { policy ->
+            scheduleActivityBuilder.setRetryPolicy(policy.toProto())
+        }
+
+        // Set enum fields using inline converters
+        scheduleActivityBuilder.setCancellationType(options.cancellationType.toProto())
+        scheduleActivityBuilder.setVersioningIntent(options.versioningIntent.toProto())
+
+        // Set headers if provided
+        options.headers?.let {
+            scheduleActivityBuilder.putAllHeaders(it)
+        }
+
+        // Set eager execution flag
+        scheduleActivityBuilder.setDoNotEagerlyExecute(options.disableEagerExecution)
+
+        // Set priority field
+        // Note: Priority support was added in Temporal Server 1.22.0 (May 2023).
+        // On older servers, this field is ignored (no error). Priority key is 1-5 by default,
+        // but our API uses 0-100 for future extensibility. The proto supports any int32 value.
+        scheduleActivityBuilder.setPriority(
+            io.temporal.api.common.v1.Priority
+                .newBuilder()
+                .setPriorityKey(options.priority)
+                .build(),
+        )
+
         val command =
             WorkflowCommands.WorkflowCommand
                 .newBuilder()
@@ -177,20 +321,33 @@ internal class WorkflowContextImpl(
 
         state.addCommand(command)
 
-        // Register pending activity and await result
-        val deferred = state.registerActivity(seq, returnType)
-        val resultPayload = deferred.await()
+        logger.info(
+            "Scheduled activity: type=$activityType, id=$activityId, seq=$seq, " +
+                "taskQueue=${options.taskQueue ?: info.taskQueue}",
+        )
 
-        // Deserialize result
-        return if (resultPayload == null || resultPayload == Payload.getDefaultInstance()) {
-            if (returnType.classifier == Unit::class) {
-                Unit as R
-            } else {
-                null as R
-            }
-        } else {
-            serializer.deserialize(typeInfoOf(returnType), resultPayload) as R
-        }
+        // ========== Section 4: Handle Creation & Registration ==========
+
+        val effectiveReturnType = returnType ?: typeOf<Any?>()
+
+        val handle =
+            ActivityHandleImpl<R>(
+                activityId = activityId,
+                seq = seq,
+                activityType = activityType,
+                state = state,
+                serializer = serializer,
+                returnType = effectiveReturnType,
+                cancellationType = options.cancellationType,
+            )
+
+        state.registerActivity(seq, handle)
+
+        logger.fine("Activity handle created and registered: id=$activityId, seq=$seq")
+
+        // ========== Section 5: Return ==========
+
+        return handle
     }
 
     override suspend fun sleep(duration: Duration) {
@@ -302,14 +459,65 @@ internal class WorkflowContextImpl(
     }
 
     @Suppress("UNCHECKED_CAST")
-    override suspend fun <T : Any> childWorkflow(
+    override suspend fun <R : Any?> startChildWorkflow(
         workflowType: String,
+        args: Payloads,
         options: ChildWorkflowOptions,
-    ): T {
-        // Not implemented in MVP
-        throw UnsupportedOperationException(
-            "Child workflows not yet implemented",
-        )
+        returnType: KType?,
+    ): ChildWorkflowHandle<R> {
+        val effectiveReturnType = returnType ?: typeOf<Any?>()
+        val seq = state.nextSeq()
+        val childWorkflowId = options.workflowId ?: "${info.workflowId}-child-$seq"
+
+        // Build the StartChildWorkflowExecution command
+        val commandBuilder =
+            WorkflowCommands.StartChildWorkflowExecution
+                .newBuilder()
+                .setSeq(seq)
+                .setNamespace(info.namespace)
+                .setWorkflowId(childWorkflowId)
+                .setWorkflowType(workflowType)
+                .setTaskQueue(options.taskQueue ?: info.taskQueue)
+                .addAllInput(args.payloadsList)
+                .setParentClosePolicy(options.parentClosePolicy.toProto())
+                .setCancellationType(options.cancellationType.toProto())
+
+        // Set optional timeouts
+        options.workflowExecutionTimeout?.let {
+            commandBuilder.setWorkflowExecutionTimeout(it.toProtoDuration())
+        }
+        options.workflowRunTimeout?.let {
+            commandBuilder.setWorkflowRunTimeout(it.toProtoDuration())
+        }
+
+        // Set retry policy if provided
+        options.retryPolicy?.let { policy ->
+            commandBuilder.setRetryPolicy(policy.toProto())
+        }
+
+        val command =
+            WorkflowCommands.WorkflowCommand
+                .newBuilder()
+                .setStartChildWorkflowExecution(commandBuilder)
+                .build()
+
+        state.addCommand(command)
+
+        // Create and register the handle
+        val handle =
+            ChildWorkflowHandleImpl<R>(
+                id = childWorkflowId,
+                seq = seq,
+                workflowType = workflowType,
+                state = state,
+                serializer = serializer,
+                returnType = effectiveReturnType,
+                cancellationType = options.cancellationType,
+            )
+
+        state.registerChildWorkflow(seq, handle)
+
+        return handle
     }
 
     override fun setQueryHandler(
@@ -425,4 +633,113 @@ private fun Duration.toProtoDuration(): com.google.protobuf.Duration {
         .setSeconds(javaDuration.seconds)
         .setNanos(javaDuration.nano)
         .build()
+}
+
+/**
+ * Converts our domain [ParentClosePolicy] to the protobuf enum.
+ */
+private fun ParentClosePolicy.toProto(): ChildWorkflow.ParentClosePolicy =
+    when (this) {
+        ParentClosePolicy.TERMINATE -> ChildWorkflow.ParentClosePolicy.PARENT_CLOSE_POLICY_TERMINATE
+        ParentClosePolicy.ABANDON -> ChildWorkflow.ParentClosePolicy.PARENT_CLOSE_POLICY_ABANDON
+        ParentClosePolicy.REQUEST_CANCEL -> ChildWorkflow.ParentClosePolicy.PARENT_CLOSE_POLICY_REQUEST_CANCEL
+    }
+
+/**
+ * Converts our domain [ChildWorkflowCancellationType] to the protobuf enum.
+ */
+private fun ChildWorkflowCancellationType.toProto(): ChildWorkflow.ChildWorkflowCancellationType =
+    when (this) {
+        ChildWorkflowCancellationType.ABANDON -> {
+            ChildWorkflow.ChildWorkflowCancellationType.ABANDON
+        }
+
+        ChildWorkflowCancellationType.TRY_CANCEL -> {
+            ChildWorkflow.ChildWorkflowCancellationType.TRY_CANCEL
+        }
+
+        ChildWorkflowCancellationType.WAIT_CANCELLATION_COMPLETED -> {
+            ChildWorkflow.ChildWorkflowCancellationType.WAIT_CANCELLATION_COMPLETED
+        }
+
+        ChildWorkflowCancellationType.WAIT_CANCELLATION_REQUESTED -> {
+            ChildWorkflow.ChildWorkflowCancellationType.WAIT_CANCELLATION_REQUESTED
+        }
+    }
+
+/**
+ * Converts domain [ActivityCancellationType] to protobuf enum.
+ *
+ * Mapping:
+ * - TRY_CANCEL → TRY_CANCEL: Request cancellation, don't wait
+ * - WAIT_CANCELLATION_COMPLETED → WAIT_CANCELLATION_COMPLETED: Wait for activity to acknowledge
+ * - ABANDON → ABANDON: Immediately abandon without cancellation request
+ */
+private fun ActivityCancellationType.toProto(): WorkflowCommands.ActivityCancellationType =
+    when (this) {
+        ActivityCancellationType.TRY_CANCEL -> {
+            WorkflowCommands.ActivityCancellationType.TRY_CANCEL
+        }
+
+        ActivityCancellationType.WAIT_CANCELLATION_COMPLETED -> {
+            WorkflowCommands.ActivityCancellationType.WAIT_CANCELLATION_COMPLETED
+        }
+
+        ActivityCancellationType.ABANDON -> {
+            WorkflowCommands.ActivityCancellationType.ABANDON
+        }
+    }
+
+/**
+ * Converts domain [VersioningIntent] to protobuf enum.
+ *
+ * Mapping:
+ * - UNSPECIFIED → UNSPECIFIED: Use server default behavior
+ * - DEFAULT → DEFAULT: Use default version from task queue
+ * - COMPATIBLE → COMPATIBLE: Use version compatible with current workflow
+ */
+private fun VersioningIntent.toProto(): coresdk.common.Common.VersioningIntent =
+    when (this) {
+        VersioningIntent.UNSPECIFIED -> {
+            coresdk.common.Common.VersioningIntent.UNSPECIFIED
+        }
+
+        VersioningIntent.DEFAULT -> {
+            coresdk.common.Common.VersioningIntent.DEFAULT
+        }
+
+        VersioningIntent.COMPATIBLE -> {
+            coresdk.common.Common.VersioningIntent.COMPATIBLE
+        }
+    }
+
+/**
+ * Converts domain [RetryPolicy][com.surrealdev.temporal.workflow.RetryPolicy] to protobuf message.
+ *
+ * Used for both activity and child workflow retry policies.
+ *
+ * Converts all fields:
+ * - initialInterval: First retry delay
+ * - backoffCoefficient: Exponential backoff multiplier (must be > 1.0)
+ * - maximumAttempts: Max retry count (0 = unlimited)
+ * - maximumInterval: Cap on retry delay (optional)
+ * - nonRetryableErrorTypes: Error types that should not be retried
+ */
+private fun com.surrealdev.temporal.workflow.RetryPolicy.toProto(): io.temporal.api.common.v1.RetryPolicy {
+    val retryPolicyBuilder =
+        io.temporal.api.common.v1.RetryPolicy
+            .newBuilder()
+            .setInitialInterval(initialInterval.toProtoDuration())
+            .setBackoffCoefficient(backoffCoefficient)
+            .setMaximumAttempts(maximumAttempts)
+
+    maximumInterval?.let {
+        retryPolicyBuilder.setMaximumInterval(it.toProtoDuration())
+    }
+
+    if (nonRetryableErrorTypes.isNotEmpty()) {
+        retryPolicyBuilder.addAllNonRetryableErrorTypes(nonRetryableErrorTypes)
+    }
+
+    return retryPolicyBuilder.build()
 }
