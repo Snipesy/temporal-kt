@@ -2,6 +2,7 @@ package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.serialization.deserialize
+import com.surrealdev.temporal.util.AttributeScope
 import com.surrealdev.temporal.workflow.WorkflowCancelledException
 import com.surrealdev.temporal.workflow.WorkflowInfo
 import coresdk.workflow_activation.WorkflowActivationOuterClass.InitializeWorkflow
@@ -10,8 +11,10 @@ import coresdk.workflow_activation.WorkflowActivationOuterClass.WorkflowActivati
 import coresdk.workflow_commands.WorkflowCommands
 import coresdk.workflow_completion.WorkflowCompletion
 import io.temporal.api.common.v1.Payload
-import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.slf4j.MDCContext
 import kotlinx.coroutines.withContext
@@ -36,6 +39,16 @@ internal class WorkflowExecutor(
     internal val serializer: PayloadSerializer,
     private val taskQueue: String,
     private val namespace: String,
+    /**
+     * The task queue scope for hierarchical attribute lookup.
+     * Its parentScope should be the application.
+     */
+    private val taskQueueScope: AttributeScope,
+    /**
+     * Parent job for structured concurrency.
+     * Workflow execution job will be a child of this job (from rootExecutorJob).
+     */
+    private val parentJob: Job,
 ) {
     internal var state: WorkflowState = WorkflowState(runId)
     internal val logger = LoggerFactory.getLogger(WorkflowExecutor::class.java)
@@ -88,8 +101,39 @@ internal class WorkflowExecutor(
      */
     internal var workflowInstance: Any? = null
 
-    // Job for the workflow execution - provides unified scope for structured concurrency
-    private var workflowExecutionJob: kotlinx.coroutines.Job? = null
+    // Job for the workflow execution - provides unified scope for structured concurrency.
+    // This is a CompletableJob so we can explicitly complete it when the workflow terminates.
+    // Note: Job(parent) creates a child of the parent but doesn't complete automatically -
+    // only coroutines complete automatically. We must call complete() or cancel() explicitly.
+    private var workflowExecutionJob: kotlinx.coroutines.CompletableJob? = null
+
+    /**
+     * Cancels the workflow execution job when the workflow reaches a terminal state.
+     * This is necessary because Job(parent) doesn't automatically complete when children complete,
+     * so we must explicitly cancel it to allow proper worker shutdown.
+     *
+     * Note: We always use cancel() rather than complete() because:
+     * 1. complete() doesn't cancel children - it waits for them
+     * 2. cancel() immediately cancels the job and all its children
+     * 3. The workflow has already reached a terminal state, so cancellation is appropriate
+     */
+    internal fun terminateWorkflowExecutionJob() {
+        // 1. Cancel first - this queues cancellation tasks to the dispatcher
+        workflowExecutionJob?.cancel()
+
+        // 2. Process all cancellation tasks so coroutines complete properly
+        try {
+            workflowDispatcher.processAllWork()
+        } catch (e: Exception) {
+            // Swallow exceptions during cleanup - we're terminating anyway
+            logger.debug("Exception during cleanup: {}", e.message)
+        }
+
+        // 3. Clear any remaining work (should be empty, but defensive)
+        workflowDispatcher.clear()
+
+        workflowExecutionJob = null
+    }
 
     /**
      * Processes a workflow activation and returns the completion.
@@ -103,14 +147,10 @@ internal class WorkflowExecutor(
      * 6. Return commands or terminal completion
      *
      * @param activation The activation from the Temporal server
-     * @param scope The coroutine scope for workflow execution
      * @return The completion to send back to the server
      */
-    suspend fun activate(
-        activation: WorkflowActivation,
-        scope: CoroutineScope,
-    ): WorkflowCompletion.WorkflowActivationCompletion =
-        withContext(mdcContext) {
+    suspend fun activate(activation: WorkflowActivation): WorkflowCompletion.WorkflowActivationCompletion =
+        withContext(mdcContext + CoroutineName("WorkflowExecutor-activate")) {
             try {
                 logger.debug(
                     "Processing activation: jobs={}, replaying={}, historyLength={}",
@@ -147,13 +187,13 @@ internal class WorkflowExecutor(
 
                 // Stage 0: Process initialization if present
                 if (initJob != null) {
-                    processJob(initJob, activation, scope)
+                    processJob(initJob)
                     runOnce(checkConditions = true)
                 }
 
                 // Stage 1: Process patches
                 for (job in patchJobs) {
-                    processJob(job, activation, scope)
+                    processJob(job)
                 }
                 if (patchJobs.isNotEmpty()) {
                     runOnce(checkConditions = false)
@@ -161,7 +201,7 @@ internal class WorkflowExecutor(
 
                 // Stage 2: Process signals and updates
                 for (job in signalAndUpdateJobs) {
-                    processJob(job, activation, scope)
+                    processJob(job)
                 }
                 if (signalAndUpdateJobs.isNotEmpty()) {
                     runOnce(checkConditions = true)
@@ -169,7 +209,7 @@ internal class WorkflowExecutor(
 
                 // Stage 3: Process non-query jobs (resolutions, cancellation, etc.)
                 for (job in nonQueryJobs) {
-                    processJob(job, activation, scope)
+                    processJob(job)
                 }
                 if (nonQueryJobs.isNotEmpty()) {
                     runOnce(checkConditions = true)
@@ -187,7 +227,7 @@ internal class WorkflowExecutor(
                     state.isReadOnly = true
                     try {
                         for (job in queryJobs) {
-                            processJob(job, activation, scope)
+                            processJob(job)
                         }
                         runOnce(checkConditions = false)
                     } finally {
@@ -283,14 +323,10 @@ internal class WorkflowExecutor(
         } while (workflowDispatcher.hasPendingWork())
     }
 
-    private suspend fun processJob(
-        job: WorkflowActivationJob,
-        activation: WorkflowActivation,
-        scope: CoroutineScope,
-    ) {
+    private suspend fun processJob(job: WorkflowActivationJob) {
         when {
             job.hasInitializeWorkflow() -> {
-                handleInitialize(job.initializeWorkflow, activation, scope)
+                handleInitialize(job.initializeWorkflow)
             }
 
             job.hasFireTimer() -> {
@@ -380,11 +416,7 @@ internal class WorkflowExecutor(
         }
     }
 
-    private suspend fun handleInitialize(
-        init: InitializeWorkflow,
-        activation: WorkflowActivation,
-        scope: CoroutineScope,
-    ) {
+    private fun handleInitialize(init: InitializeWorkflow) {
         logger.debug(
             "Initializing workflow: workflowId={}, attempt={}, args={}",
             init.workflowId,
@@ -425,12 +457,13 @@ internal class WorkflowExecutor(
         // This ensures each execution has clean state and replay doesn't accumulate state
         workflowInstance = methodInfo.instanceFactory()
 
-        // Create the workflow execution job as a child of the scope's Job
-        val parentJob = scope.coroutineContext[kotlinx.coroutines.Job]
-        workflowExecutionJob = kotlinx.coroutines.Job(parentJob)
+        // Create the workflow execution job as a child of the parentJob (from rootExecutorJob)
+        // SupervisorJob ensures one workflow's failure doesn't cancel other workflows
+        workflowExecutionJob = SupervisorJob(parentJob)
 
         // Create workflow context with the execution job as parent
         // This ensures launch {} calls within the workflow are properly scoped
+        // The taskQueueScope provides hierarchical attribute lookup (taskQueue -> application)
         context =
             WorkflowContextImpl(
                 state = state,
@@ -438,17 +471,15 @@ internal class WorkflowExecutor(
                 serializer = serializer,
                 workflowDispatcher = workflowDispatcher,
                 parentJob = workflowExecutionJob!!,
+                parentScope = taskQueueScope,
                 mdcContext = mdcContext,
             )
 
         // Start the main workflow coroutine
-        mainCoroutine = startWorkflowCoroutine(init, scope)
+        mainCoroutine = startWorkflowCoroutine(init)
     }
 
-    private suspend fun startWorkflowCoroutine(
-        init: InitializeWorkflow,
-        scope: CoroutineScope,
-    ): Deferred<Any?> {
+    private fun startWorkflowCoroutine(init: InitializeWorkflow): Deferred<Any?> {
         val ctx = context ?: error("Context not initialized")
         val method = methodInfo.runMethod
 
@@ -517,11 +548,20 @@ internal class WorkflowExecutor(
     private fun handleEviction() {
         logger.debug("Workflow evicted from cache")
 
-        // Mark as canceled before clearing
         state.cancelRequested = true
-        // Clear state on eviction
-        state.clear()
+
+        // Cancel first, then process, then clear (same rationale as terminateWorkflowExecutionJob)
         mainCoroutine?.cancel(WorkflowCancelledException())
+
+        // Process cancellation tasks
+        try {
+            workflowDispatcher.processAllWork()
+        } catch (e: Exception) {
+            logger.debug("Exception during eviction cleanup: {}", e.message)
+        }
+
+        workflowDispatcher.clear()
+        state.clear()
     }
 
     private fun handleSignalExternalWorkflow(

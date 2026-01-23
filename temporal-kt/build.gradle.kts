@@ -26,6 +26,7 @@ dependencies {
     testFixturesImplementation(project(":core-bridge"))
     testFixturesImplementation(libs.protobufJava)
     testFixturesImplementation(libs.protobufKotlin)
+    testFixturesImplementation(libs.slf4jApi)
 }
 
 publishing {

@@ -4,6 +4,7 @@ import com.google.protobuf.ByteString
 import com.surrealdev.temporal.activity.ActivityCancelledException
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.serialization.SerializationException
+import com.surrealdev.temporal.util.AttributeScope
 import coresdk.CoreInterface
 import coresdk.activityTaskCompletion
 import coresdk.activity_result.activityExecutionResult
@@ -15,6 +16,7 @@ import io.temporal.api.failure.v1.Failure
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -50,6 +52,11 @@ internal class ActivityDispatcher(
     private val taskQueue: String,
     maxConcurrent: Int,
     private val heartbeatFn: suspend (ByteArray, ByteArray?) -> Unit = { _, _ -> },
+    /**
+     * The task queue scope for hierarchical attribute lookup.
+     * Its parentScope should be the application.
+     */
+    private val taskQueueScope: AttributeScope,
 ) {
     private val semaphore = Semaphore(maxConcurrent)
     private val runningActivities = ConcurrentHashMap<ByteString, RunningActivity>()
@@ -151,6 +158,7 @@ internal class ActivityDispatcher(
                 )
 
         // Create the activity context
+        // The taskQueueScope provides hierarchical attribute lookup (taskQueue -> application)
         val context =
             ActivityContextImpl(
                 start = start,
@@ -158,6 +166,8 @@ internal class ActivityDispatcher(
                 taskQueue = taskQueue,
                 serializer = serializer,
                 heartbeatFn = heartbeatFn,
+                parentScope = taskQueueScope,
+                parentCoroutineContext = currentCoroutineContext(),
             )
 
         // Track this activity for cancellation
@@ -227,7 +237,9 @@ internal class ActivityDispatcher(
                 if (methodInfo.isSuspend) {
                     method.callSuspend(methodInfo.instance, context, *args)
                 } else {
-                    method.call(methodInfo.instance, context, *args)
+                    runInterruptible {
+                        method.call(methodInfo.instance, context, *args)
+                    }
                 }
             } else {
                 // Method does not use context receiver
@@ -235,7 +247,9 @@ internal class ActivityDispatcher(
                 if (methodInfo.isSuspend) {
                     method.callSuspend(methodInfo.instance, *args)
                 } else {
-                    method.call(methodInfo.instance, *args)
+                    runInterruptible {
+                        method.call(methodInfo.instance, *args)
+                    }
                 }
             }
         }

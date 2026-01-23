@@ -7,7 +7,11 @@ import com.surrealdev.temporal.activity.ActivityInfo
 import com.surrealdev.temporal.activity.ActivityWorkflowInfo
 import com.surrealdev.temporal.activity.HeartbeatDetails
 import com.surrealdev.temporal.serialization.PayloadSerializer
+import com.surrealdev.temporal.util.AttributeScope
+import com.surrealdev.temporal.util.Attributes
+import com.surrealdev.temporal.util.ExecutionScope
 import coresdk.activity_task.ActivityTaskOuterClass.Start
+import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration.Companion.nanoseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
@@ -25,7 +29,18 @@ internal class ActivityContextImpl(
     private val taskQueue: String,
     override val serializer: PayloadSerializer,
     private val heartbeatFn: suspend (ByteArray, ByteArray?) -> Unit,
-) : ActivityContext {
+    override val parentScope: AttributeScope,
+    private val parentCoroutineContext: CoroutineContext,
+) : ActivityContext,
+    ExecutionScope {
+    // Activity executions have their own attributes (currently empty, for future use)
+    override val attributes: Attributes = Attributes(concurrent = false)
+    override val isWorkflowContext: Boolean = false
+
+    // CoroutineScope implementation - uses parent context + this element
+    // This allows activity code to launch child coroutines that inherit the activity's job
+    override val coroutineContext: CoroutineContext = parentCoroutineContext + this
+
     @Volatile
     private var _isCancellationRequested = false
 

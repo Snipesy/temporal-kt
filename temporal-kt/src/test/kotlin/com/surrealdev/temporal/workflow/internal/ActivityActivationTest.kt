@@ -9,6 +9,7 @@ import com.surrealdev.temporal.testing.ProtoTestHelpers.initializeWorkflowJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveActivityJobCancelled
 import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveActivityJobCompleted
 import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveActivityJobFailed
+import com.surrealdev.temporal.testing.createTestWorkflowExecutor
 import com.surrealdev.temporal.workflow.ActivityCancelledException
 import com.surrealdev.temporal.workflow.ActivityFailureException
 import com.surrealdev.temporal.workflow.ActivityOptions
@@ -259,12 +260,10 @@ class ActivityActivationTest {
 
         val runId = "test-run-${UUID.randomUUID()}"
         val executor =
-            WorkflowExecutor(
+            createTestWorkflowExecutor(
                 runId = runId,
                 methodInfo = workflowMethodInfo,
                 serializer = serializer,
-                taskQueue = "test-task-queue",
-                namespace = "default",
             )
 
         // Initialize the workflow
@@ -274,7 +273,7 @@ class ActivityActivationTest {
                 jobs = listOf(initializeWorkflowJob(workflowType = workflowType)),
                 isReplaying = false,
             )
-        val completion = executor.activate(initActivation, CoroutineScope(Dispatchers.Default))
+        val completion = executor.activate(initActivation)
 
         return ExecutorResult(executor, runId, workflow, completion)
     }
@@ -331,7 +330,6 @@ class ActivityActivationTest {
                         jobs = listOf(resolveActivityJobCompleted(seq, resultPayload)),
                         isReplaying = false,
                     ),
-                    scope,
                 )
 
             assertTrue(completion.hasSuccessful())
@@ -361,12 +359,10 @@ class ActivityActivationTest {
 
             val runId = "test-run-${UUID.randomUUID()}"
             val executor =
-                WorkflowExecutor(
+                createTestWorkflowExecutor(
                     runId = runId,
                     methodInfo = workflowMethodInfo,
                     serializer = serializer,
-                    taskQueue = "test-task-queue",
-                    namespace = "default",
                 )
 
             val scope = CoroutineScope(Dispatchers.Default)
@@ -386,7 +382,6 @@ class ActivityActivationTest {
                             ),
                         isReplaying = false,
                     ),
-                    scope,
                 )
 
             val commands = getCommandsFromCompletion(initCompletion)
@@ -401,7 +396,6 @@ class ActivityActivationTest {
                         jobs = listOf(resolveActivityJobCompleted(seq, resultPayload)),
                         isReplaying = false,
                     ),
-                    scope,
                 )
 
             assertTrue(completion.hasSuccessful())
@@ -432,7 +426,6 @@ class ActivityActivationTest {
                         jobs = listOf(resolveActivityJobCompleted(seq1, createPayload("\"Step1 Done\""))),
                         isReplaying = false,
                     ),
-                    scope,
                 )
 
             // Activity 2
@@ -448,7 +441,6 @@ class ActivityActivationTest {
                         jobs = listOf(resolveActivityJobCompleted(seq2, createPayload("\"Step2 Done\""))),
                         isReplaying = false,
                     ),
-                    scope,
                 )
 
             // Activity 3
@@ -464,7 +456,6 @@ class ActivityActivationTest {
                         jobs = listOf(resolveActivityJobCompleted(seq3, createPayload("\"Step3 Done\""))),
                         isReplaying = false,
                     ),
-                    scope,
                 )
 
             assertTrue(completion.hasSuccessful())
@@ -504,7 +495,6 @@ class ActivityActivationTest {
                             ),
                         isReplaying = false,
                     ),
-                    scope,
                 )
 
             assertTrue(completion.hasSuccessful())
@@ -536,7 +526,6 @@ class ActivityActivationTest {
                         jobs = listOf(resolveActivityJobFailed(seq, "Activity execution failed")),
                         isReplaying = false,
                     ),
-                    scope,
                 )
 
             assertTrue(completion.hasSuccessful())
@@ -604,7 +593,6 @@ class ActivityActivationTest {
                         jobs = listOf(job),
                         isReplaying = false,
                     ),
-                    scope,
                 )
 
             // Workflow should fail with FailWorkflowExecution command
@@ -657,7 +645,6 @@ class ActivityActivationTest {
                         jobs = listOf(resolveActivityJobCancelled(seq)),
                         isReplaying = false,
                     ),
-                    scope,
                 )
 
             assertTrue(completion.hasSuccessful())
@@ -697,7 +684,6 @@ class ActivityActivationTest {
                         jobs = listOf(resolveActivityJobCompleted(seq, outputPayload)),
                         isReplaying = false,
                     ),
-                    scope,
                 )
 
             assertTrue(completion.hasSuccessful())
@@ -728,7 +714,6 @@ class ActivityActivationTest {
                     jobs = listOf(resolveActivityJobCompleted(seq, resultPayload)),
                     isReplaying = false,
                 ),
-                scope1,
             )
 
             val firstResult = workflow1.activityResult
@@ -754,12 +739,10 @@ class ActivityActivationTest {
 
             val runId2 = "test-run-${UUID.randomUUID()}"
             val executor2 =
-                WorkflowExecutor(
+                createTestWorkflowExecutor(
                     runId = runId2,
                     methodInfo = workflowMethodInfo2,
                     serializer = serializer,
-                    taskQueue = "test-task-queue",
-                    namespace = "default",
                 )
 
             val scope2 = CoroutineScope(Dispatchers.Default)
@@ -770,7 +753,6 @@ class ActivityActivationTest {
                     jobs = listOf(initializeWorkflowJob(workflowType = "SimpleActivityWorkflow")),
                     isReplaying = true,
                 ),
-                scope2,
             )
 
             executor2.activate(
@@ -779,7 +761,6 @@ class ActivityActivationTest {
                     jobs = listOf(resolveActivityJobCompleted(seq, resultPayload)),
                     isReplaying = true,
                 ),
-                scope2,
             )
 
             val replayResult = workflow2.activityResult
@@ -848,12 +829,10 @@ class ActivityActivationTest {
 
             val runId = "test-run-${UUID.randomUUID()}"
             val executor =
-                WorkflowExecutor(
+                createTestWorkflowExecutor(
                     runId = runId,
                     methodInfo = workflowMethodInfo,
                     serializer = serializer,
-                    taskQueue = "test-task-queue",
-                    namespace = "default",
                 )
 
             val scope = CoroutineScope(Dispatchers.Default)
@@ -866,7 +845,6 @@ class ActivityActivationTest {
                         jobs = listOf(initializeWorkflowJob(workflowType = "HandleCheckWorkflow")),
                         isReplaying = false,
                     ),
-                    scope,
                 )
 
             val commands = getCommandsFromCompletion(initCompletion)
@@ -883,7 +861,6 @@ class ActivityActivationTest {
                     jobs = listOf(resolveActivityJobCompleted(seq, createPayload("\"Done\""))),
                     isReplaying = false,
                 ),
-                scope,
             )
 
             // Verify handle is done after resolution
@@ -929,12 +906,10 @@ class ActivityActivationTest {
 
             val runId = "test-run-${UUID.randomUUID()}"
             val executor =
-                WorkflowExecutor(
+                createTestWorkflowExecutor(
                     runId = runId,
                     methodInfo = workflowMethodInfo,
                     serializer = serializer,
-                    taskQueue = "test-task-queue",
-                    namespace = "default",
                 )
 
             val scope = CoroutineScope(Dispatchers.Default)
@@ -946,7 +921,6 @@ class ActivityActivationTest {
                         jobs = listOf(initializeWorkflowJob(workflowType = "UnitActivityWorkflow")),
                         isReplaying = false,
                     ),
-                    scope,
                 )
 
             val commands = getCommandsFromCompletion(initCompletion)
@@ -959,7 +933,6 @@ class ActivityActivationTest {
                         jobs = listOf(resolveActivityJobCompleted(seq, Payload.getDefaultInstance())),
                         isReplaying = false,
                     ),
-                    scope,
                 )
 
             assertTrue(completion.hasSuccessful())

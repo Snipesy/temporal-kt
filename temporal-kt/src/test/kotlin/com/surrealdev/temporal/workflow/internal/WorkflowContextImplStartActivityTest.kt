@@ -1,6 +1,8 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
+import com.surrealdev.temporal.util.Attributes
+import com.surrealdev.temporal.util.SimpleAttributeScope
 import com.surrealdev.temporal.workflow.ActivityOptions
 import com.surrealdev.temporal.workflow.RetryPolicy
 import com.surrealdev.temporal.workflow.WorkflowInfo
@@ -44,12 +46,16 @@ class WorkflowContextImplStartActivityTest {
                 startTime = Instant.fromEpochMilliseconds(0),
             )
         val dispatcher = WorkflowCoroutineDispatcher()
+        // Create a simple scope hierarchy for testing (taskQueue -> application)
+        val applicationScope = SimpleAttributeScope(Attributes(concurrent = false))
+        val taskQueueScope = SimpleAttributeScope(Attributes(concurrent = false), applicationScope)
         return WorkflowContextImpl(
             state = state,
             info = info,
             serializer = serializer,
             workflowDispatcher = dispatcher,
             parentJob = Job(),
+            parentScope = taskQueueScope,
         )
     }
 

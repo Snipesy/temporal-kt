@@ -21,8 +21,10 @@ import kotlinx.coroutines.Deferred
 internal suspend fun WorkflowExecutor.buildTerminalCompletion(
     result: Deferred<Any?>,
     returnType: kotlin.reflect.KType,
-): WorkflowCompletion.WorkflowActivationCompletion =
-    try {
+): WorkflowCompletion.WorkflowActivationCompletion {
+    terminateWorkflowExecutionJob()
+
+    return try {
         val value = result.await()
         logger.debug(
             "Workflow completed successfully with result type: {}",
@@ -69,6 +71,7 @@ internal suspend fun WorkflowExecutor.buildTerminalCompletion(
             buildWorkflowFailureCompletion(e)
         }
     }
+}
 
 /**
  * Builds a success completion with accumulated commands.

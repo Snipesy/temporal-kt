@@ -39,7 +39,6 @@ private const val ENCODING_NULL = "binary/null"
  * - Handles null values with binary/null encoding
  * - Handles primitive types efficiently
  * - Uses kotlinx.serialization for complex types
- * - Properly preserves type information through [TypeInfo]
  *
  * Usage:
  * ```kotlin

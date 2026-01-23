@@ -4,6 +4,7 @@ import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.serialization.deserialize
 import com.surrealdev.temporal.serialization.serialize
 import io.temporal.api.common.v1.Payload
+import kotlinx.coroutines.CoroutineScope
 import kotlin.coroutines.CoroutineContext
 import kotlin.reflect.KType
 import kotlin.time.Instant
@@ -13,6 +14,16 @@ import kotlin.time.Instant
  *
  * This context provides access to activity information and operations like
  * heartbeating and cancellation checking.
+ *
+ * As a [CoroutineScope], activity code can use structured concurrency:
+ * ```kotlin
+ * @Activity
+ * suspend fun ActivityContext.processInParallel(items: List<String>): List<Result> {
+ *     return items.map { item ->
+ *         async { processItem(item) }
+ *     }.awaitAll()
+ * }
+ * ```
  *
  * As a [CoroutineContext.Element], it can be accessed from any coroutine
  * running within the activity's scope using `coroutineContext[ActivityContext]`.
@@ -39,7 +50,9 @@ import kotlin.time.Instant
  * }
  * ```
  */
-interface ActivityContext : CoroutineContext.Element {
+interface ActivityContext :
+    CoroutineScope,
+    CoroutineContext.Element {
     companion object Key : CoroutineContext.Key<ActivityContext>
 
     override val key: CoroutineContext.Key<*> get() = Key

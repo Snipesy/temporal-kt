@@ -72,6 +72,8 @@ internal object TemporalCoreWorker {
      * @param taskQueue The task queue to poll
      * @param maxCachedWorkflows Maximum cached workflow executions
      * @param deploymentOptions Optional deployment versioning options
+     * @param maxConcurrentWorkflowTasks Maximum concurrent workflow task executions
+     * @param maxConcurrentActivities Maximum concurrent activity executions
      * @return Pointer to the worker
      * @throws TemporalCoreException if worker creation fails
      */
@@ -85,6 +87,8 @@ internal object TemporalCoreWorker {
         activities: Boolean = true,
         nexus: Boolean = false,
         deploymentOptions: CoreWorkerDeploymentOptions? = null,
+        maxConcurrentWorkflowTasks: Int = 100,
+        maxConcurrentActivities: Int = 100,
     ): MemorySegment {
         val options =
             buildWorkerOptions(
@@ -96,6 +100,8 @@ internal object TemporalCoreWorker {
                 activities = activities,
                 nexus = nexus,
                 deploymentOptions = deploymentOptions,
+                maxConcurrentWorkflowTasks = maxConcurrentWorkflowTasks,
+                maxConcurrentActivities = maxConcurrentActivities,
             )
 
         val result = CoreBridge.temporal_core_worker_new(arena, clientPtr, options)
@@ -136,6 +142,28 @@ internal object TemporalCoreWorker {
     ) {
         val callbackStub = createWorkerCallbackStub(arena, runtimePtr, callback)
         CoreBridge.temporal_core_worker_validate(workerPtr, MemorySegment.NULL, callbackStub)
+    }
+
+    /**
+     * Validates a worker's configuration using a reusable callback stub.
+     *
+     * @param workerPtr Pointer to the worker
+     * @param dispatcher Callback dispatcher with reusable stubs
+     * @param callback Callback invoked when validation completes
+     * @return Context pointer containing the callback ID (for cancellation support)
+     */
+    fun validate(
+        workerPtr: MemorySegment,
+        dispatcher: CallbackDispatcher,
+        callback: WorkerCallback,
+    ): MemorySegment {
+        val contextPtr = dispatcher.registerWorker(callback)
+        CoreBridge.temporal_core_worker_validate(
+            workerPtr,
+            contextPtr,
+            dispatcher.workerCallbackStub,
+        )
+        return contextPtr
     }
 
     /**
@@ -180,6 +208,28 @@ internal object TemporalCoreWorker {
     }
 
     /**
+     * Polls for a workflow activation using a reusable callback stub.
+     *
+     * @param workerPtr Pointer to the worker
+     * @param dispatcher Callback dispatcher with reusable stubs
+     * @param callback Callback invoked when poll completes
+     * @return Context pointer containing the callback ID (for cancellation support)
+     */
+    fun pollWorkflowActivation(
+        workerPtr: MemorySegment,
+        dispatcher: CallbackDispatcher,
+        callback: PollCallback,
+    ): MemorySegment {
+        val contextPtr = dispatcher.registerPoll(callback)
+        CoreBridge.temporal_core_worker_poll_workflow_activation(
+            workerPtr,
+            contextPtr,
+            dispatcher.pollCallbackStub,
+        )
+        return contextPtr
+    }
+
+    /**
      * Polls for an activity task.
      *
      * @param workerPtr Pointer to the worker
@@ -198,6 +248,28 @@ internal object TemporalCoreWorker {
     }
 
     /**
+     * Polls for an activity task using a reusable callback stub.
+     *
+     * @param workerPtr Pointer to the worker
+     * @param dispatcher Callback dispatcher with reusable stubs
+     * @param callback Callback invoked when poll completes
+     * @return Context pointer containing the callback ID (for cancellation support)
+     */
+    fun pollActivityTask(
+        workerPtr: MemorySegment,
+        dispatcher: CallbackDispatcher,
+        callback: PollCallback,
+    ): MemorySegment {
+        val contextPtr = dispatcher.registerPoll(callback)
+        CoreBridge.temporal_core_worker_poll_activity_task(
+            workerPtr,
+            contextPtr,
+            dispatcher.pollCallbackStub,
+        )
+        return contextPtr
+    }
+
+    /**
      * Polls for a nexus task.
      *
      * @param workerPtr Pointer to the worker
@@ -213,6 +285,28 @@ internal object TemporalCoreWorker {
     ) {
         val callbackStub = createPollCallbackStub(arena, runtimePtr, callback)
         CoreBridge.temporal_core_worker_poll_nexus_task(workerPtr, MemorySegment.NULL, callbackStub)
+    }
+
+    /**
+     * Polls for a nexus task using a reusable callback stub.
+     *
+     * @param workerPtr Pointer to the worker
+     * @param dispatcher Callback dispatcher with reusable stubs
+     * @param callback Callback invoked when poll completes
+     * @return Context pointer containing the callback ID (for cancellation support)
+     */
+    fun pollNexusTask(
+        workerPtr: MemorySegment,
+        dispatcher: CallbackDispatcher,
+        callback: PollCallback,
+    ): MemorySegment {
+        val contextPtr = dispatcher.registerPoll(callback)
+        CoreBridge.temporal_core_worker_poll_nexus_task(
+            workerPtr,
+            contextPtr,
+            dispatcher.pollCallbackStub,
+        )
+        return contextPtr
     }
 
     // ============================================================
@@ -246,6 +340,34 @@ internal object TemporalCoreWorker {
     }
 
     /**
+     * Completes a workflow activation using a reusable callback stub.
+     *
+     * @param workerPtr Pointer to the worker
+     * @param arena Arena for allocations (for completion data)
+     * @param dispatcher Callback dispatcher with reusable stubs
+     * @param completion The completion protobuf bytes
+     * @param callback Callback invoked when completion is processed
+     * @return Context pointer containing the callback ID (for cancellation support)
+     */
+    fun completeWorkflowActivation(
+        workerPtr: MemorySegment,
+        arena: Arena,
+        dispatcher: CallbackDispatcher,
+        completion: ByteArray,
+        callback: WorkerCallback,
+    ): MemorySegment {
+        val completionRef = TemporalCoreFfmUtil.createByteArrayRef(arena, completion)
+        val contextPtr = dispatcher.registerWorker(callback)
+        CoreBridge.temporal_core_worker_complete_workflow_activation(
+            workerPtr,
+            completionRef,
+            contextPtr,
+            dispatcher.workerCallbackStub,
+        )
+        return contextPtr
+    }
+
+    /**
      * Completes an activity task.
      *
      * @param workerPtr Pointer to the worker
@@ -272,6 +394,34 @@ internal object TemporalCoreWorker {
     }
 
     /**
+     * Completes an activity task using a reusable callback stub.
+     *
+     * @param workerPtr Pointer to the worker
+     * @param arena Arena for allocations (for completion data)
+     * @param dispatcher Callback dispatcher with reusable stubs
+     * @param completion The completion protobuf bytes
+     * @param callback Callback invoked when completion is processed
+     * @return Context pointer containing the callback ID (for cancellation support)
+     */
+    fun completeActivityTask(
+        workerPtr: MemorySegment,
+        arena: Arena,
+        dispatcher: CallbackDispatcher,
+        completion: ByteArray,
+        callback: WorkerCallback,
+    ): MemorySegment {
+        val completionRef = TemporalCoreFfmUtil.createByteArrayRef(arena, completion)
+        val contextPtr = dispatcher.registerWorker(callback)
+        CoreBridge.temporal_core_worker_complete_activity_task(
+            workerPtr,
+            completionRef,
+            contextPtr,
+            dispatcher.workerCallbackStub,
+        )
+        return contextPtr
+    }
+
+    /**
      * Completes a nexus task.
      *
      * @param workerPtr Pointer to the worker
@@ -290,6 +440,34 @@ internal object TemporalCoreWorker {
         val completionRef = TemporalCoreFfmUtil.createByteArrayRef(arena, completion)
         val callbackStub = createWorkerCallbackStub(arena, runtimePtr, callback)
         CoreBridge.temporal_core_worker_complete_nexus_task(workerPtr, completionRef, MemorySegment.NULL, callbackStub)
+    }
+
+    /**
+     * Completes a nexus task using a reusable callback stub.
+     *
+     * @param workerPtr Pointer to the worker
+     * @param arena Arena for allocations (for completion data)
+     * @param dispatcher Callback dispatcher with reusable stubs
+     * @param completion The completion protobuf bytes
+     * @param callback Callback invoked when completion is processed
+     * @return Context pointer containing the callback ID (for cancellation support)
+     */
+    fun completeNexusTask(
+        workerPtr: MemorySegment,
+        arena: Arena,
+        dispatcher: CallbackDispatcher,
+        completion: ByteArray,
+        callback: WorkerCallback,
+    ): MemorySegment {
+        val completionRef = TemporalCoreFfmUtil.createByteArrayRef(arena, completion)
+        val contextPtr = dispatcher.registerWorker(callback)
+        CoreBridge.temporal_core_worker_complete_nexus_task(
+            workerPtr,
+            completionRef,
+            contextPtr,
+            dispatcher.workerCallbackStub,
+        )
+        return contextPtr
     }
 
     /**
@@ -359,6 +537,28 @@ internal object TemporalCoreWorker {
     ) {
         val callbackStub = createWorkerCallbackStub(arena, runtimePtr, callback)
         CoreBridge.temporal_core_worker_finalize_shutdown(workerPtr, MemorySegment.NULL, callbackStub)
+    }
+
+    /**
+     * Finalizes worker shutdown using a reusable callback stub.
+     *
+     * @param workerPtr Pointer to the worker
+     * @param dispatcher Callback dispatcher with reusable stubs
+     * @param callback Callback invoked when shutdown completes
+     * @return Context pointer containing the callback ID (for cancellation support)
+     */
+    fun finalizeShutdown(
+        workerPtr: MemorySegment,
+        dispatcher: CallbackDispatcher,
+        callback: WorkerCallback,
+    ): MemorySegment {
+        val contextPtr = dispatcher.registerWorker(callback)
+        CoreBridge.temporal_core_worker_finalize_shutdown(
+            workerPtr,
+            contextPtr,
+            dispatcher.workerCallbackStub,
+        )
+        return contextPtr
     }
 
     // ============================================================
@@ -491,6 +691,8 @@ internal object TemporalCoreWorker {
         activities: Boolean,
         nexus: Boolean,
         deploymentOptions: CoreWorkerDeploymentOptions? = null,
+        maxConcurrentWorkflowTasks: Int = 100,
+        maxConcurrentActivities: Int = 100,
     ): MemorySegment {
         val options = TemporalCoreWorkerOptions.allocate(arena)
 
@@ -554,9 +756,18 @@ internal object TemporalCoreWorker {
         // Initialize tuner with fixed-size slot suppliers
         // Get the embedded tuner struct from the options
         val tuner = TemporalCoreWorkerOptions.tuner(options)
-        initializeSlotSupplier(TemporalCoreTunerHolder.workflow_slot_supplier(tuner), 100)
-        initializeSlotSupplier(TemporalCoreTunerHolder.activity_slot_supplier(tuner), 100)
-        initializeSlotSupplier(TemporalCoreTunerHolder.local_activity_slot_supplier(tuner), 100)
+        initializeSlotSupplier(
+            TemporalCoreTunerHolder.workflow_slot_supplier(tuner),
+            maxConcurrentWorkflowTasks.toLong(),
+        )
+        initializeSlotSupplier(
+            TemporalCoreTunerHolder.activity_slot_supplier(tuner),
+            maxConcurrentActivities.toLong(),
+        )
+        initializeSlotSupplier(
+            TemporalCoreTunerHolder.local_activity_slot_supplier(tuner),
+            maxConcurrentActivities.toLong(),
+        )
         initializeSlotSupplier(TemporalCoreTunerHolder.nexus_task_slot_supplier(tuner), 100)
 
         // Set timeouts and limits

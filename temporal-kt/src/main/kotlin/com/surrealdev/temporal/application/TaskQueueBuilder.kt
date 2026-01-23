@@ -1,13 +1,28 @@
 package com.surrealdev.temporal.application
 
 import com.surrealdev.temporal.annotation.TemporalDsl
+import com.surrealdev.temporal.application.plugin.HookRegistry
+import com.surrealdev.temporal.application.plugin.HookRegistryImpl
+import com.surrealdev.temporal.application.plugin.PluginPipeline
+import com.surrealdev.temporal.util.AttributeScope
+import com.surrealdev.temporal.util.Attributes
+import kotlinx.coroutines.CoroutineDispatcher
 
 /**
  * Builder for configuring a task queue with workflows and activities.
  *
+ * TaskQueueBuilder supports installing plugins that can override application-level plugins.
+ * When looking up a plugin, the task queue's local registry is checked first, then
+ * the parent application's registry is used as fallback.
+ *
  * Usage:
  * ```kotlin
  * taskQueue("my-task-queue") {
+ *     // Override application-level plugin with task-queue-specific config
+ *     install(MyPlugin) {
+ *         // Task-queue-specific configuration
+ *     }
+ *
  *     workflow(MyWorkflowImpl())
  *     activity(MyActivityImpl())
  *
@@ -20,7 +35,17 @@ import com.surrealdev.temporal.annotation.TemporalDsl
 @TemporalDsl
 class TaskQueueBuilder internal constructor(
     private val name: String,
-) {
+    /**
+     * Parent application for hierarchical plugin/attribute lookup.
+     * Plugins/attributes installed at the application level can be overridden at the task queue level.
+     */
+    internal val parentApplication: TemporalApplication? = null,
+) : PluginPipeline {
+    // New plugin framework - attributes with parent scope for hierarchical lookup
+    override val attributes: Attributes = Attributes(concurrent = false)
+    override val parentScope: AttributeScope? = parentApplication
+    internal val hookRegistry: HookRegistry = HookRegistryImpl()
+
     /**
      * Optional namespace override for this task queue.
      * If null, the application's default namespace is used.
@@ -38,6 +63,43 @@ class TaskQueueBuilder internal constructor(
      * This is a logical limit enforced via semaphore.
      */
     var maxConcurrentActivities: Int = 200
+
+    /**
+     * Dispatcher for workflow activations on this task queue.
+     *
+     * When set, workflow processing (including the deterministic scheduler's work)
+     * runs on this dispatcher. The [WorkflowCoroutineDispatcher] still handles
+     * deterministic scheduling within this thread context.
+     *
+     * Default: null (inherits from application's coroutine context)
+     */
+    var workflowDispatcher: CoroutineDispatcher? = null
+
+    /**
+     * Dispatcher for activity execution on this task queue.
+     *
+     * When set, activities are wrapped with `withContext(dispatcher)` before execution.
+     * This allows controlling the thread pool for activity work (e.g., using
+     * [Dispatchers.IO] for I/O-bound activities).
+     *
+     * Default: null (inherits from application's coroutine context)
+     */
+    var activityDispatcher: CoroutineDispatcher? = null
+
+    /**
+     * Grace period for shutdown to wait for polling jobs to complete gracefully.
+     * After this timeout, polling jobs will be force-cancelled.
+     *
+     * Default: 10,000ms (10 seconds)
+     */
+    var shutdownGracePeriodMs: Long = 10_000L
+
+    /**
+     * Additional timeout after force cancellation to wait for cleanup.
+     *
+     * Default: 5,000ms (5 seconds)
+     */
+    var shutdownForceTimeoutMs: Long = 5_000L
 
     @PublishedApi
     internal val workflows = mutableListOf<WorkflowRegistration>()
@@ -89,5 +151,11 @@ class TaskQueueBuilder internal constructor(
             activities = activities.toList(),
             maxConcurrentWorkflows = maxConcurrentWorkflows,
             maxConcurrentActivities = maxConcurrentActivities,
+            attributes = attributes,
+            hookRegistry = hookRegistry,
+            workflowDispatcher = workflowDispatcher,
+            activityDispatcher = activityDispatcher,
+            shutdownGracePeriodMs = shutdownGracePeriodMs,
+            shutdownForceTimeoutMs = shutdownForceTimeoutMs,
         )
 }

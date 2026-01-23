@@ -10,9 +10,8 @@ import com.surrealdev.temporal.serialization.serialize
 import com.surrealdev.temporal.testing.ProtoTestHelpers.createActivation
 import com.surrealdev.temporal.testing.ProtoTestHelpers.initializeWorkflowJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.signalWorkflowJob
+import com.surrealdev.temporal.testing.createTestWorkflowExecutor
 import com.surrealdev.temporal.workflow.WorkflowContext
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
 import java.util.UUID
@@ -358,7 +357,7 @@ class SignalHandlerTest {
                     runId = runId,
                     jobs = listOf(signalWorkflowJob(signalName = "notify")),
                 )
-            val completion = executor.activate(signalActivation, CoroutineScope(Dispatchers.Default))
+            val completion = executor.activate(signalActivation)
 
             // Signals don't produce commands, but the workflow should continue
             assertTrue(completion.hasSuccessful())
@@ -383,7 +382,7 @@ class SignalHandlerTest {
                             ),
                         ),
                 )
-            val completion = executor.activate(signalActivation, CoroutineScope(Dispatchers.Default))
+            val completion = executor.activate(signalActivation)
 
             assertTrue(completion.hasSuccessful())
         }
@@ -407,7 +406,7 @@ class SignalHandlerTest {
                             ),
                         ),
                 )
-            val completion = executor.activate(signalActivation, CoroutineScope(Dispatchers.Default))
+            val completion = executor.activate(signalActivation)
 
             assertTrue(completion.hasSuccessful())
         }
@@ -430,7 +429,7 @@ class SignalHandlerTest {
                             ),
                         ),
                 )
-            val completion = executor.activate(signalActivation, CoroutineScope(Dispatchers.Default))
+            val completion = executor.activate(signalActivation)
 
             assertTrue(completion.hasSuccessful())
         }
@@ -445,7 +444,7 @@ class SignalHandlerTest {
                     runId = runId,
                     jobs = listOf(signalWorkflowJob(signalName = "trigger")),
                 )
-            val completion = executor.activate(signalActivation, CoroutineScope(Dispatchers.Default))
+            val completion = executor.activate(signalActivation)
 
             assertTrue(completion.hasSuccessful())
         }
@@ -464,7 +463,7 @@ class SignalHandlerTest {
                     runId = runId,
                     jobs = listOf(signalWorkflowJob(signalName = "unknownSignal")),
                 )
-            val completion = executor.activate(signalActivation, CoroutineScope(Dispatchers.Default))
+            val completion = executor.activate(signalActivation)
 
             assertTrue(completion.hasSuccessful())
         }
@@ -480,7 +479,7 @@ class SignalHandlerTest {
                     runId = runId,
                     jobs = listOf(signalWorkflowJob(signalName = "specific")),
                 )
-            executor.activate(signalActivation, CoroutineScope(Dispatchers.Default))
+            executor.activate(signalActivation)
 
             // The specific handler should have been called, adding "specific" to the list
             assertEquals(listOf("specific"), workflow.signals)
@@ -501,7 +500,7 @@ class SignalHandlerTest {
                     runId = runId,
                     jobs = listOf(signalWorkflowJob(signalName = "throwingSignal")),
                 )
-            val completion1 = executor.activate(throwingSignalActivation, CoroutineScope(Dispatchers.Default))
+            val completion1 = executor.activate(throwingSignalActivation)
             assertTrue(completion1.hasSuccessful(), "Workflow should not fail when signal handler throws")
 
             // Send a good signal - should still work
@@ -510,7 +509,7 @@ class SignalHandlerTest {
                     runId = runId,
                     jobs = listOf(signalWorkflowJob(signalName = "goodSignal")),
                 )
-            val completion2 = executor.activate(goodSignalActivation, CoroutineScope(Dispatchers.Default))
+            val completion2 = executor.activate(goodSignalActivation)
             assertTrue(completion2.hasSuccessful(), "Workflow should continue after signal handler throws")
         }
 
@@ -534,7 +533,7 @@ class SignalHandlerTest {
                             signalWorkflowJob(signalName = "signalC"),
                         ),
                 )
-            val completion = executor.activate(signalActivation, CoroutineScope(Dispatchers.Default))
+            val completion = executor.activate(signalActivation)
 
             assertTrue(completion.hasSuccessful())
             assertTrue(workflow.a)
@@ -614,7 +613,7 @@ class SignalHandlerTest {
                             ),
                         ),
                 )
-            executor.activate(signalActivation, CoroutineScope(Dispatchers.Default))
+            executor.activate(signalActivation)
 
             assertEquals("runtime-value", workflow.runtimeValue)
         }
@@ -630,7 +629,7 @@ class SignalHandlerTest {
                     runId = runId,
                     jobs = listOf(signalWorkflowJob(signalName = "anyUnknownSignal")),
                 )
-            executor.activate(signalActivation, CoroutineScope(Dispatchers.Default))
+            executor.activate(signalActivation)
 
             assertEquals(listOf("anyUnknownSignal"), workflow.receivedSignals)
         }
@@ -646,7 +645,7 @@ class SignalHandlerTest {
                     runId = runId,
                     jobs = listOf(signalWorkflowJob(signalName = "mySignal")),
                 )
-            executor.activate(signalActivation, CoroutineScope(Dispatchers.Default))
+            executor.activate(signalActivation)
 
             assertEquals("runtime", workflow.source)
         }
@@ -698,7 +697,7 @@ class SignalHandlerTest {
                             signalWorkflowJob(signalName = "bufferedSignal", input = listOf(signalArg)),
                         ),
                 )
-            executor.activate(signalActivation1, CoroutineScope(Dispatchers.Default))
+            executor.activate(signalActivation1)
 
             // At this point, signal should be buffered (no handler registered yet)
             assertTrue(workflow.receivedSignals.isEmpty(), "Signal should be buffered, not processed yet")
@@ -709,7 +708,7 @@ class SignalHandlerTest {
                     runId = runId,
                     jobs = listOf(signalWorkflowJob(signalName = "registerHandler")),
                 )
-            executor.activate(signalActivation2, CoroutineScope(Dispatchers.Default))
+            executor.activate(signalActivation2)
 
             // Now the buffered signal should have been replayed
             assertEquals(listOf("buffered-value"), workflow.receivedSignals)
@@ -755,7 +754,7 @@ class SignalHandlerTest {
                             signalWorkflowJob(signalName = "signal2"),
                         ),
                 )
-            executor.activate(signalActivation1, CoroutineScope(Dispatchers.Default))
+            executor.activate(signalActivation1)
 
             // Signals should be buffered
             assertTrue(workflow.receivedSignals.isEmpty(), "Signals should be buffered")
@@ -766,7 +765,7 @@ class SignalHandlerTest {
                     runId = runId,
                     jobs = listOf(signalWorkflowJob(signalName = "registerHandler")),
                 )
-            executor.activate(signalActivation2, CoroutineScope(Dispatchers.Default))
+            executor.activate(signalActivation2)
 
             // Both buffered signals should have been replayed through dynamic handler
             assertEquals(listOf("signal1", "signal2"), workflow.receivedSignals.sorted())
@@ -822,7 +821,7 @@ class SignalHandlerTest {
                             ),
                         ),
                 )
-            executor.activate(signalActivation1, CoroutineScope(Dispatchers.Default))
+            executor.activate(signalActivation1)
 
             // All should be buffered
             assertTrue(workflow.receivedValues.isEmpty())
@@ -833,7 +832,7 @@ class SignalHandlerTest {
                     runId = runId,
                     jobs = listOf(signalWorkflowJob(signalName = "registerHandler")),
                 )
-            executor.activate(signalActivation2, CoroutineScope(Dispatchers.Default))
+            executor.activate(signalActivation2)
 
             // All buffered signals should be replayed in FIFO order
             assertEquals(listOf("first", "second", "third"), workflow.receivedValues)
@@ -868,12 +867,10 @@ class SignalHandlerTest {
         val runId = UUID.randomUUID().toString()
 
         val executor =
-            WorkflowExecutor(
+            createTestWorkflowExecutor(
                 runId = runId,
                 methodInfo = methodInfo,
                 serializer = serializer,
-                taskQueue = "test-task-queue",
-                namespace = "default",
             )
 
         // Initialize the workflow
@@ -882,7 +879,7 @@ class SignalHandlerTest {
                 runId = runId,
                 jobs = listOf(initializeWorkflowJob(workflowType = workflowType)),
             )
-        executor.activate(initActivation, CoroutineScope(Dispatchers.Default))
+        executor.activate(initActivation)
 
         return executor to runId
     }

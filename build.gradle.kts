@@ -10,13 +10,6 @@ dokka {
 //        outputDirectory.set(rootProject.projectDir.resolve("docs"))
         suppressInheritedMembers.set(true)
         failOnWarning.set(false)
-
-        // Include project-wide documentation as module description
-        includes.from(
-            rootProject.fileTree("proposals") {
-                include("*.md")
-            },
-        )
     }
 }
 

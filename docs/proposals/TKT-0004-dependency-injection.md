@@ -9,6 +9,7 @@ fun TemporalApplication.myMainModule() {
         provide<SomeService> { SomeServiceImpl() }
         provide<() -> AnotherService> { { AnotherServiceImpl(get()) } }
     }
+    // task queues, workflows, activities...
 }
 ```
 
@@ -17,6 +18,13 @@ You can also provide dependencies specific to a task queue:
 ```kotlin
 fun TemporalApplication.myMainModule() {
     taskQueue("my-task-queue") {
+        dependencies {
+            provide<QueueSpecificService> { QueueSpecificServiceImpl() }
+        }
+        workflow<MyWorkflow>()
+        activity<MyActivity>()
+    }
+    taskQueue("my-other-task-queue") {
         dependencies {
             provide<QueueSpecificService> { QueueSpecificServiceImpl() }
         }
@@ -37,6 +45,18 @@ class MyWorkflow {
         // use services...
     }
 }
+
+// or
+
+@Workflow("MyWorkflow")
+class MyWorkflow {
+    @WorkflowRun
+    suspend fun execute(arg: WorkflowArg): String {
+        val service: SomeService by workflow().dependencies
+        // use services...
+    }
+}
+```
 ```
 
 ## Scope Considerations

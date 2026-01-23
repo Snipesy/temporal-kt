@@ -1,8 +1,11 @@
 package com.surrealdev.temporal.core
 
-import com.surrealdev.temporal.core.internal.CallbackArena
+import com.surrealdev.temporal.core.internal.CallbackDispatcher
+import kotlinx.coroutines.suspendCancellableCoroutine
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import com.surrealdev.temporal.core.internal.TemporalCoreWorker as InternalWorker
 
 /**
@@ -38,6 +41,16 @@ data class WorkerConfig(
     val enableActivities: Boolean = true,
     val enableNexus: Boolean = false,
     val deploymentOptions: CoreWorkerDeploymentOptions? = null,
+    /**
+     * Maximum number of concurrent workflow task executions.
+     * Controls the Core SDK's workflow slot supplier.
+     */
+    val maxConcurrentWorkflowTasks: Int = 100,
+    /**
+     * Maximum number of concurrent activity executions.
+     * Controls the Core SDK's activity slot supplier.
+     */
+    val maxConcurrentActivities: Int = 100,
 )
 
 /**
@@ -68,6 +81,7 @@ class TemporalWorker private constructor(
     private val runtimePtr: MemorySegment,
     private val arena: Arena,
     private val callbackArena: Arena,
+    private val dispatcher: CallbackDispatcher,
     val taskQueue: String,
     val namespace: String,
 ) : AutoCloseable {
@@ -101,6 +115,7 @@ class TemporalWorker private constructor(
 
             val arena = Arena.ofShared()
             val callbackArena = Arena.ofShared()
+            val dispatcher = CallbackDispatcher(callbackArena, runtime.handle)
 
             return try {
                 val workerPtr =
@@ -114,16 +129,20 @@ class TemporalWorker private constructor(
                         activities = config.enableActivities,
                         nexus = config.enableNexus,
                         deploymentOptions = config.deploymentOptions,
+                        maxConcurrentWorkflowTasks = config.maxConcurrentWorkflowTasks,
+                        maxConcurrentActivities = config.maxConcurrentActivities,
                     )
                 TemporalWorker(
                     handle = workerPtr,
                     runtimePtr = runtime.handle,
                     arena = arena,
                     callbackArena = callbackArena,
+                    dispatcher = dispatcher,
                     taskQueue = taskQueue,
                     namespace = namespace,
                 )
             } catch (e: Exception) {
+                dispatcher.close()
                 callbackArena.close()
                 arena.close()
                 when (e) {
@@ -158,6 +177,7 @@ class TemporalWorker private constructor(
      * Polls for a workflow activation.
      *
      * This method suspends until a workflow activation is available or shutdown is complete.
+     * Uses reusable callback stubs for better performance.
      *
      * @return The workflow activation protobuf bytes, or null if shutdown is complete
      * @throws TemporalCoreException if polling fails
@@ -165,8 +185,19 @@ class TemporalWorker private constructor(
     suspend fun pollWorkflowActivation(): ByteArray? {
         ensureOpen()
         return try {
-            CallbackArena.withExternalArenaResult(callbackArena) { arena, callback ->
-                InternalWorker.pollWorkflowActivation(handle, arena, runtimePtr, callback)
+            suspendCancellableCoroutine { continuation ->
+                val callback =
+                    InternalWorker.PollCallback { data, error ->
+                        when {
+                            error != null -> continuation.resumeWithException(TemporalCoreException(error))
+                            else -> continuation.resume(data)
+                        }
+                    }
+                val contextPtr = InternalWorker.pollWorkflowActivation(handle, dispatcher, callback)
+                val contextId = dispatcher.getContextId(contextPtr)
+                continuation.invokeOnCancellation {
+                    dispatcher.cancelPoll(contextId)
+                }
             }
         } catch (e: TemporalCoreException) {
             // Treat shutdown errors as normal completion
@@ -178,9 +209,7 @@ class TemporalWorker private constructor(
      * Polls for an activity task.
      *
      * This method suspends until an activity task is available or shutdown is complete.
-     *
-     * Uses a long-lived arena because Rust spawns async tasks that hold the callback
-     * pointer, which may complete much later than when this function is called.
+     * Uses reusable callback stubs for better performance.
      *
      * @return The activity task protobuf bytes, or null if shutdown is complete
      * @throws TemporalCoreException if polling fails
@@ -188,8 +217,19 @@ class TemporalWorker private constructor(
     suspend fun pollActivityTask(): ByteArray? {
         ensureOpen()
         return try {
-            CallbackArena.withExternalArenaResult(callbackArena) { arena, callback ->
-                InternalWorker.pollActivityTask(handle, arena, runtimePtr, callback)
+            suspendCancellableCoroutine { continuation ->
+                val callback =
+                    InternalWorker.PollCallback { data, error ->
+                        when {
+                            error != null -> continuation.resumeWithException(TemporalCoreException(error))
+                            else -> continuation.resume(data)
+                        }
+                    }
+                val contextPtr = InternalWorker.pollActivityTask(handle, dispatcher, callback)
+                val contextId = dispatcher.getContextId(contextPtr)
+                continuation.invokeOnCancellation {
+                    dispatcher.cancelPoll(contextId)
+                }
             }
         } catch (e: TemporalCoreException) {
             // Treat shutdown errors as normal completion
@@ -199,27 +239,77 @@ class TemporalWorker private constructor(
 
     /**
      * Completes a workflow activation.
+     * Uses reusable callback stubs for better performance.
      *
      * @param completion The completion protobuf bytes
      * @throws TemporalCoreException if completion fails
      */
     suspend fun completeWorkflowActivation(completion: ByteArray) {
         ensureOpen()
-        CallbackArena.withCompletion { arena, callback ->
-            InternalWorker.completeWorkflowActivation(handle, arena, runtimePtr, completion, callback)
+        val dataArena = Arena.ofShared()
+        try {
+            suspendCancellableCoroutine { continuation ->
+                val callback =
+                    InternalWorker.WorkerCallback { error ->
+                        if (error != null) {
+                            continuation.resumeWithException(TemporalCoreException(error))
+                        } else {
+                            continuation.resume(Unit)
+                        }
+                    }
+                val contextPtr =
+                    InternalWorker.completeWorkflowActivation(
+                        handle,
+                        dataArena,
+                        dispatcher,
+                        completion,
+                        callback,
+                    )
+                val contextId = dispatcher.getContextId(contextPtr)
+                continuation.invokeOnCancellation {
+                    dispatcher.cancelWorker(contextId)
+                }
+            }
+        } finally {
+            dataArena.close()
         }
     }
 
     /**
      * Completes an activity task.
+     * Uses reusable callback stubs for better performance.
      *
      * @param completion The completion protobuf bytes
      * @throws TemporalCoreException if completion fails
      */
     suspend fun completeActivityTask(completion: ByteArray) {
         ensureOpen()
-        CallbackArena.withCompletion { arena, callback ->
-            InternalWorker.completeActivityTask(handle, arena, runtimePtr, completion, callback)
+        val dataArena = Arena.ofShared()
+        try {
+            suspendCancellableCoroutine { continuation ->
+                val callback =
+                    InternalWorker.WorkerCallback { error ->
+                        if (error != null) {
+                            continuation.resumeWithException(TemporalCoreException(error))
+                        } else {
+                            continuation.resume(Unit)
+                        }
+                    }
+                val contextPtr =
+                    InternalWorker.completeActivityTask(
+                        handle,
+                        dataArena,
+                        dispatcher,
+                        completion,
+                        callback,
+                    )
+                val contextId = dispatcher.getContextId(contextPtr)
+                continuation.invokeOnCancellation {
+                    dispatcher.cancelWorker(contextId)
+                }
+            }
+        } finally {
+            dataArena.close()
         }
     }
 
@@ -263,6 +353,7 @@ class TemporalWorker private constructor(
 
     /**
      * Waits for the worker to fully shut down.
+     * Uses reusable callback stubs for better performance.
      *
      * This should be called after [initiateShutdown] and after all poll
      * methods have returned null.
@@ -270,8 +361,20 @@ class TemporalWorker private constructor(
      * @throws TemporalCoreException if shutdown fails
      */
     suspend fun awaitShutdown() {
-        CallbackArena.withCompletion { arena, callback ->
-            InternalWorker.finalizeShutdown(handle, arena, runtimePtr, callback)
+        suspendCancellableCoroutine { continuation ->
+            val callback =
+                InternalWorker.WorkerCallback { error ->
+                    if (error != null) {
+                        continuation.resumeWithException(TemporalCoreException(error))
+                    } else {
+                        continuation.resume(Unit)
+                    }
+                }
+            val contextPtr = InternalWorker.finalizeShutdown(handle, dispatcher, callback)
+            val contextId = dispatcher.getContextId(contextPtr)
+            continuation.invokeOnCancellation {
+                dispatcher.cancelWorker(contextId)
+            }
         }
     }
 
@@ -287,6 +390,7 @@ class TemporalWorker private constructor(
             if (closed) return
             closed = true
             InternalWorker.freeWorker(handle)
+            dispatcher.close()
             arena.close()
             callbackArena.close()
         }

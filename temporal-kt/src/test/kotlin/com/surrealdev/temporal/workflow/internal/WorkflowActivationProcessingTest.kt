@@ -10,6 +10,7 @@ import com.surrealdev.temporal.testing.ProtoTestHelpers.queryWorkflowJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.removeFromCacheJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.signalWorkflowJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.timestamp
+import com.surrealdev.temporal.testing.createTestWorkflowExecutor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
@@ -54,7 +55,7 @@ class WorkflowActivationProcessingTest {
                         ),
                 )
 
-            val completion = executor.activate(activation, scope)
+            val completion = executor.activate(activation)
 
             // Should return a successful completion (early exit)
             assertTrue(completion.hasSuccessful())
@@ -139,7 +140,7 @@ class WorkflowActivationProcessingTest {
                         ),
                 )
 
-            val completion = executor.activate(activation, scope)
+            val completion = executor.activate(activation)
 
             // Should complete successfully
             assertTrue(completion.hasSuccessful())
@@ -452,7 +453,7 @@ class WorkflowActivationProcessingTest {
                     runId = runId,
                     jobs = listOf(initializeWorkflowJob(workflowType = "TestWorkflow")),
                 )
-            executor.activate(initActivation, scope)
+            executor.activate(initActivation)
 
             // Then send cancel
             val cancelActivation =
@@ -461,7 +462,7 @@ class WorkflowActivationProcessingTest {
                     jobs = listOf(cancelWorkflowJob()),
                 )
 
-            val completion = executor.activate(cancelActivation, scope)
+            val completion = executor.activate(cancelActivation)
 
             // Should complete (cancel request is processed)
             assertTrue(completion.hasSuccessful())
@@ -502,7 +503,7 @@ class WorkflowActivationProcessingTest {
                     jobs = emptyList(),
                 )
 
-            val completion = executor.activate(activation, scope)
+            val completion = executor.activate(activation)
 
             assertTrue(completion.hasSuccessful())
             assertEquals(0, completion.successful.commandsCount)
@@ -532,12 +533,6 @@ class WorkflowActivationProcessingTest {
                 isSuspend = false,
             )
 
-        return WorkflowExecutor(
-            runId = "test-run-id",
-            methodInfo = workflowMethodInfo,
-            serializer = KotlinxJsonSerializer(),
-            taskQueue = "test-task-queue",
-            namespace = "default",
-        )
+        return createTestWorkflowExecutor(methodInfo = workflowMethodInfo)
     }
 }

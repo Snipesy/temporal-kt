@@ -1,12 +1,16 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.serialization.PayloadSerializer
+import com.surrealdev.temporal.util.AttributeScope
 import coresdk.workflow_activation.WorkflowActivationOuterClass.WorkflowActivation
 import coresdk.workflow_completion.WorkflowCompletion
 import io.temporal.api.failure.v1.Failure
-import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
+import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -18,9 +22,11 @@ import java.util.concurrent.ConcurrentHashMap
  * - Routes activations to existing executors for ongoing workflows
  * - Handles eviction/removal of executors from the cache
  * - Enforces concurrency limits via semaphore
+ * - Serializes activations per run_id via per-executor mutex
  *
  * Thread safety: The dispatcher is designed for concurrent access.
- * Individual workflow executors are processed sequentially (one activation at a time).
+ * Different workflow runs can be processed in parallel (up to maxConcurrent).
+ * Individual workflow executors are processed sequentially via mutex (one activation at a time per run_id).
  */
 internal class WorkflowDispatcher(
     private val registry: WorkflowRegistry,
@@ -28,53 +34,106 @@ internal class WorkflowDispatcher(
     private val taskQueue: String,
     private val namespace: String,
     maxConcurrent: Int,
+    /**
+     * The task queue scope for hierarchical attribute lookup.
+     * Its parentScope should be the application.
+     */
+    private val taskQueueScope: AttributeScope,
+    /**
+     * Parent job for structured concurrency.
+     * All workflow executors will be children of this job (rootExecutorJob).
+     */
+    private val parentJob: Job,
 ) {
+    private val logger = LoggerFactory.getLogger(WorkflowDispatcher::class.java)
+
     private val semaphore = Semaphore(maxConcurrent)
 
     /**
-     * Cache of workflow executors by run_id.
+     * Entry containing the executor and its per-run mutex.
+     * The mutex ensures activations for the same run_id are processed sequentially,
+     * even if the Core SDK or polling somehow sends concurrent activations (defensive).
+     */
+    private data class ExecutorEntry(
+        val executor: WorkflowExecutor,
+        val mutex: Mutex = Mutex(),
+    )
+
+    /**
+     * Cache of workflow executor entries by run_id.
      * Workflow runs can span multiple activations, so we cache executors.
      */
-    private val executors = ConcurrentHashMap<String, WorkflowExecutor>()
+    private val executors = ConcurrentHashMap<String, ExecutorEntry>()
 
     /**
      * Dispatches a workflow activation to the appropriate executor.
      *
+     * This method is safe to call concurrently for different workflow runs.
+     * Activations for the same run_id are serialized via a per-run mutex.
+     *
      * @param activation The workflow activation from the Temporal server
-     * @param scope The coroutine scope for workflow execution
      * @return The completion to send back to the server
      */
-    suspend fun dispatch(
-        activation: WorkflowActivation,
-        scope: CoroutineScope,
-    ): WorkflowCompletion.WorkflowActivationCompletion {
+    suspend fun dispatch(activation: WorkflowActivation): WorkflowCompletion.WorkflowActivationCompletion {
         val runId = activation.runId
 
         // Handle eviction (remove from cache)
         if (isEviction(activation)) {
-            executors.remove(runId)
+            val entry = executors.remove(runId)
+            entry?.let {
+                it.mutex.withLock {
+                    it.executor.terminateWorkflowExecutionJob()
+                }
+            }
             return buildEmptyCompletion(runId)
         }
 
         return semaphore.withPermit {
-            dispatchInternal(activation, scope)
+            dispatchInternal(activation)
         }
     }
 
     private suspend fun dispatchInternal(
         activation: WorkflowActivation,
-        scope: CoroutineScope,
     ): WorkflowCompletion.WorkflowActivationCompletion {
         val runId = activation.runId
+        val hasInitJob = activation.jobsList.any { it.hasInitializeWorkflow() }
 
-        // Get or create executor
-        val executor =
+        // Get or create executor entry
+        val entry =
             executors.getOrPut(runId) {
-                createExecutor(activation) ?: return buildNotFoundFailure(activation)
+                if (!hasInitJob) {
+                    // No executor and no init job - workflow was unexpectedly evicted
+                    logger.warn(
+                        "Received activation for unknown workflow run_id={} without init job. " +
+                            "Workflow may have been unexpectedly evicted from cache.",
+                        runId,
+                    )
+                    return buildUnexpectedEvictionFailure(activation)
+                }
+                createExecutorEntry(activation) ?: return buildNotFoundFailure(activation)
             }
 
-        // Process the activation
-        return executor.activate(activation, scope)
+        // Warn if we got an init job for an already-cached workflow (shouldn't happen)
+        if (hasInitJob && executors.containsKey(runId)) {
+            val existingEntry = executors[runId]
+            if (existingEntry != null && existingEntry !== entry) {
+                logger.warn(
+                    "Received init job for workflow that already exists in cache. run_id={}",
+                    runId,
+                )
+            }
+        }
+
+        // Serialize activations for this run_id using the per-executor mutex
+        return entry.mutex.withLock {
+            entry.executor.activate(activation)
+        }
+    }
+
+    private fun createExecutorEntry(activation: WorkflowActivation): ExecutorEntry? {
+        val executor = createExecutor(activation) ?: return null
+        return ExecutorEntry(executor)
     }
 
     private fun createExecutor(activation: WorkflowActivation): WorkflowExecutor? {
@@ -95,6 +154,8 @@ internal class WorkflowDispatcher(
             serializer = serializer,
             taskQueue = taskQueue,
             namespace = namespace,
+            taskQueueScope = taskQueueScope,
+            parentJob = parentJob,
         )
     }
 
@@ -133,11 +194,38 @@ internal class WorkflowDispatcher(
             ).build()
     }
 
+    private fun buildUnexpectedEvictionFailure(
+        activation: WorkflowActivation,
+    ): WorkflowCompletion.WorkflowActivationCompletion {
+        val failure =
+            Failure
+                .newBuilder()
+                .setMessage(
+                    "Workflow not found in cache (may have been unexpectedly evicted). " +
+                        "run_id=${activation.runId}",
+                ).setSource("Kotlin")
+                .build()
+
+        return WorkflowCompletion.WorkflowActivationCompletion
+            .newBuilder()
+            .setRunId(activation.runId)
+            .setFailed(
+                WorkflowCompletion.Failure
+                    .newBuilder()
+                    .setFailure(failure),
+            ).build()
+    }
+
     /**
-     * Removes all cached executors.
+     * Removes all cached executors and cancels their execution jobs.
      * Called during worker shutdown.
      */
-    fun clear() {
+    suspend fun clear() {
+        executors.values.forEach { entry ->
+            entry.mutex.withLock {
+                entry.executor.terminateWorkflowExecutionJob()
+            }
+        }
         executors.clear()
     }
 

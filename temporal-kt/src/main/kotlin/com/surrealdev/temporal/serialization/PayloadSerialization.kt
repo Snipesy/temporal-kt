@@ -1,10 +1,10 @@
 package com.surrealdev.temporal.serialization
 
 import com.surrealdev.temporal.annotation.TemporalDsl
-import com.surrealdev.temporal.application.PluginKey
 import com.surrealdev.temporal.application.TemporalApplication
-import com.surrealdev.temporal.application.TemporalPlugin
-import com.surrealdev.temporal.application.TemporalPluginFactory
+import com.surrealdev.temporal.application.plugin.ApplicationPlugin
+import com.surrealdev.temporal.application.plugin.pluginOrNull
+import com.surrealdev.temporal.util.AttributeKey
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonBuilder
 
@@ -43,11 +43,7 @@ class PayloadSerializationPlugin internal constructor(
      * The configured [PayloadSerializer] for the application.
      */
     val serializer: PayloadSerializer,
-) : TemporalPlugin {
-    override val key: PluginKey<PayloadSerializationPlugin> = Key
-
-    companion object Key : PluginKey<PayloadSerializationPlugin>("PayloadSerialization")
-}
+)
 
 /**
  * Configuration DSL for [PayloadSerialization].
@@ -104,9 +100,16 @@ class PayloadSerializationConfig {
 /**
  * Factory for creating the [PayloadSerialization] plugin.
  */
-object PayloadSerialization : TemporalPluginFactory<PayloadSerializationConfig, PayloadSerializationPlugin> {
-    override fun create(configure: PayloadSerializationConfig.() -> Unit): PayloadSerializationPlugin =
-        PayloadSerializationConfig().apply(configure).build()
+object PayloadSerialization : ApplicationPlugin<PayloadSerializationConfig, PayloadSerializationPlugin> {
+    override val key: AttributeKey<PayloadSerializationPlugin> = AttributeKey(name = "PayloadSerialization")
+
+    override fun install(
+        pipeline: TemporalApplication,
+        configure: PayloadSerializationConfig.() -> Unit,
+    ): PayloadSerializationPlugin {
+        val config = PayloadSerializationConfig().apply(configure)
+        return config.build()
+    }
 }
 
 /**
@@ -116,13 +119,10 @@ object PayloadSerialization : TemporalPluginFactory<PayloadSerializationConfig, 
  *
  * @return The configured [PayloadSerializer]
  */
-fun TemporalApplication.payloadSerializer(): PayloadSerializer {
-    val plugin = plugins.filterIsInstance<PayloadSerializationPlugin>().firstOrNull()
-    return plugin?.serializer ?: KotlinxJsonSerializer.default()
-}
+fun TemporalApplication.payloadSerializer(): PayloadSerializer =
+    pluginOrNull(PayloadSerialization)?.serializer ?: KotlinxJsonSerializer.default()
 
 /**
  * Gets the [PayloadSerializationPlugin] if installed, or null.
  */
-fun TemporalApplication.payloadSerializationOrNull(): PayloadSerializationPlugin? =
-    plugins.filterIsInstance<PayloadSerializationPlugin>().firstOrNull()
+fun TemporalApplication.payloadSerializationOrNull(): PayloadSerializationPlugin? = pluginOrNull(PayloadSerialization)

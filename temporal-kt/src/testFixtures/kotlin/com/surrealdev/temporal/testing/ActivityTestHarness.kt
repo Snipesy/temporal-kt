@@ -6,15 +6,21 @@ import com.surrealdev.temporal.activity.internal.ActivityRegistry
 import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.annotation.TemporalDsl
 import com.surrealdev.temporal.application.ActivityRegistration
+import com.surrealdev.temporal.application.TemporalApplication
 import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
 import com.surrealdev.temporal.serialization.PayloadSerializer
+import com.surrealdev.temporal.util.Attributes
+import com.surrealdev.temporal.util.SimpleAttributeScope
 import coresdk.activity_task.ActivityTaskOuterClass
 import coresdk.activity_task.activityTask
 import coresdk.activity_task.start
 import io.temporal.api.common.v1.Payload
 import io.temporal.api.common.v1.WorkflowExecution
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.TestResult
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.reflect.KType
 import kotlin.time.Duration.Companion.seconds
@@ -71,6 +77,14 @@ class ActivityTestHarness(
      * Defaults to [KotlinxJsonSerializer].
      */
     val serializer: PayloadSerializer = KotlinxJsonSerializer(),
+    /**
+     * The dispatcher to use for activity execution.
+     *
+     * Defaults to [Dispatchers.Unconfined] for immediate, predictable execution in tests.
+     * Can be set to a [kotlinx.coroutines.test.StandardTestDispatcher] for controlled
+     * time advancement in tests.
+     */
+    val dispatcher: CoroutineDispatcher = Dispatchers.Unconfined,
 ) {
     private val registry = ActivityRegistry()
     private val _heartbeats = mutableListOf<HeartbeatRecord>()
@@ -79,7 +93,23 @@ class ActivityTestHarness(
     @Volatile
     private var _isCancellationRequested = false
 
-    private val dispatcher =
+    // Create a stub application for testing (DI not supported in activity test harness)
+    private val stubApplication =
+        TemporalApplication {
+            connection {
+                target = "http://localhost:7233"
+                namespace = "test"
+            }
+        }
+
+    // Create a scope hierarchy for testing (taskQueue -> application)
+    private val taskQueueScope =
+        SimpleAttributeScope(
+            attributes = Attributes(concurrent = false),
+            parentScope = stubApplication,
+        )
+
+    private val activityDispatcher =
         ActivityDispatcher(
             registry = registry,
             serializer = serializer,
@@ -93,6 +123,7 @@ class ActivityTestHarness(
                 }
                 _heartbeats.add(HeartbeatRecord(taskToken, details))
             },
+            taskQueueScope = taskQueueScope,
         )
 
     /**
@@ -151,12 +182,14 @@ class ActivityTestHarness(
         // Build activity task
         val task = buildActivityTask(activityType, args)
 
-        // Dispatch using real dispatcher
+        // Dispatch using real dispatcher, wrapped with configured test dispatcher
         // The test harness only sends Start tasks
         // Cancellation in tests is handled via the heartbeat mechanism
         val completion =
-            dispatcher.dispatch(task)
-                ?: error("Unexpected null completion - test harness only sends Start tasks")
+            withContext(dispatcher) {
+                activityDispatcher.dispatch(task)
+                    ?: error("Unexpected null completion - test harness only sends Start tasks")
+            }
 
         // Extract result
         val executionResult = completion.result
@@ -346,5 +379,26 @@ fun runActivityTest(
 ): TestResult =
     runTest(timeout = 60.seconds) {
         val harness = ActivityTestHarness(serializer = serializer)
+        harness.block()
+    }
+
+/**
+ * Runs an activity test with a custom dispatcher.
+ *
+ * Use this overload when you need precise control over activity thread execution,
+ * such as using a [kotlinx.coroutines.test.StandardTestDispatcher] for
+ * controlled time advancement.
+ *
+ * @param dispatcher The dispatcher to use for activity execution
+ * @param serializer The serializer to use (defaults to [KotlinxJsonSerializer])
+ * @param block The test block that configures the harness and runs assertions
+ */
+fun runActivityTest(
+    dispatcher: CoroutineDispatcher,
+    serializer: PayloadSerializer = KotlinxJsonSerializer(),
+    block: suspend ActivityTestHarness.() -> Unit,
+): TestResult =
+    runTest(timeout = 60.seconds) {
+        val harness = ActivityTestHarness(serializer = serializer, dispatcher = dispatcher)
         harness.block()
     }

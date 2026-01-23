@@ -74,7 +74,7 @@ git submodule update --init --recursive
 
 The core foundation of temporal-kt is built around 2 APIs, Declarative and Imperative (although they work together).
 
-### Imperative API [TKT-0001](proposals/TKT-0001-annotations.md) and [TKT-0002](proposals/TKT-0002-interfaces.md)
+### Imperative API [TKT-0001](docs/proposals/TKT-0001-annotations.md) and [TKT-0002](docs/proposals/TKT-0002-interfaces.md)
 
 ```kotlin
 @Workflow("MyWorkflow")
@@ -100,7 +100,7 @@ fun TemporalApplication.module() {
 }
 ```
 
-### Declarative API [TKT-0003](proposals/TKT-0003-inline.md)
+### Declarative API [TKT-0003](docs/proposals/TKT-0003-inline.md)
 
 ```kotlin
 fun TemporalApplication.module() {
@@ -122,22 +122,22 @@ The main goal of this project is to provide powerful kotlin-first APIs to develo
 
 These niceties are collected in various TKT (Temporal Kotlin) proposals.
 
-See [proposals/](proposals/) for API design proposals:
+See [proposals/](docs/proposals/) for API design proposals:
 
 | Proposal | Description |
 |----------|-------------|
-| [TKT-0001](proposals/TKT-0001-annotations.md) | Annotation-based definitions (primary) |
-| [TKT-0002](proposals/TKT-0002-interfaces.md) | Interface-based definitions (interop) |
-| [TKT-0003](proposals/TKT-0003-inline.md) | Inline declarative definitions |
-| [TKT-0004](proposals/TKT-0004-dependency-injection.md) | Dependency injection |
-| [TKT-0005](proposals/TKT-0005-modules.md) | Module registration |
-| [TKT-0006](proposals/TKT-0006-dsl-scope.md) | DSL scope safety |
-| [TKT-0007](proposals/TKT-0007-determinism.md) | Determinism checks |
-| [TKT-0008](proposals/TKT-0008-non-suspending.md) | Non-suspending annotations/interfaces |
-| [TKT-0009](proposals/TKT-0009-routing.md) | Routing |
-| [TKT-0010](proposals/TKT-0010-testing.md) | Test application environment |
-| [TKT-0011](proposals/TKT-0011-payload-codec.md) | Payload codec (encryption/compression) |
-| [TKT-0012](proposals/TKT-0012-payload-serializer.md) | Payload serializer |
-| [TKT-0013](proposals/TKT-0013-ktor-subroutine.md) | Ktor subroutine (unified JAR) |
-| [TKT-0014](proposals/TKT-0014-coroutine-scopes.md) | Coroutine scope management |
-| [TKT-0015](proposals/TKT-0015-context-resolution.md) | Workflow context resolution |
+| [TKT-0001](docs/proposals/TKT-0001-annotations.md) | Annotation-based definitions (primary) |
+| [TKT-0002](docs/proposals/TKT-0002-interfaces.md) | Interface-based definitions (interop) |
+| [TKT-0003](docs/proposals/TKT-0003-inline.md) | Inline declarative definitions |
+| [TKT-0004](docs/proposals/TKT-0004-dependency-injection.md) | Dependency injection |
+| [TKT-0005](docs/proposals/TKT-0005-modules.md) | Module registration |
+| [TKT-0006](docs/proposals/TKT-0006-dsl-scope.md) | DSL scope safety |
+| [TKT-0007](docs/proposals/TKT-0007-determinism.md) | Determinism checks |
+| [TKT-0008](docs/proposals/TKT-0008-non-suspending.md) | Non-suspending annotations/interfaces |
+| [TKT-0009](docs/proposals/TKT-0009-routing.md) | Routing |
+| [TKT-0010](docs/proposals/TKT-0010-testing.md) | Test application environment |
+| [TKT-0011](docs/proposals/TKT-0011-payload-codec.md) | Payload codec (encryption/compression) |
+| [TKT-0012](docs/proposals/TKT-0012-payload-serializer.md) | Payload serializer |
+| [TKT-0013](docs/proposals/TKT-0013-ktor-subroutine.md) | Ktor subroutine (unified JAR) |
+| [TKT-0014](docs/proposals/TKT-0014-coroutine-scopes.md) | Coroutine scope management |
+| [TKT-0015](docs/proposals/TKT-0015-context-resolution.md) | Workflow context resolution |

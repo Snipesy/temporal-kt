@@ -1,6 +1,8 @@
 package com.surrealdev.temporal.testing
 
 import com.surrealdev.temporal.annotation.TemporalDsl
+import com.surrealdev.temporal.application.ShutdownConfig
+import com.surrealdev.temporal.application.ShutdownConfigBuilder
 import com.surrealdev.temporal.application.TemporalApplication
 import com.surrealdev.temporal.application.TemporalApplicationBuilder
 import com.surrealdev.temporal.application.VersioningBehavior
@@ -12,9 +14,11 @@ import com.surrealdev.temporal.core.EphemeralServer
 import com.surrealdev.temporal.core.TemporalDevServer
 import com.surrealdev.temporal.core.TemporalRuntime
 import com.surrealdev.temporal.core.TemporalTestServer
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.TestResult
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
@@ -69,6 +73,7 @@ class TemporalTestApplicationBuilder internal constructor(
     private var _application: TemporalApplication? = null
     private var configured = false
     private var deploymentOptions: WorkerDeploymentOptions? = null
+    private var shutdownConfig: ShutdownConfig = ShutdownConfig()
 
     /**
      * The test server instance, if time-skipping is enabled.
@@ -98,6 +103,18 @@ class TemporalTestApplicationBuilder internal constructor(
     }
 
     /**
+     * Configures shutdown behavior for the test application.
+     *
+     * This must be called before [application] to take effect.
+     *
+     * @param block Configuration block using [ShutdownConfigBuilder] DSL
+     */
+    fun shutdown(block: ShutdownConfigBuilder.() -> Unit) {
+        check(!configured) { "shutdown() must be called before application()" }
+        shutdownConfig = ShutdownConfigBuilder().apply(block).build()
+    }
+
+    /**
      * Configures and starts the Temporal application.
      *
      * This must be called before accessing [client] or other application features.
@@ -119,6 +136,12 @@ class TemporalTestApplicationBuilder internal constructor(
         // Apply deployment options if configured
         deploymentOptions?.let { options ->
             appBuilder.deployment(options.version, options.useWorkerVersioning)
+        }
+
+        // Apply shutdown config
+        appBuilder.shutdown {
+            gracePeriodMs = this@TemporalTestApplicationBuilder.shutdownConfig.gracePeriodMs
+            forceTimeoutMs = this@TemporalTestApplicationBuilder.shutdownConfig.forceTimeoutMs
         }
 
         _application = appBuilder.build()
@@ -284,6 +307,9 @@ fun runTemporalTest(
 /**
  * Runs a test with an ephemeral Temporal dev server.
  *
+ * Uses real time (not virtual time) to avoid issues with timeouts completing instantly
+ * in the test dispatcher against the Core SDK.
+ *
  * @param parentCoroutineContext Additional coroutine context elements
  * @param timeSkipping If true, starts a test server that automatically skips time
  * @param block The test block with application configuration and test code
@@ -294,7 +320,12 @@ fun runTemporalTest(
     block: suspend TemporalTestApplicationBuilder.() -> Unit,
 ): TestResult =
     runTest(context = parentCoroutineContext, timeout = 60.seconds) {
-        runTestApplication(parentCoroutineContext, timeSkipping, block)
+        // Use real time dispatcher to avoid virtual time issues with timeouts
+        // (similar to Ktor's runTestWithRealTime)
+        // if we don't do this then we can run info FFM issues
+        withContext(Dispatchers.Default.limitedParallelism(1)) {
+            runTestApplication(parentCoroutineContext, timeSkipping, block)
+        }
     }
 
 /**

@@ -1,11 +1,11 @@
 package com.surrealdev.temporal.workflow.internal
 
-import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
 import com.surrealdev.temporal.testing.ProtoTestHelpers.createActivation
 import com.surrealdev.temporal.testing.ProtoTestHelpers.fireTimerJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.initializeWorkflowJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.timestamp
 import com.surrealdev.temporal.testing.ProtoTestHelpers.updateRandomSeedJob
+import com.surrealdev.temporal.testing.createTestWorkflowExecutor
 import coresdk.workflow_commands.WorkflowCommands.WorkflowCommand
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -264,7 +264,7 @@ class ActivationReplayDeterminismTest {
                     runId = runId,
                     jobs = listOf(initializeWorkflowJob(workflowType = "TestWorkflow", randomnessSeed = 111L)),
                 )
-            executor.activate(initActivation, scope)
+            executor.activate(initActivation)
 
             // Update random seed
             val seedActivation =
@@ -272,7 +272,7 @@ class ActivationReplayDeterminismTest {
                     runId = runId,
                     jobs = listOf(updateRandomSeedJob(seed = 999L)),
                 )
-            val completion = executor.activate(seedActivation, scope)
+            val completion = executor.activate(seedActivation)
 
             // Should complete successfully
             assertTrue(completion.hasSuccessful())
@@ -380,7 +380,7 @@ class ActivationReplayDeterminismTest {
                     runId = runId,
                     jobs = listOf(initializeWorkflowJob(workflowType = "TestWorkflow")),
                 )
-            val initCompletion = executor.activate(initActivation, scope)
+            val initCompletion = executor.activate(initActivation)
             assertTrue(initCompletion.hasSuccessful())
 
             // Fire timers in sequence (simulating replay)
@@ -390,7 +390,7 @@ class ActivationReplayDeterminismTest {
                     jobs = listOf(fireTimerJob(1)),
                     isReplaying = true,
                 )
-            val fireCompletion = executor.activate(fireTimerActivation, scope)
+            val fireCompletion = executor.activate(fireTimerActivation)
             assertTrue(fireCompletion.hasSuccessful())
         }
 
@@ -418,12 +418,6 @@ class ActivationReplayDeterminismTest {
                 isSuspend = false,
             )
 
-        return WorkflowExecutor(
-            runId = "test-run-id",
-            methodInfo = workflowMethodInfo,
-            serializer = KotlinxJsonSerializer(),
-            taskQueue = "test-task-queue",
-            namespace = "default",
-        )
+        return createTestWorkflowExecutor(methodInfo = workflowMethodInfo)
     }
 }

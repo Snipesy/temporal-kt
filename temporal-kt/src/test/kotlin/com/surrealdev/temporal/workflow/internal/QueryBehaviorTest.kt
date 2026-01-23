@@ -4,6 +4,7 @@ import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
 import com.surrealdev.temporal.testing.ProtoTestHelpers.createActivation
 import com.surrealdev.temporal.testing.ProtoTestHelpers.initializeWorkflowJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.queryWorkflowJob
+import com.surrealdev.temporal.testing.createTestWorkflowExecutor
 import coresdk.workflow_commands.WorkflowCommands.WorkflowCommand
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -226,7 +227,7 @@ class QueryBehaviorTest {
                     runId = runId,
                     jobs = listOf(initializeWorkflowJob(workflowType = "TestWorkflow")),
                 )
-            executor.activate(initActivation, scope)
+            executor.activate(initActivation)
 
             // Process multiple queries in one activation
             val queryActivation =
@@ -239,7 +240,7 @@ class QueryBehaviorTest {
                             queryWorkflowJob(queryType = "query3"),
                         ),
                 )
-            val completion = executor.activate(queryActivation, scope)
+            val completion = executor.activate(queryActivation)
 
             // All queries should process successfully in read-only mode
             assertTrue(completion.hasSuccessful())
@@ -258,7 +259,7 @@ class QueryBehaviorTest {
                     runId = runId,
                     jobs = listOf(initializeWorkflowJob(workflowType = "TestWorkflow")),
                 )
-            executor.activate(initActivation, scope)
+            executor.activate(initActivation)
 
             // Process query separately
             val queryActivation =
@@ -266,7 +267,7 @@ class QueryBehaviorTest {
                     runId = runId,
                     jobs = listOf(queryWorkflowJob(queryType = "getState")),
                 )
-            val completion = executor.activate(queryActivation, scope)
+            val completion = executor.activate(queryActivation)
 
             assertTrue(completion.hasSuccessful())
         }
@@ -366,12 +367,6 @@ class QueryBehaviorTest {
                 isSuspend = false,
             )
 
-        return WorkflowExecutor(
-            runId = "test-run-id",
-            methodInfo = workflowMethodInfo,
-            serializer = KotlinxJsonSerializer(),
-            taskQueue = "test-task-queue",
-            namespace = "default",
-        )
+        return createTestWorkflowExecutor(methodInfo = workflowMethodInfo)
     }
 }

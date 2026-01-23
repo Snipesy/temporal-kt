@@ -158,7 +158,10 @@ internal object CallbackArena {
      */
     suspend inline fun withCompletion(crossinline register: (Arena, callback: (String?) -> Unit) -> Unit): Unit =
         suspendCancellableCoroutine { continuation ->
-            val arena = Arena.ofAuto()
+            val arena = Arena.ofShared()
+            continuation.invokeOnCancellation {
+                arena.close()
+            }
             register(arena) { error ->
                 try {
                     if (error != null) {
@@ -193,6 +196,9 @@ internal object CallbackArena {
         return try {
             val result =
                 suspendCancellableCoroutine { continuation ->
+                    continuation.invokeOnCancellation {
+                        arena.close()
+                    }
                     register(arena) { result, error ->
                         try {
                             when {

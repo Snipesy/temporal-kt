@@ -13,13 +13,12 @@ import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveChildWorkflowExec
 import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveChildWorkflowStartCancelledJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveChildWorkflowStartFailedJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveChildWorkflowStartJob
+import com.surrealdev.temporal.testing.createTestWorkflowExecutor
 import com.surrealdev.temporal.workflow.ChildWorkflowHandle
 import com.surrealdev.temporal.workflow.ChildWorkflowOptions
 import com.surrealdev.temporal.workflow.ParentClosePolicy
 import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.startChildWorkflow
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
 import java.util.UUID
@@ -218,7 +217,7 @@ class ChildWorkflowTest {
                     runId = result.runId,
                     jobs = listOf(resolveChildWorkflowStartJob(seq = 1, runId = childRunId)),
                 )
-            result.executor.activate(startActivation, CoroutineScope(Dispatchers.Default))
+            result.executor.activate(startActivation)
 
             // Handle should now have the run ID
             assertNotNull(workflow.handle)
@@ -244,7 +243,7 @@ class ChildWorkflowTest {
                             ),
                         ),
                 )
-            val completion = result.executor.activate(startActivation, CoroutineScope(Dispatchers.Default))
+            val completion = result.executor.activate(startActivation)
 
             // Workflow should fail with FailWorkflowExecution command
             assertTrue(completion.hasSuccessful())
@@ -270,7 +269,7 @@ class ChildWorkflowTest {
                             ),
                         ),
                 )
-            val completion = result.executor.activate(startActivation, CoroutineScope(Dispatchers.Default))
+            val completion = result.executor.activate(startActivation)
 
             // Workflow should fail with FailWorkflowExecution command
             assertTrue(completion.hasSuccessful())
@@ -294,7 +293,7 @@ class ChildWorkflowTest {
                     runId = result.runId,
                     jobs = listOf(resolveChildWorkflowStartJob(seq = 1)),
                 )
-            result.executor.activate(startActivation, CoroutineScope(Dispatchers.Default))
+            result.executor.activate(startActivation)
 
             val resultPayload = serializer.serialize("child result")
             val execActivation =
@@ -302,7 +301,7 @@ class ChildWorkflowTest {
                     runId = result.runId,
                     jobs = listOf(resolveChildWorkflowExecutionJob(seq = 1, result = resultPayload)),
                 )
-            val completion = result.executor.activate(execActivation, CoroutineScope(Dispatchers.Default))
+            val completion = result.executor.activate(execActivation)
 
             assertTrue(completion.hasSuccessful())
             assertEquals("child result", workflow.childResult)
@@ -320,7 +319,7 @@ class ChildWorkflowTest {
                     runId = result.runId,
                     jobs = listOf(resolveChildWorkflowStartJob(seq = 1)),
                 )
-            result.executor.activate(startActivation, CoroutineScope(Dispatchers.Default))
+            result.executor.activate(startActivation)
 
             val execActivation =
                 createActivation(
@@ -333,7 +332,7 @@ class ChildWorkflowTest {
                             ),
                         ),
                 )
-            val completion = result.executor.activate(execActivation, CoroutineScope(Dispatchers.Default))
+            val completion = result.executor.activate(execActivation)
 
             // Workflow should fail with FailWorkflowExecution command
             assertTrue(completion.hasSuccessful())
@@ -353,7 +352,7 @@ class ChildWorkflowTest {
                     runId = result.runId,
                     jobs = listOf(resolveChildWorkflowStartJob(seq = 1)),
                 )
-            result.executor.activate(startActivation, CoroutineScope(Dispatchers.Default))
+            result.executor.activate(startActivation)
 
             val execActivation =
                 createActivation(
@@ -366,7 +365,7 @@ class ChildWorkflowTest {
                             ),
                         ),
                 )
-            val completion = result.executor.activate(execActivation, CoroutineScope(Dispatchers.Default))
+            val completion = result.executor.activate(execActivation)
 
             // Workflow should fail with FailWorkflowExecution command
             assertTrue(completion.hasSuccessful())
@@ -399,7 +398,7 @@ class ChildWorkflowTest {
 
             // Complete first child
             val start1 = createActivation(runId = result.runId, jobs = listOf(resolveChildWorkflowStartJob(seq = 1)))
-            result.executor.activate(start1, CoroutineScope(Dispatchers.Default))
+            result.executor.activate(start1)
 
             val result1 = serializer.serialize("result1")
             val exec1 =
@@ -407,7 +406,7 @@ class ChildWorkflowTest {
                     runId = result.runId,
                     jobs = listOf(resolveChildWorkflowExecutionJob(seq = 1, result = result1)),
                 )
-            val exec1Completion = result.executor.activate(exec1, CoroutineScope(Dispatchers.Default))
+            val exec1Completion = result.executor.activate(exec1)
 
             // Now second child should be started - get commands from the completion
             val commands = getCommandsFromCompletion(exec1Completion)
@@ -498,12 +497,10 @@ class ChildWorkflowTest {
         val runId = UUID.randomUUID().toString()
 
         val executor =
-            WorkflowExecutor(
+            createTestWorkflowExecutor(
                 runId = runId,
                 methodInfo = methodInfo,
                 serializer = serializer,
-                taskQueue = "test-task-queue",
-                namespace = "default",
             )
 
         // Initialize the workflow
@@ -512,7 +509,7 @@ class ChildWorkflowTest {
                 runId = runId,
                 jobs = listOf(initializeWorkflowJob(workflowType = workflowType)),
             )
-        val completion = executor.activate(initActivation, CoroutineScope(Dispatchers.Default))
+        val completion = executor.activate(initActivation)
 
         return ExecutorInitResult(executor, runId, completion)
     }

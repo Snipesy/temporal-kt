@@ -11,9 +11,8 @@ import com.surrealdev.temporal.serialization.serialize
 import com.surrealdev.temporal.testing.ProtoTestHelpers.createActivation
 import com.surrealdev.temporal.testing.ProtoTestHelpers.doUpdateJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.initializeWorkflowJob
+import com.surrealdev.temporal.testing.createTestWorkflowExecutor
 import com.surrealdev.temporal.workflow.WorkflowContext
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
 import java.util.UUID
@@ -382,7 +381,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            val completion = executor.activate(updateActivation, CoroutineScope(Dispatchers.Default))
+            val completion = executor.activate(updateActivation)
 
             assertTrue(completion.hasSuccessful())
             val commands = completion.successful.commandsList
@@ -422,7 +421,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            val completion = executor.activate(updateActivation, CoroutineScope(Dispatchers.Default))
+            val completion = executor.activate(updateActivation)
 
             assertTrue(completion.hasSuccessful())
             val commands = completion.successful.commandsList
@@ -458,7 +457,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            val completion = executor.activate(updateActivation, CoroutineScope(Dispatchers.Default))
+            val completion = executor.activate(updateActivation)
 
             assertTrue(completion.hasSuccessful())
             val completed =
@@ -485,7 +484,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            val completion = executor.activate(updateActivation, CoroutineScope(Dispatchers.Default))
+            val completion = executor.activate(updateActivation)
 
             assertTrue(completion.hasSuccessful())
         }
@@ -511,7 +510,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            val completion = executor.activate(updateActivation, CoroutineScope(Dispatchers.Default))
+            val completion = executor.activate(updateActivation)
 
             assertTrue(completion.hasSuccessful())
             val completed =
@@ -549,7 +548,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            val completion = executor.activate(updateActivation, CoroutineScope(Dispatchers.Default))
+            val completion = executor.activate(updateActivation)
 
             assertTrue(completion.hasSuccessful())
             val completed =
@@ -577,7 +576,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            executor.activate(updateActivation, CoroutineScope(Dispatchers.Default))
+            executor.activate(updateActivation)
 
             assertEquals(listOf("specific"), workflow.updates)
         }
@@ -608,7 +607,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            val completion = executor.activate(updateActivation, CoroutineScope(Dispatchers.Default))
+            val completion = executor.activate(updateActivation)
 
             assertTrue(completion.hasSuccessful())
             val commands = completion.successful.commandsList
@@ -639,7 +638,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            val completion = executor.activate(updateActivation, CoroutineScope(Dispatchers.Default))
+            val completion = executor.activate(updateActivation)
 
             assertTrue(completion.hasSuccessful())
             val commands = completion.successful.commandsList
@@ -675,7 +674,7 @@ class UpdateHandlerTest {
                         ),
                     isReplaying = true,
                 )
-            val completion = executor.activate(updateActivation, CoroutineScope(Dispatchers.Default))
+            val completion = executor.activate(updateActivation)
 
             assertTrue(completion.hasSuccessful())
             val commands = completion.successful.commandsList
@@ -706,7 +705,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            val completion = executor.activate(updateActivation, CoroutineScope(Dispatchers.Default))
+            val completion = executor.activate(updateActivation)
 
             assertTrue(completion.hasSuccessful())
             val commands = completion.successful.commandsList
@@ -736,7 +735,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            val completion = executor.activate(updateActivation, CoroutineScope(Dispatchers.Default))
+            val completion = executor.activate(updateActivation)
 
             assertTrue(completion.hasSuccessful())
             val commands = completion.successful.commandsList
@@ -816,7 +815,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            val completion = executor.activate(updateActivation, CoroutineScope(Dispatchers.Default))
+            val completion = executor.activate(updateActivation)
 
             assertTrue(completion.hasSuccessful())
             assertEquals("runtime-value", workflow.runtimeValue)
@@ -844,7 +843,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            val completion1 = executor.activate(validUpdateActivation, CoroutineScope(Dispatchers.Default))
+            val completion1 = executor.activate(validUpdateActivation)
             assertTrue(completion1.hasSuccessful())
             val completed =
                 completion1.successful.commandsList
@@ -867,7 +866,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            val completion2 = executor.activate(invalidUpdateActivation, CoroutineScope(Dispatchers.Default))
+            val completion2 = executor.activate(invalidUpdateActivation)
             assertTrue(completion2.hasSuccessful())
             val rejected =
                 completion2.successful.commandsList
@@ -907,7 +906,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            val completion = executor.activate(updateActivation, CoroutineScope(Dispatchers.Default))
+            val completion = executor.activate(updateActivation)
 
             assertTrue(completion.hasSuccessful())
             val commands = completion.successful.commandsList
@@ -948,12 +947,10 @@ class UpdateHandlerTest {
         val runId = UUID.randomUUID().toString()
 
         val executor =
-            WorkflowExecutor(
+            createTestWorkflowExecutor(
                 runId = runId,
                 methodInfo = methodInfo,
                 serializer = serializer,
-                taskQueue = "test-task-queue",
-                namespace = "default",
             )
 
         // Initialize the workflow
@@ -962,7 +959,7 @@ class UpdateHandlerTest {
                 runId = runId,
                 jobs = listOf(initializeWorkflowJob(workflowType = workflowType)),
             )
-        executor.activate(initActivation, CoroutineScope(Dispatchers.Default))
+        executor.activate(initActivation)
 
         return executor to runId
     }

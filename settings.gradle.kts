@@ -7,6 +7,7 @@ dependencyResolutionManagement {
 
 include(":core-bridge")
 include(":temporal-kt")
+include(":plugins:di")
 include(":compiler-plugin")
 include(":gradle-plugin")
 

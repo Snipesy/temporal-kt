@@ -28,6 +28,8 @@
             <option value="$PROJECT_DIR$/examples/hello-world" />
             <option value="$PROJECT_DIR$/examples/multi-worker" />
             <option value="$PROJECT_DIR$/gradle-plugin" />
+            <option value="$PROJECT_DIR$/plugins" />
+            <option value="$PROJECT_DIR$/plugins/di" />
             <option value="$PROJECT_DIR$/temporal-kt" />
           </set>
         </option>

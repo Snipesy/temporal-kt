@@ -76,8 +76,6 @@ class GreetingWorkflow {
         // Generate a unique greeting ID using deterministic random
         val greetingId = workflow().randomUuid().take(8)
 
-        val x = SimpleActivities::processData
-
         // Call the activity to format the greeting
         // Using string-based API (activity type from @Activity annotation)
         val greeting =

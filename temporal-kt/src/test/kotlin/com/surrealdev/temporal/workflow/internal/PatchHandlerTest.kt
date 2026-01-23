@@ -1,10 +1,10 @@
 package com.surrealdev.temporal.workflow.internal
 
-import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
 import com.surrealdev.temporal.testing.ProtoTestHelpers.createActivation
 import com.surrealdev.temporal.testing.ProtoTestHelpers.initializeWorkflowJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.notifyHasPatchJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.signalWorkflowJob
+import com.surrealdev.temporal.testing.createTestWorkflowExecutor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
@@ -127,7 +127,7 @@ class PatchHandlerTest {
                     isReplaying = true,
                 )
 
-            executor.activate(activation, scope)
+            executor.activate(activation)
 
             // Patch should be recorded in state
             assertTrue(executor.state.isPatchNotified("my-versioning-patch"))
@@ -154,7 +154,7 @@ class PatchHandlerTest {
                     isReplaying = true,
                 )
 
-            executor.activate(activation, scope)
+            executor.activate(activation)
 
             assertTrue(executor.state.isPatchNotified("patch-v1"))
             assertTrue(executor.state.isPatchNotified("patch-v2"))
@@ -182,7 +182,7 @@ class PatchHandlerTest {
                     isReplaying = true,
                 )
 
-            val completion = executor.activate(activation, scope)
+            val completion = executor.activate(activation)
 
             // Activation should complete successfully
             assertTrue(completion.hasSuccessful())
@@ -213,12 +213,6 @@ class PatchHandlerTest {
                 isSuspend = false,
             )
 
-        return WorkflowExecutor(
-            runId = "test-run-id",
-            methodInfo = workflowMethodInfo,
-            serializer = KotlinxJsonSerializer(),
-            taskQueue = "test-task-queue",
-            namespace = "default",
-        )
+        return createTestWorkflowExecutor(methodInfo = workflowMethodInfo)
     }
 }

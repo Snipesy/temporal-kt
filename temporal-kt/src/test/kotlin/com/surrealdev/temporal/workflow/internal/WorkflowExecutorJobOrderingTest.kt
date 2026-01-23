@@ -1,6 +1,5 @@
 package com.surrealdev.temporal.workflow.internal
 
-import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
 import com.surrealdev.temporal.testing.ProtoTestHelpers.cancelWorkflowJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.doUpdateJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.fireTimerJob
@@ -17,6 +16,7 @@ import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveNexusOperationSta
 import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveSignalExternalWorkflowJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.signalWorkflowJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.updateRandomSeedJob
+import com.surrealdev.temporal.testing.createTestWorkflowExecutor
 import coresdk.workflow_activation.WorkflowActivationOuterClass.WorkflowActivationJob
 import kotlin.test.Test
 import kotlin.test.assertFalse
@@ -60,13 +60,7 @@ class WorkflowExecutorJobOrderingTest {
                 isSuspend = false,
             )
 
-        return WorkflowExecutor(
-            runId = "test-run-id",
-            methodInfo = workflowMethodInfo,
-            serializer = KotlinxJsonSerializer(),
-            taskQueue = "test-task-queue",
-            namespace = "default",
-        )
+        return createTestWorkflowExecutor(methodInfo = workflowMethodInfo)
     }
 
     // ================================================================

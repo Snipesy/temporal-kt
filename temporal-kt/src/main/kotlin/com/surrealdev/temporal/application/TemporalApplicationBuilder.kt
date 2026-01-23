@@ -1,6 +1,7 @@
 package com.surrealdev.temporal.application
 
 import com.surrealdev.temporal.annotation.TemporalDsl
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlin.coroutines.CoroutineContext
 
@@ -16,6 +17,33 @@ class TemporalApplicationBuilder internal constructor(
 ) {
     private var connectionConfig = ConnectionConfig()
     private var deploymentOptions: WorkerDeploymentOptions? = null
+    private var dispatcherOverride: CoroutineDispatcher? = null
+    private var shutdownConfig: ShutdownConfig = ShutdownConfig()
+
+    /**
+     * Sets the base dispatcher for this application.
+     *
+     * This dispatcher becomes the foundation for all coroutine operations in the application.
+     * Task queues can override with their own dispatchers via [TaskQueueBuilder.workflowDispatcher]
+     * and [TaskQueueBuilder.activityDispatcher].
+     *
+     * Default: The dispatcher from [parentCoroutineContext], or [Dispatchers.Default] if none.
+     *
+     * Example:
+     * ```kotlin
+     * TemporalApplication {
+     *     dispatcher = Dispatchers.Default.limitedParallelism(4)
+     *     connection { ... }
+     * }
+     * ```
+     */
+    var dispatcher: CoroutineDispatcher
+        get() =
+            dispatcherOverride
+                ?: (parentCoroutineContext[CoroutineDispatcher] ?: Dispatchers.Default)
+        set(value) {
+            dispatcherOverride = value
+        }
 
     /**
      * Sets the connection configuration directly.
@@ -75,23 +103,63 @@ class TemporalApplicationBuilder internal constructor(
         deploymentOptions = DeploymentConfigBuilder().apply(configure).build()
     }
 
+    /**
+     * Configure shutdown behavior.
+     *
+     * Usage:
+     * ```kotlin
+     * shutdown {
+     *     gracePeriodMs = 5000
+     *     forceTimeoutMs = 2000
+     * }
+     * ```
+     */
+    fun shutdown(block: ShutdownConfigBuilder.() -> Unit) {
+        shutdownConfig = ShutdownConfigBuilder().apply(block).build()
+    }
+
     internal fun build(): TemporalApplication {
+        // Apply dispatcher override if set
+        val effectiveContext =
+            dispatcherOverride?.let {
+                parentCoroutineContext + it
+            } ?: parentCoroutineContext
+
         val config =
             TemporalApplicationConfig(
                 connection = connectionConfig,
                 deployment = deploymentOptions,
+                shutdown = shutdownConfig,
             )
-        val application = TemporalApplication(config, parentCoroutineContext)
+        val application = TemporalApplication(config, effectiveContext)
 
         return application
     }
 }
 
 /**
- * Factory for creating plugins with configuration.
+ * Builder for [ShutdownConfig] that allows DSL-style configuration.
  */
-interface TemporalPluginFactory<TConfig : Any, TPlugin : TemporalPlugin> {
-    fun create(configure: TConfig.() -> Unit): TPlugin
+@TemporalDsl
+class ShutdownConfigBuilder internal constructor() {
+    /**
+     * Grace period to wait for workers to complete gracefully.
+     * After this timeout, workers will be force-cancelled.
+     * Default: 10 seconds.
+     */
+    var gracePeriodMs: Long = 10_000L
+
+    /**
+     * Additional timeout after force cancellation to wait for cleanup.
+     * Default: 5 seconds.
+     */
+    var forceTimeoutMs: Long = 5_000L
+
+    internal fun build() =
+        ShutdownConfig(
+            gracePeriodMs = gracePeriodMs,
+            forceTimeoutMs = forceTimeoutMs,
+        )
 }
 
 /**

@@ -1,6 +1,18 @@
 package com.surrealdev.temporal.application
 
+import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.annotation.TemporalDsl
+import com.surrealdev.temporal.application.plugin.HookRegistry
+import com.surrealdev.temporal.application.plugin.HookRegistryImpl
+import com.surrealdev.temporal.application.plugin.PluginPipeline
+import com.surrealdev.temporal.application.plugin.hooks.ApplicationSetup
+import com.surrealdev.temporal.application.plugin.hooks.ApplicationSetupContext
+import com.surrealdev.temporal.application.plugin.hooks.ApplicationShutdown
+import com.surrealdev.temporal.application.plugin.hooks.ApplicationShutdownContext
+import com.surrealdev.temporal.application.plugin.hooks.WorkerStarted
+import com.surrealdev.temporal.application.plugin.hooks.WorkerStartedContext
+import com.surrealdev.temporal.application.plugin.hooks.WorkerStopped
+import com.surrealdev.temporal.application.plugin.hooks.WorkerStoppedContext
 import com.surrealdev.temporal.application.worker.ManagedWorker
 import com.surrealdev.temporal.client.TemporalClient
 import com.surrealdev.temporal.client.TemporalClientConfig
@@ -11,12 +23,14 @@ import com.surrealdev.temporal.core.TemporalRuntime
 import com.surrealdev.temporal.core.TemporalWorker
 import com.surrealdev.temporal.core.WorkerConfig
 import com.surrealdev.temporal.serialization.payloadSerializer
+import com.surrealdev.temporal.util.Attributes
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.withTimeoutOrNull
+import org.slf4j.LoggerFactory
 import kotlin.coroutines.CoroutineContext
 
 /**
@@ -47,9 +61,20 @@ import kotlin.coroutines.CoroutineContext
 open class TemporalApplication internal constructor(
     internal val config: TemporalApplicationConfig,
     public val parentCoroutineContext: CoroutineContext,
-) : CoroutineScope {
-    // Plugins can be added before start() via extension functions
-    internal val plugins = mutableListOf<TemporalPlugin>()
+) : CoroutineScope,
+    PluginPipeline {
+    private val logger = LoggerFactory.getLogger(TemporalApplication::class.java)
+
+    // Plugin framework - application is the root scope
+    override val attributes: Attributes = Attributes(concurrent = true)
+    override val parentScope: com.surrealdev.temporal.util.AttributeScope? = null
+
+    /**
+     * Hook registry for application-level lifecycle hooks.
+     *
+     * Plugins can register hooks via this registry to be notified of lifecycle events.
+     */
+    val hookRegistry: HookRegistry = HookRegistryImpl()
 
     private val applicationJob = SupervisorJob(parentCoroutineContext[Job])
 
@@ -91,6 +116,12 @@ open class TemporalApplication internal constructor(
             )
         coreClient = client
 
+        // Fire ApplicationSetup hook
+        hookRegistry.call(
+            ApplicationSetup,
+            ApplicationSetupContext(this, rt, client),
+        )
+
         // Create and start workers for each task queue
         for (taskQueueConfig in taskQueues) {
             val effectiveNamespace = taskQueueConfig.namespace ?: config.connection.namespace
@@ -119,6 +150,8 @@ open class TemporalApplication internal constructor(
                     config =
                         WorkerConfig(
                             deploymentOptions = coreDeploymentOptions,
+                            maxConcurrentWorkflowTasks = taskQueueConfig.maxConcurrentWorkflows,
+                            maxConcurrentActivities = taskQueueConfig.maxConcurrentActivities,
                         ),
                 )
 
@@ -130,10 +163,18 @@ open class TemporalApplication internal constructor(
                     parentContext = coroutineContext,
                     serializer = payloadSerializer(),
                     namespace = effectiveNamespace,
+                    applicationHooks = hookRegistry,
+                    application = this,
                 )
 
             workers[taskQueueConfig.name] = managedWorker
             managedWorker.start()
+
+            // Fire WorkerStarted hook
+            hookRegistry.call(
+                WorkerStarted,
+                WorkerStartedContext(taskQueueConfig.name, effectiveNamespace),
+            )
         }
 
         // Wait for all workers to be ready (first poll completed)
@@ -148,28 +189,70 @@ open class TemporalApplication internal constructor(
 
     /**
      * Closes the application, stopping all workers and cleaning up resources.
+     *
+     * Follows a two-phase shutdown pattern (similar to Ktor):
+     * 1. Fire shutdown hook
+     * 2. Stop workers with explicit stop calls
+     * 3. Cancel application job with grace period
+     * 4. Cleanup resources
      */
     suspend fun close() {
-        // Stop all workers first
-        for (worker in workers.values) {
+        if (!started) return
+
+        // Phase 1: Fire shutdown hook
+        hookRegistry.call(
+            ApplicationShutdown,
+            ApplicationShutdownContext(this),
+        )
+
+        // Phase 2: Stop workers with grace period
+        // (Keep explicit stop calls until Phase 2 refactor is complete)
+        for ((taskQueue, worker) in workers) {
             try {
                 worker.stop()
-            } catch (_: Exception) {
-                // Ignore errors during shutdown
+
+                val namespace =
+                    taskQueues.find { it.name == taskQueue }?.namespace
+                        ?: config.connection.namespace
+                hookRegistry.call(
+                    WorkerStopped,
+                    WorkerStoppedContext(taskQueue, namespace),
+                )
+            } catch (e: Exception) {
+                logger.warn("Error stopping worker $taskQueue", e)
             }
         }
         workers.clear()
 
-        // Close the client
+        // Phase 3: Cancel application job with timeout
+        applicationJob.cancel()
+
+        val completed =
+            withTimeoutOrNull(config.shutdown.gracePeriodMs) {
+                applicationJob.join()
+                true
+            }
+
+        if (completed != true) {
+            logger.warn(
+                "Application job did not complete within grace period ({}ms), " +
+                    "force cancellation in progress",
+                config.shutdown.gracePeriodMs,
+            )
+
+            // Wait additional time for forced cancellation to complete
+            withTimeoutOrNull(config.shutdown.forceTimeoutMs) {
+                applicationJob.join()
+            }
+        }
+
+        // Phase 4: Cleanup resources
         coreClient?.close()
         coreClient = null
-
-        // Close the runtime
         runtime?.close()
         runtime = null
 
-        // Cancel the application job
-        applicationJob.cancelAndJoin()
+        logger.info("Application closed")
     }
 
     /**
@@ -216,10 +299,13 @@ open class TemporalApplication internal constructor(
         /**
          * Creates a new Temporal application with the given configuration.
          *
+         * This is an internal API. Use [embeddedTemporal] instead for creating applications.
+         *
          * @param parentCoroutineContext The parent coroutine context for the application.
          *                               Defaults to [Dispatchers.Default].
          * @param configure DSL configuration block.
          */
+        @InternalTemporalApi
         operator fun invoke(
             parentCoroutineContext: CoroutineContext = Dispatchers.Default,
             configure: TemporalApplicationBuilder.() -> Unit,
@@ -241,6 +327,23 @@ open class TemporalApplication internal constructor(
 internal data class TemporalApplicationConfig(
     val connection: ConnectionConfig,
     val deployment: WorkerDeploymentOptions? = null,
+    val shutdown: ShutdownConfig = ShutdownConfig(),
+)
+
+/**
+ * Configuration for application shutdown behavior.
+ * Follows Ktor's two-phase shutdown pattern.
+ */
+data class ShutdownConfig(
+    /**
+     * Grace period to wait for workers to complete gracefully.
+     * After this timeout, workers will be force-cancelled.
+     */
+    val gracePeriodMs: Long = 10_000L,
+    /**
+     * Additional timeout after force cancellation to wait for cleanup.
+     */
+    val forceTimeoutMs: Long = 5_000L,
 )
 
 /**
@@ -272,6 +375,31 @@ internal data class TaskQueueConfig(
     val maxConcurrentWorkflows: Int = 200,
     /** Maximum number of concurrent activity executions. */
     val maxConcurrentActivities: Int = 200,
+    /** Attributes for task-queue-scoped plugin storage. */
+    val attributes: Attributes = Attributes(concurrent = false),
+    /** Hook registry for task-queue-scoped hooks. */
+    val hookRegistry: HookRegistry = HookRegistryImpl(),
+    /**
+     * Dispatcher for workflow activations on this task queue.
+     * When set, workflow processing runs on this dispatcher.
+     * If null, inherits from the application's coroutine context.
+     */
+    val workflowDispatcher: kotlinx.coroutines.CoroutineDispatcher? = null,
+    /**
+     * Dispatcher for activity execution on this task queue.
+     * When set, activities are wrapped with withContext(dispatcher).
+     * If null, inherits from the application's coroutine context.
+     */
+    val activityDispatcher: kotlinx.coroutines.CoroutineDispatcher? = null,
+    /**
+     * Grace period for shutdown to wait for polling jobs to complete gracefully.
+     * After this timeout, polling jobs will be force-cancelled.
+     */
+    val shutdownGracePeriodMs: Long = 10_000L,
+    /**
+     * Additional timeout after force cancellation to wait for cleanup.
+     */
+    val shutdownForceTimeoutMs: Long = 5_000L,
 )
 
 /**
@@ -300,20 +428,6 @@ internal data class ActivityRegistration(
 )
 
 /**
- * Base interface for Temporal plugins.
- */
-interface TemporalPlugin {
-    val key: PluginKey<*>
-}
-
-/**
- * Key for identifying plugins.
- */
-open class PluginKey<T : TemporalPlugin>(
-    val name: String,
-)
-
-/**
  * Registers a task queue with the application.
  *
  * This extension function allows configuring task queues on a [TemporalApplication]
@@ -333,29 +447,7 @@ fun TemporalApplication.taskQueue(
     name: String,
     block: TaskQueueBuilder.() -> Unit = {},
 ) {
-    val builder = TaskQueueBuilder(name)
+    val builder = TaskQueueBuilder(name, parentApplication = this)
     builder.block()
     taskQueues.add(builder.build())
-}
-
-/**
- * Installs a plugin into the application.
- *
- * This extension function allows installing plugins on a [TemporalApplication]
- * instance before calling [TemporalApplication.start].
- *
- * Usage:
- * ```kotlin
- * val app = TemporalApplication { connection { ... } }
- * app.install(KotlinxSerialization) {
- *     json = Json { prettyPrint = true }
- * }
- * app.start()
- * ```
- */
-fun <TConfig : Any, TPlugin : TemporalPlugin> TemporalApplication.install(
-    plugin: TemporalPluginFactory<TConfig, TPlugin>,
-    configure: TConfig.() -> Unit = {},
-) {
-    plugins.add(plugin.create(configure))
 }

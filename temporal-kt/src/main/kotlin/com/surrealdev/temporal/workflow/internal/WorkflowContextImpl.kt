@@ -1,6 +1,9 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.serialization.PayloadSerializer
+import com.surrealdev.temporal.util.AttributeScope
+import com.surrealdev.temporal.util.Attributes
+import com.surrealdev.temporal.util.ExecutionScope
 import com.surrealdev.temporal.workflow.ActivityCancellationType
 import com.surrealdev.temporal.workflow.ActivityHandle
 import com.surrealdev.temporal.workflow.ActivityOptions
@@ -47,11 +50,17 @@ internal class WorkflowContextImpl(
     override val serializer: PayloadSerializer,
     private val workflowDispatcher: WorkflowCoroutineDispatcher,
     parentJob: Job,
+    override val parentScope: AttributeScope,
     private val mdcContext: MDCContext? = null,
-) : WorkflowContext {
+) : WorkflowContext,
+    ExecutionScope {
     companion object {
         private val logger = Logger.getLogger(WorkflowContextImpl::class.java.name)
     }
+
+    // Workflow executions have their own attributes (currently empty, for future use)
+    override val attributes: Attributes = Attributes(concurrent = false)
+    override val isWorkflowContext: Boolean = true
 
     // Create a child job for this workflow - failures propagate to parent
     private val job = Job(parentJob)

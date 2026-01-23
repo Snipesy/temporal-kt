@@ -11,6 +11,7 @@ dependencies {
     implementation(libs.protobufJava)
     implementation(libs.protobufKotlin)
     implementation(libs.kotlinxCoroutines)
+    implementation(libs.slf4jApi)
 
     testImplementation(kotlin("test"))
 }
