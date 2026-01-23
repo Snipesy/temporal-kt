@@ -56,7 +56,7 @@ class KotlinxJsonSerializer(
     private val json: Json = Json.Default,
 ) : PayloadSerializer {
     override fun serialize(
-        typeInfo: TypeInfo,
+        typeInfo: KType,
         value: Any?,
     ): Payload {
         // Handle null
@@ -70,10 +70,10 @@ class KotlinxJsonSerializer(
         // Serialize to JSON
         val jsonString =
             try {
-                serializeToJson(typeInfo.type, value)
+                serializeToJson(typeInfo, value)
             } catch (e: Exception) {
                 throw SerializationException(
-                    "Failed to serialize value of type ${typeInfo.reifiedClass.simpleName}: ${e.message}",
+                    "Failed to serialize value of type ${typeInfo.javaClass.simpleName}: ${e.message}",
                     e,
                 )
             }
@@ -86,16 +86,16 @@ class KotlinxJsonSerializer(
     }
 
     override fun deserialize(
-        typeInfo: TypeInfo,
+        typeInfo: KType,
         payload: Payload,
     ): Any? {
         val encoding = payload.metadataMap[METADATA_ENCODING]?.toStringUtf8()
 
         // Handle null encoding
         if (encoding == ENCODING_NULL) {
-            if (!typeInfo.type.isMarkedNullable) {
+            if (!typeInfo.isMarkedNullable) {
                 throw SerializationException(
-                    "Cannot deserialize null payload to non-nullable type ${typeInfo.type}",
+                    "Cannot deserialize null payload to non-nullable type ${typeInfo.javaClass.simpleName}",
                 )
             }
             return null
@@ -105,10 +105,10 @@ class KotlinxJsonSerializer(
         if (encoding == ENCODING_JSON || encoding == null) {
             val jsonString = payload.data.toStringUtf8()
             return try {
-                deserializeFromJson(typeInfo.type, jsonString)
+                deserializeFromJson(typeInfo, jsonString)
             } catch (e: Exception) {
                 throw SerializationException(
-                    "Failed to deserialize JSON to type ${typeInfo.type}: ${e.message}",
+                    "Failed to deserialize JSON to type ${typeInfo.javaClass.simpleName}: ${e.message}",
                     e,
                 )
             }

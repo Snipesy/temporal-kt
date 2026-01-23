@@ -1,17 +1,19 @@
 package com.surrealdev.temporal.client
 
 import com.google.protobuf.util.Durations
+import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.client.internal.WorkflowServiceClient
 import com.surrealdev.temporal.core.TemporalCoreClient
 import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
 import com.surrealdev.temporal.serialization.PayloadSerializer
-import com.surrealdev.temporal.serialization.TypeInfo
 import io.temporal.api.common.v1.Payloads
 import io.temporal.api.common.v1.WorkflowType
 import io.temporal.api.taskqueue.v1.TaskQueue
 import io.temporal.api.workflowservice.v1.StartWorkflowExecutionRequest
 import org.slf4j.LoggerFactory
 import java.util.UUID
+import kotlin.reflect.KType
+import kotlin.reflect.typeOf
 
 private val logger = LoggerFactory.getLogger(TemporalClientImpl::class.java)
 
@@ -51,7 +53,8 @@ interface TemporalClient {
     /**
      * Starts a new workflow execution and returns a handle to it.
      *
-     * This uses raw payloads for arguments. For type-safe overloads, use the reified extension functions.
+     * This uses raw payloads for arguments. For type-safe overloads, use the reified extension functions
+     * [startWorkflow]
      *
      * @param R The expected result type of the workflow.
      * @param workflowType The workflow type name.
@@ -62,18 +65,19 @@ interface TemporalClient {
      * @param resultTypeInfo Type information for the expected result type.
      * @return A handle to the started workflow execution.
      */
-    suspend fun <R> startWorkflow(
+    @InternalTemporalApi
+    suspend fun <R> startWorkflowWithPayloads(
         workflowType: String,
         taskQueue: String,
         workflowId: String,
         args: Payloads,
         options: WorkflowStartOptions,
-        resultTypeInfo: TypeInfo,
+        resultTypeInfo: KType,
     ): WorkflowHandle<R>
 
     /**
      * Gets a handle to an existing workflow. This is an internal API - use the
-     * `getWorkflowHandle` extension function instead for type-safe access.
+     * [getWorkflowHandle]` extension function instead for type-safe access.
      *
      * @param R The expected result type of the workflow.
      * @param workflowId The workflow ID.
@@ -81,10 +85,11 @@ interface TemporalClient {
      * @param resultTypeInfo Type information for the expected result type.
      * @return A handle to the workflow execution.
      */
+    @InternalTemporalApi
     fun <R> getWorkflowHandleInternal(
         workflowId: String,
         runId: String?,
-        resultTypeInfo: TypeInfo,
+        resultTypeInfo: KType,
     ): WorkflowHandle<R>
 
     /**
@@ -130,9 +135,7 @@ inline fun <reified R> TemporalClient.getWorkflowHandle(
     getWorkflowHandleInternal(
         workflowId = workflowId,
         runId = runId,
-        resultTypeInfo =
-            com.surrealdev.temporal.serialization
-                .typeInfoOf<R>(),
+        resultTypeInfo = typeOf<R>(),
     )
 
 /**
@@ -145,13 +148,13 @@ class TemporalClientImpl internal constructor(
 ) : TemporalClient {
     internal val serviceClient = WorkflowServiceClient(coreClient, config.namespace)
 
-    override suspend fun <R> startWorkflow(
+    override suspend fun <R> startWorkflowWithPayloads(
         workflowType: String,
         taskQueue: String,
         workflowId: String,
         args: Payloads,
         options: WorkflowStartOptions,
-        resultTypeInfo: TypeInfo,
+        resultTypeInfo: KType,
     ): WorkflowHandle<R> {
         // Build the request
         val requestBuilder =
@@ -235,7 +238,7 @@ class TemporalClientImpl internal constructor(
     override fun <R> getWorkflowHandleInternal(
         workflowId: String,
         runId: String?,
-        resultTypeInfo: TypeInfo,
+        resultTypeInfo: KType,
     ): WorkflowHandle<R> =
         WorkflowHandleImpl(
             workflowId = workflowId,

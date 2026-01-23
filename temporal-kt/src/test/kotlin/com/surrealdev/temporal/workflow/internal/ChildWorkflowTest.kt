@@ -4,7 +4,7 @@ import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.WorkflowRegistration
 import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
-import com.surrealdev.temporal.serialization.typeInfoOf
+import com.surrealdev.temporal.serialization.serialize
 import com.surrealdev.temporal.testing.ProtoTestHelpers.createActivation
 import com.surrealdev.temporal.testing.ProtoTestHelpers.initializeWorkflowJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveChildWorkflowExecutionCancelledJob
@@ -24,7 +24,6 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
 import java.util.UUID
 import kotlin.reflect.full.findAnnotation
-import kotlin.reflect.typeOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -297,7 +296,7 @@ class ChildWorkflowTest {
                 )
             result.executor.activate(startActivation, CoroutineScope(Dispatchers.Default))
 
-            val resultPayload = serializer.serialize(typeInfoOf(typeOf<String>()), "child result")
+            val resultPayload = serializer.serialize("child result")
             val execActivation =
                 createActivation(
                     runId = result.runId,
@@ -402,7 +401,7 @@ class ChildWorkflowTest {
             val start1 = createActivation(runId = result.runId, jobs = listOf(resolveChildWorkflowStartJob(seq = 1)))
             result.executor.activate(start1, CoroutineScope(Dispatchers.Default))
 
-            val result1 = serializer.serialize(typeInfoOf(typeOf<String>()), "result1")
+            val result1 = serializer.serialize("result1")
             val exec1 =
                 createActivation(
                     runId = result.runId,

@@ -3,12 +3,9 @@ package com.surrealdev.temporal.client
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.taskQueue
-import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
-import com.surrealdev.temporal.serialization.serialize
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext
-import io.temporal.api.common.v1.Payloads
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -224,19 +221,13 @@ class TemporalClientTest {
                 }
             }
 
-            // construct 2 args using payloads as temporal-kt will not support multiple arg serialization without
-            // reified
-            val pb = Payloads.newBuilder()
-            val serializer = KotlinxJsonSerializer()
-            pb.addPayloads(serializer.serialize(5))
-            pb.addPayloads(serializer.serialize(3))
-
             val client = client()
             val handle =
-                client.startWorkflow<Int>(
+                client.startWorkflow<Int, Int, Int>(
                     workflowType = "MultiArgWorkflow",
                     taskQueue = taskQueue,
-                    args = pb.build(),
+                    arg1 = 5,
+                    arg2 = 3,
                 )
 
             val result = handle.result(timeout = 30.seconds)

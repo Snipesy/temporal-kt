@@ -1,6 +1,5 @@
 package com.surrealdev.temporal.workflow.internal
 
-import com.surrealdev.temporal.serialization.typeInfoOf
 import coresdk.workflow_commands.WorkflowCommands
 import coresdk.workflow_completion.WorkflowCompletion
 import io.temporal.api.common.v1.Payload
@@ -21,6 +20,7 @@ import kotlinx.coroutines.Deferred
  */
 internal suspend fun WorkflowExecutor.buildTerminalCompletion(
     result: Deferred<Any?>,
+    returnType: kotlin.reflect.KType,
 ): WorkflowCompletion.WorkflowActivationCompletion =
     try {
         val value = result.await()
@@ -31,10 +31,10 @@ internal suspend fun WorkflowExecutor.buildTerminalCompletion(
 
         // Serialize the result
         val resultPayload =
-            if (value == Unit || methodInfo.returnType.classifier == Unit::class) {
+            if (methodInfo.returnType.classifier == Unit::class) {
                 Payload.getDefaultInstance()
             } else {
-                serializer.serialize(typeInfoOf(methodInfo.returnType), value)
+                serializer.serialize(returnType, value)
             }
 
         // Build completion command

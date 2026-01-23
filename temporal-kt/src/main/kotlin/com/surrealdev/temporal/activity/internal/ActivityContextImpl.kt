@@ -5,8 +5,8 @@ import com.surrealdev.temporal.activity.ActivityCancelledException
 import com.surrealdev.temporal.activity.ActivityContext
 import com.surrealdev.temporal.activity.ActivityInfo
 import com.surrealdev.temporal.activity.ActivityWorkflowInfo
+import com.surrealdev.temporal.activity.HeartbeatDetails
 import com.surrealdev.temporal.serialization.PayloadSerializer
-import com.surrealdev.temporal.serialization.typeInfoOf
 import coresdk.activity_task.ActivityTaskOuterClass.Start
 import kotlin.time.Duration.Companion.nanoseconds
 import kotlin.time.Duration.Companion.seconds
@@ -23,7 +23,7 @@ internal class ActivityContextImpl(
     private val start: Start,
     private val taskToken: ByteString,
     private val taskQueue: String,
-    private val serializer: PayloadSerializer,
+    override val serializer: PayloadSerializer,
     private val heartbeatFn: suspend (ByteArray, ByteArray?) -> Unit,
 ) : ActivityContext {
     @Volatile
@@ -33,17 +33,13 @@ internal class ActivityContextImpl(
         buildActivityInfo()
     }
 
-    override suspend fun heartbeat(details: Any?) {
+    override suspend fun heartbeatWithPayload(details: io.temporal.api.common.v1.Payload?) {
         // Check cancellation before heartbeating
         if (_isCancellationRequested) {
             throw ActivityCancelledException("Activity cancellation was requested")
         }
 
-        val heartbeatPayload =
-            details?.let {
-                serializer.serialize(typeInfoOf(it), it)
-            }
-        heartbeatFn(taskToken.toByteArray(), heartbeatPayload?.toByteArray())
+        heartbeatFn(taskToken.toByteArray(), details?.toByteArray())
 
         // Check cancellation after heartbeating (in case it was set during the call)
         if (_isCancellationRequested) {
@@ -89,15 +85,10 @@ internal class ActivityContextImpl(
                 null
             }
 
-        // Deserialize heartbeat details from previous attempt if present
-        val heartbeatDetails: Any? =
+        // Wrap heartbeat details from previous attempt for lazy deserialization
+        val heartbeatDetails: HeartbeatDetails? =
             start.heartbeatDetailsList.firstOrNull()?.let { payload ->
-                try {
-                    serializer.deserialize(typeInfoOf<Any?>(), payload)
-                } catch (_: Exception) {
-                    // If we can't deserialize, return the payload as-is
-                    payload.data.toByteArray()
-                }
+                HeartbeatDetails(payload, serializer)
             }
 
         return ActivityInfo(

@@ -3,11 +3,11 @@ package com.surrealdev.temporal.testing
 import com.google.protobuf.ByteString
 import com.surrealdev.temporal.activity.internal.ActivityDispatcher
 import com.surrealdev.temporal.activity.internal.ActivityRegistry
+import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.annotation.TemporalDsl
 import com.surrealdev.temporal.application.ActivityRegistration
 import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
 import com.surrealdev.temporal.serialization.PayloadSerializer
-import com.surrealdev.temporal.serialization.typeInfoOf
 import coresdk.activity_task.ActivityTaskOuterClass
 import coresdk.activity_task.activityTask
 import coresdk.activity_task.start
@@ -17,7 +17,6 @@ import kotlinx.coroutines.test.TestResult
 import kotlinx.coroutines.test.runTest
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.reflect.KType
-import kotlin.reflect.typeOf
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -129,46 +128,28 @@ class ActivityTestHarness(
     }
 
     /**
-     * Executes an activity by type and returns the result.
+     * Executes an activity with pre-serialized arguments and explicit return type.
      *
-     * Uses real serialization and the real [ActivityDispatcher].
+     * This is the base execution method. Use the extension functions in
+     * [execute] for convenient typed argument handling.
      *
      * @param R The expected result type
      * @param activityType The full activity type name (e.g., "GreetingActivity::greet")
-     * @param args Arguments to pass to the activity
+     * @param returnType The KType for result deserialization
+     * @param args Pre-serialized argument payloads
      * @return The deserialized result from the activity
      * @throws ActivityTestException if the activity fails
      * @throws ActivityTestCancelledException if the activity is cancelled
      */
-    suspend inline fun <reified R> execute(
-        activityType: String,
-        vararg args: Any?,
-    ): R = execute(activityType, typeOf<R>(), args.toList())
-
-    /**
-     * Executes an activity with explicit return type.
-     *
-     * @param R The expected result type
-     * @param activityType The full activity type name
-     * @param returnType The KType for result deserialization
-     * @param args Arguments to pass to the activity
-     * @return The deserialized result
-     */
     @Suppress("UNCHECKED_CAST")
-    suspend fun <R> execute(
+    @InternalTemporalApi
+    suspend fun <R> executeWithPayloads(
         activityType: String,
         returnType: KType,
-        args: List<Any?>,
+        args: List<Payload>,
     ): R {
-        // Serialize arguments (use serializer for all values including null)
-        val argPayloads =
-            args.map { arg ->
-                // The serializer handles null properly with binary/null encoding
-                serializer.serialize(typeInfoOf(arg), arg)
-            }
-
         // Build activity task
-        val task = buildActivityTask(activityType, argPayloads)
+        val task = buildActivityTask(activityType, args)
 
         // Dispatch using real dispatcher
         // The test harness only sends Start tasks
@@ -198,7 +179,7 @@ class ActivityTestHarness(
                 null as R
             }
         } else {
-            serializer.deserialize(typeInfoOf(returnType), resultPayload) as R
+            serializer.deserialize(returnType, resultPayload) as R
         }
     }
 

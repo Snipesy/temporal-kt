@@ -1,6 +1,5 @@
 package com.surrealdev.temporal.workflow.internal
 
-import com.surrealdev.temporal.serialization.typeInfoOf
 import coresdk.workflow_commands.WorkflowCommands
 import io.temporal.api.common.v1.Payload
 import io.temporal.api.failure.v1.Failure
@@ -135,19 +134,19 @@ private suspend fun WorkflowExecutor.handleAnnotationQuery(
             if (result == Unit || handler.returnType.classifier == Unit::class) {
                 Payload.getDefaultInstance()
             } else {
-                serializer.serialize(typeInfoOf(handler.returnType), result)
+                serializer.serialize(handler.returnType, result)
             }
 
         addSuccessQueryResult(queryId, payload)
     } catch (e: ReadOnlyContextException) {
-        logger.warn("Query handler attempted state mutation: {}", e.message)
+        logger.warn("Query handler attempted state mutation: {}", e.message, e)
         addFailedQueryResult(queryId, "Query attempted state mutation: ${e.message}")
     } catch (e: java.lang.reflect.InvocationTargetException) {
         val cause = e.targetException ?: e
-        logger.warn("Query handler threw exception: {}", cause.message)
+        logger.warn("Query handler threw exception: {}", cause.message, e)
         addFailedQueryResult(queryId, "Query failed: ${cause.message ?: cause::class.simpleName}")
     } catch (e: Exception) {
-        logger.warn("Query handler threw exception: {}", e.message)
+        logger.warn("Query handler threw exception: {}", e.message, e)
         addFailedQueryResult(queryId, "Query failed: ${e.message ?: e::class.simpleName}")
     }
 }

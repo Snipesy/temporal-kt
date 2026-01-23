@@ -1,61 +1,8 @@
 package com.surrealdev.temporal.serialization
 
 import io.temporal.api.common.v1.Payload
-import kotlin.reflect.KClass
 import kotlin.reflect.KType
 import kotlin.reflect.typeOf as kotlinTypeOf
-
-/**
- * Type information for serialization/deserialization.
- *
- * Captures both the compile-time type (via KType) and runtime class
- * for proper handling of generics and nullable types.
- */
-data class TypeInfo(
-    /**
-     * The full Kotlin type including generics and nullability.
-     */
-    val type: KType,
-    /**
-     * The runtime class (erased generic type).
-     */
-    val reifiedClass: KClass<*>,
-)
-
-/**
- * Creates a [TypeInfo] for a reified type parameter.
- */
-inline fun <reified T> typeInfoOf(): TypeInfo =
-    TypeInfo(
-        type = typeOf<T>(),
-        reifiedClass = T::class,
-    )
-
-/**
- * Creates a [TypeInfo] from a KType.
- */
-fun typeInfoOf(type: KType): TypeInfo =
-    TypeInfo(
-        type = type,
-        reifiedClass = type.classifier as? KClass<*> ?: Any::class,
-    )
-
-/**
- * Creates a [TypeInfo] for a value at runtime.
- * Note: This loses generic type information.
- */
-fun typeInfoOf(value: Any?): TypeInfo =
-    if (value == null) {
-        TypeInfo(
-            type = typeOf<Any?>(),
-            reifiedClass = Any::class,
-        )
-    } else {
-        TypeInfo(
-            type = value::class.createType(nullable = false),
-            reifiedClass = value::class,
-        )
-    }
 
 @PublishedApi
 internal inline fun <reified T> typeOf(): KType = kotlinTypeOf<T>()
@@ -63,12 +10,16 @@ internal inline fun <reified T> typeOf(): KType = kotlinTypeOf<T>()
 /**
  * Interface for serializing and deserializing values to/from Temporal Payloads.
  *
+ * Note that Temporal Kotlin SDK Relies on KType's being passed around end to end in order to
+ * circumvent type erasure issues in Java. We explicitly throw in scenarios where type information is loss.
+ * While this 'can' be bypassed you may run into scenarios where the underlying object serialization differs
+ * from the serialization that should be performed based on the original type information.
+ *
  * Implementations must handle:
  * - Null values
  * - Primitive types (String, Int, Long, Double, Boolean, etc.)
  * - Data classes (with proper serialization annotations)
  * - Collections (List, Set, Map)
- * - Generic types (using [TypeInfo] for type preservation)
  *
  * Example implementation using kotlinx.serialization:
  * ```kotlin
@@ -88,7 +39,7 @@ interface PayloadSerializer {
      * @throws SerializationException if serialization fails
      */
     fun serialize(
-        typeInfo: TypeInfo,
+        typeInfo: KType,
         value: Any?,
     ): Payload
 
@@ -101,7 +52,7 @@ interface PayloadSerializer {
      * @throws SerializationException if deserialization fails
      */
     fun deserialize(
-        typeInfo: TypeInfo,
+        typeInfo: KType,
         payload: Payload,
     ): Any?
 }
@@ -109,25 +60,12 @@ interface PayloadSerializer {
 /**
  * Convenience extension to serialize with reified type parameter.
  */
-inline fun <reified T> PayloadSerializer.serialize(value: T): Payload = serialize(typeInfoOf<T>(), value)
+inline fun <reified T> PayloadSerializer.serialize(value: T): Payload = serialize(typeOf<T>(), value)
 
 /**
  * Convenience extension to deserialize with reified type parameter.
  */
-inline fun <reified T> PayloadSerializer.deserialize(payload: Payload): T = deserialize(typeInfoOf<T>(), payload) as T
-
-/**
- * Extension function to create a KType from KClass.
- * Used when only runtime class information is available.
- */
-@PublishedApi
-internal fun KClass<*>.createType(nullable: Boolean = false): KType =
-    object : KType {
-        override val annotations: List<Annotation> = emptyList()
-        override val arguments: List<kotlin.reflect.KTypeProjection> = emptyList()
-        override val classifier: kotlin.reflect.KClassifier = this@createType
-        override val isMarkedNullable: Boolean = nullable
-    }
+inline fun <reified T> PayloadSerializer.deserialize(payload: Payload): T = deserialize(typeOf<T>(), payload) as T
 
 /**
  * Exception thrown when serialization or deserialization fails.

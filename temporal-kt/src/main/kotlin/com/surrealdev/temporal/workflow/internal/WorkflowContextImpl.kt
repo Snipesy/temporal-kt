@@ -31,7 +31,7 @@ import kotlin.time.toJavaDuration
  *
  * This context provides deterministic operations within a workflow:
  * - Timer scheduling (via [sleep])
- * - Activity scheduling (via [startActivity])
+ * - Activity scheduling (via [startActivityWithPayloads])
  * - Deterministic time and random values
  *
  * All operations that interact with the external world go through
@@ -124,25 +124,13 @@ internal class WorkflowContextImpl(
         state.randomSeed = newSeed
     }
 
-    @Suppress("UNCHECKED_CAST")
-    override suspend fun <T : Any> activity(
-        activityType: String,
-        options: ActivityOptions,
-    ): T {
-        // For MVP, return a stub that throws when methods are called
-        // TODO: Implement proper activity proxy with dynamic proxy or code generation
-        throw UnsupportedOperationException(
-            "Activity proxy not yet implemented. ",
-        )
-    }
-
     /**
      * Starts an activity execution and returns a handle for managing it.
      *
      * @throws IllegalArgumentException if validation fails (invalid timeouts, priority, etc.)
      * @throws ReadOnlyContextException if called during query processing
      */
-    override suspend fun <R> startActivity(
+    override suspend fun <R> startActivityWithPayloads(
         activityType: String,
         args: Payloads,
         options: ActivityOptions,
@@ -459,7 +447,7 @@ internal class WorkflowContextImpl(
     }
 
     @Suppress("UNCHECKED_CAST")
-    override suspend fun <R : Any?> startChildWorkflow(
+    override suspend fun <R : Any?> startChildWorkflowWithPayloads(
         workflowType: String,
         args: Payloads,
         options: ChildWorkflowOptions,
@@ -520,7 +508,7 @@ internal class WorkflowContextImpl(
         return handle
     }
 
-    override fun setQueryHandler(
+    override fun setQueryHandlerWithPayloads(
         name: String,
         handler: (suspend (List<Payload>) -> Payload)?,
     ) {
@@ -531,7 +519,7 @@ internal class WorkflowContextImpl(
         }
     }
 
-    override fun setDynamicQueryHandler(
+    override fun setDynamicQueryHandlerWithPayloads(
         handler: (
             suspend (
                 queryType: String,
@@ -542,7 +530,7 @@ internal class WorkflowContextImpl(
         runtimeDynamicQueryHandler = handler
     }
 
-    override fun setSignalHandler(
+    override fun setSignalHandlerWithPayloads(
         name: String,
         handler: (suspend (List<Payload>) -> Unit)?,
     ) {
@@ -561,7 +549,11 @@ internal class WorkflowContextImpl(
         }
     }
 
-    override fun setDynamicSignalHandler(handler: (suspend (signalName: String, args: List<Payload>) -> Unit)?) {
+    override fun setDynamicSignalHandlerWithPayloads(
+        handler: (
+            suspend (signalName: String, args: List<Payload>) -> Unit
+        )?,
+    ) {
         runtimeDynamicSignalHandler = handler
         if (handler != null) {
             // Immediately launch tasks for all buffered signals
@@ -576,7 +568,7 @@ internal class WorkflowContextImpl(
         }
     }
 
-    override fun setUpdateHandler(
+    override fun setUpdateHandlerWithPayloads(
         name: String,
         handler: (suspend (List<Payload>) -> Payload)?,
         validator: ((List<Payload>) -> Unit)?,
@@ -588,7 +580,7 @@ internal class WorkflowContextImpl(
         }
     }
 
-    override fun setDynamicUpdateHandler(
+    override fun setDynamicUpdateHandlerWithPayloads(
         handler: (suspend (updateName: String, args: List<Payload>) -> Payload)?,
         validator: ((updateName: String, args: List<Payload>) -> Unit)?,
     ) {

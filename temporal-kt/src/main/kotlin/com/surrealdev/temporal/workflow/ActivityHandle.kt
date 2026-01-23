@@ -3,7 +3,7 @@ package com.surrealdev.temporal.workflow
 /**
  * Handle to a scheduled or running activity.
  *
- * Obtain a handle by calling [WorkflowContext.startActivity] or related extension functions.
+ * Obtain a handle by calling [WorkflowContext.startActivityWithPayloads] or related extension functions.
  * Use [result] to await the activity result, or [cancel] to request cancellation.
  *
  * @param R The result type of the activity

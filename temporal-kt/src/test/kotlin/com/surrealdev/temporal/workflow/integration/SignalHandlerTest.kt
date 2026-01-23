@@ -6,6 +6,7 @@ import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.taskQueue
 import com.surrealdev.temporal.client.signal
 import com.surrealdev.temporal.client.startWorkflow
+import com.surrealdev.temporal.serialization.deserialize
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext
@@ -121,11 +122,9 @@ class SignalHandlerTest {
             awaitCondition { handlerRegistered }
 
             // Register runtime handler - this should replay any buffered signals
-            setSignalHandler("dynamicValue") { payloads ->
+            setSignalHandlerWithPayloads("dynamicValue") { payloads ->
                 val value =
                     serializer.deserialize(
-                        com.surrealdev.temporal.serialization
-                            .typeInfoOf<String>(),
                         payloads[0],
                     ) as String
                 values.add("dynamic:$value")
@@ -210,7 +209,7 @@ class SignalHandlerTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             // Register dynamic handler to catch all signals
-            setDynamicSignalHandler { signalName, _ ->
+            setDynamicSignalHandlerWithPayloads { signalName, _ ->
                 if (signalName == "complete") {
                     done = true
                 } else {

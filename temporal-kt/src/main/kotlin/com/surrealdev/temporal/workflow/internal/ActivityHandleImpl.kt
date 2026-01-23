@@ -1,7 +1,6 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.serialization.PayloadSerializer
-import com.surrealdev.temporal.serialization.typeInfoOf
 import com.surrealdev.temporal.workflow.ActivityCancellationType
 import com.surrealdev.temporal.workflow.ActivityCancelledException
 import com.surrealdev.temporal.workflow.ActivityException
@@ -92,7 +91,7 @@ internal class ActivityHandleImpl<R>(
         } else {
             // Deserialize using stored type info
             serializer.deserialize(
-                typeInfoOf(returnType),
+                returnType,
                 payload,
             ) as R
         }

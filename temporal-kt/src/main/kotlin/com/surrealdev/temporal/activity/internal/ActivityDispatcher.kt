@@ -4,7 +4,6 @@ import com.google.protobuf.ByteString
 import com.surrealdev.temporal.activity.ActivityCancelledException
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.serialization.SerializationException
-import com.surrealdev.temporal.serialization.typeInfoOf
 import coresdk.CoreInterface
 import coresdk.activityTaskCompletion
 import coresdk.activity_result.activityExecutionResult
@@ -209,7 +208,7 @@ internal class ActivityDispatcher(
         return payloads
             .zip(parameterTypes)
             .map { (payload, type) ->
-                serializer.deserialize(typeInfoOf(type), payload)
+                serializer.deserialize(type, payload)
             }.toTypedArray()
     }
 
@@ -252,7 +251,7 @@ internal class ActivityDispatcher(
                 // For Unit return type, we don't serialize the result
                 Payload.getDefaultInstance()
             } else {
-                serializer.serialize(typeInfoOf(returnType), result)
+                serializer.serialize(returnType, result)
             }
 
         return activityTaskCompletion {
@@ -338,6 +337,9 @@ internal class ActivityDispatcher(
             is java.lang.reflect.InvocationTargetException -> {
                 exception.cause?.let { unwrapReflectionException(it) } ?: exception
             }
-            else -> exception
+
+            else -> {
+                exception
+            }
         }
 }

@@ -2,6 +2,7 @@ package com.surrealdev.temporal.testing
 
 import com.surrealdev.temporal.activity.ActivityCancelledException
 import com.surrealdev.temporal.activity.ActivityContext
+import com.surrealdev.temporal.activity.heartbeat
 import com.surrealdev.temporal.annotation.Activity
 import kotlinx.coroutines.delay
 import kotlinx.serialization.Serializable
@@ -149,7 +150,7 @@ class ActivityTestHarnessTest {
             runActivityTest {
                 register(GreetingActivity())
 
-                val result = execute<String>("greet", "World")
+                val result: String = execute("greet", "World")
 
                 assertEquals("Hello, World!", result)
             }
@@ -160,8 +161,8 @@ class ActivityTestHarnessTest {
                 register(GreetingActivity())
                 register(CalculatorActivity())
 
-                val greeting = execute<String>("greet", "Test")
-                val sum = execute<Int>("add", 2, 3)
+                val greeting: String = execute("greet", "Test")
+                val sum: Int = execute("add", 2, 3)
 
                 assertEquals("Hello, Test!", greeting)
                 assertEquals(5, sum)
@@ -172,8 +173,8 @@ class ActivityTestHarnessTest {
             runActivityTest {
                 register(GreetingActivity())
 
-                val result1 = execute<String>("greet", "Alice")
-                val result2 = execute<String>("greet", "Bob")
+                val result1: String = execute("greet", "Alice")
+                val result2: String = execute("greet", "Bob")
 
                 assertEquals("Hello, Alice!", result1)
                 assertEquals("Hello, Bob!", result2)
@@ -187,7 +188,7 @@ class ActivityTestHarnessTest {
             runActivityTest {
                 register(GreetingActivity())
 
-                val result = execute<String>("greet", "Test")
+                val result = execute<String, String>("greet", "Test")
 
                 assertEquals("Hello, Test!", result)
             }
@@ -197,7 +198,7 @@ class ActivityTestHarnessTest {
             runActivityTest {
                 register(GreetingActivity())
 
-                val result = execute<String>("greetMultiple", "John", "Doe")
+                val result = execute<String, String, String>("greetMultiple", "John", "Doe")
 
                 assertEquals("Hello, John Doe!", result)
             }
@@ -207,8 +208,8 @@ class ActivityTestHarnessTest {
             runActivityTest {
                 register(CalculatorActivity())
 
-                val sum = execute<Int>("add", 10, 20)
-                val product = execute<Int>("multiply", 5, 6)
+                val sum: Int = execute("add", 10, 20)
+                val product: Int = execute("multiply", 5, 6)
 
                 assertEquals(30, sum)
                 assertEquals(30, product)
@@ -225,7 +226,7 @@ class ActivityTestHarnessTest {
                         count = 5,
                         tags = listOf("a", "b", "c"),
                     )
-                val result = execute<ComplexOutput>("process", input)
+                val result: ComplexOutput = execute("process", input)
 
                 assertEquals("Hello, Test!", result.greeting)
                 assertEquals(10, result.processedCount)
@@ -239,7 +240,7 @@ class ActivityTestHarnessTest {
             runActivityTest {
                 register(GreetingActivity())
 
-                val result = execute<String>("greet", "World")
+                val result: String = execute("greet", "World")
 
                 assertEquals("Hello, World!", result)
             }
@@ -249,7 +250,7 @@ class ActivityTestHarnessTest {
             runActivityTest {
                 register(CalculatorActivity())
 
-                val result = execute<Int>("add", 100, 200)
+                val result: Int = execute("add", 100, 200)
 
                 assertEquals(300, result)
             }
@@ -260,7 +261,7 @@ class ActivityTestHarnessTest {
                 register(ComplexActivity())
 
                 val input = ComplexInput("User", 7, listOf("tag1"))
-                val result = execute<ComplexOutput>("process", input)
+                val result: ComplexOutput = execute("process", input)
 
                 assertNotNull(result)
                 assertEquals("Hello, User!", result.greeting)
@@ -282,7 +283,7 @@ class ActivityTestHarnessTest {
             runActivityTest {
                 register(NullResultActivity())
 
-                val result = execute<String?>("returnNullable", "test")
+                val result: String? = execute("returnNullable", "test")
 
                 assertEquals("test", result)
             }
@@ -292,7 +293,7 @@ class ActivityTestHarnessTest {
             runActivityTest {
                 register(NullResultActivity())
 
-                val result = execute<String?>("returnNullable", null)
+                val result: String? = execute("returnNullable", null)
 
                 assertNull(result)
             }
@@ -303,7 +304,7 @@ class ActivityTestHarnessTest {
                 val activity = UnitReturnActivity()
                 register(activity)
 
-                execute<Unit>("doSomething", "test-value")
+                execute<Unit, String>("doSomething", "test-value")
 
                 assertEquals("test-value", activity.sideEffect)
             }
@@ -316,7 +317,8 @@ class ActivityTestHarnessTest {
             runActivityTest {
                 register(ContextGreetingActivity())
 
-                val result = execute<String>("greet", "World")
+                // Context receiver activities can't use KFunction references
+                val result = execute<String, String>("greet", "World")
 
                 assertTrue(result.startsWith("Hello, World!"))
                 assertTrue(result.contains("activity:"))
@@ -327,7 +329,7 @@ class ActivityTestHarnessTest {
             runActivityTest {
                 register(GreetingActivity())
 
-                val result = execute<String>("greet", "World")
+                val result = execute<String, String>(GreetingActivity::greet, "World")
 
                 assertEquals("Hello, World!", result)
             }
@@ -340,7 +342,7 @@ class ActivityTestHarnessTest {
             runActivityTest {
                 register(SuspendGreetingActivity())
 
-                val result = execute<String>("greet", "World")
+                val result = execute<String, String>(SuspendGreetingActivity::greet, "World")
 
                 assertEquals("Hello, World!", result)
             }
@@ -350,7 +352,7 @@ class ActivityTestHarnessTest {
             runActivityTest {
                 register(GreetingActivity())
 
-                val result = execute<String>("greet", "World")
+                val result = execute<String, String>(GreetingActivity::greet, "World")
 
                 assertEquals("Hello, World!", result)
             }
@@ -360,7 +362,8 @@ class ActivityTestHarnessTest {
             runActivityTest {
                 register(SuspendContextActivity())
 
-                val result = execute<String>("greet", "World")
+                // Context receiver activities can't use KFunction references
+                val result = execute<String, String>("greet", "World")
 
                 assertTrue(result.startsWith("Hello, World!"))
                 assertTrue(result.contains("attempt:"))
@@ -374,7 +377,8 @@ class ActivityTestHarnessTest {
             runActivityTest {
                 register(HeartbeatingActivity())
 
-                val result = execute<Int>("longRunning", 5)
+                // Context receiver activities can't use KFunction references
+                val result = execute<Int, Int>("longRunning", 5)
 
                 assertEquals(5, result)
                 assertEquals(5, heartbeats.size)
@@ -385,13 +389,13 @@ class ActivityTestHarnessTest {
             runActivityTest {
                 register(HeartbeatingActivity())
 
-                execute<Int>("longRunning", 3)
+                execute<Int, Int>("longRunning", 3)
                 assertEquals(3, heartbeats.size)
 
                 clearHeartbeats()
                 assertEquals(0, heartbeats.size)
 
-                execute<Int>("longRunning", 2)
+                execute<Int, Int>("longRunning", 2)
                 assertEquals(2, heartbeats.size)
             }
 
@@ -400,7 +404,7 @@ class ActivityTestHarnessTest {
             runActivityTest {
                 register(HeartbeatingActivity())
 
-                execute<Int>("longRunning", 1)
+                execute<Int, Int>("longRunning", 1)
 
                 assertEquals(1, heartbeats.size)
                 assertTrue(heartbeats[0].taskToken.isNotEmpty())
@@ -431,7 +435,7 @@ class ActivityTestHarnessTest {
 
                 val exception =
                     assertThrows<ActivityTestException> {
-                        execute<String>("failWithCustomMessage", "Custom error!")
+                        execute<String, String>(FailingActivity::failWithCustomMessage, "Custom error!")
                     }
 
                 assertEquals("Custom error!", exception.message)
@@ -466,7 +470,7 @@ class ActivityTestHarnessTest {
             runActivityTest {
                 register(HeartbeatingActivity())
 
-                execute<Int>("longRunning", 2)
+                execute<Int, Int>("longRunning", 2)
                 requestCancellation()
 
                 assertTrue(heartbeats.isNotEmpty())
@@ -489,7 +493,7 @@ class ActivityTestHarnessTest {
                 // Activity should fail when it tries to heartbeat
                 val exception =
                     assertThrows<ActivityTestException> {
-                        execute<Int>("longRunningWithCancellationCheck", 10)
+                        execute<Int, Int>("longRunningWithCancellationCheck", 10)
                     }
 
                 // The exception should indicate cancellation (via ActivityCancelledException)
@@ -509,10 +513,10 @@ class ActivityTestHarnessTest {
 
                 val exception =
                     assertThrows<ActivityTestException> {
-                        execute<String>("unknownMethod", "arg")
+                        execute<String, String>("unknownMethod", "arg")
                     }
 
-                assertTrue(exception.message?.contains("not registered") == true)
+                assertEquals(exception.message?.contains("not registered"), true)
             }
     }
 }

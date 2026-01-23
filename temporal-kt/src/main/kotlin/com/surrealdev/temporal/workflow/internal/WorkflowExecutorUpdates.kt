@@ -1,6 +1,5 @@
 package com.surrealdev.temporal.workflow.internal
 
-import com.surrealdev.temporal.serialization.typeInfoOf
 import coresdk.workflow_commands.WorkflowCommands
 import io.temporal.api.common.v1.Payload
 import io.temporal.api.failure.v1.Failure
@@ -233,7 +232,7 @@ private suspend fun WorkflowExecutor.invokeAnnotationUpdateHandler(
             if (result == Unit || handler.returnType.classifier == Unit::class) {
                 Payload.getDefaultInstance()
             } else {
-                serializer.serialize(typeInfoOf(handler.returnType), result)
+                serializer.serialize(handler.returnType, result)
             }
 
         // Complete with result

@@ -1,7 +1,6 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.serialization.PayloadSerializer
-import com.surrealdev.temporal.serialization.typeInfoOf
 import com.surrealdev.temporal.workflow.ChildWorkflowCancellationType
 import com.surrealdev.temporal.workflow.ChildWorkflowCancelledException
 import com.surrealdev.temporal.workflow.ChildWorkflowFailureException
@@ -183,9 +182,11 @@ internal class ChildWorkflowHandleImpl<R>(
             if (returnType.classifier == Unit::class) {
                 Unit as R
             } else {
-                null as R
+                throw IllegalStateException(
+                    "Child workflow result payload is empty but return type is not Unit",
+                )
             }
         } else {
-            serializer.deserialize(typeInfoOf(returnType), payload) as R
+            serializer.deserialize(returnType, payload) as R
         }
 }

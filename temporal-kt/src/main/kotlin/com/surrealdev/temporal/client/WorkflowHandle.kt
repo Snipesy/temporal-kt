@@ -1,9 +1,9 @@
 package com.surrealdev.temporal.client
 
+import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.client.history.WorkflowHistory
 import com.surrealdev.temporal.client.internal.WorkflowServiceClient
 import com.surrealdev.temporal.serialization.PayloadSerializer
-import com.surrealdev.temporal.serialization.TypeInfo
 import io.temporal.api.common.v1.Payloads
 import io.temporal.api.common.v1.WorkflowExecution
 import io.temporal.api.enums.v1.EventType
@@ -12,6 +12,7 @@ import io.temporal.api.history.v1.HistoryEvent
 import io.temporal.api.workflowservice.v1.*
 import kotlinx.coroutines.delay
 import org.slf4j.LoggerFactory
+import kotlin.reflect.KType
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -58,13 +59,14 @@ interface WorkflowHandle<R> {
     /**
      * Sends a signal to the workflow.
      *
-     * This method uses raw payloads. You should use associated reified extension functions for type safety.
+     * This method uses raw payloads. You should use associated reified extension functions for type safety [signal].
      *
      *
      * @param signalName The name of the signal to send.
      * @param args Arguments to pass with the signal.
      */
-    suspend fun signal(
+    @InternalTemporalApi
+    suspend fun signalWithPayloads(
         signalName: String,
         args: Payloads,
     )
@@ -75,13 +77,14 @@ interface WorkflowHandle<R> {
      * Updates are like signals but return a value. They also support
      * validation before the update is accepted.
      *
-     * This method uses raw payloads. You should use associated reified extension functions for type safety.
+     * This method uses raw payloads. You should use associated reified extension functions for type safety [update]
      *
      * @param updateName The name of the update to send.
      * @param args Arguments to pass with the update.
      * @return The update result.
      */
-    suspend fun update(
+    @InternalTemporalApi
+    suspend fun updateWithPayloads(
         updateName: String,
         args: Payloads,
     ): Payloads
@@ -91,13 +94,14 @@ interface WorkflowHandle<R> {
      *
      * Queries are read-only and do not affect workflow execution.
      *
-     * This method uses raw payloads. You should use associated reified extension functions for type safety.
+     * This method uses raw payloads. You should use associated reified extension functions for type safety [query]
      *
      * @param queryType The type of query to execute.
      * @param args Arguments to pass with the query.
      * @return The query result.
      */
-    suspend fun query(
+    @InternalTemporalApi
+    suspend fun queryWithPayloads(
         queryType: String,
         args: Payloads,
     ): Payloads
@@ -143,7 +147,7 @@ interface WorkflowHandle<R> {
 internal class WorkflowHandleImpl<R>(
     override val workflowId: String,
     override var runId: String?,
-    private val resultTypeInfo: TypeInfo,
+    private val resultTypeInfo: KType,
     private val serviceClient: WorkflowServiceClient,
     override val serializer: PayloadSerializer,
 ) : WorkflowHandle<R> {
@@ -296,7 +300,7 @@ internal class WorkflowHandleImpl<R>(
             }
         }
 
-    override suspend fun signal(
+    override suspend fun signalWithPayloads(
         signalName: String,
         args: Payloads,
     ) {
@@ -317,7 +321,7 @@ internal class WorkflowHandleImpl<R>(
         serviceClient.signalWorkflowExecution(request)
     }
 
-    override suspend fun update(
+    override suspend fun updateWithPayloads(
         updateName: String,
         args: Payloads,
     ): Payloads {
@@ -384,7 +388,7 @@ internal class WorkflowHandleImpl<R>(
         }
     }
 
-    override suspend fun query(
+    override suspend fun queryWithPayloads(
         queryType: String,
         args: Payloads,
     ): Payloads {
@@ -520,24 +524,3 @@ internal class WorkflowHandleImpl<R>(
         )
     }
 }
-
-/**
- * Creates a type info for runtime values.
- * Note: This loses generic type information.
- */
-private fun typeInfoOf(value: Any): TypeInfo =
-    TypeInfo(
-        type = value::class.createType(nullable = false),
-        reifiedClass = value::class,
-    )
-
-/**
- * Extension function to create a KType from KClass.
- */
-private fun kotlin.reflect.KClass<*>.createType(nullable: Boolean = false): kotlin.reflect.KType =
-    object : kotlin.reflect.KType {
-        override val annotations: List<Annotation> = emptyList()
-        override val arguments: List<kotlin.reflect.KTypeProjection> = emptyList()
-        override val classifier: kotlin.reflect.KClassifier = this@createType
-        override val isMarkedNullable: Boolean = nullable
-    }

@@ -5,7 +5,8 @@ import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.WorkflowRegistration
 import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
-import com.surrealdev.temporal.serialization.typeInfoOf
+import com.surrealdev.temporal.serialization.deserialize
+import com.surrealdev.temporal.serialization.serialize
 import com.surrealdev.temporal.testing.ProtoTestHelpers.createActivation
 import com.surrealdev.temporal.testing.ProtoTestHelpers.initializeWorkflowJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.signalWorkflowJob
@@ -16,7 +17,6 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
 import java.util.UUID
 import kotlin.reflect.full.findAnnotation
-import kotlin.reflect.typeOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -370,7 +370,7 @@ class SignalHandlerTest {
             val (executor, runId) = createInitializedExecutor(SignalWithArgsWorkflow())
 
             val approvalData = ApprovalData(approver = "Alice", approved = true)
-            val argPayload = serializer.serialize(typeInfoOf(typeOf<ApprovalData>()), approvalData)
+            val argPayload = serializer.serialize(approvalData)
 
             val signalActivation =
                 createActivation(
@@ -393,8 +393,8 @@ class SignalHandlerTest {
         runTest {
             val (executor, runId) = createInitializedExecutor(SignalMultipleArgsWorkflow())
 
-            val firstArg = serializer.serialize(typeInfoOf(typeOf<String>()), "John")
-            val lastArg = serializer.serialize(typeInfoOf(typeOf<String>()), "Doe")
+            val firstArg = serializer.serialize("John")
+            val lastArg = serializer.serialize("Doe")
 
             val signalActivation =
                 createActivation(
@@ -417,7 +417,7 @@ class SignalHandlerTest {
         runTest {
             val (executor, runId) = createInitializedExecutor(SuspendSignalWorkflow())
 
-            val valueArg = serializer.serialize(typeInfoOf(typeOf<String>()), "test-value")
+            val valueArg = serializer.serialize("test-value")
 
             val signalActivation =
                 createActivation(
@@ -553,8 +553,8 @@ class SignalHandlerTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             // Register a runtime signal handler
-            setSignalHandler("runtimeSignal") { payloads ->
-                val value = serializer.deserialize(typeInfoOf<String>(), payloads[0]) as String
+            setSignalHandlerWithPayloads("runtimeSignal") { payloads ->
+                val value = serializer.deserialize<String>(payloads[0])
                 runtimeValue = value
             }
             awaitCondition { runtimeValue.isNotEmpty() }
@@ -568,7 +568,7 @@ class SignalHandlerTest {
 
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
-            setDynamicSignalHandler { signalName, _ ->
+            setDynamicSignalHandlerWithPayloads { signalName, _ ->
                 receivedSignals.add(signalName)
             }
             awaitCondition { receivedSignals.isNotEmpty() }
@@ -582,7 +582,7 @@ class SignalHandlerTest {
 
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
-            setSignalHandler("mySignal") { _ ->
+            setSignalHandlerWithPayloads("mySignal") { _ ->
                 source = "runtime"
             }
             awaitCondition { source.isNotEmpty() }
@@ -601,7 +601,7 @@ class SignalHandlerTest {
             val workflow = RuntimeSignalWorkflow()
             val (executor, runId) = createInitializedExecutor(workflow)
 
-            val valueArg = serializer.serialize(typeInfoOf(typeOf<String>()), "runtime-value")
+            val valueArg = serializer.serialize("runtime-value")
 
             val signalActivation =
                 createActivation(
@@ -667,8 +667,8 @@ class SignalHandlerTest {
             awaitCondition { handlerRegistered }
 
             // Now register the handler - buffered signals should be replayed
-            setSignalHandler("bufferedSignal") { payloads ->
-                val value = serializer.deserialize(typeInfoOf<String>(), payloads[0]) as String
+            setSignalHandlerWithPayloads("bufferedSignal") { payloads ->
+                val value = serializer.deserialize<String>(payloads[0])
                 receivedSignals.add(value)
             }
 
@@ -689,7 +689,7 @@ class SignalHandlerTest {
             val (executor, runId) = createInitializedExecutor(workflow)
 
             // Send signal BEFORE handler is registered
-            val signalArg = serializer.serialize(typeInfoOf(typeOf<String>()), "buffered-value")
+            val signalArg = serializer.serialize("buffered-value")
             val signalActivation1 =
                 createActivation(
                     runId = runId,
@@ -725,7 +725,7 @@ class SignalHandlerTest {
             awaitCondition { handlerRegistered }
 
             // Register dynamic handler - ALL buffered signals should be replayed
-            setDynamicSignalHandler { signalName, _ ->
+            setDynamicSignalHandlerWithPayloads { signalName, _ ->
                 receivedSignals.add(signalName)
             }
 
@@ -781,8 +781,8 @@ class SignalHandlerTest {
         suspend fun WorkflowContext.run(): String {
             awaitCondition { handlerRegistered }
 
-            setSignalHandler("dataSignal") { payloads ->
-                val value = serializer.deserialize(typeInfoOf<String>(), payloads[0]) as String
+            setSignalHandlerWithPayloads("dataSignal") { payloads ->
+                val value = serializer.deserialize(payloads[0]) as String
                 receivedValues.add(value)
             }
 
@@ -810,15 +810,15 @@ class SignalHandlerTest {
                         listOf(
                             signalWorkflowJob(
                                 signalName = "dataSignal",
-                                input = listOf(serializer.serialize(typeInfoOf(typeOf<String>()), "first")),
+                                input = listOf(serializer.serialize("first")),
                             ),
                             signalWorkflowJob(
                                 signalName = "dataSignal",
-                                input = listOf(serializer.serialize(typeInfoOf(typeOf<String>()), "second")),
+                                input = listOf(serializer.serialize("second")),
                             ),
                             signalWorkflowJob(
                                 signalName = "dataSignal",
-                                input = listOf(serializer.serialize(typeInfoOf(typeOf<String>()), "third")),
+                                input = listOf(serializer.serialize("third")),
                             ),
                         ),
                 )

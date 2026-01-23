@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.workflow
 
+import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import io.temporal.api.common.v1.Payloads
 import kotlinx.coroutines.CoroutineScope
@@ -61,18 +62,6 @@ interface WorkflowContext :
     val info: WorkflowInfo
 
     /**
-     * Creates a proxy to invoke activities of the specified type.
-     *
-     * @param T The activity interface type
-     * @param options Configuration for activity execution
-     * @return A proxy implementing the activity interface
-     */
-    suspend fun <T : Any> activity(
-        activityType: String,
-        options: ActivityOptions = ActivityOptions(),
-    ): T
-
-    /**
      * Starts an activity and returns a handle to track its execution.
      *
      * This is the low-level method. For easier usage with type inference,
@@ -86,7 +75,8 @@ interface WorkflowContext :
      * @return A handle to the activity for awaiting results or cancellation
      * @throws IllegalArgumentException if neither startToCloseTimeout nor scheduleToCloseTimeout is set
      */
-    suspend fun <R> startActivity(
+    @InternalTemporalApi
+    suspend fun <R> startActivityWithPayloads(
         activityType: String,
         args: Payloads,
         options: ActivityOptions = ActivityOptions(),
@@ -191,7 +181,8 @@ interface WorkflowContext :
      * @param returnType The KType for result deserialization (used by extension functions)
      * @return A handle to the child workflow for awaiting results or cancellation
      */
-    suspend fun <R> startChildWorkflow(
+    @InternalTemporalApi
+    suspend fun <R> startChildWorkflowWithPayloads(
         workflowType: String,
         args: Payloads,
         options: ChildWorkflowOptions = ChildWorkflowOptions(),
@@ -222,7 +213,8 @@ interface WorkflowContext :
      * @param name The query name to register
      * @param handler The handler function receiving raw payloads and returning a payload, or null to unregister
      */
-    fun setQueryHandler(
+    @InternalTemporalApi
+    fun setQueryHandlerWithPayloads(
         name: String,
         handler: (suspend (List<io.temporal.api.common.v1.Payload>) -> io.temporal.api.common.v1.Payload)?,
     )
@@ -245,7 +237,7 @@ interface WorkflowContext :
      *
      * @param handler The handler function, or null to unregister
      */
-    fun setDynamicQueryHandler(
+    fun setDynamicQueryHandlerWithPayloads(
         handler: (
             suspend (
                 queryType: String,
@@ -277,7 +269,8 @@ interface WorkflowContext :
      * @param name The signal name to register
      * @param handler The handler function receiving raw payloads, or null to unregister
      */
-    fun setSignalHandler(
+    @InternalTemporalApi
+    fun setSignalHandlerWithPayloads(
         name: String,
         handler: (suspend (List<io.temporal.api.common.v1.Payload>) -> Unit)?,
     )
@@ -300,7 +293,7 @@ interface WorkflowContext :
      *
      * @param handler The handler function, or null to unregister
      */
-    fun setDynamicSignalHandler(
+    fun setDynamicSignalHandlerWithPayloads(
         handler: (suspend (signalName: String, args: List<io.temporal.api.common.v1.Payload>) -> Unit)?,
     )
 
@@ -329,7 +322,8 @@ interface WorkflowContext :
      * @param handler The handler function receiving raw payloads and returning a payload, or null to unregister
      * @param validator Optional synchronous validator that runs before the handler (in read-only mode)
      */
-    fun setUpdateHandler(
+    @InternalTemporalApi
+    fun setUpdateHandlerWithPayloads(
         name: String,
         handler: (suspend (List<io.temporal.api.common.v1.Payload>) -> io.temporal.api.common.v1.Payload)?,
         validator: ((List<io.temporal.api.common.v1.Payload>) -> Unit)? = null,
@@ -359,7 +353,7 @@ interface WorkflowContext :
      * @param handler The handler function, or null to unregister
      * @param validator Optional synchronous validator that runs before the handler (in read-only mode)
      */
-    fun setDynamicUpdateHandler(
+    fun setDynamicUpdateHandlerWithPayloads(
         handler: (
             suspend (
                 updateName: String,
@@ -479,7 +473,7 @@ data class ChildWorkflowOptions(
 /**
  * Handle to a running or completed child workflow.
  *
- * Obtain a handle by calling [WorkflowContext.startChildWorkflow] or related extension functions.
+ * Obtain a handle by calling [WorkflowContext.startChildWorkflowWithPayloads] or related extension functions.
  *
  * @param R The result type of the child workflow
  */

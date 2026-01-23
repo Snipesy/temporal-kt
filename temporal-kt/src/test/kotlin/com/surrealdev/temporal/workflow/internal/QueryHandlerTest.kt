@@ -5,7 +5,8 @@ import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.WorkflowRegistration
 import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
-import com.surrealdev.temporal.serialization.typeInfoOf
+import com.surrealdev.temporal.serialization.deserialize
+import com.surrealdev.temporal.serialization.serialize
 import com.surrealdev.temporal.testing.ProtoTestHelpers.createActivation
 import com.surrealdev.temporal.testing.ProtoTestHelpers.initializeWorkflowJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.queryWorkflowJob
@@ -378,7 +379,7 @@ class QueryHandlerTest {
             val (executor, runId) = createInitializedExecutor(QueryWithArgsWorkflow())
 
             // Serialize the argument
-            val indexArg = serializer.serialize(typeInfoOf(typeOf<Int>()), 2)
+            val indexArg = serializer.serialize(2)
 
             val queryActivation =
                 createActivation(
@@ -403,8 +404,7 @@ class QueryHandlerTest {
 
             // Deserialize and verify the result
             val result =
-                serializer.deserialize(
-                    typeInfoOf(typeOf<String?>()),
+                serializer.deserialize<String>(
                     queryResult.succeeded.response,
                 )
             assertEquals("c", result) // items[2] = "c"
@@ -415,8 +415,8 @@ class QueryHandlerTest {
         runTest {
             val (executor, runId) = createInitializedExecutor(QueryWithArgsWorkflow())
 
-            val startArg = serializer.serialize(typeInfoOf(typeOf<Int>()), 1)
-            val endArg = serializer.serialize(typeInfoOf(typeOf<Int>()), 3)
+            val startArg = serializer.serialize(1)
+            val endArg = serializer.serialize(3)
 
             val queryActivation =
                 createActivation(
@@ -439,12 +439,10 @@ class QueryHandlerTest {
                     .respondToQuery
             assertTrue(queryResult.hasSucceeded())
 
-            @Suppress("UNCHECKED_CAST")
             val result =
-                serializer.deserialize(
-                    typeInfoOf(typeOf<List<String>>()),
+                serializer.deserialize<List<String>>(
                     queryResult.succeeded.response,
-                ) as List<String>
+                )
             assertEquals(listOf("b", "c"), result)
         }
 
@@ -494,7 +492,7 @@ class QueryHandlerTest {
             val (executor, runId) = createInitializedExecutor(ComplexQueryWorkflow())
 
             val arg = QueryArg(name = "Test", value = 2)
-            val argPayload = serializer.serialize(typeInfoOf(typeOf<QueryArg>()), arg)
+            val argPayload = serializer.serialize(arg)
 
             val queryActivation =
                 createActivation(
@@ -518,10 +516,9 @@ class QueryHandlerTest {
             assertTrue(queryResult.hasSucceeded())
 
             val result =
-                serializer.deserialize(
-                    typeInfoOf(typeOf<QueryResult>()),
+                serializer.deserialize<QueryResult>(
                     queryResult.succeeded.response,
-                ) as QueryResult
+                )
             assertEquals("Hello Test", result.message)
             assertEquals(listOf("item1", "item2"), result.data)
         }
@@ -570,8 +567,7 @@ class QueryHandlerTest {
             assertTrue(queryResult.hasSucceeded())
 
             val result =
-                serializer.deserialize(
-                    typeInfoOf(typeOf<String>()),
+                serializer.deserialize<String>(
                     queryResult.succeeded.response,
                 )
             assertEquals("specific", result)
@@ -716,8 +712,8 @@ class QueryHandlerTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             // Register a runtime query handler that works with raw Payloads
-            setQueryHandler("runtimeQuery") { _ ->
-                serializer.serialize(typeInfoOf<String>(), "runtime: $runtimeValue")
+            setQueryHandlerWithPayloads("runtimeQuery") { _ ->
+                serializer.serialize("runtime: $runtimeValue")
             }
             runtimeValue = "updated"
             return "done"
@@ -729,8 +725,8 @@ class QueryHandlerTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             // Register a runtime dynamic query handler that works with raw Payloads
-            setDynamicQueryHandler { queryType, _ ->
-                serializer.serialize(typeInfoOf<String>(), "dynamic handler received: $queryType")
+            setDynamicQueryHandlerWithPayloads { queryType, _ ->
+                serializer.serialize<String>("dynamic handler received: $queryType")
             }
             return "done"
         }
@@ -741,8 +737,8 @@ class QueryHandlerTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             // Override the annotation-defined handler at runtime
-            setQueryHandler("getStatus") { _ ->
-                serializer.serialize(typeInfoOf<String>(), "runtime override")
+            setQueryHandlerWithPayloads("getStatus") { _ ->
+                serializer.serialize<String>("runtime override")
             }
             return "done"
         }
@@ -762,13 +758,13 @@ class QueryHandlerTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             // Register handlers that return various serializable types as raw Payloads
-            setQueryHandler("getString") { _ -> serializer.serialize(typeInfoOf<String>(), "hello world") }
-            setQueryHandler("getInt") { _ -> serializer.serialize(typeInfoOf<Int>(), 42) }
-            setQueryHandler("getList") { _ -> serializer.serialize(typeInfoOf<List<String>>(), listOf("a", "b", "c")) }
-            setQueryHandler("getComplex") { _ ->
-                serializer.serialize(typeInfoOf<RuntimeQueryResult>(), RuntimeQueryResult("test", 123))
+            setQueryHandlerWithPayloads("getString") { _ -> serializer.serialize("hello world") }
+            setQueryHandlerWithPayloads("getInt") { _ -> serializer.serialize(42) }
+            setQueryHandlerWithPayloads("getList") { _ -> serializer.serialize(listOf("a", "b", "c")) }
+            setQueryHandlerWithPayloads("getComplex") { _ ->
+                serializer.serialize(RuntimeQueryResult("test", 123))
             }
-            setQueryHandler("getNull") { _ ->
+            setQueryHandlerWithPayloads("getNull") { _ ->
                 io.temporal.api.common.v1.Payload
                     .getDefaultInstance()
             }
@@ -781,8 +777,8 @@ class QueryHandlerTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             // Register then unregister a handler
-            setQueryHandler("tempQuery") { _ -> serializer.serialize(typeInfoOf<String>(), "temporary") }
-            setQueryHandler("tempQuery", null) // Unregister
+            setQueryHandlerWithPayloads("tempQuery") { _ -> serializer.serialize("temporary") }
+            setQueryHandlerWithPayloads("tempQuery", null) // Unregister
             return "done"
         }
     }
@@ -807,8 +803,7 @@ class QueryHandlerTest {
             assertTrue(queryResult.hasSucceeded(), "Runtime query should succeed")
 
             val result =
-                serializer.deserialize(
-                    typeInfoOf(typeOf<String>()),
+                serializer.deserialize<String>(
                     queryResult.succeeded.response,
                 )
             assertEquals("runtime: updated", result)
@@ -834,8 +829,7 @@ class QueryHandlerTest {
             assertTrue(queryResult.hasSucceeded(), "Runtime dynamic query should succeed")
 
             val result =
-                serializer.deserialize(
-                    typeInfoOf(typeOf<String>()),
+                serializer.deserialize<String>(
                     queryResult.succeeded.response,
                 )
             assertEquals("dynamic handler received: anyUnknownQuery", result)
@@ -861,8 +855,7 @@ class QueryHandlerTest {
             assertTrue(queryResult.hasSucceeded())
 
             val result =
-                serializer.deserialize(
-                    typeInfoOf(typeOf<String>()),
+                serializer.deserialize<String>(
                     queryResult.succeeded.response,
                 )
             assertEquals("runtime override", result)
@@ -888,8 +881,7 @@ class QueryHandlerTest {
             assertTrue(queryResult.hasSucceeded())
 
             val result =
-                serializer.deserialize(
-                    typeInfoOf(typeOf<String>()),
+                serializer.deserialize<String>(
                     queryResult.succeeded.response,
                 )
             assertEquals("hello world", result)
@@ -915,8 +907,7 @@ class QueryHandlerTest {
             assertTrue(queryResult.hasSucceeded())
 
             val result =
-                serializer.deserialize(
-                    typeInfoOf(typeOf<Int>()),
+                serializer.deserialize<Int>(
                     queryResult.succeeded.response,
                 )
             assertEquals(42, result)
@@ -941,12 +932,10 @@ class QueryHandlerTest {
                     .respondToQuery
             assertTrue(queryResult.hasSucceeded())
 
-            @Suppress("UNCHECKED_CAST")
             val result =
-                serializer.deserialize(
-                    typeInfoOf(typeOf<List<String>>()),
+                serializer.deserialize<List<String>>(
                     queryResult.succeeded.response,
-                ) as List<String>
+                )
             assertEquals(listOf("a", "b", "c"), result)
         }
 
@@ -970,10 +959,9 @@ class QueryHandlerTest {
             assertTrue(queryResult.hasSucceeded())
 
             val result =
-                serializer.deserialize(
-                    typeInfoOf(typeOf<RuntimeQueryResult>()),
+                serializer.deserialize<RuntimeQueryResult>(
                     queryResult.succeeded.response,
-                ) as RuntimeQueryResult
+                )
             assertEquals(RuntimeQueryResult("test", 123), result)
         }
 

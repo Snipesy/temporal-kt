@@ -1,9 +1,12 @@
 package com.surrealdev.temporal.workflow
 
 import com.surrealdev.temporal.annotation.Activity
+import com.surrealdev.temporal.annotation.Workflow
+import com.surrealdev.temporal.serialization.deserialize
 import com.surrealdev.temporal.serialization.serialize
 import io.temporal.api.common.v1.Payloads
 import kotlinx.coroutines.currentCoroutineContext
+import kotlin.reflect.KClass
 import kotlin.reflect.KFunction
 import kotlin.reflect.full.findAnnotation
 import kotlin.reflect.typeOf
@@ -30,12 +33,31 @@ import kotlin.time.Duration
  * workflowContext.launch {
  *    // do something
  * }
+ * ```
  *
  * @throws IllegalStateException if called outside of a workflow execution
  */
 suspend fun workflow(): WorkflowContext =
     currentCoroutineContext()[WorkflowContext]
         ?: error("workflow() must be called from within a workflow execution")
+
+// =============================================================================
+// Type Extraction Helpers
+// =============================================================================
+
+/**
+ * Extracts the workflow type name from a workflow class.
+ *
+ * Uses the @Workflow annotation's name if present and non-blank,
+ * otherwise falls back to the class simple name.
+ */
+fun KClass<*>.getWorkflowType(): String {
+    val annotation = this.findAnnotation<Workflow>()
+    return when {
+        annotation?.name?.isNotBlank() == true -> annotation.name
+        else -> this.simpleName ?: error("Cannot determine workflow type from anonymous class")
+    }
+}
 
 // =============================================================================
 // Child Workflow Extensions
@@ -59,7 +81,7 @@ suspend inline fun <reified R> WorkflowContext.startChildWorkflow(
     args: Payloads,
     options: ChildWorkflowOptions,
 ): ChildWorkflowHandle<R> =
-    this.startChildWorkflow(
+    this.startChildWorkflowWithPayloads(
         workflowType = workflowType,
         args = args,
         options = options,
@@ -84,7 +106,7 @@ suspend inline fun <reified R, reified T> WorkflowContext.startChildWorkflow(
     val payloadsBuilder = Payloads.newBuilder()
     payloadsBuilder.addPayloads(serializer.serialize(arg))
 
-    return this.startChildWorkflow(
+    return this.startChildWorkflowWithPayloads(
         workflowType = workflowType,
         args = payloadsBuilder.build(),
         options = options,
@@ -104,7 +126,7 @@ suspend inline fun <reified R> WorkflowContext.startChildWorkflow(
     workflowType: String,
     options: ChildWorkflowOptions,
 ): ChildWorkflowHandle<R> =
-    this.startChildWorkflow(
+    this.startChildWorkflowWithPayloads(
         workflowType = workflowType,
         args = Payloads.getDefaultInstance(),
         options = options,
@@ -133,9 +155,175 @@ suspend inline fun <reified R, reified T1, reified T2> WorkflowContext.startChil
     payloadsBuilder.addPayloads(serializer.serialize(arg1))
     payloadsBuilder.addPayloads(serializer.serialize(arg2))
 
-    return this.startChildWorkflow(
+    return this.startChildWorkflowWithPayloads(
         workflowType = workflowType,
         args = payloadsBuilder.build(),
+        options = options,
+        returnType = typeOf<R>(),
+    )
+}
+
+// =============================================================================
+// Child Workflow Extensions - KClass-Based
+// =============================================================================
+
+/**
+ * Starts a child workflow using a workflow class reference without arguments.
+ *
+ * The workflow type is automatically determined from the @Workflow annotation
+ * or the class name.
+ *
+ * @param R The expected result type of the child workflow
+ * @param workflowClass The workflow class annotated with @Workflow
+ * @param options Configuration for the child workflow
+ * @return A handle to the child workflow
+ */
+suspend inline fun <reified R> WorkflowContext.startChildWorkflow(
+    workflowClass: KClass<*>,
+    options: ChildWorkflowOptions,
+): ChildWorkflowHandle<R> =
+    this.startChildWorkflowWithPayloads(
+        workflowType = workflowClass.getWorkflowType(),
+        args = Payloads.getDefaultInstance(),
+        options = options,
+        returnType = typeOf<R>(),
+    )
+
+/**
+ * Starts a child workflow using a workflow class reference with a single argument.
+ *
+ * @param R The expected result type of the child workflow
+ * @param T The type of the argument
+ * @param workflowClass The workflow class annotated with @Workflow
+ * @param arg The argument to pass to the child workflow
+ * @param options Configuration for the child workflow
+ * @return A handle to the child workflow
+ */
+suspend inline fun <reified R, reified T> WorkflowContext.startChildWorkflow(
+    workflowClass: KClass<*>,
+    arg: T,
+    options: ChildWorkflowOptions,
+): ChildWorkflowHandle<R> {
+    val payloads =
+        Payloads
+            .newBuilder()
+            .addPayloads(serializer.serialize(arg))
+            .build()
+
+    return this.startChildWorkflowWithPayloads(
+        workflowType = workflowClass.getWorkflowType(),
+        args = payloads,
+        options = options,
+        returnType = typeOf<R>(),
+    )
+}
+
+/**
+ * Starts a child workflow using a workflow class reference with two arguments.
+ *
+ * @param R The expected result type of the child workflow
+ * @param T1 The type of the first argument
+ * @param T2 The type of the second argument
+ * @param workflowClass The workflow class annotated with @Workflow
+ * @param arg1 The first argument
+ * @param arg2 The second argument
+ * @param options Configuration for the child workflow
+ * @return A handle to the child workflow
+ */
+suspend inline fun <reified R, reified T1, reified T2> WorkflowContext.startChildWorkflow(
+    workflowClass: KClass<*>,
+    arg1: T1,
+    arg2: T2,
+    options: ChildWorkflowOptions,
+): ChildWorkflowHandle<R> {
+    val payloads =
+        Payloads
+            .newBuilder()
+            .addPayloads(serializer.serialize(arg1))
+            .addPayloads(serializer.serialize(arg2))
+            .build()
+
+    return this.startChildWorkflowWithPayloads(
+        workflowType = workflowClass.getWorkflowType(),
+        args = payloads,
+        options = options,
+        returnType = typeOf<R>(),
+    )
+}
+
+/**
+ * Starts a child workflow using a workflow class reference with three arguments.
+ *
+ * @param R The expected result type of the child workflow
+ * @param T1 The type of the first argument
+ * @param T2 The type of the second argument
+ * @param T3 The type of the third argument
+ * @param workflowClass The workflow class annotated with @Workflow
+ * @param arg1 The first argument
+ * @param arg2 The second argument
+ * @param arg3 The third argument
+ * @param options Configuration for the child workflow
+ * @return A handle to the child workflow
+ */
+suspend inline fun <reified R, reified T1, reified T2, reified T3> WorkflowContext.startChildWorkflow(
+    workflowClass: KClass<*>,
+    arg1: T1,
+    arg2: T2,
+    arg3: T3,
+    options: ChildWorkflowOptions,
+): ChildWorkflowHandle<R> {
+    val payloads =
+        Payloads
+            .newBuilder()
+            .addPayloads(serializer.serialize(arg1))
+            .addPayloads(serializer.serialize(arg2))
+            .addPayloads(serializer.serialize(arg3))
+            .build()
+
+    return this.startChildWorkflowWithPayloads(
+        workflowType = workflowClass.getWorkflowType(),
+        args = payloads,
+        options = options,
+        returnType = typeOf<R>(),
+    )
+}
+
+/**
+ * Starts a child workflow using a workflow class reference with four arguments.
+ *
+ * @param R The expected result type of the child workflow
+ * @param T1 The type of the first argument
+ * @param T2 The type of the second argument
+ * @param T3 The type of the third argument
+ * @param T4 The type of the fourth argument
+ * @param workflowClass The workflow class annotated with @Workflow
+ * @param arg1 The first argument
+ * @param arg2 The second argument
+ * @param arg3 The third argument
+ * @param arg4 The fourth argument
+ * @param options Configuration for the child workflow
+ * @return A handle to the child workflow
+ */
+suspend inline fun <reified R, reified T1, reified T2, reified T3, reified T4> WorkflowContext.startChildWorkflow(
+    workflowClass: KClass<*>,
+    arg1: T1,
+    arg2: T2,
+    arg3: T3,
+    arg4: T4,
+    options: ChildWorkflowOptions,
+): ChildWorkflowHandle<R> {
+    val payloads =
+        Payloads
+            .newBuilder()
+            .addPayloads(serializer.serialize(arg1))
+            .addPayloads(serializer.serialize(arg2))
+            .addPayloads(serializer.serialize(arg3))
+            .addPayloads(serializer.serialize(arg4))
+            .build()
+
+    return this.startChildWorkflowWithPayloads(
+        workflowType = workflowClass.getWorkflowType(),
+        args = payloads,
         options = options,
         returnType = typeOf<R>(),
     )
@@ -161,7 +349,7 @@ suspend inline fun <reified R> WorkflowContext.startActivity(
     activityType: String,
     options: ActivityOptions,
 ): ActivityHandle<R> =
-    this.startActivity(
+    this.startActivityWithPayloads(
         activityType = activityType,
         args = Payloads.getDefaultInstance(),
         options = options,
@@ -179,7 +367,7 @@ suspend inline fun <reified R, reified T> WorkflowContext.startActivity(
     val payloadsBuilder = Payloads.newBuilder()
     payloadsBuilder.addPayloads(this.serializer.serialize(arg))
 
-    return this.startActivity(
+    return this.startActivityWithPayloads(
         activityType = activityType,
         args = payloadsBuilder.build(),
         options = options,
@@ -200,7 +388,7 @@ suspend inline fun <reified R, reified T1, reified T2> WorkflowContext.startActi
     payloadsBuilder.addPayloads(this.serializer.serialize(arg1))
     payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
 
-    return this.startActivity(
+    return this.startActivityWithPayloads(
         activityType = activityType,
         args = payloadsBuilder.build(),
         options = options,
@@ -223,7 +411,7 @@ suspend inline fun <reified R, reified T1, reified T2, reified T3> WorkflowConte
     payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
     payloadsBuilder.addPayloads(this.serializer.serialize(arg3))
 
-    return this.startActivity(
+    return this.startActivityWithPayloads(
         activityType = activityType,
         args = payloadsBuilder.build(),
         options = options,
@@ -239,7 +427,7 @@ suspend inline fun <reified R> WorkflowContext.startActivity(
     args: Payloads,
     options: ActivityOptions,
 ): ActivityHandle<R> =
-    this.startActivity(
+    this.startActivityWithPayloads(
         activityType = activityType,
         args = args,
         options = options,
@@ -289,7 +477,7 @@ suspend inline fun <reified R> WorkflowContext.startActivity(
             activityId = activityId,
             cancellationType = cancellationType,
         )
-    return this.startActivity(
+    return this.startActivityWithPayloads(
         activityType = activityType,
         args = Payloads.getDefaultInstance(),
         options = options,
@@ -326,7 +514,7 @@ suspend inline fun <reified R, reified T> WorkflowContext.startActivity(
     val payloadsBuilder = Payloads.newBuilder()
     payloadsBuilder.addPayloads(this.serializer.serialize(arg))
 
-    return this.startActivity(
+    return this.startActivityWithPayloads(
         activityType = activityType,
         args = payloadsBuilder.build(),
         options = options,
@@ -365,7 +553,7 @@ suspend inline fun <reified R, reified T1, reified T2> WorkflowContext.startActi
     payloadsBuilder.addPayloads(this.serializer.serialize(arg1))
     payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
 
-    return this.startActivity(
+    return this.startActivityWithPayloads(
         activityType = activityType,
         args = payloadsBuilder.build(),
         options = options,
@@ -406,7 +594,7 @@ suspend inline fun <reified R, reified T1, reified T2, reified T3> WorkflowConte
     payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
     payloadsBuilder.addPayloads(this.serializer.serialize(arg3))
 
-    return this.startActivity(
+    return this.startActivityWithPayloads(
         activityType = activityType,
         args = payloadsBuilder.build(),
         options = options,
@@ -455,7 +643,7 @@ suspend inline fun <reified R> WorkflowContext.startActivity(
     activityFunc: KFunction<*>,
     options: ActivityOptions,
 ): ActivityHandle<R> =
-    this.startActivity(
+    this.startActivityWithPayloads(
         activityType = activityFunc.getActivityType(),
         args = Payloads.getDefaultInstance(),
         options = options,
@@ -473,7 +661,7 @@ suspend inline fun <reified R, reified T> WorkflowContext.startActivity(
     val payloadsBuilder = Payloads.newBuilder()
     payloadsBuilder.addPayloads(this.serializer.serialize(arg))
 
-    return this.startActivity(
+    return this.startActivityWithPayloads(
         activityType = activityFunc.getActivityType(),
         args = payloadsBuilder.build(),
         options = options,
@@ -494,7 +682,7 @@ suspend inline fun <reified R, reified T1, reified T2> WorkflowContext.startActi
     payloadsBuilder.addPayloads(this.serializer.serialize(arg1))
     payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
 
-    return this.startActivity(
+    return this.startActivityWithPayloads(
         activityType = activityFunc.getActivityType(),
         args = payloadsBuilder.build(),
         options = options,
@@ -517,7 +705,7 @@ suspend inline fun <reified R, reified T1, reified T2, reified T3> WorkflowConte
     payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
     payloadsBuilder.addPayloads(this.serializer.serialize(arg3))
 
-    return this.startActivity(
+    return this.startActivityWithPayloads(
         activityType = activityFunc.getActivityType(),
         args = payloadsBuilder.build(),
         options = options,
@@ -574,7 +762,7 @@ suspend inline fun <reified R> WorkflowContext.startActivity(
             activityId = activityId,
             cancellationType = cancellationType,
         )
-    return this.startActivity(
+    return this.startActivityWithPayloads(
         activityType = activityFunc.getActivityType(),
         args = Payloads.getDefaultInstance(),
         options = options,
@@ -611,7 +799,7 @@ suspend inline fun <reified R, reified T> WorkflowContext.startActivity(
     val payloadsBuilder = Payloads.newBuilder()
     payloadsBuilder.addPayloads(this.serializer.serialize(arg))
 
-    return this.startActivity(
+    return this.startActivityWithPayloads(
         activityType = activityFunc.getActivityType(),
         args = payloadsBuilder.build(),
         options = options,
@@ -650,7 +838,7 @@ suspend inline fun <reified R, reified T1, reified T2> WorkflowContext.startActi
     payloadsBuilder.addPayloads(this.serializer.serialize(arg1))
     payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
 
-    return this.startActivity(
+    return this.startActivityWithPayloads(
         activityType = activityFunc.getActivityType(),
         args = payloadsBuilder.build(),
         options = options,
@@ -691,10 +879,104 @@ suspend inline fun <reified R, reified T1, reified T2, reified T3> WorkflowConte
     payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
     payloadsBuilder.addPayloads(this.serializer.serialize(arg3))
 
-    return this.startActivity(
+    return this.startActivityWithPayloads(
         activityType = activityFunc.getActivityType(),
         args = payloadsBuilder.build(),
         options = options,
         returnType = typeOf<R>(),
+    )
+}
+
+// =============================================================================
+// Handler Extensions
+// =============================================================================
+
+/**
+ * Registers or replaces a query handler at runtime with a single typed argument.
+ *
+ * This is a type-safe wrapper around [WorkflowContext.setQueryHandlerWithPayloads] that handles
+ * serialization and deserialization automatically.
+ *
+ * @param T The argument type of the query
+ * @param R The return type of the query
+ * @param name The query name to register
+ * @param handler The handler function that receives the typed argument and returns a typed result
+ */
+inline fun <reified T : Any, reified R> WorkflowContext.setQueryHandler(
+    name: String,
+    crossinline handler: (suspend (T) -> R),
+) {
+    setQueryHandlerWithPayloads(name) { argsPayloads ->
+        if (argsPayloads.size != 1) {
+            error("Expected exactly one argument payload for query handler '$name', but got ${argsPayloads.size}")
+        }
+        val arg = serializer.deserialize<T>(argsPayloads[0])
+        val result: R = handler(arg)
+        serializer.serialize<R>(result)
+    }
+}
+
+/**
+ * Registers or replaces a signal handler at runtime with a single typed argument.
+ *
+ * This is a type-safe wrapper around [WorkflowContext.setSignalHandlerWithPayloads] that handles
+ * deserialization automatically.
+ *
+ * @param T The argument type of the signal
+ * @param name The signal name to register
+ * @param handler The handler function that receives the typed argument
+ */
+inline fun <reified T : Any> WorkflowContext.setSignalHandler(
+    name: String,
+    crossinline handler: (suspend (T) -> Unit),
+) {
+    setSignalHandlerWithPayloads(name) { argsPayloads ->
+        if (argsPayloads.size != 1) {
+            error("Expected exactly one argument payload for signal handler '$name', but got ${argsPayloads.size}")
+        }
+        val arg = serializer.deserialize<T>(argsPayloads[0])
+        handler(arg)
+    }
+}
+
+/**
+ * Registers or replaces an update handler at runtime with a single typed argument.
+ *
+ * This is a type-safe wrapper around [WorkflowContext.setUpdateHandlerWithPayloads] that handles
+ * serialization and deserialization automatically.
+ *
+ * @param T The argument type of the update
+ * @param R The return type of the update
+ * @param name The update name to register
+ * @param handler The suspend function to handle the update, receiving the typed argument and returning a typed result
+ * @param validator An optional synchronous validator that runs before the handler (in read-only mode)
+ */
+inline fun <reified T : Any, reified R> WorkflowContext.setUpdateHandler(
+    name: String,
+    crossinline handler: (suspend (T) -> R),
+    noinline validator: ((T) -> Unit)? = null,
+) {
+    setUpdateHandlerWithPayloads(
+        name,
+        handler = { argsPayloads ->
+            if (argsPayloads.size != 1) {
+                error("Expected exactly one argument payload for update handler '$name', but got ${argsPayloads.size}")
+            }
+            val arg = serializer.deserialize<T>(argsPayloads[0])
+            val result: R = handler(arg)
+            serializer.serialize<R>(result)
+        },
+        validator =
+            validator?.let { validator ->
+                { argsPayloads ->
+                    if (argsPayloads.size != 1) {
+                        error(
+                            "Expected exactly one argument payload for update validator '$name', but got ${argsPayloads.size}",
+                        )
+                    }
+                    val arg = serializer.deserialize<T>(argsPayloads[0])
+                    validator(arg)
+                }
+            },
     )
 }

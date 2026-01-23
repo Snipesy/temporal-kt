@@ -6,6 +6,7 @@ import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.taskQueue
 import com.surrealdev.temporal.client.query
 import com.surrealdev.temporal.client.startWorkflow
+import com.surrealdev.temporal.serialization.serialize
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext
@@ -123,10 +124,8 @@ class QueryHandlerTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             // Register a runtime query handler
-            setQueryHandler("getSecret") { _ ->
+            setQueryHandlerWithPayloads("getSecret") { _ ->
                 serializer.serialize(
-                    com.surrealdev.temporal.serialization
-                        .typeInfoOf<String>(),
                     secret,
                 )
             }

@@ -232,3 +232,21 @@ enum class UpdateUnfinishedPolicy {
 annotation class UpdateValidator(
     val updateName: String,
 )
+
+/**
+ * Marks declarations that are **internal** in temporal API, which means that should not be used outside of
+ * `com.surrealdev.temporal`, because their signatures and semantics will change between future releases without any
+ * warnings and without providing any migration aids.
+ */
+@MustBeDocumented
+@Retention(value = AnnotationRetention.BINARY)
+@Target(AnnotationTarget.CLASS, AnnotationTarget.FUNCTION, AnnotationTarget.TYPEALIAS, AnnotationTarget.PROPERTY)
+@RequiresOptIn(
+    level = RequiresOptIn.Level.ERROR,
+    message =
+        "This is an internal temporal API that " +
+            "should not be used from outside of temporal. No compatibility guarantees are provided. " +
+            "It is recommended to report your use-case of internal API to temporal github issue tracker, " +
+            "so stable API could be provided instead",
+)
+annotation class InternalTemporalApi

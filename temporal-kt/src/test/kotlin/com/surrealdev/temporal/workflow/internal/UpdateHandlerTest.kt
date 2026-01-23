@@ -6,7 +6,8 @@ import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.WorkflowRegistration
 import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
-import com.surrealdev.temporal.serialization.typeInfoOf
+import com.surrealdev.temporal.serialization.deserialize
+import com.surrealdev.temporal.serialization.serialize
 import com.surrealdev.temporal.testing.ProtoTestHelpers.createActivation
 import com.surrealdev.temporal.testing.ProtoTestHelpers.doUpdateJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.initializeWorkflowJob
@@ -17,7 +18,6 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
 import java.util.UUID
 import kotlin.reflect.full.findAnnotation
-import kotlin.reflect.typeOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -406,7 +406,7 @@ class UpdateHandlerTest {
             val (executor, runId) = createInitializedExecutor(UpdateWithArgsWorkflow())
 
             val item = CartItem(id = "item-1", quantity = 5)
-            val argPayload = serializer.serialize(typeInfoOf(typeOf<CartItem>()), item)
+            val argPayload = serializer.serialize(item)
 
             val protocolId = "test-protocol-id"
             val updateActivation =
@@ -431,8 +431,7 @@ class UpdateHandlerTest {
 
             // Deserialize the result
             val result =
-                serializer.deserialize(
-                    typeInfoOf(typeOf<Int>()),
+                serializer.deserialize<Int>(
                     completed.updateResponse.completed,
                 )
             assertEquals(1, result)
@@ -443,7 +442,7 @@ class UpdateHandlerTest {
         runTest {
             val (executor, runId) = createInitializedExecutor(SuspendUpdateWorkflow())
 
-            val valueArg = serializer.serialize(typeInfoOf(typeOf<String>()), "test-value")
+            val valueArg = serializer.serialize("test-value")
 
             val protocolId = "test-protocol-id"
             val updateActivation =
@@ -496,7 +495,7 @@ class UpdateHandlerTest {
         runTest {
             val (executor, runId) = createInitializedExecutor(ComplexReturnUpdateWorkflow())
 
-            val msgArg = serializer.serialize(typeInfoOf(typeOf<String>()), "hello")
+            val msgArg = serializer.serialize<String>("hello")
 
             val protocolId = "test-protocol-id"
             val updateActivation =
@@ -521,8 +520,7 @@ class UpdateHandlerTest {
             assertNotNull(completed)
 
             val result =
-                serializer.deserialize(
-                    typeInfoOf(typeOf<UpdateResult>()),
+                serializer.deserialize<UpdateResult>(
                     completed.updateResponse.completed,
                 ) as UpdateResult
             assertEquals("hello", result.message)
@@ -594,7 +592,7 @@ class UpdateHandlerTest {
             val (executor, runId) = createInitializedExecutor(UpdateWithValidatorWorkflow())
 
             val item = CartItem(id = "item-1", quantity = 5)
-            val argPayload = serializer.serialize(typeInfoOf(typeOf<CartItem>()), item)
+            val argPayload = serializer.serialize(item)
 
             val protocolId = "test-protocol-id"
             val updateActivation =
@@ -625,7 +623,7 @@ class UpdateHandlerTest {
 
             // Invalid quantity (0)
             val item = CartItem(id = "item-1", quantity = 0)
-            val argPayload = serializer.serialize(typeInfoOf(typeOf<CartItem>()), item)
+            val argPayload = serializer.serialize(item)
 
             val protocolId = "test-protocol-id"
             val updateActivation =
@@ -660,7 +658,7 @@ class UpdateHandlerTest {
 
             // Invalid quantity, but runValidator=false (simulating replay)
             val item = CartItem(id = "item-1", quantity = 0)
-            val argPayload = serializer.serialize(typeInfoOf(typeOf<CartItem>()), item)
+            val argPayload = serializer.serialize(item)
 
             val protocolId = "test-protocol-id"
             val updateActivation =
@@ -760,12 +758,12 @@ class UpdateHandlerTest {
 
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
-            setUpdateHandler(
+            setUpdateHandlerWithPayloads(
                 name = "runtimeUpdate",
                 handler = { payloads ->
-                    val value = serializer.deserialize(typeInfoOf<String>(), payloads[0]) as String
+                    val value = serializer.deserialize<String>(payloads[0])
                     runtimeValue = value
-                    serializer.serialize(typeInfoOf<String>(), "set: $value")
+                    serializer.serialize("set: $value")
                 },
             )
             awaitCondition { runtimeValue.isNotEmpty() }
@@ -779,15 +777,15 @@ class UpdateHandlerTest {
 
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
-            setUpdateHandler(
+            setUpdateHandlerWithPayloads(
                 "setValue",
                 handler = { payloads ->
-                    val newValue = serializer.deserialize(typeInfoOf<Int>(), payloads[0]) as Int
+                    val newValue = serializer.deserialize<Int>(payloads[0])
                     value = newValue
-                    serializer.serialize(typeInfoOf<Int>(), value)
+                    serializer.serialize<Int>(value)
                 },
                 validator = { payloads ->
-                    val newValue = serializer.deserialize(typeInfoOf<Int>(), payloads[0]) as Int
+                    val newValue = serializer.deserialize<Int>(payloads[0])
                     require(newValue >= 0) { "Value must be non-negative" }
                 },
             )
@@ -802,7 +800,7 @@ class UpdateHandlerTest {
             val workflow = RuntimeUpdateWorkflow()
             val (executor, runId) = createInitializedExecutor(workflow)
 
-            val valueArg = serializer.serialize(typeInfoOf(typeOf<String>()), "runtime-value")
+            val valueArg = serializer.serialize<String>("runtime-value")
 
             val protocolId = "test-protocol-id"
             val updateActivation =
@@ -831,7 +829,7 @@ class UpdateHandlerTest {
             val (executor, runId) = createInitializedExecutor(workflow)
 
             // Test with valid value
-            val validArg = serializer.serialize(typeInfoOf(typeOf<Int>()), 42)
+            val validArg = serializer.serialize<Int>(42)
             val protocolId1 = "test-protocol-id-1"
             val validUpdateActivation =
                 createActivation(
@@ -854,7 +852,7 @@ class UpdateHandlerTest {
             assertNotNull(completed, "Valid update should complete")
 
             // Test with invalid value
-            val invalidArg = serializer.serialize(typeInfoOf(typeOf<Int>()), -1)
+            val invalidArg = serializer.serialize<Int>(-1)
             val protocolId2 = "test-protocol-id-2"
             val invalidUpdateActivation =
                 createActivation(

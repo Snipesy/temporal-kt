@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
+
 plugins {
     id("buildsrc.convention.kotlin-jvm")
     id("buildsrc.convention.maven-publish")
@@ -37,4 +39,16 @@ publishing {
             }
         }
     }
+}
+
+tasks.named<KotlinCompilationTask<*>>("compileKotlin").configure {
+    compilerOptions.optIn.add("com.surrealdev.temporal.annotation.InternalTemporalApi")
+}
+
+tasks.named<KotlinCompilationTask<*>>("compileTestFixturesKotlin").configure {
+    compilerOptions.optIn.add("com.surrealdev.temporal.annotation.InternalTemporalApi")
+}
+
+tasks.named<KotlinCompilationTask<*>>("compileTestKotlin").configure {
+    compilerOptions.optIn.add("com.surrealdev.temporal.annotation.InternalTemporalApi")
 }

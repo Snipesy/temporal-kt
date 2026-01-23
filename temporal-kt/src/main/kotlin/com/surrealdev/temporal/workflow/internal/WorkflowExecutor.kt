@@ -1,7 +1,7 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.serialization.PayloadSerializer
-import com.surrealdev.temporal.serialization.typeInfoOf
+import com.surrealdev.temporal.serialization.deserialize
 import com.surrealdev.temporal.workflow.WorkflowCancelledException
 import com.surrealdev.temporal.workflow.WorkflowInfo
 import coresdk.workflow_activation.WorkflowActivationOuterClass.InitializeWorkflow
@@ -179,7 +179,7 @@ internal class WorkflowExecutor(
                 val mainResult = mainCoroutine
                 if (mainResult != null && mainResult.isCompleted && queryJobs.isEmpty()) {
                     logger.debug("Main workflow coroutine completed, building terminal completion")
-                    return@withContext buildTerminalCompletion(mainResult)
+                    return@withContext buildTerminalCompletion(mainResult, methodInfo.returnType)
                 }
 
                 // Stage 4: Process queries (read-only mode, no condition checking)
@@ -494,7 +494,7 @@ internal class WorkflowExecutor(
         payloads
             .zip(parameterTypes)
             .map { (payload, type) ->
-                serializer.deserialize(typeInfoOf(type), payload)
+                serializer.deserialize(type, payload)
             }.toTypedArray()
 
     private fun handleCancel() {
