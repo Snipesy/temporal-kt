@@ -12,7 +12,7 @@ on:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: macos-14
 
     steps:
       - uses: actions/checkout@v4
@@ -35,15 +35,10 @@ jobs:
             x86_64-pc-windows-gnu
             aarch64-apple-darwin
 
-      - name: Install cargo-zigbuild
-        run: |
-          pip3 install ziglang
-          cargo install cargo-zigbuild
-
       - name: Install cross-compilation dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y mingw-w64 protobuf-compiler
+          brew install zig mingw-w64 protobuf
+          cargo install cargo-zigbuild
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -55,13 +50,13 @@ jobs:
           # Remove 'v' prefix if present
           VERSION="${VERSION#v}"
           echo "Publishing version: $VERSION"
-          sed -i "s/version=.*/version=$VERSION/" gradle.properties
+          sed -i '' "s/version=.*/version=$VERSION/" gradle.properties
 
       - name: Set version from input
         if: github.event_name == 'workflow_dispatch' && inputs.version != ''
         run: |
           echo "Publishing version: ${{ inputs.version }}"
-          sed -i "s/version=.*/version=${{ inputs.version }}/" gradle.properties
+          sed -i '' "s/version=.*/version=${{ inputs.version }}/" gradle.properties
 
       - name: Build native libraries and publish to Maven Central
         env:
