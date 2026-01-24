@@ -17,7 +17,7 @@ dependencies {
     dokka(project(":core-bridge"))
     dokka(project(":compiler-plugin"))
     dokka(project(":gradle-plugin"))
-    dokka(project(":temporal-kt"))
+    dokka(project(":core"))
 }
 
 subprojects {

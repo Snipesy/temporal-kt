@@ -6,11 +6,11 @@ plugins {
 }
 
 dependencies {
-    api(project(":temporal-kt"))
+    api(project(":core"))
     implementation(libs.kotlinReflect)
 
     testImplementation(kotlin("test"))
-    testImplementation(testFixtures(project(":temporal-kt")))
+    testImplementation(testFixtures(project(":core")))
     testImplementation(libs.kotlinxCoroutinesTest)
 }
 

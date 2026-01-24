@@ -1,6 +1,5 @@
 package com.surrealdev.temporal.workflow.internal
 
-import com.surrealdev.temporal.activity.ActivityCancelledException
 import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
 import com.surrealdev.temporal.testing.ProtoTestHelpers.timestamp
 import com.surrealdev.temporal.workflow.ActivityCancellationType

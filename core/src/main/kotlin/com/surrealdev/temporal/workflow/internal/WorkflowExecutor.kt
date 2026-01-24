@@ -1,7 +1,6 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.serialization.PayloadSerializer
-import com.surrealdev.temporal.serialization.deserialize
 import com.surrealdev.temporal.util.AttributeScope
 import com.surrealdev.temporal.workflow.WorkflowCancelledException
 import com.surrealdev.temporal.workflow.WorkflowInfo

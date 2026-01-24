@@ -84,8 +84,8 @@ class TemporalGradlePlugin : KotlinCompilerPluginSupportPlugin {
         val project = kotlinCompilation.target.project
         val extension = project.extensions.findByType(TemporalExtension::class.java)
 
-        // Automatically add temporal-kt library dependency so compiler plugin can access annotations
-        val temporalKtCoordinates = "${BuildConfig.GROUP_ID}:temporal-kt:${BuildConfig.VERSION}"
+        // Automatically add core library dependency so compiler plugin can access annotations
+        val temporalKtCoordinates = "${BuildConfig.GROUP_ID}:core:${BuildConfig.VERSION}"
         kotlinCompilation.dependencies {
             implementation(temporalKtCoordinates)
         }

@@ -4,7 +4,7 @@ plugins {
 }
 
 dependencies {
-    implementation(project(":temporal-kt"))
+    implementation(project(":core"))
 }
 
 application {

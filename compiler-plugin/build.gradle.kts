@@ -22,11 +22,11 @@ publishing {
 
 dependencies {
     compileOnly(libs.kotlinCompilerEmbeddable)
-    implementation(project(":temporal-kt"))
+    implementation(project(":core"))
     implementation(libs.kotlinxSerialization)
 
     testImplementation(kotlin("test"))
     testImplementation(libs.kotlinCompilerEmbeddable)
     testImplementation(libs.kotlinxCoroutines)
-    testImplementation(project(":temporal-kt"))
+    testImplementation(project(":core"))
 }

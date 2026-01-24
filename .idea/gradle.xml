@@ -22,6 +22,7 @@
             <option value="$PROJECT_DIR$" />
             <option value="$PROJECT_DIR$/buildSrc" />
             <option value="$PROJECT_DIR$/compiler-plugin" />
+            <option value="$PROJECT_DIR$/core" />
             <option value="$PROJECT_DIR$/core-bridge" />
             <option value="$PROJECT_DIR$/examples" />
             <option value="$PROJECT_DIR$/examples/config-driven" />
@@ -30,7 +31,6 @@
             <option value="$PROJECT_DIR$/gradle-plugin" />
             <option value="$PROJECT_DIR$/plugins" />
             <option value="$PROJECT_DIR$/plugins/di" />
-            <option value="$PROJECT_DIR$/temporal-kt" />
           </set>
         </option>
       </GradleProjectSettings>

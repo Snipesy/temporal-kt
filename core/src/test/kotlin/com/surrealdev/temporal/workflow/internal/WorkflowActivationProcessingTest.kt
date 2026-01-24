@@ -1,6 +1,5 @@
 package com.surrealdev.temporal.workflow.internal
 
-import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
 import com.surrealdev.temporal.testing.ProtoTestHelpers.cancelWorkflowJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.createActivation
 import com.surrealdev.temporal.testing.ProtoTestHelpers.fireTimerJob
