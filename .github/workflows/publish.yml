@@ -11,11 +11,52 @@ on:
         type: string
 
 jobs:
-  publish:
-    runs-on: macos-14
+  # ===== BUILD JOBS (run in parallel) =====
 
+  build-linux:
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          submodules: 'recursive'
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+
+      - name: Set up Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          target: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@v2
+
+      - name: Install cargo-zigbuild and protobuf
+        run: |
+          cargo install cargo-zigbuild
+          sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build Linux native libraries
+        run: ./gradlew :core-bridge:copyLinuxNativeLibs --no-daemon
+
+      - name: Upload Linux native libs
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-libs-linux
+          path: core-bridge/build/native-libs/native/linux-*
+          retention-days: 1
+
+  build-macos-arm:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v6
         with:
           submodules: 'recursive'
 
@@ -29,24 +70,152 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: stable
+          target: aarch64-apple-darwin
 
-      - name: Add Rust cross-compilation targets
-        run: |
-          rustup target add x86_64-unknown-linux-gnu
-          rustup target add aarch64-unknown-linux-gnu
-          rustup target add x86_64-pc-windows-gnu
-          rustup target add aarch64-apple-darwin
-
-      - name: Set up Zig
-        uses: mlugg/setup-zig@v2
-
-      - name: Install cross-compilation dependencies
-        run: |
-          brew install mingw-w64 protobuf
-          cargo install cargo-zigbuild
+      - name: Install protobuf
+        run: brew install protobuf
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+
+      - name: Build Darwin ARM64 native library
+        run: ./gradlew :core-bridge:copyDarwinAarch64NativeLib --no-daemon
+
+      - name: Upload Darwin ARM64 native lib
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-libs-darwin-aarch64
+          path: core-bridge/build/native-libs/native/darwin-aarch64
+          retention-days: 1
+
+  build-macos-intel:
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: 'recursive'
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+
+      - name: Set up Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          target: x86_64-apple-darwin
+
+      - name: Install protobuf
+        run: brew install protobuf
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build Darwin x86_64 native library
+        run: ./gradlew :core-bridge:copyDarwinx8664NativeLib --no-daemon
+
+      - name: Upload Darwin x86_64 native lib
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-libs-darwin-x86_64
+          path: core-bridge/build/native-libs/native/darwin-x86_64
+          retention-days: 1
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: 'recursive'
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+
+      - name: Set up Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          target: x86_64-pc-windows-msvc
+
+      - name: Install protobuf
+        run: choco install protoc -y
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build Windows native library
+        run: ./gradlew :core-bridge:copyWindowsNativeLib --no-daemon
+
+      - name: Upload Windows native lib
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-libs-windows
+          path: core-bridge/build/native-libs/native/windows-*
+          retention-days: 1
+
+  # ===== PUBLISH JOB (runs after all builds) =====
+
+  publish:
+    needs: [build-linux, build-macos-arm, build-macos-intel, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: 'recursive'
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+
+      - name: Install protobuf
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # Download all native lib artifacts into the expected directory structure
+      - name: Download Linux native libs
+        uses: actions/download-artifact@v4
+        with:
+          name: native-libs-linux
+          path: core-bridge/build/native-libs/native/
+
+      - name: Download Darwin ARM64 native lib
+        uses: actions/download-artifact@v4
+        with:
+          name: native-libs-darwin-aarch64
+          path: core-bridge/build/native-libs/native/darwin-aarch64
+
+      - name: Download Darwin x86_64 native lib
+        uses: actions/download-artifact@v4
+        with:
+          name: native-libs-darwin-x86_64
+          path: core-bridge/build/native-libs/native/darwin-x86_64
+
+      - name: Download Windows native lib
+        uses: actions/download-artifact@v4
+        with:
+          name: native-libs-windows
+          path: core-bridge/build/native-libs/native/
+
+      - name: Verify native libraries
+        run: |
+          echo "Native libraries downloaded:"
+          find core-bridge/build/native-libs -type f -name "*.so" -o -name "*.dylib" -o -name "*.dll" | sort
+          echo ""
+          echo "Expected structure:"
+          echo "  native/linux-x86_64/libtemporalio_sdk_core_c_bridge.so"
+          echo "  native/linux-aarch64/libtemporalio_sdk_core_c_bridge.so"
+          echo "  native/darwin-x86_64/libtemporalio_sdk_core_c_bridge.dylib"
+          echo "  native/darwin-aarch64/libtemporalio_sdk_core_c_bridge.dylib"
+          echo "  native/windows-x86_64/temporalio_sdk_core_c_bridge.dll"
 
       - name: Set version from release tag
         if: github.event_name == 'release'
@@ -55,25 +224,24 @@ jobs:
           # Remove 'v' prefix if present
           VERSION="${VERSION#v}"
           echo "Publishing version: $VERSION"
-          sed -i '' "s/version=.*/version=$VERSION/" gradle.properties
+          sed -i "s/version=.*/version=$VERSION/" gradle.properties
 
       - name: Set version from input
         if: github.event_name == 'workflow_dispatch' && inputs.version != ''
         run: |
           echo "Publishing version: ${{ inputs.version }}"
-          sed -i '' "s/version=.*/version=${{ inputs.version }}/" gradle.properties
+          sed -i "s/version=.*/version=${{ inputs.version }}/" gradle.properties
 
-      - name: Build native libraries and publish to Maven Central
+      - name: Publish to Maven Central
         env:
           OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
           OSSRH_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
           SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
-        run: |
-          gradle copyAllNativeLibs publishAllPublicationsToMavenCentralRepository --no-daemon
+        run: ./gradlew publishAllPublicationsToMavenCentralRepository -PskipNativeBuild=true --no-daemon
 
       - name: Close and Release Staging Repository
-        if: "!contains(github.event.release.tag_name, '-')"
+        if: github.event_name == 'release' && !contains(github.event.release.tag_name, '-')
         env:
           OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
           OSSRH_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}

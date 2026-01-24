@@ -36,6 +36,7 @@ val arch: String = System.getProperty("os.arch")
 val nativePlatform: String =
     when {
         os.isMacOsX && arch == "aarch64" -> "darwin-aarch64"
+        os.isMacOsX -> "darwin-x86_64"
         os.isLinux && arch == "aarch64" -> "linux-aarch64"
         os.isLinux -> "linux-x86_64"
         os.isWindows -> "windows-x86_64"
@@ -129,19 +130,19 @@ val copyNativeLibLinuxAarch64 by tasks.registering(Copy::class) {
     into(nativeLibsDir.map { it.dir("native/linux-aarch64") })
 }
 
-// Cross-compilation for Windows x86_64 (requires cargo-zigbuild)
+// Windows x86_64 build (native MSVC on Windows runner)
 val cargoBuildWindowsx8664 by tasks.registering(Exec::class) {
-    description = "Build native library for windows-x86_64 (requires cargo-zigbuild)"
+    description = "Build native library for windows-x86_64 (native MSVC)"
     group = "build"
     workingDir = file("rust/sdk-core/crates/sdk-core-c-bridge")
-    commandLine("cargo-zigbuild", "build", "--release", "--target", "x86_64-pc-windows-gnu")
+    commandLine("cargo", "build", "--release", "--target", "x86_64-pc-windows-msvc")
 
     inputs.files(
         fileTree("rust/sdk-core") {
             include("**/*.rs", "**/Cargo.toml", "**/Cargo.lock")
         },
     )
-    outputs.file("rust/sdk-core/target/x86_64-pc-windows-gnu/release/$nativeLibName.dll")
+    outputs.file("rust/sdk-core/target/x86_64-pc-windows-msvc/release/$nativeLibName.dll")
 }
 
 val copyNativeLibWindowsx8664 by tasks.registering(Copy::class) {
@@ -149,16 +150,16 @@ val copyNativeLibWindowsx8664 by tasks.registering(Copy::class) {
     group = "build"
     dependsOn(cargoBuildWindowsx8664)
 
-    from("rust/sdk-core/target/x86_64-pc-windows-gnu/release/$nativeLibName.dll")
+    from("rust/sdk-core/target/x86_64-pc-windows-msvc/release/$nativeLibName.dll")
     into(nativeLibsDir.map { it.dir("native/windows-x86_64") })
 }
 
-// Cross-compilation for macOS aarch64 (Apple Silicon) (requires cargo-zigbuild)
+// macOS aarch64 (Apple Silicon) build - native on ARM Mac runner
 val cargoBuildDarwinAarch64 by tasks.registering(Exec::class) {
-    description = "Build native library for darwin-aarch64 (requires cargo-zigbuild)"
+    description = "Build native library for darwin-aarch64 (native on ARM Mac)"
     group = "build"
     workingDir = file("rust/sdk-core/crates/sdk-core-c-bridge")
-    commandLine("cargo-zigbuild", "build", "--release", "--target", "aarch64-apple-darwin")
+    commandLine("cargo", "build", "--release", "--target", "aarch64-apple-darwin")
 
     inputs.files(
         fileTree("rust/sdk-core") {
@@ -177,15 +178,40 @@ val copyNativeLibDarwinAarch64 by tasks.registering(Copy::class) {
     into(nativeLibsDir.map { it.dir("native/darwin-aarch64") })
 }
 
-// Build all platforms task (for cross-compilation from Linux)
+// macOS x86_64 (Intel) build - native on Intel Mac runner
+val cargoBuildDarwinx8664 by tasks.registering(Exec::class) {
+    description = "Build native library for darwin-x86_64 (native on Intel Mac)"
+    group = "build"
+    workingDir = file("rust/sdk-core/crates/sdk-core-c-bridge")
+    commandLine("cargo", "build", "--release", "--target", "x86_64-apple-darwin")
+
+    inputs.files(
+        fileTree("rust/sdk-core") {
+            include("**/*.rs", "**/Cargo.toml", "**/Cargo.lock")
+        },
+    )
+    outputs.file("rust/sdk-core/target/x86_64-apple-darwin/release/lib$nativeLibName.dylib")
+}
+
+val copyNativeLibDarwinx8664 by tasks.registering(Copy::class) {
+    description = "Copy native library for darwin-x86_64 to build directory"
+    group = "build"
+    dependsOn(cargoBuildDarwinx8664)
+
+    from("rust/sdk-core/target/x86_64-apple-darwin/release/lib$nativeLibName.dylib")
+    into(nativeLibsDir.map { it.dir("native/darwin-x86_64") })
+}
+
+// Build all platforms task
 val cargoBuildAll by tasks.registering {
-    description = "Build Rust native library for all supported platforms (requires cargo-zigbuild)"
+    description = "Build Rust native library for all supported platforms"
     group = "build"
     dependsOn(
         cargoBuildLinuxx8664,
         cargoBuildLinuxAarch64,
         cargoBuildWindowsx8664,
         cargoBuildDarwinAarch64,
+        cargoBuildDarwinx8664,
     )
 }
 
@@ -197,7 +223,33 @@ val copyAllNativeLibs by tasks.registering {
         copyNativeLibLinuxAarch64,
         copyNativeLibWindowsx8664,
         copyNativeLibDarwinAarch64,
+        copyNativeLibDarwinx8664,
     )
+}
+
+// Platform-specific aggregator tasks for CI matrix builds
+val copyLinuxNativeLibs by tasks.registering {
+    description = "Copy Linux native libraries (for Linux CI runner)"
+    group = "build"
+    dependsOn(copyNativeLibLinuxx8664, copyNativeLibLinuxAarch64)
+}
+
+val copyDarwinAarch64NativeLib by tasks.registering {
+    description = "Copy Darwin ARM64 native library (for ARM Mac CI runner)"
+    group = "build"
+    dependsOn(copyNativeLibDarwinAarch64)
+}
+
+val copyDarwinx8664NativeLib by tasks.registering {
+    description = "Copy Darwin x86_64 native library (for Intel Mac CI runner)"
+    group = "build"
+    dependsOn(copyNativeLibDarwinx8664)
+}
+
+val copyWindowsNativeLib by tasks.registering {
+    description = "Copy Windows native library (for Windows CI runner)"
+    group = "build"
+    dependsOn(copyNativeLibWindowsx8664)
 }
 
 // Include native libs from build directory in resources and sdk-core protos
@@ -217,9 +269,14 @@ sourceSets {
     }
 }
 
-// Ensure native lib is built before processing resources
+// Ensure native lib is built before processing resources (unless pre-built for CI)
+// Set -PskipNativeBuild=true to skip native library building (used in CI publish job)
+val skipNativeBuild = project.findProperty("skipNativeBuild")?.toString()?.toBoolean() ?: false
+
 tasks.named("processResources") {
-    dependsOn(copyNativeLib)
+    if (!skipNativeBuild) {
+        dependsOn(copyNativeLib)
+    }
 }
 
 // Clean task for Rust artifacts
