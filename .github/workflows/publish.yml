@@ -29,15 +29,20 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: stable
-          target: |
-            x86_64-unknown-linux-gnu
-            aarch64-unknown-linux-gnu
-            x86_64-pc-windows-gnu
-            aarch64-apple-darwin
+
+      - name: Add Rust cross-compilation targets
+        run: |
+          rustup target add x86_64-unknown-linux-gnu
+          rustup target add aarch64-unknown-linux-gnu
+          rustup target add x86_64-pc-windows-gnu
+          rustup target add aarch64-apple-darwin
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@v2
 
       - name: Install cross-compilation dependencies
         run: |
-          brew install zig mingw-w64 protobuf
+          brew install mingw-w64 protobuf
           cargo install cargo-zigbuild
 
       - name: Setup Gradle
