@@ -234,19 +234,22 @@ jobs:
           echo "Publishing version: ${{ inputs.version }}"
           sed -i "s/version=.*/version=${{ inputs.version }}/" gradle.properties
 
-      - name: Publish to Maven Central
+      - name: Publish to local staging
         env:
-          OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
-          OSSRH_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
           SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
-        run: ./gradlew publishAllPublicationsToMavenCentralRepository -PskipNativeBuild=true --no-daemon
-
-      - name: Close and Release Staging Repository
-        if: github.event_name == 'release' && !contains(github.event.release.tag_name, '-')
-        env:
-          OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
-          OSSRH_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
         run: |
-          echo "Note: Manual release from Nexus Repository Manager may be required"
-          echo "Visit https://s01.oss.sonatype.org to close and release the staging repository"
+          ./gradlew \
+            :core-bridge:publishAllPublicationsToStagingRepository \
+            :core:publishAllPublicationsToStagingRepository \
+            :compiler-plugin:publishAllPublicationsToStagingRepository \
+            :gradle-plugin:publishAllPublicationsToStagingRepository \
+            :plugins:di:publishAllPublicationsToStagingRepository \
+            -PskipNativeBuild=true --no-daemon
+
+      - name: Deploy to Maven Central with JReleaser
+        env:
+          JRELEASER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          JRELEASER_MAVENCENTRAL_SONATYPE_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+          JRELEASER_MAVENCENTRAL_SONATYPE_TOKEN: ${{ secrets.OSSRH_TOKEN }}
+        run: ./gradlew jreleaserDeploy --no-configuration-cache --no-daemon

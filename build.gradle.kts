@@ -1,6 +1,7 @@
 plugins {
     id("org.jetbrains.dokka")
     id("org.jetbrains.dokka-javadoc")
+    id("org.jreleaser") version "1.15.0"
 }
 
 dokka {

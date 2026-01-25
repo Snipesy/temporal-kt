@@ -78,20 +78,10 @@ publishing {
     }
 
     repositories {
+        // Local staging repository for JReleaser to deploy from
         maven {
-            name = "MavenCentral"
-            url =
-                uri(
-                    if (version.toString().endsWith("SNAPSHOT")) {
-                        "https://s01.oss.sonatype.org/content/repositories/snapshots/"
-                    } else {
-                        "https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/"
-                    },
-                )
-            credentials {
-                username = findProperty("ossrhUsername")?.toString() ?: System.getenv("OSSRH_USERNAME")
-                password = findProperty("ossrhPassword")?.toString() ?: System.getenv("OSSRH_PASSWORD")
-            }
+            name = "staging"
+            url = uri(rootProject.layout.buildDirectory.dir("staging-deploy"))
         }
     }
 }
