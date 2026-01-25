@@ -1,6 +1,6 @@
-# Temporal KT Dependency Injection Plugin
+# Module di
 
-A lightweight dependency injection plugin for Temporal KT that keeps your workflows deterministic and your activities flexible.
+Temporal KT Dependency Injection Plugin - A lightweight dependency injection plugin for Temporal KT that keeps your workflows deterministic and your activities flexible.
 
 ## Installation
 
