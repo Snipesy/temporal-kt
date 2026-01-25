@@ -143,7 +143,9 @@ jobs:
           target: x86_64-pc-windows-msvc
 
       - name: Install protobuf
-        run: choco install protoc -y
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
