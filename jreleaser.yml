@@ -1,0 +1,29 @@
+project:
+  name: temporal-kt
+  description: Kotlin SDK for Temporal.io
+  links:
+    homepage: https://github.com/Snipesy/temporal-kt
+  authors:
+    - Snipesy
+  license: Apache-2.0
+  inceptionYear: "2026"
+
+signing:
+  active: NEVER  # Gradle handles signing
+
+release:
+  github:
+    skipRelease: true  # We use GitHub's native releases, not JReleaser
+    skipTag: true
+    changelog:
+      enabled: false
+
+deploy:
+  maven:
+    mavenCentral:
+      sonatype:
+        active: ALWAYS
+        url: https://central.sonatype.com/api/v1/publisher
+        stagingRepositories:
+          - build/staging-deploy
+        applyMavenCentralRules: true
