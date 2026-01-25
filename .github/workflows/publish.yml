@@ -245,7 +245,7 @@ jobs:
             :compiler-plugin:publishAllPublicationsToStagingRepository \
             :gradle-plugin:publishAllPublicationsToStagingRepository \
             :plugins:di:publishAllPublicationsToStagingRepository \
-            -PskipNativeBuild=true --no-daemon
+            -PskipNativeBuild=true --no-configuration-cache --no-daemon
 
       - name: Deploy to Maven Central with JReleaser
         env:
