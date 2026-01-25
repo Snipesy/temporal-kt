@@ -4,6 +4,44 @@ plugins {
     id("org.jreleaser") version "1.15.0"
 }
 
+jreleaser {
+    project {
+        name.set("temporal-kt")
+        description.set("Kotlin SDK for Temporal.io")
+        copyright.set("Snipesy")
+        links {
+            homepage.set("https://github.com/Snipesy/temporal-kt")
+        }
+        authors.set(listOf("Snipesy"))
+        license.set("Apache-2.0")
+        inceptionYear.set("2026")
+    }
+    signing {
+        active.set(org.jreleaser.model.Active.NEVER)
+    }
+    release {
+        github {
+            skipRelease.set(true)
+            skipTag.set(true)
+            changelog {
+                enabled.set(false)
+            }
+        }
+    }
+    deploy {
+        maven {
+            mavenCentral {
+                create("sonatype") {
+                    active.set(org.jreleaser.model.Active.ALWAYS)
+                    url.set("https://central.sonatype.com/api/v1/publisher")
+                    stagingRepository("build/staging-deploy")
+                    applyMavenCentralRules.set(true)
+                }
+            }
+        }
+    }
+}
+
 dokka {
     moduleName.set("temporal-kt")
 
