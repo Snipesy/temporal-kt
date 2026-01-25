@@ -2,6 +2,7 @@
 package buildsrc.convention
 
 import org.gradle.api.publish.maven.MavenPublication
+import org.gradle.api.publish.maven.tasks.PublishToMavenRepository
 import org.gradle.api.tasks.SourceSetContainer
 import org.gradle.kotlin.dsl.*
 
@@ -100,4 +101,8 @@ signing {
 // Sign only when publishing to avoid unnecessary signing during local builds
 tasks.withType<Sign>().configureEach {
     onlyIf { gradle.taskGraph.allTasks.any { it.name.contains("publish") } }
+}
+
+tasks.withType<PublishToMavenRepository>().configureEach {
+    dependsOn(tasks.withType<Sign>())
 }
