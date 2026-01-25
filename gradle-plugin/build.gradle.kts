@@ -27,7 +27,7 @@ buildConfig {
 gradlePlugin {
     plugins {
         create("temporalPlugin") {
-            id = "com.surrealdev.temporal-kt"
+            id = "com.surrealdev.temporal"
             implementationClass = "com.surrealdev.temporal.gradle.TemporalGradlePlugin"
             displayName = "Temporal Kotlin Plugin"
             description = "Gradle plugin for Temporal workflow DSL compilation and client stub generation"
