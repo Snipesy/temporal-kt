@@ -14,16 +14,12 @@ dependencies {
     testImplementation(libs.kotlinxCoroutinesTest)
 }
 
-publishing {
-    publications {
-        create<MavenPublication>("maven") {
-            from(components["java"])
+mavenPublishing {
+    coordinates(artifactId = "di")
 
-            pom {
-                name.set("Temporal KT Dependencies")
-                description.set("Dependency Injection plugin for Temporal KT")
-            }
-        }
+    pom {
+        name.set("Temporal KT Dependencies")
+        description.set("Dependency Injection plugin for Temporal KT")
     }
 }
 

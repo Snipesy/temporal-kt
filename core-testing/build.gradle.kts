@@ -13,17 +13,12 @@ dependencies {
     implementation(libs.slf4jApi)
 }
 
-publishing {
-    publications {
-        create<MavenPublication>("maven") {
-            artifactId = "testing"
-            from(components["java"])
+mavenPublishing {
+    coordinates(artifactId = "testing")
 
-            pom {
-                name.set("Temporal KT Testing")
-                description.set("Test utilities for Temporal KT SDK")
-            }
-        }
+    pom {
+        name.set("Temporal KT Testing")
+        description.set("Test utilities for Temporal KT SDK")
     }
 }
 

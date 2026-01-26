@@ -279,6 +279,12 @@ tasks.named("processResources") {
     }
 }
 
+// Configure sourcesJar to exclude native libraries (they're resources, not sources)
+tasks.matching { it.name == "sourcesJar" }.configureEach {
+    this as Jar
+    exclude("native/**")
+}
+
 // Clean task for Rust artifacts
 tasks.register<Delete>("cargoClean") {
     description = "Clean Rust build artifacts"
@@ -315,15 +321,11 @@ dokka {
     }
 }
 
-publishing {
-    publications {
-        create<MavenPublication>("maven") {
-            from(components["java"])
+mavenPublishing {
+    coordinates(artifactId = "core-bridge")
 
-            pom {
-                name.set("Temporal KT Core Bridge")
-                description.set("Kotlin FFM Bridge to Temporal Core SDK")
-            }
-        }
+    pom {
+        name.set("Temporal KT Core Bridge")
+        description.set("Kotlin FFM Bridge to Temporal Core SDK")
     }
 }

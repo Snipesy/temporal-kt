@@ -23,16 +23,12 @@ dependencies {
     testImplementation(project(":core-testing"))
 }
 
-publishing {
-    publications {
-        create<MavenPublication>("maven") {
-            from(components["java"])
+mavenPublishing {
+    coordinates(artifactId = "core")
 
-            pom {
-                name.set("Temporal KT")
-                description.set("Kotlin-first SDK for Temporal")
-            }
-        }
+    pom {
+        name.set("Temporal KT")
+        description.set("Kotlin-first SDK for Temporal")
     }
 }
 

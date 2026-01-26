@@ -5,18 +5,12 @@ plugins {
     alias(libs.plugins.kotlinPluginSerialization)
 }
 
-publishing {
-    publications {
-        create<MavenPublication>("maven") {
-            from(components["java"])
+mavenPublishing {
+    coordinates(artifactId = "compiler-plugin")
 
-            pom {
-                name.set("Temporal Kotlin Compiler Plugin")
-                description.set(
-                    "Kotlin compiler plugin for Temporal workflow determinism validation and code generation",
-                )
-            }
-        }
+    pom {
+        name.set("Temporal Kotlin Compiler Plugin")
+        description.set("Kotlin compiler plugin for Temporal workflow determinism validation and code generation")
     }
 }
 

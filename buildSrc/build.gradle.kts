@@ -18,4 +18,6 @@ dependencies {
     implementation("org.jetbrains.dokka:dokka-gradle-plugin:${libs.versions.dokka.get()}")
     // BuildConfig generation
     implementation("com.github.gmazzo.buildconfig:plugin:${libs.versions.buildconfig.get()}")
+    // Maven Central publishing
+    implementation("com.vanniktech:gradle-maven-publish-plugin:${libs.versions.mavenPublish.get()}")
 }

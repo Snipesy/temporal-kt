@@ -35,16 +35,11 @@ gradlePlugin {
     }
 }
 
-// Configure the publication created by java-gradle-plugin
-afterEvaluate {
-    publishing {
-        publications {
-            named<MavenPublication>("pluginMaven") {
-                pom {
-                    name.set("Temporal Kotlin Gradle Plugin")
-                    description.set("Gradle plugin for Temporal workflow DSL compilation and client stub generation")
-                }
-            }
-        }
+mavenPublishing {
+    coordinates(artifactId = "gradle-plugin")
+
+    pom {
+        name.set("Temporal Kotlin Gradle Plugin")
+        description.set("Gradle plugin for Temporal workflow DSL compilation and client stub generation")
     }
 }

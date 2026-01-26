@@ -1,6 +1,12 @@
 name: Publish to Maven Central
 
 on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/workflows/ci.yml'
   release:
     types: [published]
   workflow_dispatch:
@@ -234,23 +240,42 @@ jobs:
           echo "Publishing version: ${{ inputs.version }}"
           sed -i "s/version=.*/version=${{ inputs.version }}/" gradle.properties
 
-      - name: Publish to local staging
-        env:
-          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
-          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+      - name: Publish to Maven Central
         run: |
           ./gradlew \
-            :core-bridge:publishAllPublicationsToStagingRepository \
-            :core:publishAllPublicationsToStagingRepository \
-            :core-testing:publishAllPublicationsToStagingRepository \
-            :compiler-plugin:publishAllPublicationsToStagingRepository \
-            :gradle-plugin:publishAllPublicationsToStagingRepository \
-            :plugins:di:publishAllPublicationsToStagingRepository \
+            :core-bridge:publishToMavenCentral \
+            :core:publishToMavenCentral \
+            :core-testing:publishToMavenCentral \
+            :compiler-plugin:publishToMavenCentral \
+            :gradle-plugin:publishToMavenCentral \
+            :plugins:di:publishToMavenCentral \
+            -PskipNativeBuild=true \
+            -PsigningInMemoryKey="${{ secrets.SIGNING_KEY }}" \
+            -PsigningInMemoryKeyPassword="${{ secrets.SIGNING_PASSWORD }}" \
+            -PmavenCentralUsername="${{ secrets.OSSRH_USERNAME }}" \
+            -PmavenCentralPassword="${{ secrets.OSSRH_TOKEN }}" \
+            --no-configuration-cache --no-daemon
+
+      - name: Build JARs for release assets
+        if: github.event_name == 'release'
+        run: |
+          ./gradlew \
+            :core-bridge:jar \
+            :core:jar \
+            :core-testing:jar \
+            :compiler-plugin:jar \
+            :gradle-plugin:jar \
+            :plugins:di:jar \
             -PskipNativeBuild=true --no-configuration-cache --no-daemon
 
-      - name: Deploy to Maven Central with JReleaser
-        env:
-          JRELEASER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          JRELEASER_MAVENCENTRAL_SONATYPE_USERNAME: ${{ secrets.OSSRH_USERNAME }}
-          JRELEASER_MAVENCENTRAL_SONATYPE_TOKEN: ${{ secrets.OSSRH_TOKEN }}
-        run: ./gradlew jreleaserDeploy --no-configuration-cache --no-daemon
+      - name: Upload artifacts to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            core-bridge/build/libs/*.jar
+            core/build/libs/*.jar
+            core-testing/build/libs/*.jar
+            compiler-plugin/build/libs/*.jar
+            gradle-plugin/build/libs/*.jar
+            plugins/di/build/libs/*.jar
