@@ -4,7 +4,6 @@ plugins {
     id("buildsrc.convention.kotlin-jvm")
     id("buildsrc.convention.maven-publish")
     alias(libs.plugins.kotlinPluginSerialization)
-    `java-test-fixtures`
 }
 
 dependencies {
@@ -21,12 +20,7 @@ dependencies {
     testImplementation(kotlin("test"))
     testImplementation(libs.slf4jSimple)
     testImplementation(libs.kotlinxCoroutinesTest)
-
-    testFixturesImplementation(libs.kotlinxCoroutinesTest)
-    testFixturesImplementation(project(":core-bridge"))
-    testFixturesImplementation(libs.protobufJava)
-    testFixturesImplementation(libs.protobufKotlin)
-    testFixturesImplementation(libs.slf4jApi)
+    testImplementation(project(":core-testing"))
 }
 
 publishing {
@@ -43,10 +37,6 @@ publishing {
 }
 
 tasks.named<KotlinCompilationTask<*>>("compileKotlin").configure {
-    compilerOptions.optIn.add("com.surrealdev.temporal.annotation.InternalTemporalApi")
-}
-
-tasks.named<KotlinCompilationTask<*>>("compileTestFixturesKotlin").configure {
     compilerOptions.optIn.add("com.surrealdev.temporal.annotation.InternalTemporalApi")
 }
 

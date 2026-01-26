@@ -242,6 +242,7 @@ jobs:
           ./gradlew \
             :core-bridge:publishAllPublicationsToStagingRepository \
             :core:publishAllPublicationsToStagingRepository \
+            :core-testing:publishAllPublicationsToStagingRepository \
             :compiler-plugin:publishAllPublicationsToStagingRepository \
             :gradle-plugin:publishAllPublicationsToStagingRepository \
             :plugins:di:publishAllPublicationsToStagingRepository \

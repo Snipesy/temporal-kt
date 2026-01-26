@@ -2,6 +2,7 @@ package com.surrealdev.temporal.activity.internal
 
 import com.surrealdev.temporal.activity.ActivityContext
 import com.surrealdev.temporal.annotation.Activity
+import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.application.ActivityRegistration
 import kotlin.reflect.KFunction
 import kotlin.reflect.KType
@@ -15,7 +16,8 @@ import kotlin.reflect.jvm.isAccessible
 /**
  * Information about a registered activity method.
  */
-internal data class ActivityMethodInfo(
+@InternalTemporalApi
+data class ActivityMethodInfo(
     /** The activity type name (e.g., "greet"). */
     val activityType: String,
     /** The method to invoke. */
@@ -38,7 +40,8 @@ internal data class ActivityMethodInfo(
  * Scans activity classes for methods annotated with @Activity and
  * provides lookup by activity type name.
  */
-internal class ActivityRegistry {
+@InternalTemporalApi
+class ActivityRegistry {
     private val methods = mutableMapOf<String, ActivityMethodInfo>()
 
     /**

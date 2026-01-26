@@ -240,7 +240,13 @@ annotation class UpdateValidator(
  */
 @MustBeDocumented
 @Retention(value = AnnotationRetention.BINARY)
-@Target(AnnotationTarget.CLASS, AnnotationTarget.FUNCTION, AnnotationTarget.TYPEALIAS, AnnotationTarget.PROPERTY)
+@Target(
+    AnnotationTarget.CLASS,
+    AnnotationTarget.FUNCTION,
+    AnnotationTarget.TYPEALIAS,
+    AnnotationTarget.PROPERTY,
+    AnnotationTarget.CONSTRUCTOR,
+)
 @RequiresOptIn(
     level = RequiresOptIn.Level.ERROR,
     message =

@@ -421,8 +421,8 @@ internal data class WorkflowRegistration(
 /**
  * Registration info for an activity.
  */
-@PublishedApi
-internal data class ActivityRegistration(
+@InternalTemporalApi
+data class ActivityRegistration(
     val activityType: String,
     val implementation: Any,
 )

@@ -2,6 +2,7 @@ package com.surrealdev.temporal.activity.internal
 
 import com.google.protobuf.ByteString
 import com.surrealdev.temporal.activity.ActivityCancelledException
+import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.serialization.SerializationException
 import com.surrealdev.temporal.util.AttributeScope
@@ -46,7 +47,8 @@ internal data class RunningActivity(
  * - Enforcing concurrency limits via semaphore
  * - Tracking running activities for cancellation support
  */
-internal class ActivityDispatcher(
+@InternalTemporalApi
+class ActivityDispatcher(
     private val registry: ActivityRegistry,
     private val serializer: PayloadSerializer,
     private val taskQueue: String,

@@ -7,30 +7,26 @@ plugins {
 
 dependencies {
     api(project(":core"))
-    implementation(libs.kotlinReflect)
-
-    testImplementation(kotlin("test"))
-    testImplementation(project(":core-testing"))
-    testImplementation(libs.kotlinxCoroutinesTest)
+    implementation(libs.kotlinxCoroutinesTest)
+    implementation(libs.protobufJava)
+    implementation(libs.protobufKotlin)
+    implementation(libs.slf4jApi)
 }
 
 publishing {
     publications {
         create<MavenPublication>("maven") {
+            artifactId = "testing"
             from(components["java"])
 
             pom {
-                name.set("Temporal KT Dependencies")
-                description.set("Dependency Injection plugin for Temporal KT")
+                name.set("Temporal KT Testing")
+                description.set("Test utilities for Temporal KT SDK")
             }
         }
     }
 }
 
 tasks.named<KotlinCompilationTask<*>>("compileKotlin").configure {
-    compilerOptions.optIn.add("com.surrealdev.temporal.annotation.InternalTemporalApi")
-}
-
-tasks.named<KotlinCompilationTask<*>>("compileTestKotlin").configure {
     compilerOptions.optIn.add("com.surrealdev.temporal.annotation.InternalTemporalApi")
 }
