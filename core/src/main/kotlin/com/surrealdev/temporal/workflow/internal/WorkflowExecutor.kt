@@ -36,7 +36,7 @@ internal class WorkflowExecutor(
     internal val runId: String,
     internal val methodInfo: WorkflowMethodInfo,
     internal val serializer: PayloadSerializer,
-    private val taskQueue: String,
+    internal val taskQueue: String,
     private val namespace: String,
     /**
      * The task queue scope for hierarchical attribute lookup.
@@ -163,6 +163,8 @@ internal class WorkflowExecutor(
                     timestamp = if (activation.hasTimestamp()) activation.timestamp else null,
                     isReplaying = activation.isReplaying,
                     historyLength = activation.historyLength,
+                    historySizeBytes = activation.historySizeBytes,
+                    continueAsNewSuggested = activation.continueAsNewSuggested,
                 )
 
                 // Handle eviction early - it must be the only job and should not process other stages

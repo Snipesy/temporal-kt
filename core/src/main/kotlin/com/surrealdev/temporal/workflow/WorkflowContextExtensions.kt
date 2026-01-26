@@ -980,3 +980,249 @@ inline fun <reified T : Any, reified R> WorkflowContext.setUpdateHandler(
             },
     )
 }
+
+// =============================================================================
+// Continue-As-New Extensions
+// =============================================================================
+
+/**
+ * Continues the workflow as a new execution without arguments.
+ *
+ * This function never returns - it throws [ContinueAsNewException] which is
+ * caught by the workflow executor to generate the appropriate command.
+ *
+ * After calling this, the current workflow run will complete and a new run
+ * will start with the same workflow ID but a new run ID.
+ *
+ * **Important:** Do not catch [ContinueAsNewException] in workflow code.
+ *
+ * Example:
+ * ```kotlin
+ * @WorkflowRun
+ * suspend fun WorkflowContext.run(iteration: Int): String {
+ *     if (iteration >= 100) {
+ *         return "completed after $iteration iterations"
+ *     }
+ *     // Continue to next iteration
+ *     continueAsNew(iteration + 1)
+ * }
+ * ```
+ *
+ * @param options Configuration for the new execution (workflow type, task queue, timeouts, etc.)
+ * @throws ContinueAsNewException Always - this exception triggers the continue-as-new
+ */
+fun WorkflowContext.continueAsNew(options: ContinueAsNewOptions = ContinueAsNewOptions()): Nothing =
+    throw ContinueAsNewException(options, emptyList())
+
+/**
+ * Continues the workflow as a new execution with a single typed argument.
+ *
+ * @param T The type of the argument
+ * @param arg The argument to pass to the new execution
+ * @param options Configuration for the new execution
+ * @throws ContinueAsNewException Always
+ */
+inline fun <reified T> WorkflowContext.continueAsNew(
+    arg: T,
+    options: ContinueAsNewOptions = ContinueAsNewOptions(),
+): Nothing = throw ContinueAsNewException(options, listOf(typeOf<T>() to arg))
+
+/**
+ * Continues the workflow as a new execution with two typed arguments.
+ *
+ * @param T1 The type of the first argument
+ * @param T2 The type of the second argument
+ * @param arg1 The first argument
+ * @param arg2 The second argument
+ * @param options Configuration for the new execution
+ * @throws ContinueAsNewException Always
+ */
+inline fun <reified T1, reified T2> WorkflowContext.continueAsNew(
+    arg1: T1,
+    arg2: T2,
+    options: ContinueAsNewOptions = ContinueAsNewOptions(),
+): Nothing =
+    throw ContinueAsNewException(
+        options,
+        listOf(
+            typeOf<T1>() to arg1,
+            typeOf<T2>() to arg2,
+        ),
+    )
+
+/**
+ * Continues the workflow as a new execution with three typed arguments.
+ *
+ * @param T1 The type of the first argument
+ * @param T2 The type of the second argument
+ * @param T3 The type of the third argument
+ * @param arg1 The first argument
+ * @param arg2 The second argument
+ * @param arg3 The third argument
+ * @param options Configuration for the new execution
+ * @throws ContinueAsNewException Always
+ */
+inline fun <reified T1, reified T2, reified T3> WorkflowContext.continueAsNew(
+    arg1: T1,
+    arg2: T2,
+    arg3: T3,
+    options: ContinueAsNewOptions = ContinueAsNewOptions(),
+): Nothing =
+    throw ContinueAsNewException(
+        options,
+        listOf(
+            typeOf<T1>() to arg1,
+            typeOf<T2>() to arg2,
+            typeOf<T3>() to arg3,
+        ),
+    )
+
+/**
+ * Continues the workflow as a new execution with four typed arguments.
+ *
+ * @param T1 The type of the first argument
+ * @param T2 The type of the second argument
+ * @param T3 The type of the third argument
+ * @param T4 The type of the fourth argument
+ * @param arg1 The first argument
+ * @param arg2 The second argument
+ * @param arg3 The third argument
+ * @param arg4 The fourth argument
+ * @param options Configuration for the new execution
+ * @throws ContinueAsNewException Always
+ */
+inline fun <reified T1, reified T2, reified T3, reified T4> WorkflowContext.continueAsNew(
+    arg1: T1,
+    arg2: T2,
+    arg3: T3,
+    arg4: T4,
+    options: ContinueAsNewOptions = ContinueAsNewOptions(),
+): Nothing =
+    throw ContinueAsNewException(
+        options,
+        listOf(
+            typeOf<T1>() to arg1,
+            typeOf<T2>() to arg2,
+            typeOf<T3>() to arg3,
+            typeOf<T4>() to arg4,
+        ),
+    )
+
+// =============================================================================
+// Continue-As-New Extensions - KClass-Based (Type-Safe Workflow Target)
+// =============================================================================
+
+/**
+ * Continues as a new execution of a different workflow type, without arguments.
+ *
+ * The workflow type is automatically determined from the @Workflow annotation
+ * on the target workflow class.
+ *
+ * Example:
+ * ```kotlin
+ * @WorkflowRun
+ * suspend fun WorkflowContext.run(): String {
+ *     // Continue as a different workflow type
+ *     continueAsNewTo(TargetWorkflow::class)
+ * }
+ * ```
+ *
+ * @param workflowClass The target workflow class annotated with @Workflow
+ * @param options Additional options (task queue, timeouts, etc.)
+ * @throws ContinueAsNewException Always
+ */
+fun WorkflowContext.continueAsNewTo(
+    workflowClass: KClass<*>,
+    options: ContinueAsNewOptions = ContinueAsNewOptions(),
+): Nothing {
+    val effectiveOptions =
+        options.copy(
+            workflowType = options.workflowType ?: workflowClass.getWorkflowType(),
+        )
+    throw ContinueAsNewException(effectiveOptions, emptyList())
+}
+
+/**
+ * Continues as a new execution of a different workflow type with a single argument.
+ *
+ * @param T The type of the argument
+ * @param workflowClass The target workflow class annotated with @Workflow
+ * @param arg The argument to pass to the new execution
+ * @param options Additional options (task queue, timeouts, etc.)
+ * @throws ContinueAsNewException Always
+ */
+inline fun <reified T> WorkflowContext.continueAsNewTo(
+    workflowClass: KClass<*>,
+    arg: T,
+    options: ContinueAsNewOptions = ContinueAsNewOptions(),
+): Nothing {
+    val effectiveOptions =
+        options.copy(
+            workflowType = options.workflowType ?: workflowClass.getWorkflowType(),
+        )
+    throw ContinueAsNewException(effectiveOptions, listOf(typeOf<T>() to arg))
+}
+
+/**
+ * Continues as a new execution of a different workflow type with two arguments.
+ *
+ * @param T1 The type of the first argument
+ * @param T2 The type of the second argument
+ * @param workflowClass The target workflow class annotated with @Workflow
+ * @param arg1 The first argument
+ * @param arg2 The second argument
+ * @param options Additional options (task queue, timeouts, etc.)
+ * @throws ContinueAsNewException Always
+ */
+inline fun <reified T1, reified T2> WorkflowContext.continueAsNewTo(
+    workflowClass: KClass<*>,
+    arg1: T1,
+    arg2: T2,
+    options: ContinueAsNewOptions = ContinueAsNewOptions(),
+): Nothing {
+    val effectiveOptions =
+        options.copy(
+            workflowType = options.workflowType ?: workflowClass.getWorkflowType(),
+        )
+    throw ContinueAsNewException(
+        effectiveOptions,
+        listOf(
+            typeOf<T1>() to arg1,
+            typeOf<T2>() to arg2,
+        ),
+    )
+}
+
+/**
+ * Continues as a new execution of a different workflow type with three arguments.
+ *
+ * @param T1 The type of the first argument
+ * @param T2 The type of the second argument
+ * @param T3 The type of the third argument
+ * @param workflowClass The target workflow class annotated with @Workflow
+ * @param arg1 The first argument
+ * @param arg2 The second argument
+ * @param arg3 The third argument
+ * @param options Additional options (task queue, timeouts, etc.)
+ * @throws ContinueAsNewException Always
+ */
+inline fun <reified T1, reified T2, reified T3> WorkflowContext.continueAsNewTo(
+    workflowClass: KClass<*>,
+    arg1: T1,
+    arg2: T2,
+    arg3: T3,
+    options: ContinueAsNewOptions = ContinueAsNewOptions(),
+): Nothing {
+    val effectiveOptions =
+        options.copy(
+            workflowType = options.workflowType ?: workflowClass.getWorkflowType(),
+        )
+    throw ContinueAsNewException(
+        effectiveOptions,
+        listOf(
+            typeOf<T1>() to arg1,
+            typeOf<T2>() to arg2,
+            typeOf<T3>() to arg3,
+        ),
+    )
+}

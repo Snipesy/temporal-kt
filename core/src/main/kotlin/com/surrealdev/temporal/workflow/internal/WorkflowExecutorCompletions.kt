@@ -1,10 +1,14 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.surrealdev.temporal.workflow.ContinueAsNewException
+import com.surrealdev.temporal.workflow.VersioningIntent
 import coresdk.workflow_commands.WorkflowCommands
 import coresdk.workflow_completion.WorkflowCompletion
 import io.temporal.api.common.v1.Payload
 import io.temporal.api.failure.v1.Failure
 import kotlinx.coroutines.Deferred
+import kotlin.time.Duration
+import kotlin.time.toJavaDuration
 
 /*
  * Extension functions for building workflow completion responses in WorkflowExecutor.
@@ -61,6 +65,10 @@ internal suspend fun WorkflowExecutor.buildTerminalCompletion(
                     .newBuilder()
                     .addAllCommands(commands),
             ).build()
+    } catch (e: ContinueAsNewException) {
+        // Handle continue-as-new (this is not an error, it's a control flow mechanism)
+        logger.debug("Workflow requested continue-as-new")
+        buildContinueAsNewCompletion(e)
     } catch (e: Exception) {
         // Check if this is a cancellation with the cancel flag set
         if (state.cancelRequested && e is kotlinx.coroutines.CancellationException) {
@@ -178,4 +186,115 @@ internal fun WorkflowExecutor.buildWorkflowCancellationCompletion(): WorkflowCom
                 .newBuilder()
                 .addAllCommands(commands),
         ).build()
+}
+
+/**
+ * Builds a continue-as-new completion when the workflow calls continueAsNew().
+ * This creates a ContinueAsNewWorkflowExecution command.
+ */
+internal fun WorkflowExecutor.buildContinueAsNewCompletion(
+    exception: ContinueAsNewException,
+): WorkflowCompletion.WorkflowActivationCompletion {
+    val options = exception.options
+
+    // Build the ContinueAsNewWorkflowExecution command
+    val commandBuilder =
+        WorkflowCommands.ContinueAsNewWorkflowExecution
+            .newBuilder()
+            .setWorkflowType(options.workflowType ?: methodInfo.workflowType)
+            .setTaskQueue(options.taskQueue ?: taskQueue)
+
+    // Serialize and add arguments with their type information
+    exception.typedArgs.forEach { (type, value) ->
+        val payload = serializer.serialize(type, value)
+        commandBuilder.addArguments(payload)
+    }
+
+    // Set optional fields if provided
+    options.workflowRunTimeout?.let {
+        commandBuilder.setWorkflowRunTimeout(it.toProtoDuration())
+    }
+    options.workflowTaskTimeout?.let {
+        commandBuilder.setWorkflowTaskTimeout(it.toProtoDuration())
+    }
+    options.memo?.let { memo ->
+        commandBuilder.putAllMemo(memo)
+    }
+    options.searchAttributes?.let { attrs ->
+        commandBuilder.putAllSearchAttributes(attrs)
+    }
+    options.retryPolicy?.let { policy ->
+        commandBuilder.setRetryPolicy(policy.toProtoRetryPolicy())
+    }
+    options.headers?.let { headers ->
+        commandBuilder.putAllHeaders(headers)
+    }
+    commandBuilder.setVersioningIntent(options.versioningIntent.toProtoVersioningIntent())
+
+    val continueAsNewCommand =
+        WorkflowCommands.WorkflowCommand
+            .newBuilder()
+            .setContinueAsNewWorkflowExecution(commandBuilder)
+            .build()
+
+    // Get any pending commands and add the continue-as-new command
+    val commands = state.drainCommands().toMutableList()
+    commands.add(continueAsNewCommand)
+
+    return WorkflowCompletion.WorkflowActivationCompletion
+        .newBuilder()
+        .setRunId(runId)
+        .setSuccessful(
+            WorkflowCompletion.Success
+                .newBuilder()
+                .addAllCommands(commands),
+        ).build()
+}
+
+// =============================================================================
+// Conversion Utilities for Continue-As-New
+// =============================================================================
+
+/**
+ * Converts a Kotlin [Duration] to a protobuf [com.google.protobuf.Duration].
+ */
+private fun Duration.toProtoDuration(): com.google.protobuf.Duration {
+    val javaDuration = this.toJavaDuration()
+    return com.google.protobuf.Duration
+        .newBuilder()
+        .setSeconds(javaDuration.seconds)
+        .setNanos(javaDuration.nano)
+        .build()
+}
+
+/**
+ * Converts domain [VersioningIntent] to protobuf enum.
+ */
+private fun VersioningIntent.toProtoVersioningIntent(): coresdk.common.Common.VersioningIntent =
+    when (this) {
+        VersioningIntent.UNSPECIFIED -> coresdk.common.Common.VersioningIntent.UNSPECIFIED
+        VersioningIntent.DEFAULT -> coresdk.common.Common.VersioningIntent.DEFAULT
+        VersioningIntent.COMPATIBLE -> coresdk.common.Common.VersioningIntent.COMPATIBLE
+    }
+
+/**
+ * Converts domain [com.surrealdev.temporal.workflow.RetryPolicy] to protobuf message.
+ */
+private fun com.surrealdev.temporal.workflow.RetryPolicy.toProtoRetryPolicy(): io.temporal.api.common.v1.RetryPolicy {
+    val retryPolicyBuilder =
+        io.temporal.api.common.v1.RetryPolicy
+            .newBuilder()
+            .setInitialInterval(initialInterval.toProtoDuration())
+            .setBackoffCoefficient(backoffCoefficient)
+            .setMaximumAttempts(maximumAttempts)
+
+    maximumInterval?.let {
+        retryPolicyBuilder.setMaximumInterval(it.toProtoDuration())
+    }
+
+    if (nonRetryableErrorTypes.isNotEmpty()) {
+        retryPolicyBuilder.addAllNonRetryableErrorTypes(nonRetryableErrorTypes)
+    }
+
+    return retryPolicyBuilder.build()
 }

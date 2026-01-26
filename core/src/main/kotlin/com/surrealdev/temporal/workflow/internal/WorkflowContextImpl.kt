@@ -62,6 +62,15 @@ internal class WorkflowContextImpl(
     override val attributes: Attributes = Attributes(concurrent = false)
     override val isWorkflowContext: Boolean = true
 
+    // History metrics from state, updated on each activation
+    override val historyLength: Int
+        get() = state.historyLength
+
+    override val historySizeBytes: Long
+        get() = state.historySizeBytes
+
+    override fun isContinueAsNewSuggested(): Boolean = state.continueAsNewSuggested
+
     // Create a child job for this workflow - failures propagate to parent
     private val job = Job(parentJob)
     private val deterministicRandom = DeterministicRandom(state.randomSeed)
@@ -455,8 +464,7 @@ internal class WorkflowContextImpl(
         return usePatch
     }
 
-    @Suppress("UNCHECKED_CAST")
-    override suspend fun <R : Any?> startChildWorkflowWithPayloads(
+    override suspend fun <R> startChildWorkflowWithPayloads(
         workflowType: String,
         args: Payloads,
         options: ChildWorkflowOptions,

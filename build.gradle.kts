@@ -36,7 +36,7 @@ jreleaser {
                     url.set("https://central.sonatype.com/api/v1/publisher")
                     stagingRepository("build/staging-deploy")
                     applyMavenCentralRules.set(true)
-                    sign.set(false)  // Gradle already signs the artifacts
+                    sign.set(false) // Gradle already signs the artifacts
                 }
             }
         }

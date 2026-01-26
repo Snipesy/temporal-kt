@@ -112,9 +112,23 @@ internal class WorkflowState(
         internal set
 
     /**
-     * History length as of the current activation.
+     * History length (event count) as of the current activation.
      */
     var historyLength: Int = 0
+        private set
+
+    /**
+     * History size in bytes as of the current activation.
+     * Can be used alongside [continueAsNewSuggested] to make continue-as-new decisions.
+     */
+    var historySizeBytes: Long = 0
+        private set
+
+    /**
+     * Server's recommendation on whether to continue-as-new.
+     * This is set by the server based on both history length and size limits.
+     */
+    var continueAsNewSuggested: Boolean = false
         private set
 
     /**
@@ -177,6 +191,8 @@ internal class WorkflowState(
         timestamp: com.google.protobuf.Timestamp?,
         isReplaying: Boolean,
         historyLength: Int,
+        historySizeBytes: Long = 0,
+        continueAsNewSuggested: Boolean = false,
     ) {
         if (timestamp != null) {
             val javaInstant = java.time.Instant.ofEpochSecond(timestamp.seconds, timestamp.nanos.toLong())
@@ -184,6 +200,8 @@ internal class WorkflowState(
         }
         this.isReplaying = isReplaying
         this.historyLength = historyLength
+        this.historySizeBytes = historySizeBytes
+        this.continueAsNewSuggested = continueAsNewSuggested
     }
 
     /**

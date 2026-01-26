@@ -169,6 +169,61 @@ interface WorkflowContext :
     fun patched(patchId: String): Boolean
 
     /**
+     * Returns the current history length (number of events).
+     *
+     * This value is updated with each activation and can be used to make
+     * manual decisions about when to use [continueAsNew].
+     *
+     * @see isContinueAsNewSuggested
+     * @see historySizeBytes
+     */
+    val historyLength: Int
+
+    /**
+     * Returns the current history size in bytes.
+     *
+     * This value is updated with each activation. The server considers both
+     * history length and size when deciding whether to suggest continue-as-new.
+     *
+     * **Temporal limits:**
+     * - Warning threshold: 10 MB
+     * - Hard limit: 50 MB
+     *
+     * @see isContinueAsNewSuggested
+     * @see historyLength
+     */
+    val historySizeBytes: Long
+
+    /**
+     * Returns `true` if the Temporal server suggests this workflow should continue-as-new.
+     *
+     * **This is the recommended way to check if continue-as-new should be performed.**
+     * The server sets this based on both history length and size limits:
+     * - Event count warning at 10,240 events (hard limit: 51,200)
+     * - Size warning at 10 MB (hard limit: 50 MB)
+     *
+     * **Usage:**
+     * ```kotlin
+     * @WorkflowRun
+     * suspend fun WorkflowContext.run(state: MyState): String {
+     *     while (true) {
+     *         // ... process work ...
+     *
+     *         if (isContinueAsNewSuggested()) {
+     *             continueAsNew(state)
+     *         }
+     *     }
+     * }
+     * ```
+     *
+     * For manual control with custom thresholds, use [historyLength] and
+     * [historySizeBytes] directly.
+     *
+     * @return `true` if the server recommends continue-as-new
+     */
+    fun isContinueAsNewSuggested(): Boolean
+
+    /**
      * Starts a child workflow and returns a handle to interact with it.
      *
      * This is the low-level method. For easier usage with type inference,
@@ -609,3 +664,89 @@ enum class VersioningIntent {
     /** Run on a worker with a compatible build ID. */
     COMPATIBLE,
 }
+
+/**
+ * Options for continue-as-new workflow execution.
+ *
+ * Continue-as-new allows a workflow to complete and immediately start a new execution
+ * with the same workflow ID but a new run ID. This is useful for:
+ * - Long-running workflows that need to avoid history size limits
+ * - Workflows that need to restart with new arguments
+ * - Implementing infinite loops with state resets
+ *
+ * **Inheritance behavior:**
+ * - Memo, search attributes, and retry policy are inherited if not explicitly set (null)
+ * - To clear inherited values, pass an empty map/object
+ * - Headers are NOT inherited - must be explicitly provided if needed
+ * - Workflow type and task queue default to current if not specified
+ */
+data class ContinueAsNewOptions(
+    /**
+     * Workflow type for the new execution.
+     * If null, uses the current workflow's type.
+     */
+    val workflowType: String? = null,
+    /**
+     * Task queue for the new execution.
+     * If null, uses the current workflow's task queue.
+     */
+    val taskQueue: String? = null,
+    /**
+     * Maximum time for a single run of the new workflow.
+     * Not inherited from current workflow.
+     */
+    val workflowRunTimeout: Duration? = null,
+    /**
+     * Maximum time for a single workflow task.
+     * Not inherited from current workflow.
+     */
+    val workflowTaskTimeout: Duration? = null,
+    /**
+     * Memo for the new execution.
+     * - null: inherit current memo
+     * - empty map: clear memo
+     * - non-empty map: use specified memo
+     */
+    val memo: Map<String, io.temporal.api.common.v1.Payload>? = null,
+    /**
+     * Search attributes for the new execution.
+     * - null: inherit current search attributes
+     * - empty map: clear search attributes
+     * - non-empty map: use specified search attributes
+     */
+    val searchAttributes: Map<String, io.temporal.api.common.v1.Payload>? = null,
+    /**
+     * Retry policy for the new execution.
+     * - null: inherit current retry policy
+     * - non-null: use specified retry policy
+     */
+    val retryPolicy: RetryPolicy? = null,
+    /**
+     * Headers for the new execution.
+     * NOT inherited - must be explicitly provided if needed.
+     */
+    val headers: Map<String, io.temporal.api.common.v1.Payload>? = null,
+    /**
+     * Versioning intent for the new execution.
+     */
+    val versioningIntent: VersioningIntent = VersioningIntent.UNSPECIFIED,
+)
+
+/**
+ * Exception thrown to trigger continue-as-new.
+ *
+ * This is a control-flow mechanism, not an error. When a workflow calls
+ * [continueAsNew], this exception is thrown and caught by the workflow
+ * executor to generate the appropriate command.
+ *
+ * **Important:** This exception extends [Throwable] directly (not [Exception])
+ * to prevent accidental swallowing by `catch (e: Exception)` blocks. This
+ * exception should NEVER be caught by workflow code - doing so will prevent
+ * the continue-as-new from happening.
+ */
+class ContinueAsNewException(
+    /** Configuration for the new execution. */
+    val options: ContinueAsNewOptions,
+    /** Arguments for the new execution with their types. */
+    val typedArgs: List<Pair<kotlin.reflect.KType, Any?>>,
+) : Throwable("Workflow requested continue-as-new")

@@ -214,7 +214,8 @@ internal class WorkflowHandleImpl<R>(
                         // Ignore - we have the result anyway
                     }
                 }
-                return handleCloseEvent(closeEvent)
+                val remainingTimeout = timeout - elapsed.milliseconds
+                return handleCloseEvent(closeEvent, remainingTimeout)
             }
 
             // No close event yet, wait a bit before polling again
@@ -235,7 +236,10 @@ internal class WorkflowHandleImpl<R>(
     }
 
     @Suppress("UNCHECKED_CAST")
-    private fun handleCloseEvent(event: HistoryEvent): R =
+    private suspend fun handleCloseEvent(
+        event: HistoryEvent,
+        remainingTimeout: Duration,
+    ): R =
         when (event.eventType) {
             EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED -> {
                 val attrs = event.workflowExecutionCompletedEventAttributes
@@ -283,6 +287,9 @@ internal class WorkflowHandleImpl<R>(
                 val attrs = event.workflowExecutionContinuedAsNewEventAttributes
                 // Follow the continuation and get result from the new run
                 val newRunId = attrs.newExecutionRunId
+                logger.info(
+                    "[handleCloseEvent] Workflow $workflowId continued-as-new to runId=$newRunId, following...",
+                )
                 val newHandle =
                     WorkflowHandleImpl<R>(
                         workflowId = workflowId,
@@ -291,8 +298,8 @@ internal class WorkflowHandleImpl<R>(
                         serviceClient = serviceClient,
                         serializer = serializer,
                     )
-                // This is a blocking recursive call - could potentially be optimized
-                throw UnsupportedOperationException("Continue-as-new result following not yet implemented")
+                // Recursively get result from the new run
+                newHandle.result(remainingTimeout)
             }
 
             else -> {
