@@ -16,6 +16,11 @@ on:
         required: false
         type: string
 
+# Cancel in-progress runs for the same branch (but not for releases)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
+
 jobs:
   # ===== BUILD JOBS (run in parallel) =====
 
