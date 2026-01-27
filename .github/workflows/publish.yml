@@ -21,6 +21,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'push' }}
 
+# Permissions needed for release asset uploads
+permissions:
+  contents: write
+
 jobs:
   # ===== BUILD JOBS (run in parallel) =====
 
