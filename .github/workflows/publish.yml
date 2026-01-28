@@ -21,22 +21,57 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'push' }}
 
-# Permissions needed for release asset uploads
-permissions:
-  contents: write
-
 jobs:
-  # ===== BUILD JOBS (run in parallel) =====
+  # ===== NATIVE BUILD JOBS (matrix) =====
 
-  build-linux:
-    runs-on: ubuntu-latest
+  build-native:
+    name: Build Native (${{ matrix.platform }})
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            rust-targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu
+            gradle-task: copyLinuxNativeLibs
+            artifact-name: native-libs-linux
+            artifact-path: core-bridge/build/native-libs/native/linux-*
+            needs-zig: true
+            java-action-version: v5
+          - os: macos-14
+            platform: darwin-aarch64
+            rust-targets: aarch64-apple-darwin
+            gradle-task: copyDarwinAarch64NativeLib
+            artifact-name: native-libs-darwin-aarch64
+            artifact-path: core-bridge/build/native-libs/native/darwin-aarch64
+            needs-zig: false
+            java-action-version: v4
+          - os: macos-15-intel
+            platform: darwin-x86_64
+            rust-targets: x86_64-apple-darwin
+            gradle-task: copyDarwinx8664NativeLib
+            artifact-name: native-libs-darwin-x86_64
+            artifact-path: core-bridge/build/native-libs/native/darwin-x86_64
+            needs-zig: false
+            java-action-version: v4
+          - os: windows-latest
+            platform: windows
+            rust-targets: x86_64-pc-windows-msvc
+            gradle-task: copyWindowsNativeLib
+            artifact-name: native-libs-windows
+            artifact-path: core-bridge/build/native-libs/native/windows-*
+            needs-zig: false
+            java-action-version: v4
+
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
         with:
           submodules: 'recursive'
 
       - name: Set up JDK 25
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@${{ matrix.java-action-version }}
         with:
           java-version: '25'
           distribution: 'graalvm'
@@ -45,119 +80,25 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: stable
-          target: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu
+          target: ${{ matrix.rust-targets }}
+          cache: true
 
       - name: Set up Zig
+        if: matrix.needs-zig
         uses: mlugg/setup-zig@v2
 
-      - name: Install cargo-zigbuild and protobuf
+      - name: Install cargo-zigbuild and protobuf (Linux)
+        if: runner.os == 'Linux'
         run: |
           cargo install cargo-zigbuild
           sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Build Linux native libraries
-        run: ./gradlew :core-bridge:copyLinuxNativeLibs --no-daemon
-
-      - name: Upload Linux native libs
-        uses: actions/upload-artifact@v4
-        with:
-          name: native-libs-linux
-          path: core-bridge/build/native-libs/native/linux-*
-          retention-days: 1
-
-  build-macos-arm:
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          submodules: 'recursive'
-
-      - name: Set up JDK 25
-        uses: actions/setup-java@v4
-        with:
-          java-version: '25'
-          distribution: 'graalvm'
-
-      - name: Set up Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: stable
-          target: aarch64-apple-darwin
-
-      - name: Install protobuf
+      - name: Install protobuf (macOS)
+        if: runner.os == 'macOS'
         run: brew install protobuf
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Build Darwin ARM64 native library
-        run: ./gradlew :core-bridge:copyDarwinAarch64NativeLib --no-daemon
-
-      - name: Upload Darwin ARM64 native lib
-        uses: actions/upload-artifact@v4
-        with:
-          name: native-libs-darwin-aarch64
-          path: core-bridge/build/native-libs/native/darwin-aarch64
-          retention-days: 1
-
-  build-macos-intel:
-    runs-on: macos-15-intel
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          submodules: 'recursive'
-
-      - name: Set up JDK 25
-        uses: actions/setup-java@v4
-        with:
-          java-version: '25'
-          distribution: 'graalvm'
-
-      - name: Set up Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: stable
-          target: x86_64-apple-darwin
-
-      - name: Install protobuf
-        run: brew install protobuf
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Build Darwin x86_64 native library
-        run: ./gradlew :core-bridge:copyDarwinx8664NativeLib --no-daemon
-
-      - name: Upload Darwin x86_64 native lib
-        uses: actions/upload-artifact@v4
-        with:
-          name: native-libs-darwin-x86_64
-          path: core-bridge/build/native-libs/native/darwin-x86_64
-          retention-days: 1
-
-  build-windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          submodules: 'recursive'
-
-      - name: Set up JDK 25
-        uses: actions/setup-java@v4
-        with:
-          java-version: '25'
-          distribution: 'graalvm'
-
-      - name: Set up Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: stable
-          target: x86_64-pc-windows-msvc
-
-      - name: Install protobuf
+      - name: Install protobuf (Windows)
+        if: runner.os == 'Windows'
         uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -165,21 +106,94 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build Windows native library
-        run: ./gradlew :core-bridge:copyWindowsNativeLib --no-daemon
+      - name: Build native library
+        run: ./gradlew :core-bridge:${{ matrix.gradle-task }} --no-daemon
 
-      - name: Upload Windows native lib
+      - name: Upload native lib
         uses: actions/upload-artifact@v4
         with:
-          name: native-libs-windows
-          path: core-bridge/build/native-libs/native/windows-*
+          name: ${{ matrix.artifact-name }}
+          path: ${{ matrix.artifact-path }}
           retention-days: 1
 
-  # ===== PUBLISH JOB (runs after all builds) =====
+  # ===== PLATFORM TEST JOBS (matrix, after native builds) =====
+
+  test:
+    name: Test (${{ matrix.platform }})
+    needs: [build-native]
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            artifact-name: native-libs-linux
+            artifact-path: core-bridge/build/native-libs/native/
+            java-action-version: v5
+          - os: macos-14
+            platform: darwin-aarch64
+            artifact-name: native-libs-darwin-aarch64
+            artifact-path: core-bridge/build/native-libs/native/darwin-aarch64
+            java-action-version: v4
+          - os: macos-15-intel
+            platform: darwin-x86_64
+            artifact-name: native-libs-darwin-x86_64
+            artifact-path: core-bridge/build/native-libs/native/darwin-x86_64
+            java-action-version: v4
+          - os: windows-latest
+            platform: windows
+            artifact-name: native-libs-windows
+            artifact-path: core-bridge/build/native-libs/native/
+            java-action-version: v4
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: 'recursive'
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@${{ matrix.java-action-version }}
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+
+      - name: Install protobuf (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Install protobuf (macOS)
+        if: runner.os == 'macOS'
+        run: brew install protobuf
+
+      - name: Install protobuf (Windows)
+        if: runner.os == 'Windows'
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Download native lib
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: ${{ matrix.artifact-path }}
+
+      - name: Build and test
+        run: ./gradlew build -PskipNativeBuild=true --no-daemon
+
+  # ===== PUBLISH JOB (runs after all builds and tests) =====
 
   publish:
-    needs: [build-linux, build-macos-arm, build-macos-intel, build-windows]
+    name: Publish to Maven Central
+    needs: [build-native, test]
+    timeout-minutes: 30
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Needed for release asset uploads
     steps:
       - uses: actions/checkout@v6
         with:
