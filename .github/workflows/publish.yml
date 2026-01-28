@@ -70,7 +70,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           java-version: '25'
-          distribution: ${{ runner.os == 'Windows' && 'temurin' || 'graalvm' }}
+          distribution: 'graalvm'
 
       - name: Set up Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -155,7 +155,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           java-version: '25'
-          distribution: ${{ runner.os == 'Windows' && 'temurin' || 'graalvm' }}
+          distribution: 'graalvm'
 
       - name: Install protobuf (Linux)
         if: runner.os == 'Linux'
