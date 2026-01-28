@@ -16,11 +16,13 @@ import com.surrealdev.temporal.application.plugin.hooks.WorkerStoppedContext
 import com.surrealdev.temporal.application.worker.ManagedWorker
 import com.surrealdev.temporal.client.TemporalClient
 import com.surrealdev.temporal.client.TemporalClientConfig
+import com.surrealdev.temporal.client.TlsConfig
 import com.surrealdev.temporal.core.CoreWorkerDeploymentOptions
 import com.surrealdev.temporal.core.CoreWorkerDeploymentVersion
 import com.surrealdev.temporal.core.TemporalCoreClient
 import com.surrealdev.temporal.core.TemporalRuntime
 import com.surrealdev.temporal.core.TemporalWorker
+import com.surrealdev.temporal.core.TlsOptions
 import com.surrealdev.temporal.core.WorkerConfig
 import com.surrealdev.temporal.serialization.payloadSerializer
 import com.surrealdev.temporal.util.Attributes
@@ -107,12 +109,24 @@ open class TemporalApplication internal constructor(
         val rt = TemporalRuntime.create()
         runtime = rt
 
-        // Connect to the server
+        // Connect to the server with TLS if configured
+        val tlsOptions =
+            config.connection.tls?.let { tlsConfig ->
+                TlsOptions(
+                    serverRootCaCert = tlsConfig.serverRootCaCert,
+                    domain = tlsConfig.domain,
+                    clientCert = tlsConfig.clientCert,
+                    clientPrivateKey = tlsConfig.clientPrivateKey,
+                )
+            }
+
         val client =
             TemporalCoreClient.connect(
                 runtime = rt,
                 targetUrl = config.connection.target,
                 namespace = config.connection.namespace,
+                tls = tlsOptions,
+                apiKey = config.connection.apiKey,
             )
         coreClient = client
 
@@ -354,12 +368,24 @@ data class ConnectionConfig(
     val target: String = "http://localhost:7233",
     /** Namespace to use. */
     val namespace: String = "default",
-    /** Whether to use TLS. */
-    val useTls: Boolean = false,
-    /** Path to TLS client certificate (for mTLS). */
-    val tlsCertPath: String? = null,
-    /** Path to TLS client key (for mTLS). */
-    val tlsKeyPath: String? = null,
+    /**
+     * TLS configuration for secure connections.
+     *
+     * When null, TLS is automatically enabled for `https://` URLs using system CA certificates.
+     * For custom CA certificates, client certificates (mTLS), or domain overrides, provide a [TlsConfig].
+     *
+     * When [apiKey] is provided and [tls] is null, TLS is automatically enabled.
+     */
+    val tls: TlsConfig? = null,
+    /**
+     * API key for Temporal Cloud authentication.
+     *
+     * This is an alternative to mTLS authentication. The API key is sent as a Bearer token
+     * in the Authorization header. When set, TLS is automatically enabled if not explicitly configured.
+     *
+     * Obtain API keys from the Temporal Cloud UI via Service Accounts.
+     */
+    val apiKey: String? = null,
 )
 
 /**

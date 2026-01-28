@@ -4,10 +4,48 @@ import io.temporal.sdkbridge.TemporalCoreByteArrayRefArray
 import io.temporal.sdkbridge.TemporalCoreClientConnectCallback
 import io.temporal.sdkbridge.TemporalCoreClientOptions
 import io.temporal.sdkbridge.TemporalCoreClientRpcCallCallback
+import io.temporal.sdkbridge.TemporalCoreClientTlsOptions
 import io.temporal.sdkbridge.TemporalCoreRpcCallOptions
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
 import io.temporal.sdkbridge.temporal_sdk_core_c_bridge_h as CoreBridge
+
+/**
+ * TLS options for client connection (internal bridge representation).
+ *
+ * @property serverRootCaCert PEM-encoded root CA certificate
+ * @property domain Domain name for server certificate verification
+ * @property clientCert PEM-encoded client certificate for mTLS
+ * @property clientPrivateKey PEM-encoded client private key for mTLS
+ */
+internal data class ClientTlsOptions(
+    val serverRootCaCert: ByteArray? = null,
+    val domain: String? = null,
+    val clientCert: ByteArray? = null,
+    val clientPrivateKey: ByteArray? = null,
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+
+        other as ClientTlsOptions
+
+        if (!serverRootCaCert.contentEquals(other.serverRootCaCert)) return false
+        if (domain != other.domain) return false
+        if (!clientCert.contentEquals(other.clientCert)) return false
+        if (!clientPrivateKey.contentEquals(other.clientPrivateKey)) return false
+
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = serverRootCaCert?.contentHashCode() ?: 0
+        result = 31 * result + (domain?.hashCode() ?: 0)
+        result = 31 * result + (clientCert?.contentHashCode() ?: 0)
+        result = 31 * result + (clientPrivateKey?.contentHashCode() ?: 0)
+        return result
+    }
+}
 
 /**
  * FFM bridge for Temporal Core client operations.
@@ -106,6 +144,7 @@ internal object TemporalCoreClient {
      * @param arena Arena for allocations
      * @param targetUrl The server URL (e.g., "http://localhost:7233")
      * @param namespace The namespace to use
+     * @param tls TLS configuration, or null for no TLS
      * @param callback Callback invoked when connection completes
      */
     fun connect(
@@ -116,6 +155,8 @@ internal object TemporalCoreClient {
         clientName: String = "temporal-kotlin",
         clientVersion: String = "0.1.0",
         identity: String? = null,
+        tls: ClientTlsOptions? = null,
+        apiKey: String? = null,
         callback: ConnectCallback,
     ) {
         val options =
@@ -125,6 +166,8 @@ internal object TemporalCoreClient {
                 clientName = clientName,
                 clientVersion = clientVersion,
                 identity = identity,
+                tls = tls,
+                apiKey = apiKey,
             )
 
         val callbackStub = createConnectCallbackStub(arena, runtimePtr, callback)
@@ -304,6 +347,8 @@ internal object TemporalCoreClient {
         clientName: String,
         clientVersion: String,
         identity: String?,
+        tls: ClientTlsOptions?,
+        apiKey: String? = null,
     ): MemorySegment {
         val options = TemporalCoreClientOptions.allocate(arena)
 
@@ -312,14 +357,44 @@ internal object TemporalCoreClient {
         TemporalCoreClientOptions.client_version(options, TemporalCoreFfmUtil.createByteArrayRef(arena, clientVersion))
         TemporalCoreClientOptions.metadata(options, createEmptyMetadataRef(arena))
         TemporalCoreClientOptions.binary_metadata(options, createEmptyMetadataRef(arena))
-        TemporalCoreClientOptions.api_key(options, TemporalCoreFfmUtil.createEmptyByteArrayRef(arena))
+        TemporalCoreClientOptions.api_key(options, TemporalCoreFfmUtil.createByteArrayRef(arena, apiKey))
         TemporalCoreClientOptions.identity(options, TemporalCoreFfmUtil.createByteArrayRef(arena, identity))
-        TemporalCoreClientOptions.tls_options(options, MemorySegment.NULL)
+        TemporalCoreClientOptions.tls_options(options, buildTlsOptions(arena, tls))
         TemporalCoreClientOptions.retry_options(options, MemorySegment.NULL)
         TemporalCoreClientOptions.keep_alive_options(options, MemorySegment.NULL)
         TemporalCoreClientOptions.http_connect_proxy_options(options, MemorySegment.NULL)
         TemporalCoreClientOptions.grpc_override_callback(options, MemorySegment.NULL)
         TemporalCoreClientOptions.grpc_override_callback_user_data(options, MemorySegment.NULL)
+
+        return options
+    }
+
+    private fun buildTlsOptions(
+        arena: Arena,
+        tls: ClientTlsOptions?,
+    ): MemorySegment {
+        if (tls == null) {
+            return MemorySegment.NULL
+        }
+
+        val options = TemporalCoreClientTlsOptions.allocate(arena)
+
+        TemporalCoreClientTlsOptions.server_root_ca_cert(
+            options,
+            TemporalCoreFfmUtil.createByteArrayRef(arena, tls.serverRootCaCert),
+        )
+        TemporalCoreClientTlsOptions.domain(
+            options,
+            TemporalCoreFfmUtil.createByteArrayRef(arena, tls.domain),
+        )
+        TemporalCoreClientTlsOptions.client_cert(
+            options,
+            TemporalCoreFfmUtil.createByteArrayRef(arena, tls.clientCert),
+        )
+        TemporalCoreClientTlsOptions.client_private_key(
+            options,
+            TemporalCoreFfmUtil.createByteArrayRef(arena, tls.clientPrivateKey),
+        )
 
         return options
     }

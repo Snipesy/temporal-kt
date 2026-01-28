@@ -175,8 +175,8 @@ private fun buildApplication(
 ): TemporalApplication {
     val builder = TemporalApplicationBuilder(parentCoroutineContext)
 
-    // Apply connection settings from config
-    builder.connection(config.temporal.connection)
+    // Apply connection settings from config (converts YAML paths to loaded certs)
+    builder.connection(config.temporal.connection.toConnectionConfig())
 
     // Apply deployment settings from config
     config.temporal.deployment?.let { deploymentConfig ->

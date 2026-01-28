@@ -23,12 +23,13 @@ sdk env install
 ```
 ### Supported Platforms
 
-Temporal-KT currently only supports:
+Temporal-KT currently supports:
 
 * MacOS aarch64
+* MacOS x86_64
 * Linux x86_64
 * Linux aarch64
-* Windows x86_64 (GNU)
+* Windows x86_64
 
 ### Cross-Platform Build (Optional)
 
@@ -36,14 +37,7 @@ To build native libraries for all platforms, install:
 
 - **cargo-zigbuild** - `cargo install cargo-zigbuild`
 - **Zig** - `brew install zig` (macOS) or [ziglang.org/download](https://ziglang.org/download/)
-- **Rust targets** - Install the cross-compilation targets:
-  ```bash
-  rustup target add x86_64-unknown-linux-gnu
-  rustup target add aarch64-unknown-linux-gnu
-  rustup target add x86_64-pc-windows-gnu
-  rustup target add aarch64-apple-darwin
-  ```
-- Platform specific build essentials (follow the errors)
+- **Rust targets** - Install the cross-compilation targets
   
 Then you can build cross-platform artifacts with
 ```bash
@@ -51,6 +45,8 @@ gradle cargoBuildAll
 gradle copyAllNativeLibs
 ```
 
+However, it is recommended to build on the target platform for best results. Release binaries are created
+on the appropriate platforms.
 
 ## Cloning
 

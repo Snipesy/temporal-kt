@@ -99,7 +99,7 @@ interface TemporalClient {
 
     companion object {
         /**
-         * Creates a new client connected to the specified Temporal service.
+         * Creates a new client from an existing core client.
          *
          * @param coreClient The low-level core client.
          * @param namespace The namespace to use.
@@ -117,6 +117,86 @@ interface TemporalClient {
                 }
             return TemporalClientImpl(coreClient, config, serializer)
         }
+
+        /**
+         * Connects to a Temporal service and returns a client.
+         *
+         * This is the primary way to create a standalone client for interacting with Temporal.
+         *
+         * Example with API key:
+         * ```kotlin
+         * val client = TemporalClient.connect {
+         *     target = "https://myns.abc123.tmprl.cloud:7233"
+         *     namespace = "myns.abc123"
+         *     apiKey = System.getenv("TEMPORAL_API_KEY")
+         * }
+         * ```
+         *
+         * Example with mTLS:
+         * ```kotlin
+         * val client = TemporalClient.connect {
+         *     target = "https://myns.abc123.tmprl.cloud:7233"
+         *     namespace = "myns.abc123"
+         *     tls {
+         *         fromFiles(
+         *             clientCertPath = "/path/to/client.pem",
+         *             clientPrivateKeyPath = "/path/to/client-key.pem",
+         *         )
+         *     }
+         * }
+         * ```
+         *
+         * @param serializer The payload serializer. Defaults to JSON serializer.
+         * @param configure Configuration block for connection settings.
+         * @return A connected TemporalClient.
+         */
+        suspend fun connect(
+            serializer: PayloadSerializer = KotlinxJsonSerializer.default(),
+            configure: TemporalClientConfig.() -> Unit,
+        ): TemporalClient {
+            val config = TemporalClientConfig().apply(configure)
+
+            val runtime =
+                com.surrealdev.temporal.core.TemporalRuntime
+                    .create()
+
+            val tlsOptions =
+                config.tls?.let { tlsConfig ->
+                    com.surrealdev.temporal.core.TlsOptions(
+                        serverRootCaCert = tlsConfig.serverRootCaCert,
+                        domain = tlsConfig.domain,
+                        clientCert = tlsConfig.clientCert,
+                        clientPrivateKey = tlsConfig.clientPrivateKey,
+                    )
+                }
+
+            val coreClient =
+                TemporalCoreClient.connect(
+                    runtime = runtime,
+                    targetUrl = config.target,
+                    namespace = config.namespace,
+                    tls = tlsOptions,
+                    apiKey = config.apiKey,
+                )
+
+            return ConnectedTemporalClient(coreClient, config, serializer, runtime)
+        }
+    }
+}
+
+/**
+ * A TemporalClient that owns its connection and runtime.
+ * Closing this client will close the underlying core client and runtime.
+ */
+private class ConnectedTemporalClient(
+    private val coreClient: TemporalCoreClient,
+    config: TemporalClientConfig,
+    serializer: PayloadSerializer,
+    private val runtime: com.surrealdev.temporal.core.TemporalRuntime,
+) : TemporalClient by TemporalClientImpl(coreClient, config, serializer) {
+    override suspend fun close() {
+        coreClient.close()
+        runtime.close()
     }
 }
 
@@ -255,14 +335,61 @@ class TemporalClientImpl internal constructor(
 
 /**
  * Configuration for a Temporal client.
+ *
+ * Example:
+ * ```kotlin
+ * val client = TemporalClient.connect {
+ *     target = "https://myns.abc123.tmprl.cloud:7233"
+ *     namespace = "myns.abc123"
+ *     apiKey = System.getenv("TEMPORAL_API_KEY")
+ * }
+ * ```
  */
 class TemporalClientConfig {
-    /** Target address of the Temporal service. */
-    var target: String = "localhost:7233"
+    /** Target address of the Temporal service (e.g., "localhost:7233" or "https://myns.tmprl.cloud:7233"). */
+    var target: String = "http://localhost:7233"
 
     /** Namespace to connect to. */
     var namespace: String = "default"
 
-    /** Whether to use TLS. TODO */
-    var useTls: Boolean = false
+    /** TLS configuration. If null and target uses https://, TLS is auto-enabled with system CAs. */
+    var tls: TlsConfig? = null
+
+    /** API key for Temporal Cloud authentication (alternative to mTLS). */
+    var apiKey: String? = null
+
+    /**
+     * Configure TLS using a builder.
+     */
+    fun tls(block: TlsConfigBuilder.() -> Unit) {
+        tls = TlsConfigBuilder().apply(block).build()
+    }
+}
+
+/**
+ * Builder for TlsConfig within TemporalClientConfig.
+ */
+class TlsConfigBuilder {
+    var serverRootCaCert: ByteArray? = null
+    var domain: String? = null
+    var clientCert: ByteArray? = null
+    var clientPrivateKey: ByteArray? = null
+
+    fun fromFiles(
+        serverRootCaCertPath: String? = null,
+        clientCertPath: String? = null,
+        clientPrivateKeyPath: String? = null,
+    ) {
+        serverRootCaCert = serverRootCaCertPath?.let { java.io.File(it).readBytes() }
+        clientCert = clientCertPath?.let { java.io.File(it).readBytes() }
+        clientPrivateKey = clientPrivateKeyPath?.let { java.io.File(it).readBytes() }
+    }
+
+    internal fun build(): TlsConfig =
+        TlsConfig(
+            serverRootCaCert = serverRootCaCert,
+            domain = domain,
+            clientCert = clientCert,
+            clientPrivateKey = clientPrivateKey,
+        )
 }

@@ -2,8 +2,10 @@ package com.surrealdev.temporal.application
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.annotation.TemporalDsl
+import com.surrealdev.temporal.client.TlsConfig
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import java.io.File
 import kotlin.coroutines.CoroutineContext
 
 /**
@@ -182,22 +184,109 @@ class ConnectionConfigBuilder internal constructor(
     /** Namespace to use. */
     var namespace: String = base.namespace
 
-    /** Whether to use TLS. */
-    var useTls: Boolean = base.useTls
+    /** TLS configuration. Set directly or use the [tls] DSL block. */
+    var tlsConfig: TlsConfig? = base.tls
 
-    /** Path to TLS client certificate (for mTLS). */
-    var tlsCertPath: String? = base.tlsCertPath
+    /**
+     * API key for Temporal Cloud authentication.
+     *
+     * Alternative to mTLS. When set, TLS is automatically enabled.
+     */
+    var apiKey: String? = base.apiKey
 
-    /** Path to TLS client key (for mTLS). */
-    var tlsKeyPath: String? = base.tlsKeyPath
+    /**
+     * Configures TLS using a builder DSL.
+     *
+     * Usage:
+     * ```kotlin
+     * connection {
+     *     target = "https://my-namespace.tmprl.cloud:7233"
+     *     tls {
+     *         serverRootCaCert = caCertBytes
+     *         clientCert = clientCertBytes
+     *         clientPrivateKey = clientKeyBytes
+     *     }
+     * }
+     * ```
+     */
+    fun tls(configure: TlsConfigBuilder.() -> Unit) {
+        tlsConfig = TlsConfigBuilder().apply(configure).build()
+    }
+
+    /**
+     * Sets TLS configuration directly.
+     *
+     * Usage:
+     * ```kotlin
+     * connection {
+     *     target = "https://my-namespace.tmprl.cloud:7233"
+     *     tls(TlsConfig.fromFiles(
+     *         clientCertPath = "/path/to/client.pem",
+     *         clientPrivateKeyPath = "/path/to/client-key.pem"
+     *     ))
+     * }
+     * ```
+     */
+    fun tls(config: TlsConfig) {
+        tlsConfig = config
+    }
 
     internal fun build(): ConnectionConfig =
         ConnectionConfig(
             target = target,
             namespace = namespace,
-            useTls = useTls,
-            tlsCertPath = tlsCertPath,
-            tlsKeyPath = tlsKeyPath,
+            tls = tlsConfig,
+            apiKey = apiKey,
+        )
+}
+
+/**
+ * Builder for [TlsConfig] that allows DSL-style configuration.
+ */
+@TemporalDsl
+class TlsConfigBuilder internal constructor() {
+    /** PEM-encoded root CA certificate for verifying the server. */
+    var serverRootCaCert: ByteArray? = null
+
+    /** Domain name for server certificate verification. */
+    var domain: String? = null
+
+    /** PEM-encoded client certificate for mTLS. */
+    var clientCert: ByteArray? = null
+
+    /** PEM-encoded client private key for mTLS. */
+    var clientPrivateKey: ByteArray? = null
+
+    /**
+     * Loads certificates from file paths.
+     *
+     * Usage:
+     * ```kotlin
+     * tls {
+     *     fromFiles(
+     *         serverRootCaCertPath = "/path/to/ca.pem",
+     *         clientCertPath = "/path/to/client.pem",
+     *         clientPrivateKeyPath = "/path/to/client-key.pem"
+     *     )
+     * }
+     * ```
+     */
+    fun fromFiles(
+        serverRootCaCertPath: String? = null,
+        clientCertPath: String? = null,
+        clientPrivateKeyPath: String? = null,
+    ) {
+        serverRootCaCert = serverRootCaCertPath?.let { File(it).readBytes() }
+        clientCert = clientCertPath?.let { File(it).readBytes() }
+        clientPrivateKey = clientPrivateKeyPath?.let { File(it).readBytes() }
+    }
+
+    internal fun build(): TlsConfig =
+        TlsConfig(
+            serverRootCaCert = serverRootCaCert,
+            domain = domain,
+            clientCert = clientCert,
+            clientPrivateKey = clientPrivateKey,
         )
 }
 
