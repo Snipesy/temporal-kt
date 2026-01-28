@@ -81,7 +81,7 @@ jobs:
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: "core-bridge/sdk-core -> target"
+          workspaces: "core-bridge/rust -> target"
           key: ${{ matrix.platform }}
           cache-workspace-crates: "true"
 
