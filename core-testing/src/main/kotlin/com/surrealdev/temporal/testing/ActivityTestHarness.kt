@@ -113,6 +113,7 @@ class ActivityTestHarness(
         ActivityDispatcher(
             registry = registry,
             serializer = serializer,
+            codec = com.surrealdev.temporal.serialization.NoOpCodec,
             taskQueue = TEST_TASK_QUEUE,
             maxConcurrent = 10,
             heartbeatFn = { taskToken, details ->

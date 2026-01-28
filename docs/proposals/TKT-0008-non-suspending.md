@@ -41,9 +41,8 @@ interface SyncWorkflow {
     fun WorkflowContext.execute(arg: WorkflowArg): String
 }
 
-@Activity("SyncActivity")
 interface SyncActivity {
-    @ActivityMethod
+    @Activity("greet")
     fun ActivityContext.greet(name: String): String
 }
 ```

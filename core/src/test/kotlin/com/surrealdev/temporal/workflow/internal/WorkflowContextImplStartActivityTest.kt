@@ -53,6 +53,7 @@ class WorkflowContextImplStartActivityTest {
             state = state,
             info = info,
             serializer = serializer,
+            codec = com.surrealdev.temporal.serialization.NoOpCodec,
             workflowDispatcher = dispatcher,
             parentJob = Job(),
             parentScope = taskQueueScope,

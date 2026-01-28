@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.util.AttributeScope
 import com.surrealdev.temporal.util.Attributes
@@ -48,6 +49,7 @@ internal class WorkflowContextImpl(
     private val state: WorkflowState,
     override val info: WorkflowInfo,
     override val serializer: PayloadSerializer,
+    internal val codec: PayloadCodec,
     private val workflowDispatcher: WorkflowCoroutineDispatcher,
     parentJob: Job,
     override val parentScope: AttributeScope,

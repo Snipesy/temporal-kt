@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.util.AttributeScope
 import coresdk.workflow_activation.WorkflowActivationOuterClass.WorkflowActivation
@@ -31,6 +32,7 @@ import java.util.concurrent.ConcurrentHashMap
 internal class WorkflowDispatcher(
     private val registry: WorkflowRegistry,
     private val serializer: PayloadSerializer,
+    private val codec: PayloadCodec,
     private val taskQueue: String,
     private val namespace: String,
     maxConcurrent: Int,
@@ -152,6 +154,7 @@ internal class WorkflowDispatcher(
             runId = activation.runId,
             methodInfo = methodInfo,
             serializer = serializer,
+            codec = codec,
             taskQueue = taskQueue,
             namespace = namespace,
             taskQueueScope = taskQueueScope,

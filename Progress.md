@@ -18,7 +18,7 @@ This document tracks the implementation status of Temporal SDK features in the K
 
 | Feature | Status          | Description | Kotlin Source |
 |---------|-----------------|-------------|---------------|
-| Annotation-Based Definitions | Incubating      | `@Workflow`, `@Activity`, `@WorkflowRun`, `@ActivityMethod` | [Annotations.kt](core/src/main/kotlin/com/surrealdev/temporal/annotation/Annotations.kt) |
+| Annotation-Based Definitions | Incubating      | `@Workflow`, `@Activity`, `@WorkflowRun` | [Annotations.kt](core/src/main/kotlin/com/surrealdev/temporal/annotation/Annotations.kt) |
 | Interface-Based Definitions | Not Implemented | For interop and compiler plugin stubs | [Annotations.kt](core/src/main/kotlin/com/surrealdev/temporal/annotation/Annotations.kt) |
 | Inline Declarative | Not Implemented | Lambda-based workflow/activity definitions | - |
 | DSL Scope Safety | Incubating      | `@TemporalDsl` marker annotation | [Annotations.kt](core/src/main/kotlin/com/surrealdev/temporal/annotation/Annotations.kt) |

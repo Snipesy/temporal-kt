@@ -67,17 +67,15 @@ class MyWorkflow : WorkflowInterface<WorkflowArg, String> {
     }
 }
 
-@Activity("MyActivity")
 class MyActivity : ActivityInterface<String, String> {
-    @ActivityMethod
+    @Activity("greet")
     override suspend fun ActivityContext.greet(name: String): String {
         return "Hello, $name"
     }
 }
 
-@Activity("UnnestedActivity")
 class UnnestedActivity : ActivityInterface<String, String> {
-    @ActivityMethod
+    @Activity("greet")
     override suspend fun ActivityContext.greet(name: String): String {
         return "Hi there, $name"
     }

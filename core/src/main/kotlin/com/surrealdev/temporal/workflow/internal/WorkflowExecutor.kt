@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.util.AttributeScope
 import com.surrealdev.temporal.workflow.WorkflowCancelledException
@@ -36,6 +37,7 @@ internal class WorkflowExecutor(
     internal val runId: String,
     internal val methodInfo: WorkflowMethodInfo,
     internal val serializer: PayloadSerializer,
+    internal val codec: PayloadCodec,
     internal val taskQueue: String,
     private val namespace: String,
     /**
@@ -470,6 +472,7 @@ internal class WorkflowExecutor(
                 state = state,
                 info = workflowInfo!!,
                 serializer = serializer,
+                codec = codec,
                 workflowDispatcher = workflowDispatcher,
                 parentJob = workflowExecutionJob!!,
                 parentScope = taskQueueScope,
@@ -483,14 +486,16 @@ internal class WorkflowExecutor(
     private fun startWorkflowCoroutine(init: InitializeWorkflow): Deferred<Any?> {
         val ctx = context ?: error("Context not initialized")
         val method = methodInfo.runMethod
-
-        // Deserialize arguments
-        val args = deserializeArguments(init.argumentsList, methodInfo.parameterTypes)
+        val payloads = init.argumentsList
+        val paramTypes = methodInfo.parameterTypes
 
         // Launch the workflow within the WorkflowContext's scope
         // This ensures all coroutines (including launch{}) share the same Job hierarchy
         // for proper structured concurrency and exception propagation
         return ctx.async {
+            // Deserialize arguments inside the coroutine (suspend context)
+            val args = deserializeArguments(payloads, paramTypes)
+
             try {
                 if (methodInfo.hasContextReceiver) {
                     // Method has WorkflowContext as extension receiver
@@ -518,16 +523,20 @@ internal class WorkflowExecutor(
 
     /**
      * Deserializes workflow/handler arguments from Payloads to typed objects.
+     * Applies codec.decode() before deserializing.
      */
-    internal fun deserializeArguments(
+    internal suspend fun deserializeArguments(
         payloads: List<Payload>,
         parameterTypes: List<KType>,
-    ): Array<Any?> =
-        payloads
+    ): Array<Any?> {
+        // Decode with codec first, then deserialize
+        val decodedPayloads = codec.decode(payloads)
+        return decodedPayloads
             .zip(parameterTypes)
             .map { (payload, type) ->
                 serializer.deserialize(type, payload)
             }.toTypedArray()
+    }
 
     private fun handleCancel() {
         logger.debug("Workflow cancellation requested")

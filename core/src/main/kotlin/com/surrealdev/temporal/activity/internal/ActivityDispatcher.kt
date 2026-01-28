@@ -3,6 +3,7 @@ package com.surrealdev.temporal.activity.internal
 import com.google.protobuf.ByteString
 import com.surrealdev.temporal.activity.ActivityCancelledException
 import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.serialization.SerializationException
 import com.surrealdev.temporal.util.AttributeScope
@@ -51,6 +52,7 @@ internal data class RunningActivity(
 class ActivityDispatcher(
     private val registry: ActivityRegistry,
     private val serializer: PayloadSerializer,
+    private val codec: PayloadCodec,
     private val taskQueue: String,
     maxConcurrent: Int,
     private val heartbeatFn: suspend (ByteArray, ByteArray?) -> Unit = { _, _ -> },
@@ -207,7 +209,7 @@ class ActivityDispatcher(
         }
     }
 
-    private fun deserializeArguments(
+    private suspend fun deserializeArguments(
         payloads: List<Payload>,
         parameterTypes: List<kotlin.reflect.KType>,
     ): Array<Any?> {
@@ -217,7 +219,9 @@ class ActivityDispatcher(
             )
         }
 
-        return payloads
+        // Decode payloads with codec first, then deserialize
+        val decodedPayloads = codec.decode(payloads)
+        return decodedPayloads
             .zip(parameterTypes)
             .map { (payload, type) ->
                 serializer.deserialize(type, payload)
@@ -257,7 +261,7 @@ class ActivityDispatcher(
         }
     }
 
-    private fun buildSuccessCompletion(
+    private suspend fun buildSuccessCompletion(
         taskToken: ByteString,
         result: Any?,
         returnType: kotlin.reflect.KType,
@@ -267,7 +271,9 @@ class ActivityDispatcher(
                 // For Unit return type, we don't serialize the result
                 Payload.getDefaultInstance()
             } else {
-                serializer.serialize(returnType, result)
+                // Serialize first, then encode with codec
+                val serialized = serializer.serialize(returnType, result)
+                codec.encode(listOf(serialized)).single()
             }
 
         return activityTaskCompletion {

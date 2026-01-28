@@ -3,6 +3,7 @@ package com.surrealdev.temporal.client
 import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.client.history.WorkflowHistory
 import com.surrealdev.temporal.client.internal.WorkflowServiceClient
+import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import io.temporal.api.common.v1.Payloads
 import io.temporal.api.common.v1.WorkflowExecution
@@ -150,6 +151,7 @@ internal class WorkflowHandleImpl<R>(
     private val resultTypeInfo: KType,
     private val serviceClient: WorkflowServiceClient,
     override val serializer: PayloadSerializer,
+    internal val codec: PayloadCodec,
 ) : WorkflowHandle<R> {
     override suspend fun result(timeout: Duration): R {
         val startTime = System.currentTimeMillis()
@@ -245,7 +247,9 @@ internal class WorkflowHandleImpl<R>(
                 val attrs = event.workflowExecutionCompletedEventAttributes
                 if (attrs.hasResult() && attrs.result.payloadsCount > 0) {
                     val payload = attrs.result.getPayloads(0)
-                    serializer.deserialize(resultTypeInfo, payload) as R
+                    // Decode with codec first, then deserialize
+                    val decoded = codec.decode(listOf(payload)).single()
+                    serializer.deserialize(resultTypeInfo, decoded) as R
                 } else {
                     // No result (Unit return type)
                     Unit as R
@@ -297,6 +301,7 @@ internal class WorkflowHandleImpl<R>(
                         resultTypeInfo = resultTypeInfo,
                         serviceClient = serviceClient,
                         serializer = serializer,
+                        codec = codec,
                     )
                 // Recursively get result from the new run
                 newHandle.result(remainingTimeout)

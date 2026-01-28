@@ -35,12 +35,13 @@ internal suspend fun WorkflowExecutor.buildTerminalCompletion(
             value?.let { it::class.simpleName } ?: "null",
         )
 
-        // Serialize the result
+        // Serialize the result, then encode with codec
         val resultPayload =
             if (methodInfo.returnType.classifier == Unit::class) {
                 Payload.getDefaultInstance()
             } else {
-                serializer.serialize(returnType, value)
+                val serialized = serializer.serialize(returnType, value)
+                codec.encode(listOf(serialized)).single()
             }
 
         // Build completion command
@@ -192,7 +193,7 @@ internal fun WorkflowExecutor.buildWorkflowCancellationCompletion(): WorkflowCom
  * Builds a continue-as-new completion when the workflow calls continueAsNew().
  * This creates a ContinueAsNewWorkflowExecution command.
  */
-internal fun WorkflowExecutor.buildContinueAsNewCompletion(
+internal suspend fun WorkflowExecutor.buildContinueAsNewCompletion(
     exception: ContinueAsNewException,
 ): WorkflowCompletion.WorkflowActivationCompletion {
     val options = exception.options
@@ -204,10 +205,11 @@ internal fun WorkflowExecutor.buildContinueAsNewCompletion(
             .setWorkflowType(options.workflowType ?: methodInfo.workflowType)
             .setTaskQueue(options.taskQueue ?: taskQueue)
 
-    // Serialize and add arguments with their type information
+    // Serialize and add arguments with their type information, then encode with codec
     exception.typedArgs.forEach { (type, value) ->
-        val payload = serializer.serialize(type, value)
-        commandBuilder.addArguments(payload)
+        val serialized = serializer.serialize(type, value)
+        val encoded = codec.encode(listOf(serialized)).single()
+        commandBuilder.addArguments(encoded)
     }
 
     // Set optional fields if provided

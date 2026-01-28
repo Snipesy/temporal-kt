@@ -5,6 +5,8 @@ import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.client.internal.WorkflowServiceClient
 import com.surrealdev.temporal.core.TemporalCoreClient
 import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
+import com.surrealdev.temporal.serialization.NoOpCodec
+import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import io.temporal.api.common.v1.Payloads
 import io.temporal.api.common.v1.WorkflowType
@@ -104,18 +106,20 @@ interface TemporalClient {
          * @param coreClient The low-level core client.
          * @param namespace The namespace to use.
          * @param serializer The payload serializer. Defaults to JSON serializer.
+         * @param codec The payload codec. Defaults to no-op codec.
          */
         fun create(
             coreClient: TemporalCoreClient,
             namespace: String = "default",
             serializer: PayloadSerializer = KotlinxJsonSerializer.default(),
+            codec: PayloadCodec = NoOpCodec,
         ): TemporalClient {
             val config =
                 TemporalClientConfig().apply {
                     this.target = coreClient.targetUrl
                     this.namespace = namespace
                 }
-            return TemporalClientImpl(coreClient, config, serializer)
+            return TemporalClientImpl(coreClient, config, serializer, codec)
         }
 
         /**
@@ -179,7 +183,7 @@ interface TemporalClient {
                     apiKey = config.apiKey,
                 )
 
-            return ConnectedTemporalClient(coreClient, config, serializer, runtime)
+            return ConnectedTemporalClient(coreClient, config, serializer, NoOpCodec, runtime)
         }
     }
 }
@@ -192,8 +196,9 @@ private class ConnectedTemporalClient(
     private val coreClient: TemporalCoreClient,
     config: TemporalClientConfig,
     serializer: PayloadSerializer,
+    codec: PayloadCodec,
     private val runtime: com.surrealdev.temporal.core.TemporalRuntime,
-) : TemporalClient by TemporalClientImpl(coreClient, config, serializer) {
+) : TemporalClient by TemporalClientImpl(coreClient, config, serializer, codec) {
     override suspend fun close() {
         coreClient.close()
         runtime.close()
@@ -225,6 +230,7 @@ class TemporalClientImpl internal constructor(
     private val coreClient: TemporalCoreClient,
     private val config: TemporalClientConfig,
     override val serializer: PayloadSerializer,
+    internal val codec: PayloadCodec,
 ) : TemporalClient {
     internal val serviceClient = WorkflowServiceClient(coreClient, config.namespace)
 
@@ -312,6 +318,7 @@ class TemporalClientImpl internal constructor(
             resultTypeInfo = resultTypeInfo,
             serviceClient = serviceClient,
             serializer = serializer,
+            codec = codec,
         )
     }
 
@@ -326,6 +333,7 @@ class TemporalClientImpl internal constructor(
             resultTypeInfo = resultTypeInfo,
             serviceClient = serviceClient,
             serializer = serializer,
+            codec = codec,
         )
 
     override suspend fun close() {

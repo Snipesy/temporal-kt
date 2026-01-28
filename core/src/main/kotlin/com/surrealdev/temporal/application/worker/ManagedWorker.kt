@@ -19,6 +19,7 @@ import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskFailed
 import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskFailedContext
 import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskStarted
 import com.surrealdev.temporal.core.TemporalWorker
+import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.util.SimpleAttributeScope
 import com.surrealdev.temporal.workflow.internal.WorkflowDispatcher
@@ -56,6 +57,7 @@ internal class ManagedWorker(
     private val config: TaskQueueConfig,
     parentContext: CoroutineContext,
     private val serializer: PayloadSerializer,
+    private val codec: PayloadCodec,
     private val namespace: String,
     private val applicationHooks: HookRegistry,
     private val application: TemporalApplication,
@@ -165,6 +167,7 @@ internal class ManagedWorker(
         ActivityDispatcher(
             registry = activityRegistry,
             serializer = serializer,
+            codec = codec,
             taskQueue = config.name,
             maxConcurrent = config.maxConcurrentActivities,
             heartbeatFn = { taskToken, details ->
@@ -313,6 +316,7 @@ internal class ManagedWorker(
             WorkflowDispatcher(
                 registry = workflowRegistry,
                 serializer = serializer,
+                codec = codec,
                 taskQueue = config.name,
                 namespace = namespace,
                 maxConcurrent = config.maxConcurrentWorkflows,

@@ -52,6 +52,7 @@ internal fun createTestWorkflowExecutor(
         runId = runId,
         methodInfo = methodInfo,
         serializer = serializer,
+        codec = com.surrealdev.temporal.serialization.NoOpCodec,
         taskQueue = taskQueue,
         namespace = namespace,
         taskQueueScope = taskQueueScope,

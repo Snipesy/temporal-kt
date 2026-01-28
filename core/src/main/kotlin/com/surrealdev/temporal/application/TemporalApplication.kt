@@ -24,6 +24,8 @@ import com.surrealdev.temporal.core.TemporalRuntime
 import com.surrealdev.temporal.core.TemporalWorker
 import com.surrealdev.temporal.core.TlsOptions
 import com.surrealdev.temporal.core.WorkerConfig
+import com.surrealdev.temporal.serialization.NoOpCodec
+import com.surrealdev.temporal.serialization.payloadCodecOrNull
 import com.surrealdev.temporal.serialization.payloadSerializer
 import com.surrealdev.temporal.util.Attributes
 import kotlinx.coroutines.CoroutineName
@@ -176,6 +178,7 @@ open class TemporalApplication internal constructor(
                     config = taskQueueConfig,
                     parentContext = coroutineContext,
                     serializer = payloadSerializer(),
+                    codec = payloadCodecOrNull() ?: NoOpCodec,
                     namespace = effectiveNamespace,
                     applicationHooks = hookRegistry,
                     application = this,
@@ -299,6 +302,7 @@ open class TemporalApplication internal constructor(
             coreClient = coreClientInstance,
             namespace = clientConfig.namespace,
             serializer = payloadSerializer(),
+            codec = payloadCodecOrNull() ?: NoOpCodec,
         )
     }
 
