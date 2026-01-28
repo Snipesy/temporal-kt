@@ -77,7 +77,13 @@ jobs:
         with:
           toolchain: stable
           target: ${{ matrix.rust-targets }}
-          cache: true
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "core-bridge/sdk-core -> target"
+          key: ${{ matrix.platform }}
+          cache-workspace-crates: "true"
 
       - name: Set up Zig
         if: matrix.needs-zig
