@@ -10,8 +10,6 @@ import com.surrealdev.temporal.testing.ProtoTestHelpers.initializeWorkflowJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveLocalActivityJobBackoff
 import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveLocalActivityJobCompleted
 import com.surrealdev.temporal.testing.createTestWorkflowExecutor
-import com.surrealdev.temporal.workflow.LocalActivityHandle
-import com.surrealdev.temporal.workflow.LocalActivityOptions
 import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.internal.WorkflowExecutor
 import com.surrealdev.temporal.workflow.internal.WorkflowMethodInfo
@@ -19,10 +17,9 @@ import com.surrealdev.temporal.workflow.startLocalActivity
 import coresdk.workflow_commands.WorkflowCommands
 import coresdk.workflow_completion.WorkflowCompletion.WorkflowActivationCompletion
 import io.temporal.api.common.v1.Payload
-import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Test
-import java.util.UUID
+import java.util.*
 import kotlin.reflect.KFunction
 import kotlin.reflect.typeOf
 import kotlin.test.assertEquals

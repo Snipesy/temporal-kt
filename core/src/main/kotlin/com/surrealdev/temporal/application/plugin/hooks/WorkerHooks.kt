@@ -32,7 +32,7 @@ data class WorkerStartedContext(
  * Hook called after a worker stops.
  *
  * This hook is fired in [com.surrealdev.temporal.application.TemporalApplication.close]
- * after each worker's [ManagedWorker.stop] completes.
+ * after each worker's [com.surrealdev.temporal.application.worker.ManagedWorker.stop] completes.
  *
  * Use this hook to:
  * - Track worker lifecycle

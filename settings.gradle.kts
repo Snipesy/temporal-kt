@@ -9,6 +9,7 @@ include(":core-bridge")
 include(":core")
 include(":core-testing")
 include(":plugins:di")
+include(":plugins:opentelemetry")
 include(":compiler-plugin")
 include(":gradle-plugin")
 

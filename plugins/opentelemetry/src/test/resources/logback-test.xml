@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - workflowId=%X{workflowId} runId=%X{runId} activityId=%X{activityId} trace_id=%X{trace_id} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Temporal workflow/activity loggers -->
+    <logger name="temporal.workflow" level="INFO"/>
+    <logger name="temporal.activity" level="INFO"/>
+
+    <!-- Reduce noise from framework internals -->
+    <logger name="com.surrealdev.temporal" level="WARN"/>
+    <logger name="io.temporal" level="WARN"/>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>

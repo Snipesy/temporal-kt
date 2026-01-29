@@ -6,6 +6,8 @@ import com.surrealdev.temporal.serialization.deserialize
 import com.surrealdev.temporal.serialization.serialize
 import io.temporal.api.common.v1.Payloads
 import kotlinx.coroutines.currentCoroutineContext
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 import kotlin.reflect.KClass
 import kotlin.reflect.KFunction
 import kotlin.reflect.full.findAnnotation
@@ -41,6 +43,29 @@ import kotlin.time.Duration.Companion.minutes
 suspend fun workflow(): WorkflowContext =
     currentCoroutineContext()[WorkflowContext]
         ?: error("workflow() must be called from within a workflow execution")
+
+// =============================================================================
+// Logging
+// =============================================================================
+
+/**
+ * Returns an SLF4J logger for this workflow.
+ *
+ * The logger name is based on the workflow type (e.g., "temporal.workflow.MyWorkflow").
+ * MDC context (workflowId, runId, taskQueue, namespace, workflowType) is automatically
+ * populated by the framework and will be included in log output.
+ *
+ * Example:
+ * ```kotlin
+ * @WorkflowRun
+ * suspend fun WorkflowContext.run(name: String): String {
+ *     val log = logger()
+ *     log.info("Starting workflow with name: {}", name)
+ *     return "Hello, $name"
+ * }
+ * ```
+ */
+fun WorkflowContext.logger(): Logger = LoggerFactory.getLogger("temporal.workflow.${info.workflowType}")
 
 // =============================================================================
 // Type Extraction Helpers

@@ -61,15 +61,16 @@ internal class WorkflowExecutor(
      */
     internal val pendingQueryResults = mutableListOf<WorkflowCommands.WorkflowCommand>()
 
-    /** MDC context for coroutine propagation with workflow identifiers. */
-    private val mdcContext =
+    /** Builds MDC context for coroutine propagation with workflow identifiers. */
+    private fun buildMdcContext(): MDCContext =
         MDCContext(
-            mapOf(
-                "workflowType" to methodInfo.workflowType,
-                "taskQueue" to taskQueue,
-                "namespace" to namespace,
-                "runId" to runId,
-            ),
+            buildMap {
+                put("workflowType", methodInfo.workflowType)
+                put("taskQueue", taskQueue)
+                put("namespace", namespace)
+                put("runId", runId)
+                workflowInfo?.workflowId?.let { put("workflowId", it) }
+            },
         )
 
     // Create dispatcher with a timer scheduler that delegates to the workflow's timer system.
@@ -151,7 +152,7 @@ internal class WorkflowExecutor(
      * @return The completion to send back to the server
      */
     suspend fun activate(activation: WorkflowActivation): WorkflowCompletion.WorkflowActivationCompletion =
-        withContext(mdcContext + CoroutineName("WorkflowExecutor-activate")) {
+        withContext(buildMdcContext() + CoroutineName("WorkflowExecutor-activate")) {
             try {
                 logger.debug(
                     "Processing activation: jobs={}, replaying={}, historyLength={}",
@@ -488,7 +489,7 @@ internal class WorkflowExecutor(
                 workflowDispatcher = workflowDispatcher,
                 parentJob = workflowExecutionJob!!,
                 parentScope = taskQueueScope,
-                mdcContext = mdcContext,
+                mdcContext = buildMdcContext(),
             )
 
         // Start the main workflow coroutine
