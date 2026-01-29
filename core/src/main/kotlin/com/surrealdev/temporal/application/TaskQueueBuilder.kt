@@ -101,6 +101,22 @@ class TaskQueueBuilder internal constructor(
      */
     var shutdownForceTimeoutMs: Long = 5_000L
 
+    /**
+     * Maximum interval for throttling activity heartbeats.
+     * Heartbeats will be throttled to at most this interval.
+     *
+     * Default: 60,000ms (60 seconds)
+     */
+    var maxHeartbeatThrottleIntervalMs: Long = 60_000L
+
+    /**
+     * Default interval for throttling activity heartbeats when no heartbeat timeout is set.
+     * When a heartbeat timeout is configured, throttling uses 80% of that timeout instead.
+     *
+     * Default: 30,000ms (30 seconds)
+     */
+    var defaultHeartbeatThrottleIntervalMs: Long = 30_000L
+
     @PublishedApi
     internal val workflows = mutableListOf<WorkflowRegistration>()
 
@@ -157,5 +173,7 @@ class TaskQueueBuilder internal constructor(
             activityDispatcher = activityDispatcher,
             shutdownGracePeriodMs = shutdownGracePeriodMs,
             shutdownForceTimeoutMs = shutdownForceTimeoutMs,
+            maxHeartbeatThrottleIntervalMs = maxHeartbeatThrottleIntervalMs,
+            defaultHeartbeatThrottleIntervalMs = defaultHeartbeatThrottleIntervalMs,
         )
 }

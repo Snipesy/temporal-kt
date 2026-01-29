@@ -26,7 +26,8 @@ import java.io.File
  * ```
  */
 object TemporalConfigLoader {
-    private val DEFAULT_RESOURCE_PATHS =
+    @PublishedApi
+    internal val DEFAULT_RESOURCE_PATHS =
         listOf(
             "/application.yaml",
             "/application.yml",
@@ -92,7 +93,31 @@ object TemporalConfigLoader {
      * @return The loaded [TemporalConfig]
      * @throws ConfigLoadException if the file cannot be loaded or parsed
      */
-    fun loadFromFile(filePath: String): TemporalConfig {
+    fun loadFromFile(filePath: String): TemporalConfig = loadFromFileAs(filePath)
+
+    /**
+     * Loads configuration as a custom type from a file system path.
+     *
+     * This allows loading configuration into a custom class that includes
+     * additional fields beyond [TemporalConfig]. Your custom config class
+     * should include a `temporal` property of type [TemporalRootConfig].
+     *
+     * Example:
+     * ```kotlin
+     * data class MyAppConfig(
+     *     val temporal: TemporalRootConfig = TemporalRootConfig(),
+     *     val myCustomSettings: MyCustomSettings = MyCustomSettings(),
+     * )
+     *
+     * val config = TemporalConfigLoader.loadFromFileAs<MyAppConfig>("/path/to/config.yaml")
+     * ```
+     *
+     * @param T The configuration type to load
+     * @param filePath Path to the configuration file
+     * @return The loaded configuration
+     * @throws ConfigLoadException if the file cannot be loaded or parsed
+     */
+    inline fun <reified T : Any> loadFromFileAs(filePath: String): T {
         val file = File(filePath)
         if (!file.exists()) {
             throw ConfigLoadException("Config file not found: $filePath")
@@ -102,11 +127,80 @@ object TemporalConfigLoader {
                 .default()
                 .addFileSource(file)
                 .build()
-                .loadConfigOrThrow<TemporalConfig>()
+                .loadConfigOrThrow<T>()
         } catch (e: Exception) {
             throw ConfigLoadException("Failed to load config from file: $filePath", e)
         }
     }
+
+    /**
+     * Loads configuration as a custom type with the following precedence:
+     * 1. Config file specified via `-config=<path>` argument
+     * 2. Default resource paths (application.yaml, temporal.yaml)
+     * 3. Throws an exception (no default for custom types)
+     *
+     * This allows loading configuration into a custom class that includes
+     * additional fields beyond [TemporalConfig]. Your custom config class
+     * should include a `temporal` property of type [TemporalRootConfig].
+     *
+     * Example:
+     * ```kotlin
+     * data class MyAppConfig(
+     *     val temporal: TemporalRootConfig = TemporalRootConfig(),
+     *     val database: DatabaseConfig = DatabaseConfig(),
+     * )
+     *
+     * val config = TemporalConfigLoader.loadAs<MyAppConfig>()
+     * ```
+     *
+     * @param T The configuration type to load
+     * @param args Command-line arguments (optional)
+     * @return The loaded configuration
+     * @throws ConfigLoadException if no config file is found or loading fails
+     */
+    inline fun <reified T : Any> loadAs(args: Array<String> = emptyArray()): T {
+        // Check for -config=<path> argument
+        val configArg = args.find { it.startsWith("-config=") }
+        if (configArg != null) {
+            val path = configArg.substringAfter("-config=")
+            return if (path.startsWith("/") || path.contains(":")) {
+                loadFromFileAs(path)
+            } else {
+                loadFromResourceAs("/$path")
+            }
+        }
+
+        // Try default resource paths
+        for (resourcePath in DEFAULT_RESOURCE_PATHS) {
+            val resource = TemporalConfigLoader::class.java.getResource(resourcePath)
+            if (resource != null) {
+                return loadFromResourceAs(resourcePath)
+            }
+        }
+
+        throw ConfigLoadException(
+            "No configuration file found. Searched: ${DEFAULT_RESOURCE_PATHS.joinToString()}",
+        )
+    }
+
+    /**
+     * Loads configuration as a custom type from a classpath resource.
+     *
+     * @param T The configuration type to load
+     * @param resourcePath Path to the resource (e.g., "/application.yaml")
+     * @return The loaded configuration
+     * @throws ConfigLoadException if the resource cannot be loaded or parsed
+     */
+    inline fun <reified T : Any> loadFromResourceAs(resourcePath: String): T =
+        try {
+            ConfigLoaderBuilder
+                .default()
+                .addResourceSource(resourcePath)
+                .build()
+                .loadConfigOrThrow<T>()
+        } catch (e: Exception) {
+            throw ConfigLoadException("Failed to load config from resource: $resourcePath", e)
+        }
 }
 
 /**

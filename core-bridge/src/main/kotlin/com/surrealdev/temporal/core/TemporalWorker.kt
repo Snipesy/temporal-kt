@@ -51,6 +51,17 @@ data class WorkerConfig(
      * Controls the Core SDK's activity slot supplier.
      */
     val maxConcurrentActivities: Int = 100,
+    /**
+     * Maximum interval for throttling activity heartbeats in milliseconds.
+     * Heartbeats will be throttled to at most this interval.
+     */
+    val maxHeartbeatThrottleIntervalMs: Long = 60_000L,
+    /**
+     * Default interval for throttling activity heartbeats in milliseconds.
+     * Used when no heartbeat timeout is set. When a heartbeat timeout is configured,
+     * throttling uses 80% of that timeout instead.
+     */
+    val defaultHeartbeatThrottleIntervalMs: Long = 30_000L,
 )
 
 /**
@@ -131,6 +142,8 @@ class TemporalWorker private constructor(
                         deploymentOptions = config.deploymentOptions,
                         maxConcurrentWorkflowTasks = config.maxConcurrentWorkflowTasks,
                         maxConcurrentActivities = config.maxConcurrentActivities,
+                        maxHeartbeatThrottleIntervalMs = config.maxHeartbeatThrottleIntervalMs,
+                        defaultHeartbeatThrottleIntervalMs = config.defaultHeartbeatThrottleIntervalMs,
                     )
                 TemporalWorker(
                     handle = workerPtr,

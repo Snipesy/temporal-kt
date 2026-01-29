@@ -24,7 +24,26 @@ install(PayloadSerialization) {
 }
 ```
 
-### Custom Serializer
+
+### Custom KSerializer Module
+
+Rather than developing a full PayloadSerailizer you can define custom serializers for specific types with 
+kotlinx.serialization:
+
+```kotlin
+import kotlinx.serialization.modules.SerializersModule
+import kotlinx.serialization.modules.contextual
+
+install(PayloadSerialization) {
+    json {
+        serializersModule = SerializersModule {
+            contextual(MyCustomTypeSerializer)
+        }
+    }
+}
+```
+
+### Custom Temproal Serializer
 
 Implement `PayloadSerializer` for other formats:
 

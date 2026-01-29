@@ -42,7 +42,7 @@ internal class ActivityContextImpl(
     override val coroutineContext: CoroutineContext = parentCoroutineContext + this
 
     @Volatile
-    private var _isCancellationRequested = false
+    private var cancellationException: ActivityCancelledException? = null
 
     override val info: ActivityInfo by lazy {
         buildActivityInfo()
@@ -50,33 +50,27 @@ internal class ActivityContextImpl(
 
     override suspend fun heartbeatWithPayload(details: io.temporal.api.common.v1.Payload?) {
         // Check cancellation before heartbeating
-        if (_isCancellationRequested) {
-            throw ActivityCancelledException("Activity cancellation was requested")
-        }
+        cancellationException?.let { throw it }
 
         heartbeatFn(taskToken.toByteArray(), details?.toByteArray())
 
         // Check cancellation after heartbeating (in case it was set during the call)
-        if (_isCancellationRequested) {
-            throw ActivityCancelledException("Activity cancellation was requested")
-        }
+        cancellationException?.let { throw it }
     }
 
     override val isCancellationRequested: Boolean
-        get() = _isCancellationRequested
+        get() = cancellationException != null
 
     override fun ensureNotCancelled() {
-        if (_isCancellationRequested) {
-            throw ActivityCancelledException()
-        }
+        cancellationException?.let { throw it }
     }
 
     /**
-     * Marks the activity as cancelled.
+     * Marks the activity as cancelled with the given reason.
      * Called when a cancellation task is received.
      */
-    internal fun markCancelled() {
-        _isCancellationRequested = true
+    internal fun markCancelled(exception: ActivityCancelledException = ActivityCancelledException.Cancelled()) {
+        cancellationException = exception
     }
 
     private fun buildActivityInfo(): ActivityInfo {

@@ -123,13 +123,37 @@ class ActivityDispatcher(
 
         logger.info { "Cancelling activity with token $taskToken, reason: ${cancel.reason}" }
 
+        // Map proto reason to sealed class exception
+        val exception = mapCancelReason(cancel.reason)
+
         // Mark the context as cancelled so heartbeat checks will throw
-        running.context.markCancelled()
+        running.context.markCancelled(exception)
 
         // Cancel the coroutine job - this will cause CancellationException
         // which gets caught and converted to cancelled completion
         running.job.cancel(CancellationException("Activity cancelled: ${cancel.reason}"))
     }
+
+    /**
+     * Maps the proto ActivityCancelReason to the appropriate sealed class exception.
+     */
+    private fun mapCancelReason(reason: ActivityTaskOuterClass.ActivityCancelReason): ActivityCancelledException =
+        when (reason) {
+            ActivityTaskOuterClass.ActivityCancelReason.NOT_FOUND ->
+                ActivityCancelledException.NotFound()
+            ActivityTaskOuterClass.ActivityCancelReason.CANCELLED ->
+                ActivityCancelledException.Cancelled()
+            ActivityTaskOuterClass.ActivityCancelReason.TIMED_OUT ->
+                ActivityCancelledException.TimedOut()
+            ActivityTaskOuterClass.ActivityCancelReason.WORKER_SHUTDOWN ->
+                ActivityCancelledException.WorkerShutdown()
+            ActivityTaskOuterClass.ActivityCancelReason.PAUSED ->
+                ActivityCancelledException.Paused()
+            ActivityTaskOuterClass.ActivityCancelReason.RESET ->
+                ActivityCancelledException.Reset()
+            ActivityTaskOuterClass.ActivityCancelReason.UNRECOGNIZED ->
+                ActivityCancelledException.Cancelled("Activity cancelled (unrecognized reason)")
+        }
 
     /**
      * Dispatches a Start task and tracks it for potential cancellation.

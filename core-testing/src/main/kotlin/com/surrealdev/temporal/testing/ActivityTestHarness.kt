@@ -118,7 +118,7 @@ class ActivityTestHarness(
             maxConcurrent = 10,
             heartbeatFn = { taskToken, details ->
                 if (_isCancellationRequested) {
-                    throw com.surrealdev.temporal.activity.ActivityCancelledException(
+                    throw com.surrealdev.temporal.activity.ActivityCancelledException.Cancelled(
                         "Activity cancelled by test harness",
                     )
                 }

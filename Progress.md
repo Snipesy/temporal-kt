@@ -84,21 +84,21 @@ This document tracks the implementation status of Temporal SDK features in the K
 ## Data Conversion & Serialization
 
 | Feature | Status | Temporal Docs | Kotlin Source |
-|---------|--------|---------------|---------------|
-| Data Converters | Not Implemented | [Data Converters](https://docs.temporal.io/develop/java/converters) | - |
+|---------|-------|---------------|---------------|
+| Data Converters | Incubating | [Data Converters](https://docs.temporal.io/develop/java/converters) | - |
 | Kotlinx Serialization | Incubating | - | [KotlinxSerialization.kt](core/src/main/kotlin/com/surrealdev/temporal/serialization/KotlinxSerialization.kt) |
-| Payload Encryption | Not Implemented | [Encryption](https://docs.temporal.io/develop/java/converters#encryption) | - |
-| Payload Compression | Not Implemented | [Compression](https://docs.temporal.io/develop/java/converters#compression) | - |
+| Payload Encryption | Incubating | [Encryption](https://docs.temporal.io/develop/java/converters#encryption) | - |
+| Payload Compression | Incubating | [Compression](https://docs.temporal.io/develop/java/converters#compression) | - |
 
 ## Observability
 
-| Feature | Status | Temporal Docs | Kotlin Source |
-|---------|--------|---------------|---------------|
-| Logging | Not Implemented | [Logging](https://docs.temporal.io/develop/java/observability#logging) | - |
-| Metrics | Not Implemented | [Metrics](https://docs.temporal.io/develop/java/observability#metrics) | - |
-| Tracing | Not Implemented | [Tracing](https://docs.temporal.io/develop/java/observability#tracing) | - |
-| Visibility | Not Implemented | [Visibility](https://docs.temporal.io/develop/java/observability#visibility) | - |
-| Search Attributes | Not Implemented | [Search Attributes](https://docs.temporal.io/develop/java/observability#search-attributes) | - |
+| Feature | Status                                  | Temporal Docs | Kotlin Source |
+|---------|-----------------------------------------|---------------|---------------|
+| Logging | Not Implemented (there but not focused) | [Logging](https://docs.temporal.io/develop/java/observability#logging) | - |
+| Metrics | Not Implemented (plugins)               | [Metrics](https://docs.temporal.io/develop/java/observability#metrics) | - |
+| Tracing | Not Implemented (plugins exist)         | [Tracing](https://docs.temporal.io/develop/java/observability#tracing) | - |
+| Visibility | Not Implemented                         | [Visibility](https://docs.temporal.io/develop/java/observability#visibility) | - |
+| Search Attributes | Not Implemented                         | [Search Attributes](https://docs.temporal.io/develop/java/observability#search-attributes) | - |
 
 ## Testing
 

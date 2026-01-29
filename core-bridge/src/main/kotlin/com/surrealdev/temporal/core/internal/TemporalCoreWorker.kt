@@ -89,6 +89,8 @@ internal object TemporalCoreWorker {
         deploymentOptions: CoreWorkerDeploymentOptions? = null,
         maxConcurrentWorkflowTasks: Int = 100,
         maxConcurrentActivities: Int = 100,
+        maxHeartbeatThrottleIntervalMs: Long = 60_000L,
+        defaultHeartbeatThrottleIntervalMs: Long = 30_000L,
     ): MemorySegment {
         val options =
             buildWorkerOptions(
@@ -102,6 +104,8 @@ internal object TemporalCoreWorker {
                 deploymentOptions = deploymentOptions,
                 maxConcurrentWorkflowTasks = maxConcurrentWorkflowTasks,
                 maxConcurrentActivities = maxConcurrentActivities,
+                maxHeartbeatThrottleIntervalMs = maxHeartbeatThrottleIntervalMs,
+                defaultHeartbeatThrottleIntervalMs = defaultHeartbeatThrottleIntervalMs,
             )
 
         val result = CoreBridge.temporal_core_worker_new(arena, clientPtr, options)
@@ -693,6 +697,8 @@ internal object TemporalCoreWorker {
         deploymentOptions: CoreWorkerDeploymentOptions? = null,
         maxConcurrentWorkflowTasks: Int = 100,
         maxConcurrentActivities: Int = 100,
+        maxHeartbeatThrottleIntervalMs: Long = 60_000L,
+        defaultHeartbeatThrottleIntervalMs: Long = 30_000L,
     ): MemorySegment {
         val options = TemporalCoreWorkerOptions.allocate(arena)
 
@@ -772,8 +778,11 @@ internal object TemporalCoreWorker {
 
         // Set timeouts and limits
         TemporalCoreWorkerOptions.sticky_queue_schedule_to_start_timeout_millis(options, 10_000L)
-        TemporalCoreWorkerOptions.max_heartbeat_throttle_interval_millis(options, 60_000L)
-        TemporalCoreWorkerOptions.default_heartbeat_throttle_interval_millis(options, 30_000L)
+        TemporalCoreWorkerOptions.max_heartbeat_throttle_interval_millis(options, maxHeartbeatThrottleIntervalMs)
+        TemporalCoreWorkerOptions.default_heartbeat_throttle_interval_millis(
+            options,
+            defaultHeartbeatThrottleIntervalMs,
+        )
         TemporalCoreWorkerOptions.max_activities_per_second(options, 0.0)
         TemporalCoreWorkerOptions.max_task_queue_activities_per_second(options, 0.0)
         TemporalCoreWorkerOptions.graceful_shutdown_period_millis(options, 0L)

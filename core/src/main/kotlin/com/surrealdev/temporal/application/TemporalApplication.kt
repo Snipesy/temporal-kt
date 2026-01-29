@@ -168,6 +168,8 @@ open class TemporalApplication internal constructor(
                             deploymentOptions = coreDeploymentOptions,
                             maxConcurrentWorkflowTasks = taskQueueConfig.maxConcurrentWorkflows,
                             maxConcurrentActivities = taskQueueConfig.maxConcurrentActivities,
+                            maxHeartbeatThrottleIntervalMs = taskQueueConfig.maxHeartbeatThrottleIntervalMs,
+                            defaultHeartbeatThrottleIntervalMs = taskQueueConfig.defaultHeartbeatThrottleIntervalMs,
                         ),
                 )
 
@@ -430,6 +432,16 @@ internal data class TaskQueueConfig(
      * Additional timeout after force cancellation to wait for cleanup.
      */
     val shutdownForceTimeoutMs: Long = 5_000L,
+    /**
+     * Maximum interval for throttling activity heartbeats.
+     * Heartbeats will be throttled to at most this interval.
+     */
+    val maxHeartbeatThrottleIntervalMs: Long = 60_000L,
+    /**
+     * Default interval for throttling activity heartbeats when no heartbeat timeout is set.
+     * When a heartbeat timeout is configured, throttling uses 80% of that timeout instead.
+     */
+    val defaultHeartbeatThrottleIntervalMs: Long = 30_000L,
 )
 
 /**
