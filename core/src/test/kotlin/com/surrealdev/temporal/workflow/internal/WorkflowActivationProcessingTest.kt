@@ -87,7 +87,7 @@ class WorkflowActivationProcessingTest {
             // Register some pending operations
             val timerDeferred = state.registerTimer(1)
             val activityHandle =
-                ActivityHandleImpl<String>(
+                RemoteActivityHandleImpl<String>(
                     activityId = "test",
                     seq = 2,
                     activityType = "Test::run",

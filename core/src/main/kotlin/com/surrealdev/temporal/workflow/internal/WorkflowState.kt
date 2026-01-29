@@ -152,12 +152,19 @@ internal class WorkflowState(
     /**
      * Pending activity operations, keyed by sequence number.
      */
-    private val pendingActivities = ConcurrentHashMap<Int, ActivityHandleImpl<*>>()
+    private val pendingActivities = ConcurrentHashMap<Int, RemoteActivityHandleImpl<*>>()
 
     /**
      * Pending child workflow operations, keyed by sequence number.
      */
     private val pendingChildWorkflows = ConcurrentHashMap<Int, ChildWorkflowHandleImpl<*>>()
+
+    /**
+     * Pending local activity operations, keyed by sequence number.
+     * Separate from regular activities because local activities have different
+     * resolution handling (DoBackoff support, marker-based replay).
+     */
+    private val pendingLocalActivities = ConcurrentHashMap<Int, LocalActivityHandleImpl<*>>()
 
     /**
      * Registered conditions waiting to be satisfied.
@@ -283,7 +290,7 @@ internal class WorkflowState(
      */
     fun registerActivity(
         seq: Int,
-        handle: ActivityHandleImpl<*>,
+        handle: RemoteActivityHandleImpl<*>,
     ) {
         if (isReadOnly) {
             throw ReadOnlyContextException("Cannot register activity in read-only mode (e.g., during query processing)")
@@ -294,7 +301,7 @@ internal class WorkflowState(
     /**
      * Gets a pending activity by its sequence number.
      */
-    fun getActivity(seq: Int): ActivityHandleImpl<*>? = pendingActivities[seq]
+    fun getActivity(seq: Int): RemoteActivityHandleImpl<*>? = pendingActivities[seq]
 
     /**
      * Resolves an activity by its sequence number.
@@ -306,6 +313,79 @@ internal class WorkflowState(
     ) {
         val handle = pendingActivities.remove(seq) ?: return
         handle.resolve(result)
+    }
+
+    /**
+     * Registers a pending local activity handle.
+     */
+    fun registerLocalActivity(
+        seq: Int,
+        handle: LocalActivityHandleImpl<*>,
+    ) {
+        if (isReadOnly) {
+            throw ReadOnlyContextException(
+                "Cannot register local activity in read-only mode (e.g., during query processing)",
+            )
+        }
+        pendingLocalActivities[seq] = handle
+    }
+
+    /**
+     * Gets a pending local activity by its sequence number.
+     */
+    fun getLocalActivity(seq: Int): LocalActivityHandleImpl<*>? = pendingLocalActivities[seq]
+
+    /**
+     * Resolves a local activity by its sequence number.
+     *
+     * Local activities can resolve with:
+     * - Completed: Activity finished successfully
+     * - Failed: Activity failed after all retries
+     * - Cancelled: Activity was cancelled
+     * - Backoff: Retry delay exceeds threshold, lang should schedule timer and retry
+     *
+     * For backoff resolution, the handle is NOT removed from pending because
+     * a new ScheduleLocalActivity command will be sent with a new sequence number.
+     */
+    fun resolveLocalActivity(
+        seq: Int,
+        result: ActivityResult.ActivityResolution,
+    ) {
+        val handle =
+            pendingLocalActivities[seq] ?: run {
+                logger.warning("No pending local activity found for seq=$seq")
+                return
+            }
+
+        when {
+            result.hasCompleted() -> {
+                pendingLocalActivities.remove(seq)
+                handle.resolveCompleted(result.completed)
+            }
+
+            result.hasFailed() -> {
+                pendingLocalActivities.remove(seq)
+                handle.resolveFailed(result.failed)
+            }
+
+            result.hasCancelled() -> {
+                pendingLocalActivities.remove(seq)
+                handle.resolveCancelled(result.cancelled)
+            }
+
+            result.hasBackoff() -> {
+                // For backoff, we remove from current seq but the handle will re-register
+                // with a new seq after the timer fires
+                pendingLocalActivities.remove(seq)
+                handle.resolveBackoff(result.backoff)
+            }
+
+            else -> {
+                logger.severe("Unknown local activity resolution status for seq=$seq")
+                pendingLocalActivities.remove(seq)
+                throw IllegalStateException("Unknown local activity resolution status for seq=$seq")
+            }
+        }
     }
 
     /**
@@ -510,6 +590,9 @@ internal class WorkflowState(
         // Cancel all pending activities
         pendingActivities.values.forEach { it.resultDeferred.cancel() }
         pendingActivities.clear()
+
+        // Clear all pending local activities
+        pendingLocalActivities.clear()
 
         // Cancel all pending child workflows
         pendingChildWorkflows.values.forEach {

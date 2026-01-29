@@ -81,7 +81,38 @@ interface WorkflowContext :
         args: Payloads,
         options: ActivityOptions = ActivityOptions(),
         returnType: kotlin.reflect.KType? = null,
-    ): ActivityHandle<R>
+    ): RemoteActivityHandle<R>
+
+    /**
+     * Starts a local activity and returns a handle to track its execution.
+     *
+     * Local activities run in the same worker process as the workflow, avoiding
+     * the roundtrip to the Temporal server. They're useful for short operations
+     * that don't need server-side scheduling or persistence.
+     *
+     * This is the low-level method. For easier usage with type inference,
+     * use the extension functions [startLocalActivity].
+     *
+     * **Key differences from regular activities:**
+     * - No heartbeats (operations should be short)
+     * - Retries managed locally up to `localRetryThreshold` (default 1 minute)
+     * - Uses markers for replay (not re-execution)
+     *
+     * @param R The expected result type of the local activity
+     * @param activityType The activity type name (e.g., "greet")
+     * @param args Serialized arguments to pass to the activity
+     * @param options Configuration for the local activity
+     * @param returnType The KType for result deserialization
+     * @return A handle to the local activity for awaiting results or cancellation
+     * @throws IllegalArgumentException if neither startToCloseTimeout nor scheduleToCloseTimeout is set
+     */
+    @InternalTemporalApi
+    suspend fun <R> startLocalActivityWithPayloads(
+        activityType: String,
+        args: Payloads,
+        options: LocalActivityOptions = LocalActivityOptions(startToCloseTimeout = Duration.parse("10s")),
+        returnType: kotlin.reflect.KType? = null,
+    ): LocalActivityHandle<R>
 
     /**
      * Suspends the workflow for the specified duration.
@@ -739,7 +770,7 @@ data class ContinueAsNewOptions(
  * [continueAsNew], this exception is thrown and caught by the workflow
  * executor to generate the appropriate command.
  *
- * **Important:** This exception extends [Throwable] directly (not [Exception])
+ * This exception extends [Throwable] directly (not [Exception])
  * to prevent accidental swallowing by `catch (e: Exception)` blocks. This
  * exception should NEVER be caught by workflow code - doing so will prevent
  * the continue-as-new from happening.

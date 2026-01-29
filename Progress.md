@@ -34,16 +34,16 @@ This document tracks the implementation status of Temporal SDK features in the K
 
 ## Workflow Features
 
-| Feature             | Status          | Temporal Docs                                                                               | Kotlin Source                                                                                             |
-|---------------------|-----------------|---------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------|
-| Workflow Execution  | Incubating      | [Workflow Execution](https://docs.temporal.io/workflow-execution)                           | [WorkflowExecutor.kt](core/src/main/kotlin/com/surrealdev/temporal/workflow/internal/WorkflowExecutor.kt) |
+| Feature             | Status      | Temporal Docs                                                                               | Kotlin Source                                                                                             |
+|---------------------|-------------|---------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------|
+| Workflow Execution  | Incubating  | [Workflow Execution](https://docs.temporal.io/workflow-execution)                           | [WorkflowExecutor.kt](core/src/main/kotlin/com/surrealdev/temporal/workflow/internal/WorkflowExecutor.kt) |
 | Workflow Options    | Incubating  | [Workflow Options](https://docs.temporal.io/develop/java/core-application#workflow-options) | [TemporalClient.kt](core/src/main/kotlin/com/surrealdev/temporal/client/TemporalClient.kt)                |
-| Child Workflows     | Incubating | [Child Workflows](https://docs.temporal.io/develop/java/child-workflows)                    | [WorkflowContext.kt](core/src/main/kotlin/com/surrealdev/temporal/workflow/WorkflowContext.kt)            |
-| Continue-As-New     | Incubating | [Continue-As-New](https://docs.temporal.io/develop/java/continue-as-new)                    | -                                                                                                         |
-| Workflow Timers     | Incubating      | [Timers](https://docs.temporal.io/develop/java/timers)                                      | [WorkflowContext.kt](core/src/main/kotlin/com/surrealdev/temporal/workflow/WorkflowContext.kt)            |
-| Workflow Versioning | Incubating | [Versioning](https://docs.temporal.io/develop/java/versioning)                              | -                                                                                                         |
-| Side Effects        | Infeasible | [Side Effects](https://docs.temporal.io/develop/java/side-effects)                          | Local Activities are the go to                                                                            |
-| Deterministic UUID  | Incubating      | [Determinism](https://docs.temporal.io/workflows#deterministic-constraints)                 | [WorkflowContext.kt](core/src/main/kotlin/com/surrealdev/temporal/workflow/WorkflowContext.kt)            |
+| Child Workflows     | Incubating  | [Child Workflows](https://docs.temporal.io/develop/java/child-workflows)                    | [WorkflowContext.kt](core/src/main/kotlin/com/surrealdev/temporal/workflow/WorkflowContext.kt)            |
+| Continue-As-New     | Incubating  | [Continue-As-New](https://docs.temporal.io/develop/java/continue-as-new)                    | -                                                                                                         |
+| Workflow Timers     | Incubating  | [Timers](https://docs.temporal.io/develop/java/timers)                                      | [WorkflowContext.kt](core/src/main/kotlin/com/surrealdev/temporal/workflow/WorkflowContext.kt)            |
+| Workflow Versioning | Incubating  | [Versioning](https://docs.temporal.io/develop/java/versioning)                              | -                                                                                                         |
+| Side Effects        | Not Planned | [Side Effects](https://docs.temporal.io/develop/java/side-effects)                          | Local Activities are the go to                                                                            |
+| Deterministic UUID  | Incubating  | [Determinism](https://docs.temporal.io/workflows#deterministic-constraints)                 | [WorkflowContext.kt](core/src/main/kotlin/com/surrealdev/temporal/workflow/WorkflowContext.kt)            |
 
 ## Activity Features
 
@@ -51,8 +51,8 @@ This document tracks the implementation status of Temporal SDK features in the K
 |---------------------------|-----------------|---------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------|
 | Activity Execution        | Incubating      | [Activity Execution](https://docs.temporal.io/activities#activity-execution)                | [ActivityDispatcher.kt](core/src/main/kotlin/com/surrealdev/temporal/activity/internal/ActivityDispatcher.kt) |
 | Activity Options          | Incubating | [Activity Options](https://docs.temporal.io/develop/java/core-application#activity-options) | [WorkflowContext.kt](core/src/main/kotlin/com/surrealdev/temporal/workflow/WorkflowContext.kt) |
-| Local Activities          | Not Implemented | [Local Activities](https://docs.temporal.io/develop/java/core-application#local-activities) | -                                                                                                     |
-| Activity Heartbeats       | In Development  | [Heartbeats](https://docs.temporal.io/develop/java/failure-detection#heartbeat-an-activity) | [ActivityContext.kt](core/src/main/kotlin/com/surrealdev/temporal/activity/ActivityContext.kt) |
+| Local Activities          | Incubating | [Local Activities](https://docs.temporal.io/develop/java/core-application#local-activities) | -                                                                                                     |
+| Activity Heartbeats       | Incubating  | [Heartbeats](https://docs.temporal.io/develop/java/failure-detection#heartbeat-an-activity) | [ActivityContext.kt](core/src/main/kotlin/com/surrealdev/temporal/activity/ActivityContext.kt) |
 | Async Activity Completion | Incubating | [Async Completion](https://docs.temporal.io/develop/java/asynchronous-activity-completion)  | -                                                                                                     |
 | Activity Retry Policy     | In Development  | [Retry Policy](https://docs.temporal.io/develop/java/failure-detection#retry-policy)        | [WorkflowContext.kt](core/src/main/kotlin/com/surrealdev/temporal/workflow/WorkflowContext.kt) |
 
@@ -115,7 +115,6 @@ This document tracks the implementation status of Temporal SDK features in the K
 | Interceptors | Not Implemented | [Interceptors](https://docs.temporal.io/develop/java/interceptors) | - |
 | Schedules | Not Implemented | [Schedules](https://docs.temporal.io/develop/java/schedules) | - |
 | Temporal Nexus | Not Implemented | [Nexus](https://docs.temporal.io/develop/java/nexus) | - |
-| Workflow Reset | Incubating | [Reset](https://docs.temporal.io/develop/java/reset) | - |
 
 ## Infrastructure
 
@@ -126,4 +125,4 @@ This document tracks the implementation status of Temporal SDK features in the K
 | Namespaces | Incubating | [Namespaces](https://docs.temporal.io/namespaces) | [TemporalApplication.kt](core/src/main/kotlin/com/surrealdev/temporal/application/TemporalApplication.kt) |
 
 
-**Last Updated:** 2026-01-26
+**Last Updated:** 2026-01-28

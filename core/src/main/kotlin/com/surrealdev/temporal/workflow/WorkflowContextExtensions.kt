@@ -11,6 +11,7 @@ import kotlin.reflect.KFunction
 import kotlin.reflect.full.findAnnotation
 import kotlin.reflect.typeOf
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
 
 /*
  * Extensions and utilities for WorkflowContext.
@@ -348,7 +349,7 @@ suspend inline fun <reified R, reified T1, reified T2, reified T3, reified T4> W
 suspend inline fun <reified R> WorkflowContext.startActivity(
     activityType: String,
     options: ActivityOptions,
-): ActivityHandle<R> =
+): RemoteActivityHandle<R> =
     this.startActivityWithPayloads(
         activityType = activityType,
         args = Payloads.getDefaultInstance(),
@@ -363,7 +364,7 @@ suspend inline fun <reified R, reified T> WorkflowContext.startActivity(
     activityType: String,
     arg: T,
     options: ActivityOptions,
-): ActivityHandle<R> {
+): RemoteActivityHandle<R> {
     val payloadsBuilder = Payloads.newBuilder()
     payloadsBuilder.addPayloads(this.serializer.serialize(arg))
 
@@ -383,7 +384,7 @@ suspend inline fun <reified R, reified T1, reified T2> WorkflowContext.startActi
     arg1: T1,
     arg2: T2,
     options: ActivityOptions,
-): ActivityHandle<R> {
+): RemoteActivityHandle<R> {
     val payloadsBuilder = Payloads.newBuilder()
     payloadsBuilder.addPayloads(this.serializer.serialize(arg1))
     payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
@@ -405,7 +406,7 @@ suspend inline fun <reified R, reified T1, reified T2, reified T3> WorkflowConte
     arg2: T2,
     arg3: T3,
     options: ActivityOptions,
-): ActivityHandle<R> {
+): RemoteActivityHandle<R> {
     val payloadsBuilder = Payloads.newBuilder()
     payloadsBuilder.addPayloads(this.serializer.serialize(arg1))
     payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
@@ -426,7 +427,7 @@ suspend inline fun <reified R> WorkflowContext.startActivity(
     activityType: String,
     args: Payloads,
     options: ActivityOptions,
-): ActivityHandle<R> =
+): RemoteActivityHandle<R> =
     this.startActivityWithPayloads(
         activityType = activityType,
         args = args,
@@ -465,7 +466,7 @@ suspend inline fun <reified R> WorkflowContext.startActivity(
     retryPolicy: RetryPolicy? = null,
     activityId: String? = null,
     cancellationType: ActivityCancellationType = ActivityCancellationType.TRY_CANCEL,
-): ActivityHandle<R> {
+): RemoteActivityHandle<R> {
     val options =
         ActivityOptions(
             startToCloseTimeout = startToCloseTimeout,
@@ -499,7 +500,7 @@ suspend inline fun <reified R, reified T> WorkflowContext.startActivity(
     retryPolicy: RetryPolicy? = null,
     activityId: String? = null,
     cancellationType: ActivityCancellationType = ActivityCancellationType.TRY_CANCEL,
-): ActivityHandle<R> {
+): RemoteActivityHandle<R> {
     val options =
         ActivityOptions(
             startToCloseTimeout = startToCloseTimeout,
@@ -537,7 +538,7 @@ suspend inline fun <reified R, reified T1, reified T2> WorkflowContext.startActi
     retryPolicy: RetryPolicy? = null,
     activityId: String? = null,
     cancellationType: ActivityCancellationType = ActivityCancellationType.TRY_CANCEL,
-): ActivityHandle<R> {
+): RemoteActivityHandle<R> {
     val options =
         ActivityOptions(
             startToCloseTimeout = startToCloseTimeout,
@@ -577,7 +578,7 @@ suspend inline fun <reified R, reified T1, reified T2, reified T3> WorkflowConte
     retryPolicy: RetryPolicy? = null,
     activityId: String? = null,
     cancellationType: ActivityCancellationType = ActivityCancellationType.TRY_CANCEL,
-): ActivityHandle<R> {
+): RemoteActivityHandle<R> {
     val options =
         ActivityOptions(
             startToCloseTimeout = startToCloseTimeout,
@@ -642,7 +643,7 @@ fun KFunction<*>.getActivityType(): String {
 suspend inline fun <reified R> WorkflowContext.startActivity(
     activityFunc: KFunction<*>,
     options: ActivityOptions,
-): ActivityHandle<R> =
+): RemoteActivityHandle<R> =
     this.startActivityWithPayloads(
         activityType = activityFunc.getActivityType(),
         args = Payloads.getDefaultInstance(),
@@ -657,7 +658,7 @@ suspend inline fun <reified R, reified T> WorkflowContext.startActivity(
     activityFunc: KFunction<*>,
     arg: T,
     options: ActivityOptions,
-): ActivityHandle<R> {
+): RemoteActivityHandle<R> {
     val payloadsBuilder = Payloads.newBuilder()
     payloadsBuilder.addPayloads(this.serializer.serialize(arg))
 
@@ -677,7 +678,7 @@ suspend inline fun <reified R, reified T1, reified T2> WorkflowContext.startActi
     arg1: T1,
     arg2: T2,
     options: ActivityOptions,
-): ActivityHandle<R> {
+): RemoteActivityHandle<R> {
     val payloadsBuilder = Payloads.newBuilder()
     payloadsBuilder.addPayloads(this.serializer.serialize(arg1))
     payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
@@ -699,7 +700,7 @@ suspend inline fun <reified R, reified T1, reified T2, reified T3> WorkflowConte
     arg2: T2,
     arg3: T3,
     options: ActivityOptions,
-): ActivityHandle<R> {
+): RemoteActivityHandle<R> {
     val payloadsBuilder = Payloads.newBuilder()
     payloadsBuilder.addPayloads(this.serializer.serialize(arg1))
     payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
@@ -750,7 +751,7 @@ suspend inline fun <reified R> WorkflowContext.startActivity(
     retryPolicy: RetryPolicy? = null,
     activityId: String? = null,
     cancellationType: ActivityCancellationType = ActivityCancellationType.TRY_CANCEL,
-): ActivityHandle<R> {
+): RemoteActivityHandle<R> {
     val options =
         ActivityOptions(
             startToCloseTimeout = startToCloseTimeout,
@@ -784,7 +785,7 @@ suspend inline fun <reified R, reified T> WorkflowContext.startActivity(
     retryPolicy: RetryPolicy? = null,
     activityId: String? = null,
     cancellationType: ActivityCancellationType = ActivityCancellationType.TRY_CANCEL,
-): ActivityHandle<R> {
+): RemoteActivityHandle<R> {
     val options =
         ActivityOptions(
             startToCloseTimeout = startToCloseTimeout,
@@ -822,7 +823,7 @@ suspend inline fun <reified R, reified T1, reified T2> WorkflowContext.startActi
     retryPolicy: RetryPolicy? = null,
     activityId: String? = null,
     cancellationType: ActivityCancellationType = ActivityCancellationType.TRY_CANCEL,
-): ActivityHandle<R> {
+): RemoteActivityHandle<R> {
     val options =
         ActivityOptions(
             startToCloseTimeout = startToCloseTimeout,
@@ -862,7 +863,7 @@ suspend inline fun <reified R, reified T1, reified T2, reified T3> WorkflowConte
     retryPolicy: RetryPolicy? = null,
     activityId: String? = null,
     cancellationType: ActivityCancellationType = ActivityCancellationType.TRY_CANCEL,
-): ActivityHandle<R> {
+): RemoteActivityHandle<R> {
     val options =
         ActivityOptions(
             startToCloseTimeout = startToCloseTimeout,
@@ -880,6 +881,360 @@ suspend inline fun <reified R, reified T1, reified T2, reified T3> WorkflowConte
     payloadsBuilder.addPayloads(this.serializer.serialize(arg3))
 
     return this.startActivityWithPayloads(
+        activityType = activityFunc.getActivityType(),
+        args = payloadsBuilder.build(),
+        options = options,
+        returnType = typeOf<R>(),
+    )
+}
+
+// =============================================================================
+// Local Activity Extensions - Full Options
+// =============================================================================
+
+/**
+ * Starts a local activity without arguments using full LocalActivityOptions.
+ *
+ * Local activities run in the same worker process as the workflow.
+ * They're useful for short operations that don't need server-side scheduling.
+ *
+ * @param R The expected result type of the local activity
+ * @param activityType The activity type name (e.g., "greet")
+ * @param options Configuration for the local activity
+ * @return A handle to the local activity
+ */
+suspend inline fun <reified R> WorkflowContext.startLocalActivity(
+    activityType: String,
+    options: LocalActivityOptions,
+): LocalActivityHandle<R> =
+    this.startLocalActivityWithPayloads(
+        activityType = activityType,
+        args = Payloads.getDefaultInstance(),
+        options = options,
+        returnType = typeOf<R>(),
+    )
+
+/**
+ * Starts a local activity with a single typed argument using full LocalActivityOptions.
+ */
+suspend inline fun <reified R, reified T> WorkflowContext.startLocalActivity(
+    activityType: String,
+    arg: T,
+    options: LocalActivityOptions,
+): LocalActivityHandle<R> {
+    val payloadsBuilder = Payloads.newBuilder()
+    payloadsBuilder.addPayloads(this.serializer.serialize(arg))
+
+    return this.startLocalActivityWithPayloads(
+        activityType = activityType,
+        args = payloadsBuilder.build(),
+        options = options,
+        returnType = typeOf<R>(),
+    )
+}
+
+/**
+ * Starts a local activity with two typed arguments using full LocalActivityOptions.
+ */
+suspend inline fun <reified R, reified T1, reified T2> WorkflowContext.startLocalActivity(
+    activityType: String,
+    arg1: T1,
+    arg2: T2,
+    options: LocalActivityOptions,
+): LocalActivityHandle<R> {
+    val payloadsBuilder = Payloads.newBuilder()
+    payloadsBuilder.addPayloads(this.serializer.serialize(arg1))
+    payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
+
+    return this.startLocalActivityWithPayloads(
+        activityType = activityType,
+        args = payloadsBuilder.build(),
+        options = options,
+        returnType = typeOf<R>(),
+    )
+}
+
+/**
+ * Starts a local activity with three typed arguments using full LocalActivityOptions.
+ */
+suspend inline fun <reified R, reified T1, reified T2, reified T3> WorkflowContext.startLocalActivity(
+    activityType: String,
+    arg1: T1,
+    arg2: T2,
+    arg3: T3,
+    options: LocalActivityOptions,
+): LocalActivityHandle<R> {
+    val payloadsBuilder = Payloads.newBuilder()
+    payloadsBuilder.addPayloads(this.serializer.serialize(arg1))
+    payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
+    payloadsBuilder.addPayloads(this.serializer.serialize(arg3))
+
+    return this.startLocalActivityWithPayloads(
+        activityType = activityType,
+        args = payloadsBuilder.build(),
+        options = options,
+        returnType = typeOf<R>(),
+    )
+}
+
+// =============================================================================
+// Local Activity Extensions - Timeout Parameters
+// =============================================================================
+
+/**
+ * Starts a local activity without arguments, specifying timeouts inline.
+ *
+ * At least one of startToCloseTimeout or scheduleToCloseTimeout must be non-null.
+ *
+ * @param R The expected result type of the local activity
+ * @param activityType The activity type name
+ * @param startToCloseTimeout Maximum time for a single execution attempt
+ * @param scheduleToCloseTimeout Maximum time from scheduling to completion (including retries)
+ * @param scheduleToStartTimeout Maximum time from scheduling to worker pickup
+ * @param retryPolicy Retry policy for the local activity
+ * @param activityId Custom activity ID (auto-generated if null)
+ * @param localRetryThreshold If backoff exceeds this, lang schedules timer (default 1 minute)
+ * @param cancellationType How to handle cancellation (default WAIT_CANCELLATION_COMPLETED)
+ * @return A handle to the local activity
+ */
+suspend inline fun <reified R> WorkflowContext.startLocalActivity(
+    activityType: String,
+    startToCloseTimeout: Duration? = null,
+    scheduleToCloseTimeout: Duration? = null,
+    scheduleToStartTimeout: Duration? = null,
+    retryPolicy: RetryPolicy? = null,
+    activityId: String? = null,
+    localRetryThreshold: Duration = 1.minutes,
+    cancellationType: ActivityCancellationType = ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
+): LocalActivityHandle<R> {
+    val options =
+        LocalActivityOptions(
+            startToCloseTimeout = startToCloseTimeout,
+            scheduleToCloseTimeout = scheduleToCloseTimeout,
+            scheduleToStartTimeout = scheduleToStartTimeout,
+            retryPolicy = retryPolicy,
+            activityId = activityId,
+            localRetryThreshold = localRetryThreshold,
+            cancellationType = cancellationType,
+        )
+    return this.startLocalActivityWithPayloads(
+        activityType = activityType,
+        args = Payloads.getDefaultInstance(),
+        options = options,
+        returnType = typeOf<R>(),
+    )
+}
+
+/**
+ * Starts a local activity with a single typed argument, specifying timeouts inline.
+ */
+suspend inline fun <reified R, reified T> WorkflowContext.startLocalActivity(
+    activityType: String,
+    arg: T,
+    startToCloseTimeout: Duration? = null,
+    scheduleToCloseTimeout: Duration? = null,
+    scheduleToStartTimeout: Duration? = null,
+    retryPolicy: RetryPolicy? = null,
+    activityId: String? = null,
+    localRetryThreshold: Duration = 1.minutes,
+    cancellationType: ActivityCancellationType = ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
+): LocalActivityHandle<R> {
+    val options =
+        LocalActivityOptions(
+            startToCloseTimeout = startToCloseTimeout,
+            scheduleToCloseTimeout = scheduleToCloseTimeout,
+            scheduleToStartTimeout = scheduleToStartTimeout,
+            retryPolicy = retryPolicy,
+            activityId = activityId,
+            localRetryThreshold = localRetryThreshold,
+            cancellationType = cancellationType,
+        )
+    val payloadsBuilder = Payloads.newBuilder()
+    payloadsBuilder.addPayloads(this.serializer.serialize(arg))
+
+    return this.startLocalActivityWithPayloads(
+        activityType = activityType,
+        args = payloadsBuilder.build(),
+        options = options,
+        returnType = typeOf<R>(),
+    )
+}
+
+/**
+ * Starts a local activity with two typed arguments, specifying timeouts inline.
+ */
+suspend inline fun <reified R, reified T1, reified T2> WorkflowContext.startLocalActivity(
+    activityType: String,
+    arg1: T1,
+    arg2: T2,
+    startToCloseTimeout: Duration? = null,
+    scheduleToCloseTimeout: Duration? = null,
+    scheduleToStartTimeout: Duration? = null,
+    retryPolicy: RetryPolicy? = null,
+    activityId: String? = null,
+    localRetryThreshold: Duration = 1.minutes,
+    cancellationType: ActivityCancellationType = ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
+): LocalActivityHandle<R> {
+    val options =
+        LocalActivityOptions(
+            startToCloseTimeout = startToCloseTimeout,
+            scheduleToCloseTimeout = scheduleToCloseTimeout,
+            scheduleToStartTimeout = scheduleToStartTimeout,
+            retryPolicy = retryPolicy,
+            activityId = activityId,
+            localRetryThreshold = localRetryThreshold,
+            cancellationType = cancellationType,
+        )
+    val payloadsBuilder = Payloads.newBuilder()
+    payloadsBuilder.addPayloads(this.serializer.serialize(arg1))
+    payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
+
+    return this.startLocalActivityWithPayloads(
+        activityType = activityType,
+        args = payloadsBuilder.build(),
+        options = options,
+        returnType = typeOf<R>(),
+    )
+}
+
+/**
+ * Starts a local activity with three typed arguments, specifying timeouts inline.
+ */
+suspend inline fun <reified R, reified T1, reified T2, reified T3> WorkflowContext.startLocalActivity(
+    activityType: String,
+    arg1: T1,
+    arg2: T2,
+    arg3: T3,
+    startToCloseTimeout: Duration? = null,
+    scheduleToCloseTimeout: Duration? = null,
+    scheduleToStartTimeout: Duration? = null,
+    retryPolicy: RetryPolicy? = null,
+    activityId: String? = null,
+    localRetryThreshold: Duration = 1.minutes,
+    cancellationType: ActivityCancellationType = ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
+): LocalActivityHandle<R> {
+    val options =
+        LocalActivityOptions(
+            startToCloseTimeout = startToCloseTimeout,
+            scheduleToCloseTimeout = scheduleToCloseTimeout,
+            scheduleToStartTimeout = scheduleToStartTimeout,
+            retryPolicy = retryPolicy,
+            activityId = activityId,
+            localRetryThreshold = localRetryThreshold,
+            cancellationType = cancellationType,
+        )
+    val payloadsBuilder = Payloads.newBuilder()
+    payloadsBuilder.addPayloads(this.serializer.serialize(arg1))
+    payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
+    payloadsBuilder.addPayloads(this.serializer.serialize(arg3))
+
+    return this.startLocalActivityWithPayloads(
+        activityType = activityType,
+        args = payloadsBuilder.build(),
+        options = options,
+        returnType = typeOf<R>(),
+    )
+}
+
+// =============================================================================
+// Local Activity Extensions - KFunction-Based
+// =============================================================================
+
+/**
+ * Starts a local activity using a function reference with full LocalActivityOptions.
+ *
+ * The activity type is automatically determined from the @Activity annotation
+ * or the function name.
+ */
+suspend inline fun <reified R> WorkflowContext.startLocalActivity(
+    activityFunc: KFunction<*>,
+    options: LocalActivityOptions,
+): LocalActivityHandle<R> =
+    this.startLocalActivityWithPayloads(
+        activityType = activityFunc.getActivityType(),
+        args = Payloads.getDefaultInstance(),
+        options = options,
+        returnType = typeOf<R>(),
+    )
+
+/**
+ * Starts a local activity using a function reference with a single argument.
+ */
+suspend inline fun <reified R, reified T> WorkflowContext.startLocalActivity(
+    activityFunc: KFunction<*>,
+    arg: T,
+    options: LocalActivityOptions,
+): LocalActivityHandle<R> {
+    val payloadsBuilder = Payloads.newBuilder()
+    payloadsBuilder.addPayloads(this.serializer.serialize(arg))
+
+    return this.startLocalActivityWithPayloads(
+        activityType = activityFunc.getActivityType(),
+        args = payloadsBuilder.build(),
+        options = options,
+        returnType = typeOf<R>(),
+    )
+}
+
+/**
+ * Starts a local activity using a function reference, specifying timeouts inline.
+ */
+suspend inline fun <reified R> WorkflowContext.startLocalActivity(
+    activityFunc: KFunction<*>,
+    startToCloseTimeout: Duration? = null,
+    scheduleToCloseTimeout: Duration? = null,
+    scheduleToStartTimeout: Duration? = null,
+    retryPolicy: RetryPolicy? = null,
+    activityId: String? = null,
+    localRetryThreshold: Duration = 1.minutes,
+    cancellationType: ActivityCancellationType = ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
+): LocalActivityHandle<R> {
+    val options =
+        LocalActivityOptions(
+            startToCloseTimeout = startToCloseTimeout,
+            scheduleToCloseTimeout = scheduleToCloseTimeout,
+            scheduleToStartTimeout = scheduleToStartTimeout,
+            retryPolicy = retryPolicy,
+            activityId = activityId,
+            localRetryThreshold = localRetryThreshold,
+            cancellationType = cancellationType,
+        )
+    return this.startLocalActivityWithPayloads(
+        activityType = activityFunc.getActivityType(),
+        args = Payloads.getDefaultInstance(),
+        options = options,
+        returnType = typeOf<R>(),
+    )
+}
+
+/**
+ * Starts a local activity using a function reference with a single argument, specifying timeouts inline.
+ */
+suspend inline fun <reified R, reified T> WorkflowContext.startLocalActivity(
+    activityFunc: KFunction<*>,
+    arg: T,
+    startToCloseTimeout: Duration? = null,
+    scheduleToCloseTimeout: Duration? = null,
+    scheduleToStartTimeout: Duration? = null,
+    retryPolicy: RetryPolicy? = null,
+    activityId: String? = null,
+    localRetryThreshold: Duration = 1.minutes,
+    cancellationType: ActivityCancellationType = ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
+): LocalActivityHandle<R> {
+    val options =
+        LocalActivityOptions(
+            startToCloseTimeout = startToCloseTimeout,
+            scheduleToCloseTimeout = scheduleToCloseTimeout,
+            scheduleToStartTimeout = scheduleToStartTimeout,
+            retryPolicy = retryPolicy,
+            activityId = activityId,
+            localRetryThreshold = localRetryThreshold,
+            cancellationType = cancellationType,
+        )
+    val payloadsBuilder = Payloads.newBuilder()
+    payloadsBuilder.addPayloads(this.serializer.serialize(arg))
+
+    return this.startLocalActivityWithPayloads(
         activityType = activityFunc.getActivityType(),
         args = payloadsBuilder.build(),
         options = options,

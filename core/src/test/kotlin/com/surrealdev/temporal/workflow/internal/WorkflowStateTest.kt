@@ -106,7 +106,7 @@ class WorkflowStateTest {
         val serializer = KotlinxJsonSerializer()
 
         val handle =
-            ActivityHandleImpl<String>(
+            RemoteActivityHandleImpl<String>(
                 activityId = "test",
                 seq = 1,
                 activityType = "Test::run",
@@ -130,7 +130,7 @@ class WorkflowStateTest {
         val serializer = KotlinxJsonSerializer()
 
         val handle =
-            ActivityHandleImpl<String>(
+            RemoteActivityHandleImpl<String>(
                 activityId = "test",
                 seq = 1,
                 activityType = "Test::run",
@@ -440,7 +440,7 @@ class WorkflowStateTest {
             val serializer = KotlinxJsonSerializer()
 
             val handle =
-                ActivityHandleImpl<String>(
+                RemoteActivityHandleImpl<String>(
                     activityId = "test",
                     seq = 1,
                     activityType = "Test::run",
@@ -478,7 +478,7 @@ class WorkflowStateTest {
             val serializer = KotlinxJsonSerializer()
 
             val handle =
-                ActivityHandleImpl<String>(
+                RemoteActivityHandleImpl<String>(
                     activityId = "test",
                     seq = 1,
                     activityType = "Test::run",
@@ -526,7 +526,7 @@ class WorkflowStateTest {
             val serializer = KotlinxJsonSerializer()
 
             val handle =
-                ActivityHandleImpl<String>(
+                RemoteActivityHandleImpl<String>(
                     activityId = "test",
                     seq = 1,
                     activityType = "Test::run",
@@ -578,7 +578,7 @@ class WorkflowStateTest {
             val serializer = KotlinxJsonSerializer()
 
             val handle =
-                ActivityHandleImpl<String>(
+                RemoteActivityHandleImpl<String>(
                     activityId = "test",
                     seq = 1,
                     activityType = "Test::run",
@@ -709,7 +709,7 @@ class WorkflowStateTest {
             // Register various operations
             val timerDeferred = state.registerTimer(1)
             val handle =
-                ActivityHandleImpl<String>(
+                RemoteActivityHandleImpl<String>(
                     activityId = "test",
                     seq = 2,
                     activityType = "Test::run",
@@ -943,7 +943,7 @@ class WorkflowStateTest {
             val serializer = KotlinxJsonSerializer()
 
             val handle =
-                ActivityHandleImpl<String>(
+                RemoteActivityHandleImpl<String>(
                     activityId = "test-activity",
                     seq = 42,
                     activityType = "TestActivity::run",
@@ -977,7 +977,7 @@ class WorkflowStateTest {
             val serializer = KotlinxJsonSerializer()
 
             val handle =
-                ActivityHandleImpl<String>(
+                RemoteActivityHandleImpl<String>(
                     activityId = "test-activity",
                     seq = 1,
                     activityType = "TestActivity::run",
@@ -1039,7 +1039,7 @@ class WorkflowStateTest {
             val serializer = KotlinxJsonSerializer()
 
             val handle =
-                ActivityHandleImpl<String>(
+                RemoteActivityHandleImpl<String>(
                     activityId = "test",
                     seq = 1,
                     activityType = "Test::run",
@@ -1063,7 +1063,7 @@ class WorkflowStateTest {
             val serializer = KotlinxJsonSerializer()
 
             val handle1 =
-                ActivityHandleImpl<String>(
+                RemoteActivityHandleImpl<String>(
                     activityId = "test1",
                     seq = 1,
                     activityType = "Test::run",
@@ -1074,7 +1074,7 @@ class WorkflowStateTest {
                 )
 
             val handle2 =
-                ActivityHandleImpl<Int>(
+                RemoteActivityHandleImpl<Int>(
                     activityId = "test2",
                     seq = 2,
                     activityType = "Test::run",

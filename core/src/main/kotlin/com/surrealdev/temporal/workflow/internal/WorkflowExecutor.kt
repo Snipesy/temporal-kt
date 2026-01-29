@@ -344,7 +344,8 @@ internal class WorkflowExecutor(
             }
 
             job.hasResolveActivity() -> {
-                val result = job.resolveActivity.result
+                val resolveActivity = job.resolveActivity
+                val result = resolveActivity.result
                 val status =
                     when {
                         result.hasCompleted() -> "completed"
@@ -353,8 +354,19 @@ internal class WorkflowExecutor(
                         result.hasBackoff() -> "backoff"
                         else -> "unknown"
                     }
-                logger.debug("Activity resolved: seq={}, status={}", job.resolveActivity.seq, status)
-                state.resolveActivity(job.resolveActivity.seq, result)
+                logger.debug(
+                    "Activity resolved: seq={}, status={}, isLocal={}",
+                    resolveActivity.seq,
+                    status,
+                    resolveActivity.isLocal,
+                )
+
+                // Route to appropriate handler based on is_local flag
+                if (resolveActivity.isLocal) {
+                    state.resolveLocalActivity(resolveActivity.seq, result)
+                } else {
+                    state.resolveActivity(resolveActivity.seq, result)
+                }
             }
 
             job.hasUpdateRandomSeed() -> {

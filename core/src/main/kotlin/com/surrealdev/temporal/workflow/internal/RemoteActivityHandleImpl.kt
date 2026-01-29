@@ -5,11 +5,8 @@ import com.surrealdev.temporal.workflow.ActivityCancellationType
 import com.surrealdev.temporal.workflow.ActivityCancelledException
 import com.surrealdev.temporal.workflow.ActivityException
 import com.surrealdev.temporal.workflow.ActivityFailureException
-import com.surrealdev.temporal.workflow.ActivityHandle
-import com.surrealdev.temporal.workflow.ActivityRetryState
 import com.surrealdev.temporal.workflow.ActivityTimeoutException
-import com.surrealdev.temporal.workflow.ActivityTimeoutType
-import com.surrealdev.temporal.workflow.ApplicationFailure
+import com.surrealdev.temporal.workflow.RemoteActivityHandle
 import coresdk.activity_result.ActivityResult
 import coresdk.workflow_commands.WorkflowCommands
 import io.temporal.api.common.v1.Payload
@@ -32,7 +29,7 @@ import kotlin.reflect.KType
  * - cancel() uses AtomicBoolean for thread-safe idempotency
  * - cachedException field is volatile (written once, read multiple times)
  */
-internal class ActivityHandleImpl<R>(
+internal class RemoteActivityHandleImpl<R>(
     override val activityId: String,
     internal val seq: Int,
     private val activityType: String,
@@ -40,9 +37,9 @@ internal class ActivityHandleImpl<R>(
     private val serializer: PayloadSerializer,
     private val returnType: KType,
     private val cancellationType: ActivityCancellationType,
-) : ActivityHandle<R> {
+) : RemoteActivityHandle<R> {
     companion object {
-        private val logger = Logger.getLogger(ActivityHandleImpl::class.java.name)
+        private val logger = Logger.getLogger(RemoteActivityHandleImpl::class.java.name)
     }
 
     /** Deferred that completes when the activity resolves. */
@@ -234,162 +231,14 @@ internal class ActivityHandleImpl<R>(
             )
         }
 
-        // For all other failures, continue with ActivityFailureException
-        // Extract failure type
-        val failureType =
-            when {
-                failure.hasApplicationFailureInfo() -> "ApplicationFailure"
-                failure.hasCanceledFailureInfo() -> "CanceledFailure"
-                failure.hasTerminatedFailureInfo() -> "TerminatedFailure"
-                failure.hasServerFailureInfo() -> "ServerFailure"
-                failure.hasResetWorkflowFailureInfo() -> "ResetWorkflowFailure"
-                failure.hasActivityFailureInfo() -> "ActivityFailure"
-                failure.hasChildWorkflowExecutionFailureInfo() -> "ChildWorkflowExecutionFailure"
-                else -> "UnknownFailure"
-            }
-
-        // Extract retry state
-        val retryState =
-            if (failure.hasActivityFailureInfo()) {
-                val activityFailureInfo = failure.activityFailureInfo
-                mapRetryState(activityFailureInfo.retryState)
-            } else {
-                ActivityRetryState.UNSPECIFIED
-            }
-
-        // Extract application failure details if present
-        // Check both the failure itself and its cause chain
-        val applicationFailure = extractApplicationFailure(failure)
-
         return ActivityFailureException(
             activityType = activityType,
             activityId = activityId,
-            failureType = failureType,
-            retryState = retryState,
-            applicationFailure = applicationFailure,
+            failureType = determineFailureType(failure),
+            retryState = extractRetryState(failure),
+            applicationFailure = extractApplicationFailure(failure),
             message = failure.message ?: "Activity failed",
             cause = if (failure.hasCause()) buildCause(failure.cause) else null,
         )
-    }
-
-    /**
-     * Maps proto RetryState to Kotlin enum.
-     */
-    private fun mapRetryState(protoState: io.temporal.api.enums.v1.RetryState): ActivityRetryState =
-        when (protoState) {
-            io.temporal.api.enums.v1.RetryState.RETRY_STATE_UNSPECIFIED -> {
-                ActivityRetryState.UNSPECIFIED
-            }
-
-            io.temporal.api.enums.v1.RetryState.RETRY_STATE_IN_PROGRESS -> {
-                ActivityRetryState.IN_PROGRESS
-            }
-
-            io.temporal.api.enums.v1.RetryState.RETRY_STATE_NON_RETRYABLE_FAILURE -> {
-                ActivityRetryState.NON_RETRYABLE_FAILURE
-            }
-
-            io.temporal.api.enums.v1.RetryState.RETRY_STATE_TIMEOUT -> {
-                ActivityRetryState.TIMEOUT
-            }
-
-            io.temporal.api.enums.v1.RetryState.RETRY_STATE_MAXIMUM_ATTEMPTS_REACHED -> {
-                ActivityRetryState.MAXIMUM_ATTEMPTS_REACHED
-            }
-
-            io.temporal.api.enums.v1.RetryState.RETRY_STATE_RETRY_POLICY_NOT_SET -> {
-                ActivityRetryState.RETRY_POLICY_NOT_SET
-            }
-
-            io.temporal.api.enums.v1.RetryState.RETRY_STATE_INTERNAL_SERVER_ERROR -> {
-                ActivityRetryState.INTERNAL_SERVER_ERROR
-            }
-
-            io.temporal.api.enums.v1.RetryState.RETRY_STATE_CANCEL_REQUESTED -> {
-                ActivityRetryState.CANCEL_REQUESTED
-            }
-
-            else -> {
-                ActivityRetryState.UNSPECIFIED
-            }
-        }
-
-    /**
-     * Maps proto TimeoutType to Kotlin enum.
-     */
-    private fun mapTimeoutType(protoType: io.temporal.api.enums.v1.TimeoutType): ActivityTimeoutType =
-        when (protoType) {
-            io.temporal.api.enums.v1.TimeoutType.TIMEOUT_TYPE_SCHEDULE_TO_START -> {
-                ActivityTimeoutType.SCHEDULE_TO_START
-            }
-
-            io.temporal.api.enums.v1.TimeoutType.TIMEOUT_TYPE_START_TO_CLOSE -> {
-                ActivityTimeoutType.START_TO_CLOSE
-            }
-
-            io.temporal.api.enums.v1.TimeoutType.TIMEOUT_TYPE_SCHEDULE_TO_CLOSE -> {
-                ActivityTimeoutType.SCHEDULE_TO_CLOSE
-            }
-
-            io.temporal.api.enums.v1.TimeoutType.TIMEOUT_TYPE_HEARTBEAT -> {
-                ActivityTimeoutType.HEARTBEAT
-            }
-
-            else -> {
-                ActivityTimeoutType.START_TO_CLOSE
-            } // Default fallback
-        }
-
-    /**
-     * Extracts ApplicationFailure from the failure or its cause chain.
-     * Temporal wraps application failures: ActivityFailureInfo contains ApplicationFailureInfo in cause.
-     */
-    private fun extractApplicationFailure(
-        failure: io.temporal.api.failure.v1.Failure,
-        depth: Int = 0,
-    ): ApplicationFailure? {
-        val maxDepth = 10
-        if (depth >= maxDepth) return null
-
-        // Check this level
-        if (failure.hasApplicationFailureInfo()) {
-            val appInfo = failure.applicationFailureInfo
-            return ApplicationFailure(
-                type = appInfo.type ?: "UnknownApplicationFailure",
-                message = failure.message,
-                nonRetryable = appInfo.nonRetryable,
-                details = appInfo.details?.toByteArray(),
-            )
-        }
-
-        // Check nested cause
-        return if (failure.hasCause()) {
-            extractApplicationFailure(failure.cause, depth + 1)
-        } else {
-            null
-        }
-    }
-
-    /**
-     * Recursively builds cause exceptions from proto Failure.
-     * Limits recursion depth to prevent stack overflow.
-     */
-    private fun buildCause(
-        failure: io.temporal.api.failure.v1.Failure,
-        depth: Int = 0,
-    ): Throwable {
-        val maxDepth = 20
-        if (depth >= maxDepth) {
-            return RuntimeException(failure.message ?: "Cause failure (max depth reached)")
-        }
-
-        val nestedCause =
-            if (failure.hasCause()) {
-                buildCause(failure.cause, depth + 1)
-            } else {
-                null
-            }
-
-        return RuntimeException(failure.message ?: "Cause failure", nestedCause)
     }
 }

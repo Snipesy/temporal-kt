@@ -142,8 +142,12 @@ class TemporalCoreClient private constructor(
             val effectiveTls =
                 when {
                     tls != null -> tls.toInternal()
+
                     targetUrl.startsWith("https://", ignoreCase = true) -> ClientTlsOptions()
-                    apiKey != null -> ClientTlsOptions() // API key requires TLS
+
+                    apiKey != null -> ClientTlsOptions()
+
+                    // API key requires TLS
                     else -> null
                 }
 

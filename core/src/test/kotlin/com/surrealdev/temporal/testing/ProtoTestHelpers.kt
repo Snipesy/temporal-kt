@@ -199,6 +199,160 @@ object ProtoTestHelpers {
             .build()
     }
 
+    // ================================================================
+    // Local Activity Resolution Jobs
+    // ================================================================
+
+    /**
+     * Creates a ResolveActivity job for a local activity with a completed result.
+     * Local activities use the same ResolveActivity proto but with isLocal=true.
+     */
+    fun resolveLocalActivityJobCompleted(
+        seq: Int,
+        result: Payload = Payload.getDefaultInstance(),
+    ): WorkflowActivationJob {
+        val completed =
+            ActivityResult.Success
+                .newBuilder()
+                .setResult(result)
+                .build()
+
+        val resolution =
+            ActivityResult.ActivityResolution
+                .newBuilder()
+                .setCompleted(completed)
+                .build()
+
+        val resolveActivity =
+            ResolveActivity
+                .newBuilder()
+                .setSeq(seq)
+                .setResult(resolution)
+                .setIsLocal(true)
+                .build()
+
+        return WorkflowActivationJob
+            .newBuilder()
+            .setResolveActivity(resolveActivity)
+            .build()
+    }
+
+    /**
+     * Creates a ResolveActivity job for a local activity with a failed result.
+     */
+    fun resolveLocalActivityJobFailed(
+        seq: Int,
+        message: String = "Local activity failed",
+    ): WorkflowActivationJob {
+        val failure =
+            Failure
+                .newBuilder()
+                .setMessage(message)
+                .build()
+
+        val failed =
+            ActivityResult.Failure
+                .newBuilder()
+                .setFailure(failure)
+                .build()
+
+        val resolution =
+            ActivityResult.ActivityResolution
+                .newBuilder()
+                .setFailed(failed)
+                .build()
+
+        val resolveActivity =
+            ResolveActivity
+                .newBuilder()
+                .setSeq(seq)
+                .setResult(resolution)
+                .setIsLocal(true)
+                .build()
+
+        return WorkflowActivationJob
+            .newBuilder()
+            .setResolveActivity(resolveActivity)
+            .build()
+    }
+
+    /**
+     * Creates a ResolveActivity job for a local activity with a cancelled result.
+     */
+    fun resolveLocalActivityJobCancelled(seq: Int): WorkflowActivationJob {
+        val cancelled =
+            ActivityResult.Cancellation
+                .newBuilder()
+                .build()
+
+        val resolution =
+            ActivityResult.ActivityResolution
+                .newBuilder()
+                .setCancelled(cancelled)
+                .build()
+
+        val resolveActivity =
+            ResolveActivity
+                .newBuilder()
+                .setSeq(seq)
+                .setResult(resolution)
+                .setIsLocal(true)
+                .build()
+
+        return WorkflowActivationJob
+            .newBuilder()
+            .setResolveActivity(resolveActivity)
+            .build()
+    }
+
+    /**
+     * Creates a ResolveActivity job for a local activity with a backoff result.
+     * This signals that lang should schedule a timer and retry the activity.
+     *
+     * @param seq The sequence number of the local activity
+     * @param attempt The NEXT attempt number (the one to use when retrying)
+     * @param backoffSeconds How long to wait before retrying
+     * @param originalScheduleTime Optional timestamp of when the first attempt was scheduled
+     */
+    fun resolveLocalActivityJobBackoff(
+        seq: Int,
+        attempt: Int = 2,
+        backoffSeconds: Long = 5,
+        originalScheduleTime: com.google.protobuf.Timestamp? = null,
+    ): WorkflowActivationJob {
+        val backoffBuilder =
+            ActivityResult.DoBackoff
+                .newBuilder()
+                .setAttempt(attempt)
+                .setBackoffDuration(
+                    Duration
+                        .newBuilder()
+                        .setSeconds(backoffSeconds)
+                        .build(),
+                )
+
+        originalScheduleTime?.let { backoffBuilder.setOriginalScheduleTime(it) }
+
+        val resolution =
+            ActivityResult.ActivityResolution
+                .newBuilder()
+                .setBackoff(backoffBuilder.build())
+                .build()
+
+        val resolveActivity =
+            ResolveActivity
+                .newBuilder()
+                .setSeq(seq)
+                .setResult(resolution)
+                .setIsLocal(true)
+                .build()
+
+        return WorkflowActivationJob
+            .newBuilder()
+            .setResolveActivity(resolveActivity)
+            .build()
+    }
+
     /**
      * Creates a QueryWorkflow job.
      */

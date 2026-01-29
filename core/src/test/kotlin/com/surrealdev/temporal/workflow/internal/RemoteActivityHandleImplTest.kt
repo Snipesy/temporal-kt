@@ -25,7 +25,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import kotlin.reflect.typeOf
 
-class ActivityHandleImplTest {
+class RemoteActivityHandleImplTest {
     private val serializer = KotlinxJsonSerializer()
     private val workflowState = WorkflowState("test-run-id")
 
@@ -35,8 +35,8 @@ class ActivityHandleImplTest {
         activityType: String = "TestActivity::run",
         returnType: kotlin.reflect.KType = typeOf<String>(),
         cancellationType: ActivityCancellationType = ActivityCancellationType.TRY_CANCEL,
-    ): ActivityHandleImpl<R> =
-        ActivityHandleImpl(
+    ): RemoteActivityHandleImpl<R> =
+        RemoteActivityHandleImpl(
             activityId = activityId,
             seq = seq,
             activityType = activityType,
@@ -321,7 +321,7 @@ class ActivityHandleImplTest {
 
         // Create a fresh handle with fresh state
         val freshHandle =
-            ActivityHandleImpl<String>(
+            RemoteActivityHandleImpl<String>(
                 activityId = "test-activity-id",
                 seq = 99,
                 activityType = "TestActivity::run",
@@ -350,7 +350,7 @@ class ActivityHandleImplTest {
     fun `cancel() is idempotent`() {
         val state = WorkflowState("test-run-id")
         val handle =
-            ActivityHandleImpl<String>(
+            RemoteActivityHandleImpl<String>(
                 activityId = "test-activity-id",
                 seq = 1,
                 activityType = "TestActivity::run",
@@ -377,7 +377,7 @@ class ActivityHandleImplTest {
     fun `cancel() is no-op if isDone`() {
         val state = WorkflowState("test-run-id")
         val handle =
-            ActivityHandleImpl<String>(
+            RemoteActivityHandleImpl<String>(
                 activityId = "test-activity-id",
                 seq = 1,
                 activityType = "TestActivity::run",
@@ -623,7 +623,7 @@ class ActivityHandleImplTest {
     fun `cancel with ABANDON type does not send command`() {
         val state = WorkflowState("test-run-id")
         val handle =
-            ActivityHandleImpl<String>(
+            RemoteActivityHandleImpl<String>(
                 activityId = "test-activity",
                 seq = 1,
                 activityType = "TestActivity::run",
@@ -648,7 +648,7 @@ class ActivityHandleImplTest {
     fun `cancel with TRY_CANCEL type sends command`() {
         val state = WorkflowState("test-run-id")
         val handle =
-            ActivityHandleImpl<String>(
+            RemoteActivityHandleImpl<String>(
                 activityId = "test-activity",
                 seq = 1,
                 activityType = "TestActivity::run",
@@ -671,7 +671,7 @@ class ActivityHandleImplTest {
     fun `cancel with WAIT_CANCELLATION_COMPLETED type sends command`() {
         val state = WorkflowState("test-run-id")
         val handle =
-            ActivityHandleImpl<String>(
+            RemoteActivityHandleImpl<String>(
                 activityId = "test-activity",
                 seq = 1,
                 activityType = "TestActivity::run",

@@ -139,20 +139,33 @@ class ActivityDispatcher(
      */
     private fun mapCancelReason(reason: ActivityTaskOuterClass.ActivityCancelReason): ActivityCancelledException =
         when (reason) {
-            ActivityTaskOuterClass.ActivityCancelReason.NOT_FOUND ->
+            ActivityTaskOuterClass.ActivityCancelReason.NOT_FOUND -> {
                 ActivityCancelledException.NotFound()
-            ActivityTaskOuterClass.ActivityCancelReason.CANCELLED ->
+            }
+
+            ActivityTaskOuterClass.ActivityCancelReason.CANCELLED -> {
                 ActivityCancelledException.Cancelled()
-            ActivityTaskOuterClass.ActivityCancelReason.TIMED_OUT ->
+            }
+
+            ActivityTaskOuterClass.ActivityCancelReason.TIMED_OUT -> {
                 ActivityCancelledException.TimedOut()
-            ActivityTaskOuterClass.ActivityCancelReason.WORKER_SHUTDOWN ->
+            }
+
+            ActivityTaskOuterClass.ActivityCancelReason.WORKER_SHUTDOWN -> {
                 ActivityCancelledException.WorkerShutdown()
-            ActivityTaskOuterClass.ActivityCancelReason.PAUSED ->
+            }
+
+            ActivityTaskOuterClass.ActivityCancelReason.PAUSED -> {
                 ActivityCancelledException.Paused()
-            ActivityTaskOuterClass.ActivityCancelReason.RESET ->
+            }
+
+            ActivityTaskOuterClass.ActivityCancelReason.RESET -> {
                 ActivityCancelledException.Reset()
-            ActivityTaskOuterClass.ActivityCancelReason.UNRECOGNIZED ->
+            }
+
+            ActivityTaskOuterClass.ActivityCancelReason.UNRECOGNIZED -> {
                 ActivityCancelledException.Cancelled("Activity cancelled (unrecognized reason)")
+            }
         }
 
     /**

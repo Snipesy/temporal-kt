@@ -1,9 +1,11 @@
 package com.surrealdev.temporal.workflow
 
 /**
- * Handle to a scheduled or running activity.
+ * Base handle interface for scheduled or running activities.
  *
- * Obtain a handle by calling [WorkflowContext.startActivityWithPayloads] or related extension functions.
+ * This is the common interface shared by both [RemoteActivityHandle] (server-scheduled activities)
+ * and [LocalActivityHandle] (local activities that run in the same worker process).
+ *
  * Use [result] to await the activity result, or [cancel] to request cancellation.
  *
  * @param R The result type of the activity
@@ -51,14 +53,10 @@ interface ActivityHandle<R> {
      *
      * The behavior depends on the [ActivityCancellationType] set in options:
      * - TRY_CANCEL: Sends cancel request, Core SDK immediately resolves with cancelled status
-     * - WAIT_CANCELLATION_COMPLETED: Sends cancel request, Core SDK waits for ActivityTaskCanceled
-     *   event before resolving - so [result] will block until activity acknowledges cancellation
+     * - WAIT_CANCELLATION_COMPLETED: Sends cancel request, waits for acknowledgment
      * - ABANDON: Does nothing (activity continues, result() returns immediately with cancellation)
      *
-     * In all cases, this method returns immediately. The difference is when [result] returns:
-     * - TRY_CANCEL: result() throws immediately when Core SDK resolves
-     * - WAIT_CANCELLATION_COMPLETED: result() blocks until activity heartbeats and acknowledges
-     * - ABANDON: result() throws immediately (local cancellation)
+     * In all cases, this method returns immediately. The difference is when [result] returns.
      *
      * Calling cancel() multiple times is idempotent.
      *
@@ -66,3 +64,46 @@ interface ActivityHandle<R> {
      */
     fun cancel(reason: String = "Cancelled by workflow")
 }
+
+/**
+ * Handle to a scheduled or running remote (server-scheduled) activity.
+ *
+ * Obtain a handle by calling [WorkflowContext.startActivityWithPayloads] or related extension functions.
+ * Use [result] to await the activity result, or [cancel] to request cancellation.
+ *
+ * Remote activities are scheduled through the Temporal server, which manages:
+ * - Task queue routing to workers
+ * - Retry policies and backoff
+ * - Heartbeat timeout monitoring
+ * - Activity history persistence
+ *
+ * For short operations that don't need server-side management, consider using
+ * [LocalActivityHandle] via `startLocalActivity()` instead.
+ *
+ * @param R The result type of the activity
+ * @see ActivityHandle for common functionality
+ * @see LocalActivityHandle for local activities
+ */
+interface RemoteActivityHandle<R> : ActivityHandle<R>
+
+/**
+ * Handle to a scheduled or running local activity.
+ *
+ * Obtain a handle by calling [WorkflowContext.startLocalActivityWithPayloads] or related extension functions.
+ * Use [result] to await the activity result, or [cancel] to request cancellation.
+ *
+ * Local activities differ from remote activities in that they:
+ * - Run in the same worker process as the workflow
+ * - Don't support heartbeats (operations should be short)
+ * - Use markers for replay instead of re-execution
+ * - May receive backoff signals that cause the workflow to schedule a timer before retrying
+ *
+ * The [result] method handles backoff transparently - if Core SDK signals that retry backoff
+ * exceeds the local retry threshold, this handle will automatically schedule a timer,
+ * wait, and reschedule the activity. This is hidden from the caller.
+ *
+ * @param R The result type of the local activity
+ * @see ActivityHandle for common functionality
+ * @see RemoteActivityHandle for server-scheduled activities
+ */
+interface LocalActivityHandle<R> : ActivityHandle<R>

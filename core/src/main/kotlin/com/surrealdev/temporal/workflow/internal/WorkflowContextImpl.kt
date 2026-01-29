@@ -6,12 +6,14 @@ import com.surrealdev.temporal.util.AttributeScope
 import com.surrealdev.temporal.util.Attributes
 import com.surrealdev.temporal.util.ExecutionScope
 import com.surrealdev.temporal.workflow.ActivityCancellationType
-import com.surrealdev.temporal.workflow.ActivityHandle
 import com.surrealdev.temporal.workflow.ActivityOptions
 import com.surrealdev.temporal.workflow.ChildWorkflowCancellationType
 import com.surrealdev.temporal.workflow.ChildWorkflowHandle
 import com.surrealdev.temporal.workflow.ChildWorkflowOptions
+import com.surrealdev.temporal.workflow.LocalActivityHandle
+import com.surrealdev.temporal.workflow.LocalActivityOptions
 import com.surrealdev.temporal.workflow.ParentClosePolicy
+import com.surrealdev.temporal.workflow.RemoteActivityHandle
 import com.surrealdev.temporal.workflow.VersioningIntent
 import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.WorkflowInfo
@@ -155,7 +157,7 @@ internal class WorkflowContextImpl(
         args: Payloads,
         options: ActivityOptions,
         returnType: KType?,
-    ): ActivityHandle<R> {
+    ): RemoteActivityHandle<R> {
         logger.fine("Starting activity: type=$activityType, options=$options")
 
         // ========== Section 1: Validation ==========
@@ -339,7 +341,7 @@ internal class WorkflowContextImpl(
         val effectiveReturnType = returnType ?: typeOf<Any?>()
 
         val handle =
-            ActivityHandleImpl<R>(
+            RemoteActivityHandleImpl<R>(
                 activityId = activityId,
                 seq = seq,
                 activityType = activityType,
@@ -352,6 +354,116 @@ internal class WorkflowContextImpl(
         state.registerActivity(seq, handle)
 
         logger.fine("Activity handle created and registered: id=$activityId, seq=$seq")
+
+        // ========== Section 5: Return ==========
+
+        return handle
+    }
+
+    /**
+     * Starts a local activity execution and returns a handle for managing it.
+     *
+     * Local activities run in the same worker process as the workflow, avoiding
+     * the roundtrip to the Temporal server. They're useful for short operations
+     * that don't need server-side scheduling, retry management, or persistence.
+     *
+     * @throws IllegalArgumentException if validation fails (invalid timeouts, etc.)
+     * @throws ReadOnlyContextException if called during query processing
+     */
+    override suspend fun <R> startLocalActivityWithPayloads(
+        activityType: String,
+        args: Payloads,
+        options: LocalActivityOptions,
+        returnType: KType?,
+    ): LocalActivityHandle<R> {
+        logger.fine("Starting local activity: type=$activityType, options=$options")
+
+        // ========== Section 1: Validation ==========
+
+        // Activity type validation
+        require(activityType.isNotBlank()) {
+            "activityType must not be blank"
+        }
+
+        // Timeout requirements - at least one required (validated in LocalActivityOptions init)
+
+        logger.fine("Local activity validation passed: type=$activityType")
+
+        // ========== Section 2: Sequence & ID Generation ==========
+
+        val seq = state.nextSeq()
+        val activityId = options.activityId ?: "$seq"
+
+        logger.fine("Generated local activity identifiers: type=$activityType, id=$activityId, seq=$seq")
+
+        // ========== Section 3: Command Building ==========
+
+        logger.fine("Building ScheduleLocalActivity command: type=$activityType, id=$activityId")
+
+        val scheduleLocalActivityBuilder =
+            WorkflowCommands.ScheduleLocalActivity
+                .newBuilder()
+                .setSeq(seq)
+                .setActivityId(activityId)
+                .setActivityType(activityType)
+                .setAttempt(1) // Initial attempt is 1
+                .addAllArguments(args.payloadsList)
+
+        // Set optional timeouts
+        options.startToCloseTimeout?.let {
+            scheduleLocalActivityBuilder.setStartToCloseTimeout(it.toProtoDuration())
+        }
+        options.scheduleToCloseTimeout?.let {
+            scheduleLocalActivityBuilder.setScheduleToCloseTimeout(it.toProtoDuration())
+        }
+        options.scheduleToStartTimeout?.let {
+            scheduleLocalActivityBuilder.setScheduleToStartTimeout(it.toProtoDuration())
+        }
+
+        // Set local retry threshold
+        scheduleLocalActivityBuilder.setLocalRetryThreshold(options.localRetryThreshold.toProtoDuration())
+
+        // Set retry policy if provided
+        options.retryPolicy?.let { policy ->
+            scheduleLocalActivityBuilder.setRetryPolicy(policy.toProto())
+        }
+
+        // Set cancellation type - per proto comment, default to WAIT_CANCELLATION_COMPLETED
+        scheduleLocalActivityBuilder.setCancellationType(options.cancellationType.toProto())
+
+        val command =
+            WorkflowCommands.WorkflowCommand
+                .newBuilder()
+                .setScheduleLocalActivity(scheduleLocalActivityBuilder)
+                .build()
+
+        state.addCommand(command)
+
+        logger.info(
+            "Scheduled local activity: type=$activityType, id=$activityId, seq=$seq",
+        )
+
+        // ========== Section 4: Handle Creation & Registration ==========
+
+        val effectiveReturnType = returnType ?: typeOf<Any?>()
+
+        val handle =
+            LocalActivityHandleImpl<R>(
+                activityId = activityId,
+                initialSeq = seq,
+                activityType = activityType,
+                state = state,
+                context = this,
+                serializer = serializer,
+                returnType = effectiveReturnType,
+                options = options,
+                cancellationType = options.cancellationType,
+                arguments = args.payloadsList,
+            )
+
+        state.registerLocalActivity(seq, handle)
+
+        logger.fine("Local activity handle created and registered: id=$activityId, seq=$seq")
 
         // ========== Section 5: Return ==========
 

@@ -70,7 +70,7 @@ class QueryBehaviorTest {
 
             assertFailsWith<ReadOnlyContextException> {
                 val handle =
-                    ActivityHandleImpl<String>(
+                    RemoteActivityHandleImpl<String>(
                         activityId = "test",
                         seq = 1,
                         activityType = "Test::run",
