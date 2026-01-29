@@ -1,4 +1,4 @@
-# OpenTelemetry Plugin for Temporal KT
+# Module OpenTelemetry
 
 Adds observability to your Temporal workflows and activities through distributed tracing, metrics, and log correlation.
 
