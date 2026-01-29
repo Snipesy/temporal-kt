@@ -27,23 +27,34 @@ install(PayloadSerialization) {
 
 ### Custom KSerializer Module
 
-Rather than developing a full PayloadSerailizer you can define custom serializers for specific types with 
+Rather than developing a full PayloadSerializer you can define custom serializers for specific types with 
 kotlinx.serialization:
 
 ```kotlin
-import kotlinx.serialization.modules.SerializersModule
-import kotlinx.serialization.modules.contextual
+object UUIDSerializer : KSerializer<UUID> {
+    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("UUID", PrimitiveKind.STRING)
+
+    override fun serialize(encoder: Encoder, value: UUID) {
+        encoder.encodeString(value.toString())
+    }
+
+    override fun deserialize(decoder: Decoder): UUID {
+        return UUID.fromString(decoder.decodeString())
+    }
+}
+
+val module = SerializersModule {
+    contextual(UUID::class, UUIDSerializer)
+}
 
 install(PayloadSerialization) {
     json {
-        serializersModule = SerializersModule {
-            contextual(MyCustomTypeSerializer)
-        }
+        serializersModule = module
     }
 }
 ```
 
-### Custom Temproal Serializer
+### Custom Temporal Serializer
 
 Implement `PayloadSerializer` for other formats:
 
