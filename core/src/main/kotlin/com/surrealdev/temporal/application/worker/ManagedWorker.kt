@@ -577,22 +577,19 @@ internal class ManagedWorker(
                             try {
                                 val completion = activityThread.start().await()
 
-                                if (completion != null) {
-                                    // Start tasks return completion; Cancel tasks return null
-                                    coreWorker.completeActivityTask(completion.toByteArray())
-                                    logger.debug("[pollActivityTasks] Completed activity: $activityInfo")
+                                coreWorker.completeActivityTask(completion.toByteArray())
+                                logger.debug("[pollActivityTasks] Completed activity: $activityInfo")
 
-                                    // Fire ActivityTaskCompleted hooks
-                                    val duration = (System.currentTimeMillis() - startTime).milliseconds
-                                    val completedContext =
-                                        ActivityTaskCompletedContext(
-                                            task = task,
-                                            activityType = start.activityType,
-                                            duration = duration,
-                                        )
-                                    applicationHooks.call(ActivityTaskCompleted, completedContext)
-                                    config.hookRegistry.call(ActivityTaskCompleted, completedContext)
-                                }
+                                // Fire ActivityTaskCompleted hooks
+                                val duration = (System.currentTimeMillis() - startTime).milliseconds
+                                val completedContext =
+                                    ActivityTaskCompletedContext(
+                                        task = task,
+                                        activityType = start.activityType,
+                                        duration = duration,
+                                    )
+                                applicationHooks.call(ActivityTaskCompleted, completedContext)
+                                config.hookRegistry.call(ActivityTaskCompleted, completedContext)
                             } catch (e: CancellationException) {
                                 // Re-throw cancellation to properly propagate it
                                 throw e
@@ -616,14 +613,7 @@ internal class ManagedWorker(
                         } else {
                             // Cancel task - dispatch directly without virtual thread
                             // This allows it to interrupt running activities immediately
-                            try {
-                                activityDispatcher.dispatch(task)
-                            } catch (e: CancellationException) {
-                                throw e
-                            } catch (e: Exception) {
-                                logger.warn("[pollActivityTasks] Error dispatching cancel: ${e.message}")
-                                e.printStackTrace()
-                            }
+                            activityDispatcher.dispatchCancel(task)
                         }
                     }
                 } catch (_: CancellationException) {

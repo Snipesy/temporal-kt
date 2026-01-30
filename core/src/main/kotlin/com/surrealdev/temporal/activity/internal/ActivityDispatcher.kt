@@ -112,45 +112,65 @@ class ActivityDispatcher(
         )
 
     /**
-     * Dispatches an activity task to the appropriate activity implementation.
+     * Dispatches a Cancel task to signal cancellation to a running activity.
      *
-     * For Start tasks: Executes the activity and returns completion.
-     * For Cancel tasks: Cancels the running activity (if found) and returns null.
+     * This method handles cancel tasks only and returns immediately.
+     * For start tasks, use [dispatchStart] instead.
+     *
+     * @param task The cancel task to dispatch (must have hasCancel() == true)
+     */
+    fun dispatchCancel(task: ActivityTaskOuterClass.ActivityTask) {
+        require(task.hasCancel()) { "dispatchCancel requires a Cancel task" }
+        handleCancelTask(task.taskToken, task.cancel)
+    }
+
+    /**
+     * Dispatches a Start task to execute an activity on a virtual thread.
      *
      * IMPORTANT: This must be called from within a coroutine that represents the
      * activity's execution context. The current coroutine's Job is used for
      * cancellation tracking.
      *
-     * @param task The activity task to dispatch
-     * @return The activity task completion, or null for Cancel tasks
+     * @param task The start task to dispatch (must have hasStart() == true)
+     * @param virtualThread The virtual thread running this activity (for cancellation support)
+     * @return The activity task completion
      */
-    suspend fun dispatch(task: ActivityTaskOuterClass.ActivityTask): CoreInterface.ActivityTaskCompletion? =
-        dispatch(task, virtualThread = null)
-
-    /**
-     * Internal dispatch with virtual thread tracking for cancellation support.
-     */
-    internal suspend fun dispatch(
+    internal suspend fun dispatchStart(
         task: ActivityTaskOuterClass.ActivityTask,
-        virtualThread: ActivityVirtualThread?,
-    ): CoreInterface.ActivityTaskCompletion? {
-        val taskToken = task.taskToken
-
-        // Handle cancel variant - does NOT acquire semaphore permit
-        // Cancel tasks should be processed immediately to signal running activities
-        if (task.hasCancel()) {
-            handleCancelTask(taskToken, task.cancel)
-            return null
-        }
+        virtualThread: ActivityVirtualThread,
+    ): CoreInterface.ActivityTaskCompletion {
+        require(task.hasStart()) { "dispatchStart requires a Start task" }
 
         // Get the current coroutine's Job for cancellation tracking
         val currentJob =
             currentCoroutineContext()[Job]
-                ?: error("dispatch must be called from a coroutine with a Job")
+                ?: error("dispatchStart must be called from a coroutine with a Job")
 
-        // Handle start variant - acquires semaphore permit for concurrency control
+        // Acquire semaphore permit for concurrency control
         return semaphore.withPermit {
             dispatchStartTask(task, currentJob, virtualThread)
+        }
+    }
+
+    /**
+     * Dispatches a Start task without virtual thread tracking.
+     *
+     * This is intended for test harnesses that don't use virtual threads.
+     * Thread-based cancellation won't work - only coroutine cancellation is supported.
+     *
+     * @param task The start task to dispatch (must have hasStart() == true)
+     * @return The activity task completion
+     */
+    @InternalTemporalApi
+    suspend fun dispatchForTest(task: ActivityTaskOuterClass.ActivityTask): CoreInterface.ActivityTaskCompletion {
+        require(task.hasStart()) { "dispatchForTest requires a Start task" }
+
+        val currentJob =
+            currentCoroutineContext()[Job]
+                ?: error("dispatchForTest must be called from a coroutine with a Job")
+
+        return semaphore.withPermit {
+            dispatchStartTask(task, currentJob, virtualThread = null)
         }
     }
 

@@ -6,7 +6,6 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.runBlocking
-import org.slf4j.LoggerFactory
 import org.slf4j.MDC
 import java.util.concurrent.ThreadFactory
 
@@ -22,8 +21,7 @@ internal class ActivityVirtualThread(
     threadFactory: ThreadFactory,
     private val mdcContextMap: Map<String, String>? = null,
 ) {
-    private val logger = LoggerFactory.getLogger(ActivityVirtualThread::class.java)
-    private val completion = CompletableDeferred<ActivityTaskCompletion?>()
+    private val completion = CompletableDeferred<ActivityTaskCompletion>()
 
     @Volatile
     private var currentJob: Job? = null
@@ -46,7 +44,7 @@ internal class ActivityVirtualThread(
                     runBlocking {
                         currentJob = coroutineContext[Job]
                         try {
-                            activityDispatcher.dispatch(task, virtualThread = this@ActivityVirtualThread)
+                            activityDispatcher.dispatchStart(task, virtualThread = this@ActivityVirtualThread)
                         } finally {
                             currentJob = null
                         }
@@ -59,7 +57,7 @@ internal class ActivityVirtualThread(
         }
     }
 
-    fun start(): Deferred<ActivityTaskCompletion?> {
+    fun start(): Deferred<ActivityTaskCompletion> {
         thread.start()
         return completion
     }
