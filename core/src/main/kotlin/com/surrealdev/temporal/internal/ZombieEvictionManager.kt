@@ -4,7 +4,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -12,6 +11,46 @@ import org.slf4j.Logger
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.seconds
+
+/**
+ * Configuration for zombie thread eviction.
+ */
+data class ZombieEvictionConfig(
+    /**
+     * Maximum zombie count before triggering fatal error.
+     * Set to 0 to disable threshold check.
+     */
+    val maxZombieCount: Int = 10,
+    /**
+     * Initial interval between zombie eviction retry attempts.
+     * Uses exponential backoff up to [retryMaxDelay].
+     * Since we use thread.join() which returns immediately on termination,
+     * this can be relatively long without impacting responsiveness.
+     */
+    val retryInterval: Duration = 1.seconds,
+    /**
+     * Maximum delay between zombie eviction retry attempts.
+     */
+    val retryMaxDelay: Duration = 60.seconds,
+    /**
+     * Grace period before considering a thread a zombie.
+     * During this period, the thread is retried but not counted toward [maxZombieCount]
+     * and errors are not logged. This prevents false positives for threads that just
+     * need a moment to terminate.
+     */
+    val gracePeriod: Duration = 10.seconds,
+    /**
+     * Time after which zombie eviction gives up and stops retrying.
+     */
+    val giveUpAfter: Duration = 1.hours,
+    /**
+     * Timeout for waiting on all eviction jobs during shutdown.
+     */
+    val shutdownTimeout: Duration = 30.seconds,
+)
 
 /**
  * Manages zombie thread detection and eviction for both workflows and activities.
@@ -21,34 +60,14 @@ import java.util.concurrent.atomic.AtomicInteger
  *
  * This manager:
  * - Tracks zombie threads via atomic counter
- * - Launches async eviction jobs that retry interruption
+ * - Launches async eviction jobs that retry interruption with exponential backoff
  * - Triggers fatal error callback when threshold is exceeded
  * - Provides shutdown coordination via [awaitAllEvictions]
  */
 internal class ZombieEvictionManager(
     private val logger: Logger,
     private val taskQueue: String,
-    /**
-     * Grace period to wait for a thread to terminate after interrupt.
-     */
-    private val terminationGracePeriodMs: Long,
-    /**
-     * Maximum zombie count before triggering fatal error.
-     * Set to 0 to disable threshold check.
-     */
-    private val maxZombieCount: Int,
-    /**
-     * Maximum retry attempts before giving up on a zombie.
-     */
-    private val maxZombieRetries: Int,
-    /**
-     * Interval between zombie eviction retry attempts.
-     */
-    private val zombieRetryIntervalMs: Long,
-    /**
-     * Timeout for waiting on all eviction jobs during shutdown.
-     */
-    private val evictionShutdownTimeoutMs: Long,
+    private val config: ZombieEvictionConfig,
     /**
      * Callback invoked when zombie threshold is exceeded.
      * Only invoked once via atomic guard.
@@ -82,45 +101,44 @@ internal class ZombieEvictionManager(
      * @param terminateFn Function to signal termination (non-blocking)
      * @param interruptFn Function to interrupt the thread (for retries)
      * @param isAliveFn Function to check if thread is still alive
-     * @param awaitTerminationFn Function to wait for thread termination (blocking)
-     * @param immediate If true, use immediate termination mode
+     * @param joinFn Function to wait for thread termination with timeout, returns true if terminated
+     * @param getStackTraceFn Function to get the thread's current stack trace for debugging
      */
     fun launchEviction(
         zombieId: String,
         entityId: String,
         entityName: String,
-        terminateFn: (immediate: Boolean) -> Unit,
+        terminateFn: () -> Unit,
         interruptFn: () -> Unit,
         isAliveFn: () -> Boolean,
-        awaitTerminationFn: (timeoutMs: Long) -> Boolean,
-        immediate: Boolean,
+        joinFn: (Duration) -> Boolean,
+        getStackTraceFn: () -> String,
     ) {
         zombieEvictionJobs.computeIfAbsent(zombieId) {
             CoroutineScope(NonCancellable + Dispatchers.IO).launch {
                 try {
-                    // Send termination signal (non-blocking)
-                    terminateFn(immediate)
+                    // Send termination signal with immediate interrupt (no grace period)
+                    // At this point the task should be done, anything lingering is a leak
+                    terminateFn()
 
-                    // Wait for graceful termination
-                    val terminated = awaitTerminationFn(terminationGracePeriodMs)
-
-                    if (terminated) {
+                    // If still alive, start zombie eviction loop
+                    if (isAliveFn()) {
+                        runEvictionLoop(
+                            entityId = entityId,
+                            entityName = entityName,
+                            interruptFn = interruptFn,
+                            isAliveFn = isAliveFn,
+                            joinFn = joinFn,
+                            getStackTraceFn = getStackTraceFn,
+                        )
+                    } else {
                         logger.debug(
-                            "{} thread terminated gracefully. {}={}",
+                            "{} thread terminated. {}={}",
                             entityType.replaceFirstChar { it.uppercase() },
                             entityType,
                             entityId,
                         )
-                        return@launch
                     }
-
-                    // Thread didn't respond - start zombie eviction loop
-                    runEvictionLoop(
-                        entityId = entityId,
-                        entityName = entityName,
-                        interruptFn = interruptFn,
-                        isAliveFn = isAliveFn,
-                    )
                 } finally {
                     zombieEvictionJobs.remove(zombieId)
                 }
@@ -133,18 +151,57 @@ internal class ZombieEvictionManager(
         entityName: String,
         interruptFn: () -> Unit,
         isAliveFn: () -> Boolean,
+        joinFn: (Duration) -> Boolean,
+        getStackTraceFn: () -> String,
     ) {
         var attemptCount = 1
         var countedAsZombie = false
+        var currentDelay = config.retryInterval
+        var cumulativeTime = Duration.ZERO
 
-        while (isAliveFn() && attemptCount <= maxZombieRetries) {
-            // Track as zombie on first iteration
-            if (!countedAsZombie) {
+        // Initial wait - join on thread with timeout (faster than delay if thread terminates early)
+        if (joinFn(currentDelay)) {
+            // Thread terminated during initial wait
+            logger.debug(
+                "{} thread terminated quickly. {}={}",
+                entityType.replaceFirstChar { it.uppercase() },
+                entityType,
+                entityId,
+            )
+            return
+        }
+        cumulativeTime += currentDelay
+
+        while (isAliveFn() && cumulativeTime < config.giveUpAfter) {
+            // Only count as zombie and log errors after grace period
+            val pastGracePeriod = cumulativeTime >= config.gracePeriod
+
+            if (pastGracePeriod && !countedAsZombie) {
                 val currentZombies = zombieCount.incrementAndGet()
                 countedAsZombie = true
 
+                // Log first zombie detection with stack trace
+                logger.error(
+                    "[${errorCodePrefix}02] CRITICAL: Zombie $entityType thread detected " +
+                        "(attempt {}, elapsed {}). " +
+                        "Thread did not respond to interrupt - this leaks a virtual thread slot. " +
+                        "{}={}, {}={}, task_queue={}, total_zombies={}. " +
+                        "Check for non-interruptible blocking operations (busy loops, native calls). " +
+                        "Worker shutdown may hang until this thread terminates.\n" +
+                        "Stack trace:\n{}",
+                    attemptCount,
+                    cumulativeTime,
+                    entityType + "_id",
+                    entityId,
+                    entityType + "_type",
+                    entityName,
+                    taskQueue,
+                    currentZombies,
+                    getStackTraceFn(),
+                )
+
                 // Check threshold
-                if (maxZombieCount > 0 && currentZombies >= maxZombieCount) {
+                if (config.maxZombieCount in 1..currentZombies) {
                     if (fatalErrorTriggered.compareAndSet(false, true)) {
                         logger.error(
                             "[${errorCodePrefix}05] FATAL: Zombie threshold exceeded ({} >= {}). " +
@@ -152,45 +209,42 @@ internal class ZombieEvictionManager(
                                 "that uses non-interruptible blocking (busy loops, native calls). " +
                                 "Initiating graceful shutdown.",
                             currentZombies,
-                            maxZombieCount,
+                            config.maxZombieCount,
                         )
                         onFatalError?.invoke()
                     }
                 }
             }
 
-            logger.error(
-                "[${errorCodePrefix}02] CRITICAL: Zombie $entityType thread detected (attempt {}). " +
-                    "Thread did not respond to interrupt - this leaks a virtual thread slot. " +
-                    "{}={}, {}={}, task_queue={}, total_zombies={}. " +
-                    "Check for non-interruptible blocking operations (busy loops, native calls). " +
-                    "Worker shutdown may hang until this thread terminates.",
-                attemptCount,
-                entityType + "_id",
-                entityId,
-                entityType + "_type",
-                entityName,
-                taskQueue,
-                zombieCount.get(),
-            )
-
-            delay(zombieRetryIntervalMs)
+            // Wait for thread termination with timeout (faster than delay if thread terminates early)
+            val terminated = joinFn(currentDelay)
+            cumulativeTime += currentDelay
             attemptCount++
+
+            if (terminated) {
+                // Thread terminated during wait - exit loop and handle cleanup below
+                break
+            }
+
+            // Exponential backoff: double the delay up to configured max
+            currentDelay = (currentDelay * 2).coerceAtMost(config.retryMaxDelay)
 
             // Try to interrupt again
             interruptFn()
         }
 
-        // Exhausted retries
-        if (isAliveFn() && attemptCount > maxZombieRetries) {
+        // Exhausted timeout
+        if (isAliveFn() && cumulativeTime >= config.giveUpAfter) {
             logger.error(
-                "[${errorCodePrefix}06] Giving up on zombie $entityType thread after {} attempts. " +
-                    "Thread will remain leaked. {}={}, {}={}",
-                maxZombieRetries,
+                "[${errorCodePrefix}06] Giving up on zombie $entityType thread after {}. " +
+                    "Thread will remain leaked. {}={}, {}={}\n" +
+                    "Final stack trace:\n{}",
+                cumulativeTime,
                 entityType + "_id",
                 entityId,
                 entityType + "_type",
                 entityName,
+                getStackTraceFn(),
             )
             return // Keep counted as zombie, stop retrying
         }
@@ -199,9 +253,9 @@ internal class ZombieEvictionManager(
         if (countedAsZombie) {
             val remaining = zombieCount.decrementAndGet()
             logger.info(
-                "Zombie $entityType thread finally terminated after {} attempts. " +
+                "Zombie $entityType thread finally terminated after {}. " +
                     "{}={}, remaining_zombies={}",
-                attemptCount,
+                cumulativeTime,
                 entityType + "_id",
                 entityId,
                 remaining,
@@ -239,16 +293,16 @@ internal class ZombieEvictionManager(
 
         val jobs = zombieEvictionJobs.values.toList()
         val completed =
-            withTimeoutOrNull(evictionShutdownTimeoutMs) {
+            withTimeoutOrNull(config.shutdownTimeout) {
                 jobs.joinAll()
                 true
             } ?: false
 
         if (!completed) {
             logger.warn(
-                "[${errorCodePrefix}04] Zombie eviction timeout - {} job(s) still running after {}ms",
+                "[${errorCodePrefix}04] Zombie eviction timeout - {} job(s) still running after {}",
                 zombieEvictionJobs.size,
-                evictionShutdownTimeoutMs,
+                config.shutdownTimeout,
             )
         }
 

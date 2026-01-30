@@ -3,6 +3,7 @@ package com.surrealdev.temporal.activity.internal
 import com.google.protobuf.ByteString
 import com.surrealdev.temporal.activity.ActivityCancelledException
 import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.internal.ZombieEvictionConfig
 import com.surrealdev.temporal.internal.ZombieEvictionManager
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
@@ -64,32 +65,14 @@ class ActivityDispatcher(
      */
     private val taskQueueScope: AttributeScope,
     /**
-     * Grace period in milliseconds to wait for an activity thread to terminate after interrupt.
-     * If the thread doesn't terminate within this time, it's considered a zombie.
+     * Configuration for zombie thread eviction.
      */
-    private val terminationGracePeriodMs: Long = 60_000L,
-    /**
-     * Maximum number of zombie threads before forcing worker shutdown.
-     * Set to 0 to disable (not recommended).
-     */
-    private val maxZombieCount: Int = 10,
+    private val zombieConfig: ZombieEvictionConfig = ZombieEvictionConfig(),
     /**
      * Callback invoked when a fatal error occurs (e.g., zombie threshold exceeded).
      * This allows the application to gracefully shut down instead of calling System.exit().
      */
     private val onFatalError: (suspend () -> Unit)? = null,
-    /**
-     * Maximum number of retry attempts for zombie eviction before giving up.
-     */
-    private val maxZombieRetries: Int = 100,
-    /**
-     * Interval between zombie eviction retry attempts.
-     */
-    private val zombieRetryIntervalMs: Long = 5_000L,
-    /**
-     * Timeout for waiting on zombie eviction jobs during shutdown.
-     */
-    private val zombieEvictionShutdownTimeoutMs: Long = 30_000L,
 ) {
     private val semaphore = Semaphore(maxConcurrent)
     private val runningActivities = ConcurrentHashMap<ByteString, RunningActivity>()
@@ -101,11 +84,7 @@ class ActivityDispatcher(
         ZombieEvictionManager(
             logger = logger,
             taskQueue = taskQueue,
-            terminationGracePeriodMs = terminationGracePeriodMs,
-            maxZombieCount = maxZombieCount,
-            maxZombieRetries = maxZombieRetries,
-            zombieRetryIntervalMs = zombieRetryIntervalMs,
-            evictionShutdownTimeoutMs = zombieEvictionShutdownTimeoutMs,
+            config = zombieConfig,
             onFatalError = onFatalError,
             errorCodePrefix = "TKT12",
             entityType = "activity",
@@ -235,11 +214,11 @@ class ActivityDispatcher(
             zombieId = zombieId,
             entityId = activityId,
             entityName = activityType,
-            terminateFn = { imm -> virtualThread.terminate(immediate = imm) },
+            terminateFn = { virtualThread.terminate(immediate = true) },
             interruptFn = { virtualThread.interruptThread() },
             isAliveFn = { virtualThread.isAlive() },
-            awaitTerminationFn = { timeout -> virtualThread.awaitTermination(timeout) },
-            immediate = true, // Activities always use immediate termination on cancel
+            joinFn = { timeout -> virtualThread.awaitTermination(timeout.inWholeMilliseconds) },
+            getStackTraceFn = { virtualThread.getStackTrace() },
         )
     }
 

@@ -108,4 +108,10 @@ internal class ActivityVirtualThread(
         }
         return !thread.isAlive
     }
+
+    /**
+     * Gets the current stack trace of the virtual thread.
+     * Useful for debugging zombie threads that don't respond to interrupt.
+     */
+    fun getStackTrace(): String = thread.stackTrace.joinToString("\n") { "    at $it" }
 }

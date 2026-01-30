@@ -319,12 +319,12 @@ fun runTemporalTest(
     timeSkipping: Boolean = true,
     block: suspend TemporalTestApplicationBuilder.() -> Unit,
 ): TestResult =
-    runTest(context = parentCoroutineContext, timeout = 60.seconds) {
+    runTest(timeout = 60.seconds) {
         // Use real time dispatcher to avoid virtual time issues with timeouts
         // (similar to Ktor's runTestWithRealTime)
         // if we don't do this then we can run info FFM issues
         withContext(Dispatchers.Default.limitedParallelism(1)) {
-            runTestApplication(parentCoroutineContext + this.coroutineContext, timeSkipping, block)
+            runTestApplication(this.coroutineContext + parentCoroutineContext, timeSkipping, block)
         }
     }
 

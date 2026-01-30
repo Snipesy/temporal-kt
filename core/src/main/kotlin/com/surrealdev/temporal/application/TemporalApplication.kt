@@ -24,6 +24,7 @@ import com.surrealdev.temporal.core.TemporalRuntime
 import com.surrealdev.temporal.core.TemporalWorker
 import com.surrealdev.temporal.core.TlsOptions
 import com.surrealdev.temporal.core.WorkerConfig
+import com.surrealdev.temporal.internal.ZombieEvictionConfig
 import com.surrealdev.temporal.serialization.NoOpCodec
 import com.surrealdev.temporal.serialization.payloadCodecOrNull
 import com.surrealdev.temporal.serialization.payloadSerializer
@@ -36,6 +37,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.LoggerFactory
 import kotlin.coroutines.CoroutineContext
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
 
 /**
  * A Temporal application that manages workers and client connections.
@@ -435,45 +438,16 @@ internal data class TaskQueueConfig(
      */
     val workflowDeadlockTimeoutMs: Long = 2000L,
     /**
-     * Grace period to wait for a workflow thread to terminate after interrupt.
-     * Default: 60,000ms (60 seconds)
+     * Configuration for zombie thread eviction.
      */
-    val workflowTerminationGracePeriodMs: Long = 60_000L,
+    val zombieEviction: ZombieEvictionConfig = ZombieEvictionConfig(),
     /**
-     * Grace period to wait for an activity thread to terminate after interrupt.
-     * Default: 60,000ms (60 seconds)
-     */
-    val activityTerminationGracePeriodMs: Long = 60_000L,
-    /**
-     * Maximum number of zombie threads before initiating shutdown.
-     * Set to 0 to disable (not recommended).
-     */
-    val maxZombieCount: Int = 10,
-    /**
-     * Timeout in milliseconds for force exit when shutdown is stuck.
-     * If application.close() doesn't complete within this time due to stuck threads,
-     * System.exit(1) is called as a last resort.
+     * Timeout for force exit when shutdown is stuck due to stuck threads.
+     * If application.close() doesn't complete within this time, System.exit(1) is called.
      *
-     * Default: 60,000ms (60 seconds)
+     * Default: 60 seconds
      */
-    val forceExitTimeoutMs: Long = 60_000L,
-    /**
-     * Maximum number of retry attempts for zombie eviction before giving up.
-     * At [zombieRetryIntervalMs] intervals.
-     *
-     * Default: 100
-     */
-    val maxZombieRetries: Int = 100,
-    /**
-     * Interval between zombie eviction retry attempts.
-     * Default: 5,000ms (5 seconds)
-     */
-    val zombieRetryIntervalMs: Long = 5_000L,
-    /**
-     * Timeout for waiting on zombie eviction jobs during shutdown.
-     * Default: 30,000ms (30 seconds)
-     */
-    val zombieEvictionShutdownTimeoutMs: Long = 30_000L,
+    val forceExitTimeout: Duration = 1.minutes,
 )
 
 /**

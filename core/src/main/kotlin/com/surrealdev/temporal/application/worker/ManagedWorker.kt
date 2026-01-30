@@ -46,6 +46,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.CoroutineContext
+import kotlin.system.exitProcess
 import kotlin.time.Duration.Companion.milliseconds
 
 /**
@@ -103,6 +104,10 @@ internal class ManagedWorker(
     @Volatile
     private var stopped = false
 
+    // Reference to workflow dispatcher for zombie count access
+    @Volatile
+    private var workflowDispatcher: WorkflowDispatcher? = null
+
     // Explicit references to polling jobs
     private var workflowPollingJob: Job? = null
     private var activityPollingJob: Job? = null
@@ -135,6 +140,18 @@ internal class ManagedWorker(
         get() = shutdownSignal.isCompleted
 
     val taskQueue: String get() = config.name
+
+    /**
+     * Gets the current count of zombie workflow threads.
+     * Zombies are threads that don't respond to interrupt.
+     */
+    fun getWorkflowZombieCount(): Int = workflowDispatcher?.getZombieCount() ?: 0
+
+    /**
+     * Gets the current count of zombie activity threads.
+     * Zombies are threads that don't respond to interrupt.
+     */
+    fun getActivityZombieCount(): Int = activityDispatcher.getZombieCount()
 
     /**
      * Waits for the worker to be ready (polling started for both workflow and activity polling).
@@ -178,26 +195,22 @@ internal class ManagedWorker(
                 recordActivityHeartbeat(taskToken, details)
             },
             taskQueueScope = taskQueueScope,
-            terminationGracePeriodMs = config.activityTerminationGracePeriodMs,
-            maxZombieCount = config.maxZombieCount,
+            zombieConfig = config.zombieEviction,
             onFatalError = {
                 val closed =
-                    withTimeoutOrNull(config.forceExitTimeoutMs) {
+                    withTimeoutOrNull(config.forceExitTimeout) {
                         application.close()
                         true
                     }
                 if (closed == null) {
                     logger.error(
-                        "[TKT1206] FATAL: Graceful shutdown timed out after {}ms. " +
+                        "[TKT1206] FATAL: Graceful shutdown timed out after {}. " +
                             "Stuck threads prevent clean shutdown. Forcing System.exit(1).",
-                        config.forceExitTimeoutMs,
+                        config.forceExitTimeout,
                     )
-                    System.exit(1)
+                    exitProcess(1)
                 }
             },
-            maxZombieRetries = config.maxZombieRetries,
-            zombieRetryIntervalMs = config.zombieRetryIntervalMs,
-            zombieEvictionShutdownTimeoutMs = config.zombieEvictionShutdownTimeoutMs,
         )
 
     /**
@@ -346,24 +359,41 @@ internal class ManagedWorker(
                 parentJob = rootExecutorJob,
                 workflowThreadFactory = workflowThreadFactory,
                 deadlockTimeoutMs = config.workflowDeadlockTimeoutMs,
-                terminationGracePeriodMs = config.workflowTerminationGracePeriodMs,
-                maxZombieCount = config.maxZombieCount,
+                zombieConfig = config.zombieEviction,
                 onFatalError = {
                     val closed =
-                        withTimeoutOrNull(config.forceExitTimeoutMs) {
+                        withTimeoutOrNull(config.forceExitTimeout) {
                             application.close()
                             true
                         }
                     if (closed == null) {
                         logger.error(
-                            "[TKT1106] FATAL: Graceful shutdown timed out after {}ms. " +
+                            "[TKT1106] FATAL: Graceful shutdown timed out after {}. " +
                                 "Stuck threads prevent clean shutdown. Forcing System.exit(1).",
-                            config.forceExitTimeoutMs,
+                            config.forceExitTimeout,
                         )
-                        System.exit(1)
+                        exitProcess(1)
                     }
                 },
-                maxZombieRetries = config.maxZombieRetries,
+            )
+        workflowDispatcher = localWorkflowDispatcher
+
+        // Root job for all workflow activations - isolated from each other (SupervisorJob)
+        val rootWorkflowActivationJob = SupervisorJob(coroutineContext[Job])
+
+        // Exception handler as safety net for uncaught exceptions in workflow activation coroutines
+        val workflowExceptionHandler =
+            CoroutineExceptionHandler { _, throwable ->
+                logger.error("[pollWorkflowActivations] Uncaught exception in workflow coroutine", throwable)
+            }
+
+        // Workflow activation scope - activations run concurrently (like activities)
+        val workflowScope =
+            CoroutineScope(
+                coroutineContext +
+                    rootWorkflowActivationJob +
+                    workflowExceptionHandler +
+                    CoroutineName("workflows-$taskQueue"),
             )
 
         var firstPoll = true
@@ -395,51 +425,75 @@ internal class ManagedWorker(
                             ?.initializeWorkflow
                             ?.workflowType
 
-                    // Fire WorkflowTaskStarted hooks
-                    val startTime = System.currentTimeMillis()
-                    val workflowContext =
-                        WorkflowTaskContext(
-                            activation = activation,
-                            runId = activation.runId,
-                            workflowType = workflowType,
-                            taskQueue = config.name,
-                            namespace = namespace,
+                    // Create MDC context for this activation
+                    val workflowMdcContext =
+                        MDCContext(
+                            mapOf(
+                                "taskQueue" to config.name,
+                                "namespace" to namespace,
+                                "runId" to activation.runId,
+                                "workflowType" to (workflowType ?: "unknown"),
+                            ),
                         )
-                    applicationHooks.call(WorkflowTaskStarted, workflowContext)
-                    config.hookRegistry.call(WorkflowTaskStarted, workflowContext)
 
-                    try {
-                        // Dispatch to workflow executor
-                        val completion = localWorkflowDispatcher.dispatch(activation)
+                    // Launch non-blocking - polling loop continues immediately to get more work
+                    // Concurrency is controlled by WorkflowDispatcher.semaphore (maxConcurrentWorkflows)
+                    // Per-run serialization is handled by WorkflowDispatcher's per-run Mutex
+                    workflowScope.launch(workflowMdcContext + CoroutineName("Workflow-${activation.runId}")) {
+                        val startTime = System.currentTimeMillis()
 
-                        // Send completion back to core
-                        coreWorker.completeWorkflowActivation(completion.toByteArray())
-                        logger.debug("[pollWorkflowActivations] Completed activation for workflow ${activation.runId}")
-
-                        // Fire WorkflowTaskCompleted hooks
-                        val duration = (System.currentTimeMillis() - startTime).milliseconds
-                        val completedContext =
-                            WorkflowTaskCompletedContext(
+                        // Fire WorkflowTaskStarted hooks
+                        val workflowContext =
+                            WorkflowTaskContext(
                                 activation = activation,
-                                completion = completion,
                                 runId = activation.runId,
-                                duration = duration,
+                                workflowType = workflowType,
+                                taskQueue = config.name,
+                                namespace = namespace,
                             )
-                        applicationHooks.call(WorkflowTaskCompleted, completedContext)
-                        config.hookRegistry.call(WorkflowTaskCompleted, completedContext)
-                    } catch (dispatchError: Exception) {
-                        // Fire WorkflowTaskFailed hooks
-                        val failedContext =
-                            WorkflowTaskFailedContext(
-                                activation = activation,
-                                error = dispatchError,
-                                runId = activation.runId,
-                            )
-                        applicationHooks.call(WorkflowTaskFailed, failedContext)
-                        config.hookRegistry.call(WorkflowTaskFailed, failedContext)
+                        applicationHooks.call(WorkflowTaskStarted, workflowContext)
+                        config.hookRegistry.call(WorkflowTaskStarted, workflowContext)
 
-                        // Re-throw to be handled by outer catch
-                        throw dispatchError
+                        try {
+                            // Dispatch to workflow executor
+                            val completion = localWorkflowDispatcher.dispatch(activation)
+
+                            // Send completion back to core
+                            coreWorker.completeWorkflowActivation(completion.toByteArray())
+                            logger.debug(
+                                "[pollWorkflowActivations] Completed activation for workflow ${activation.runId}",
+                            )
+
+                            // Fire WorkflowTaskCompleted hooks
+                            val duration = (System.currentTimeMillis() - startTime).milliseconds
+                            val completedContext =
+                                WorkflowTaskCompletedContext(
+                                    activation = activation,
+                                    completion = completion,
+                                    runId = activation.runId,
+                                    duration = duration,
+                                )
+                            applicationHooks.call(WorkflowTaskCompleted, completedContext)
+                            config.hookRegistry.call(WorkflowTaskCompleted, completedContext)
+                        } catch (e: CancellationException) {
+                            // Propagate cancellation
+                            throw e
+                        } catch (dispatchError: Exception) {
+                            // Fire WorkflowTaskFailed hooks
+                            val failedContext =
+                                WorkflowTaskFailedContext(
+                                    activation = activation,
+                                    error = dispatchError,
+                                    runId = activation.runId,
+                                )
+                            applicationHooks.call(WorkflowTaskFailed, failedContext)
+                            config.hookRegistry.call(WorkflowTaskFailed, failedContext)
+
+                            logger.warn(
+                                "[pollWorkflowActivations] Error dispatching workflow",
+                                dispatchError,
+                            )
+                        }
                     }
                 } catch (_: CancellationException) {
                     logger.info("[pollWorkflowActivations] Cancelled, exiting")
@@ -448,16 +502,32 @@ internal class ManagedWorker(
                     // Log and continue on errors for now
                     // In production, we'd want proper error handling
                     if (!shutdownSignal.isCompleted) {
-                        logger.warn("[pollWorkflowActivations] Error: ${e.message}")
-                        e.printStackTrace()
+                        logger.warn("[pollWorkflowActivations] Error in polling loop", e)
                     }
                 }
             }
         } finally {
             // NonCancellable ensures cleanup completes even if parent scope is force-cancelled
             withContext(NonCancellable) {
-                logger.debug("[pollWorkflowActivations] Cleaning up workflow executors...")
+                logger.debug("[pollWorkflowActivations] Waiting for in-flight activations to complete...")
                 val shutdownStart = System.currentTimeMillis()
+
+                // Cancel the workflow activation scope (signals no new work will be accepted)
+                rootWorkflowActivationJob.cancel()
+
+                // Wait for in-flight activations to complete with timeout
+                val gracefullyCompleted =
+                    withTimeoutOrNull(config.shutdownGracePeriodMs) {
+                        rootWorkflowActivationJob.join()
+                        true
+                    } ?: false
+
+                if (!gracefullyCompleted) {
+                    logger.warn(
+                        "[TKT1108] Workflow activation shutdown timeout after {}ms, some activations still in progress",
+                        config.shutdownGracePeriodMs,
+                    )
+                }
 
                 // Terminate all cached executors (clears dispatchers, cancels jobs)
                 // This includes zombie eviction for any stuck threads
@@ -604,8 +674,7 @@ internal class ManagedWorker(
                                 applicationHooks.call(ActivityTaskFailed, failedContext)
                                 config.hookRegistry.call(ActivityTaskFailed, failedContext)
 
-                                logger.warn("[pollActivityTasks] Error dispatching activity: ${e.message}")
-                                e.printStackTrace()
+                                logger.warn("[pollActivityTasks] Error dispatching activity", e)
                             } finally {
                                 // Untrack thread
                                 runningActivityThreads.remove(threadId)
@@ -622,8 +691,7 @@ internal class ManagedWorker(
                 } catch (e: Exception) {
                     // Log and continue on errors for now
                     if (!shutdownSignal.isCompleted) {
-                        logger.warn("[pollActivityTasks] Error: ${e.message}")
-                        e.printStackTrace()
+                        logger.warn("[pollActivityTasks] Error in polling loop", e)
                     }
                 }
             }

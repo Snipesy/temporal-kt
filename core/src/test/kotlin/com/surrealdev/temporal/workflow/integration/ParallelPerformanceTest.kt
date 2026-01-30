@@ -10,6 +10,7 @@ import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.ActivityOptions
 import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.startActivity
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
@@ -21,6 +22,7 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.measureTime
+import kotlin.time.toJavaDuration
 
 /**
  * Integration tests for parallel performance.
@@ -115,6 +117,19 @@ class ParallelPerformanceTest {
     }
 
     /**
+     * Simple workflow that deadlocks (partially)
+     */
+    @Workflow("OneDeadLockedWorkflow")
+    class OneDeadLockedWorkflow {
+        @Suppress("BlockingMethodInNonBlockingContext")
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            Thread.sleep(100.milliseconds.toJavaDuration())
+            return "slept"
+        }
+    }
+
+    /**
      * Test 1: A single workflow running 1,000 activities in parallel.
      *
      * Each activity Thread.sleeps for 1 second. With truly parallel execution,
@@ -127,7 +142,7 @@ class ParallelPerformanceTest {
      */
     @Test
     fun `single workflow with 1000 parallel activities completes quickly`() =
-        runTemporalTest(timeSkipping = true) {
+        runTemporalTest(timeSkipping = true, parentCoroutineContext = Dispatchers.Default) {
             val taskQueue = "parallel-activities-test-${UUID.randomUUID()}"
 
             application {
@@ -178,7 +193,7 @@ class ParallelPerformanceTest {
      */
     @Test
     fun `1000 workflows each sleeping 1 second complete quickly`() =
-        runTemporalTest(timeSkipping = true) {
+        runTemporalTest(timeSkipping = true, parentCoroutineContext = Dispatchers.Default) {
             val taskQueue = "parallel-workflows-test-${UUID.randomUUID()}"
 
             application {
@@ -222,15 +237,15 @@ class ParallelPerformanceTest {
         }
 
     @Test
-    fun `1000 workflows each sleeping 1 second complete quickly with virtual threads`() =
-        runTemporalTest(timeSkipping = false) {
+    fun `1000 workflows each deadlocking point 1 second complete quickly`() =
+        runTemporalTest(timeSkipping = true, parentCoroutineContext = Dispatchers.Default) {
             val taskQueue = "parallel-workflows-test-${UUID.randomUUID()}"
 
             application {
                 taskQueue(taskQueue) {
-                    // same test but with virtual threads
                     maxConcurrentWorkflows = WORKFLOW_COUNT + 100 // Allow all workflows to run concurrently
-                    workflow(OneSleepWorkflow())
+                    workflowDeadlockTimeoutMs = 60000 // additional time to avoid flakey test runner deadlock detection
+                    workflow(OneDeadLockedWorkflow())
                 }
             }
 
@@ -242,7 +257,7 @@ class ParallelPerformanceTest {
                     val handles =
                         (1..WORKFLOW_COUNT).map { index ->
                             client.startWorkflow<String>(
-                                workflowType = "OneSleepWorkflow",
+                                workflowType = "OneDeadLockedWorkflow",
                                 taskQueue = taskQueue,
                                 workflowId = "sleep-wf-$index-${UUID.randomUUID()}",
                             )

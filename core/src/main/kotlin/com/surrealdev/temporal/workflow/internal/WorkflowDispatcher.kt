@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.surrealdev.temporal.internal.ZombieEvictionConfig
 import com.surrealdev.temporal.internal.ZombieEvictionManager
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
@@ -62,34 +63,15 @@ internal class WorkflowDispatcher(
      */
     private val deadlockTimeoutMs: Long = 2000L,
     /**
-     * Grace period in milliseconds to wait for a workflow thread to terminate after interrupt.
-     * If the thread doesn't terminate within this time, it's considered a zombie.
+     * Configuration for zombie thread eviction.
      */
-    private val terminationGracePeriodMs: Long = 60_000L,
-    /**
-     * Maximum number of zombie threads before forcing worker shutdown.
-     * When this threshold is exceeded, the onFatalError callback is invoked.
-     * Set to 0 to disable (not recommended).
-     */
-    private val maxZombieCount: Int = 10,
+    private val zombieConfig: ZombieEvictionConfig = ZombieEvictionConfig(),
     /**
      * Callback invoked when a fatal error occurs (e.g., zombie threshold exceeded).
      * This allows the application to gracefully shut down instead of calling System.exit().
      * The callback is invoked from a coroutine context, so it can be a suspend function.
      */
     private val onFatalError: (suspend () -> Unit)? = null,
-    /**
-     * Maximum number of retry attempts for zombie eviction before giving up.
-     */
-    private val maxZombieRetries: Int = 100,
-    /**
-     * Interval between zombie eviction retry attempts.
-     */
-    private val zombieRetryIntervalMs: Long = 5_000L,
-    /**
-     * Timeout for waiting on zombie eviction jobs during shutdown.
-     */
-    private val zombieEvictionShutdownTimeoutMs: Long = 30_000L,
 ) {
     private val logger = LoggerFactory.getLogger(WorkflowDispatcher::class.java)
 
@@ -127,11 +109,7 @@ internal class WorkflowDispatcher(
         ZombieEvictionManager(
             logger = logger,
             taskQueue = taskQueue,
-            terminationGracePeriodMs = terminationGracePeriodMs,
-            maxZombieCount = maxZombieCount,
-            maxZombieRetries = maxZombieRetries,
-            zombieRetryIntervalMs = zombieRetryIntervalMs,
-            evictionShutdownTimeoutMs = zombieEvictionShutdownTimeoutMs,
+            config = zombieConfig,
             onFatalError = onFatalError,
             errorCodePrefix = "TKT11",
             entityType = "workflow",
@@ -156,12 +134,10 @@ internal class WorkflowDispatcher(
                 // Cancel the executor job
                 it.executor.terminateWorkflowExecutionJob()
                 // Launch async termination - doesn't block the poll
-                // Use graceful termination since the thread should be idle
                 launchTerminationJob(
                     virtualThread = it.virtualThread,
                     runId = runId,
                     workflowType = "evicted", // Type unknown at eviction time
-                    immediate = false,
                 )
             }
             return buildEmptyCompletion(runId)
@@ -247,7 +223,7 @@ internal class WorkflowDispatcher(
                 entry.executor.terminateWorkflowExecutionJob()
 
                 // Launch NonCancellable coroutine to keep trying to evict the zombie thread
-                launchTerminationJob(entry.virtualThread, runId, workflowType, immediate = true)
+                launchTerminationJob(entry.virtualThread, runId, workflowType)
 
                 // Return failure completion to Core SDK (workflow task will retry)
                 return@withLock buildDeadlockFailure(activation, e)
@@ -416,7 +392,6 @@ internal class WorkflowDispatcher(
                 virtualThread = entry.virtualThread,
                 runId = runId,
                 workflowType = "shutdown",
-                immediate = false,
             )
         }
         executors.clear()
@@ -428,22 +403,24 @@ internal class WorkflowDispatcher(
     /**
      * Launches an async job to terminate a workflow thread and monitor for zombies.
      * This method does NOT block - it launches a job that handles termination asynchronously.
+     *
+     * Termination is always immediate (cancel + interrupt) with no grace period.
+     * At this point the task should be done, anything lingering is considered a leak.
      */
     private fun launchTerminationJob(
         virtualThread: WorkflowVirtualThread,
         runId: String,
         workflowType: String,
-        immediate: Boolean = true,
     ) {
         zombieManager.launchEviction(
             zombieId = runId,
             entityId = runId,
             entityName = workflowType,
-            terminateFn = { imm -> virtualThread.terminate(immediate = imm) },
+            terminateFn = { virtualThread.terminate(immediate = true) },
             interruptFn = { virtualThread.interruptThread() },
             isAliveFn = { virtualThread.isAlive() },
-            awaitTerminationFn = { timeout -> virtualThread.awaitTermination(timeout) },
-            immediate = immediate,
+            joinFn = { timeout -> virtualThread.awaitTermination(timeout.inWholeMilliseconds) },
+            getStackTraceFn = { virtualThread.getStackTrace() },
         )
     }
 
@@ -451,6 +428,11 @@ internal class WorkflowDispatcher(
      * Gets the number of cached workflow executors.
      */
     fun cachedCount(): Int = executors.size
+
+    /**
+     * Gets the current count of zombie workflow threads.
+     */
+    fun getZombieCount(): Int = zombieManager.getZombieCount()
 
     companion object {
         /**
