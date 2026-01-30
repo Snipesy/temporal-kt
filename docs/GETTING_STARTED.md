@@ -173,7 +173,7 @@ Blocking in workflows should be avoided if possible.
 
 ### Structure Escape Anti-Patterns
 
-Launching an uncontrolled coroutine or thread inside a workflow or activity will cause memory leaks or performance issue
+Launching an uncontrolled coroutine or thread inside a workflow or activity will cause memory leaks or performance issues
 on the temporal application in an uncontrollable way, and would defeat the purpose of this library.
 
 ```kotlin
