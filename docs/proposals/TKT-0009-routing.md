@@ -8,18 +8,18 @@ Hierarchical naming for workflows and activities. Routes prepend a prefix to wor
 fun TemporalApplication.module() {
     taskQueue("main") {
         route("orders") {
-            workflow(CreateOrderWorkflow())      // → "orders/CreateOrder"
-            workflow(CancelOrderWorkflow())      // → "orders/CancelOrder"
+            workflow<CreateOrderWorkflow>()      // → "orders/CreateOrder"
+            workflow<CancelOrderWorkflow>()      // → "orders/CancelOrder"
             activity(PaymentActivity())          // → "orders/Payment"
 
             route("fulfillment") {
-                workflow(ShipOrderWorkflow())    // → "orders/fulfillment/ShipOrder"
+                workflow<ShipOrderWorkflow>()    // → "orders/fulfillment/ShipOrder"
                 activity(InventoryActivity())    // → "orders/fulfillment/Inventory"
             }
         }
 
         route("users") {
-            workflow(OnboardingWorkflow())       // → "users/Onboarding"
+            workflow<OnboardingWorkflow>()       // → "users/Onboarding"
             activity(EmailActivity())            // → "users/Email"
         }
     }
@@ -38,7 +38,7 @@ fun TemporalApplication.module() {
                 provide<PaymentGateway> { StripeGateway() }
             }
 
-            workflow(CreateOrderWorkflow())
+            workflow<CreateOrderWorkflow>()
             activity(PaymentActivity())
         }
 
@@ -47,7 +47,7 @@ fun TemporalApplication.module() {
                 provide<PaymentGateway> { LegacyGateway() }
             }
 
-            workflow(CreateOrderWorkflow())  // Same workflow, different gateway
+            workflow<CreateOrderWorkflow>()  // Same workflow, different gateway
             activity(PaymentActivity())
         }
     }

@@ -190,8 +190,8 @@ class ChildWorkflowIntegrationTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(SimpleParentWorkflow())
-                    workflow(SimpleChildWorkflow())
+                    workflow<SimpleParentWorkflow>()
+                    workflow<SimpleChildWorkflow>()
                 }
             }
 
@@ -217,8 +217,8 @@ class ChildWorkflowIntegrationTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(ParentWithArgsWorkflow())
-                    workflow(ChildWithArgsWorkflow())
+                    workflow<ParentWithArgsWorkflow>()
+                    workflow<ChildWithArgsWorkflow>()
                 }
             }
 
@@ -245,8 +245,8 @@ class ChildWorkflowIntegrationTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(MultipleChildrenWorkflow())
-                    workflow(SimpleChildWorkflow())
+                    workflow<MultipleChildrenWorkflow>()
+                    workflow<SimpleChildWorkflow>()
                 }
             }
 
@@ -273,8 +273,8 @@ class ChildWorkflowIntegrationTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(ChildFailureHandlerWorkflow())
-                    workflow(FailingChildWorkflow())
+                    workflow<ChildFailureHandlerWorkflow>()
+                    workflow<FailingChildWorkflow>()
                 }
             }
 
@@ -300,8 +300,8 @@ class ChildWorkflowIntegrationTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(CustomChildIdWorkflow())
-                    workflow(SimpleChildWorkflow())
+                    workflow<CustomChildIdWorkflow>()
+                    workflow<SimpleChildWorkflow>()
                 }
             }
 
@@ -328,9 +328,9 @@ class ChildWorkflowIntegrationTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(NestedChildWorkflowsParent())
-                    workflow(ChildThatStartsGrandchild())
-                    workflow(GrandchildWorkflow())
+                    workflow<NestedChildWorkflowsParent>()
+                    workflow<ChildThatStartsGrandchild>()
+                    workflow<GrandchildWorkflow>()
                 }
             }
 

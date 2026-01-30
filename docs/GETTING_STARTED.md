@@ -45,7 +45,7 @@ fun main() {
     val app = embeddedTemporal(
         module = {
             taskQueue("hello-world-queue") {
-                workflow(GreetingWorkflow())
+                workflow<GreetingWorkflow>()
                 activity(GreetingActivity())
             }
         }

@@ -13,7 +13,7 @@ import java.lang.reflect.Modifier
  * ```kotlin
  * fun TemporalApplication.myModule() {
  *     taskQueue("my-queue") {
- *         workflow(MyWorkflow())
+ *         workflow<MyWorkflow>()
  *     }
  * }
  * ```

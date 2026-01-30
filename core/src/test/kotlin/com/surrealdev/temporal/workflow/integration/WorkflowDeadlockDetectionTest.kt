@@ -132,7 +132,7 @@ class WorkflowDeadlockDetectionTest {
                 taskQueue(taskQueue) {
                     // Use a short deadlock timeout for faster tests
                     workflowDeadlockTimeoutMs = 500L
-                    workflow(InfiniteLoopWorkflow())
+                    workflow<InfiniteLoopWorkflow>()
                 }
             }
 
@@ -171,7 +171,7 @@ class WorkflowDeadlockDetectionTest {
             application {
                 taskQueue(taskQueue) {
                     workflowDeadlockTimeoutMs = 500L
-                    workflow(BlockingWorkflow())
+                    workflow<BlockingWorkflow>()
                 }
             }
 
@@ -206,8 +206,8 @@ class WorkflowDeadlockDetectionTest {
             application {
                 taskQueue(taskQueue) {
                     workflowDeadlockTimeoutMs = 500L
-                    workflow(InfiniteLoopWorkflow())
-                    workflow(NormalWorkflow())
+                    workflow<InfiniteLoopWorkflow>()
+                    workflow<NormalWorkflow>()
                 }
             }
 
@@ -246,8 +246,8 @@ class WorkflowDeadlockDetectionTest {
             application {
                 taskQueue(taskQueue) {
                     workflowDeadlockTimeoutMs = 500L
-                    workflow(InfiniteLoopWorkflow())
-                    workflow(NormalWorkflow())
+                    workflow<InfiniteLoopWorkflow>()
+                    workflow<NormalWorkflow>()
                 }
             }
 
@@ -288,7 +288,7 @@ class WorkflowDeadlockDetectionTest {
                 taskQueue(taskQueue) {
                     // Disable deadlock detection
                     workflowDeadlockTimeoutMs = 0L
-                    workflow(NormalWorkflow())
+                    workflow<NormalWorkflow>()
                 }
             }
 
@@ -314,8 +314,8 @@ class WorkflowDeadlockDetectionTest {
             application {
                 taskQueue(taskQueue) {
                     workflowDeadlockTimeoutMs = 500L
-                    workflow(InfiniteLoopWorkflow())
-                    workflow(NormalWorkflow())
+                    workflow<InfiniteLoopWorkflow>()
+                    workflow<NormalWorkflow>()
                 }
             }
 
@@ -359,11 +359,11 @@ class WorkflowDeadlockDetectionTest {
             application {
                 taskQueue(shortTimeoutQueue) {
                     workflowDeadlockTimeoutMs = 200L
-                    workflow(NormalWorkflow())
+                    workflow<NormalWorkflow>()
                 }
                 taskQueue(longTimeoutQueue) {
                     workflowDeadlockTimeoutMs = 5000L
-                    workflow(NormalWorkflow())
+                    workflow<NormalWorkflow>()
                 }
             }
 

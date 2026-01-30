@@ -485,7 +485,7 @@ class ChildWorkflowTest {
         registry.register(
             WorkflowRegistration(
                 workflowType = workflowType,
-                implementation = workflowImpl,
+                workflowClass = workflowImpl::class,
                 instanceFactory = { workflowImpl },
             ),
         )

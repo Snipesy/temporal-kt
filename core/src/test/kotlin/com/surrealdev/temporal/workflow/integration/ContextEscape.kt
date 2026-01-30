@@ -183,7 +183,7 @@ class ContextEscape {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(ContextEscapeStressTest())
+                    workflow<ContextEscapeStressTest>()
                 }
             }
 
@@ -224,7 +224,7 @@ class ContextEscape {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(AsyncContextEscapeWorkflow())
+                    workflow<AsyncContextEscapeWorkflow>()
                 }
             }
 
@@ -311,8 +311,8 @@ class ContextEscape {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(EscapeTestChildWorkflow())
-                    workflow(ChildAwaitOutsideEscapeWorkflow())
+                    workflow<EscapeTestChildWorkflow>()
+                    workflow<ChildAwaitOutsideEscapeWorkflow>()
                 }
             }
 
@@ -338,7 +338,7 @@ class ContextEscape {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(WorkflowOpInsideEscapeWorkflow())
+                    workflow<WorkflowOpInsideEscapeWorkflow>()
                 }
             }
 
@@ -398,7 +398,7 @@ class ContextEscape {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(SneakyDispatcherWorkflow())
+                    workflow<SneakyDispatcherWorkflow>()
                 }
             }
 

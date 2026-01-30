@@ -94,7 +94,7 @@ class CombinedHandlersTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(CombinedHandlersWorkflow())
+                    workflow<CombinedHandlersWorkflow>()
                 }
             }
 

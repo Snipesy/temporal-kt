@@ -225,7 +225,7 @@ class QueryHandlerTest {
         registry.register(
             WorkflowRegistration(
                 workflowType = "SimpleQueryWorkflow",
-                implementation = SimpleQueryWorkflow(),
+                workflowClass = SimpleQueryWorkflow::class,
             ),
         )
 
@@ -240,7 +240,7 @@ class QueryHandlerTest {
         registry.register(
             WorkflowRegistration(
                 workflowType = "MultiQueryWorkflow",
-                implementation = MultiQueryWorkflow(),
+                workflowClass = MultiQueryWorkflow::class,
             ),
         )
 
@@ -256,7 +256,7 @@ class QueryHandlerTest {
         registry.register(
             WorkflowRegistration(
                 workflowType = "MultiQueryWorkflow",
-                implementation = MultiQueryWorkflow(),
+                workflowClass = MultiQueryWorkflow::class,
             ),
         )
 
@@ -274,7 +274,7 @@ class QueryHandlerTest {
         registry.register(
             WorkflowRegistration(
                 workflowType = "DynamicQueryWorkflow",
-                implementation = DynamicQueryWorkflow(),
+                workflowClass = DynamicQueryWorkflow::class,
             ),
         )
 
@@ -290,7 +290,7 @@ class QueryHandlerTest {
         registry.register(
             WorkflowRegistration(
                 workflowType = "QueryWithArgsWorkflow",
-                implementation = QueryWithArgsWorkflow(),
+                workflowClass = QueryWithArgsWorkflow::class,
             ),
         )
 
@@ -327,7 +327,7 @@ class QueryHandlerTest {
             registry.register(
                 WorkflowRegistration(
                     workflowType = "DuplicateQueryWorkflow",
-                    implementation = DuplicateQueryWorkflow(),
+                    workflowClass = DuplicateQueryWorkflow::class,
                 ),
             )
         }
@@ -352,7 +352,7 @@ class QueryHandlerTest {
             registry.register(
                 WorkflowRegistration(
                     workflowType = "MultipleDynamicWorkflow",
-                    implementation = MultipleDynamicWorkflow(),
+                    workflowClass = MultipleDynamicWorkflow::class,
                 ),
             )
         }
@@ -1069,7 +1069,7 @@ class QueryHandlerTest {
         registry.register(
             WorkflowRegistration(
                 workflowType = workflowType,
-                implementation = workflowImpl,
+                workflowClass = workflowImpl::class,
             ),
         )
 

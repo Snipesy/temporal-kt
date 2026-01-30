@@ -74,7 +74,7 @@ class HeartbeatIntegrationTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(HeartbeatTestWorkflow())
+                    workflow<HeartbeatTestWorkflow>()
                     activity(HeartbeatingActivity())
                 }
             }
@@ -105,7 +105,7 @@ class HeartbeatIntegrationTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(HeartbeatTestWorkflow())
+                    workflow<HeartbeatTestWorkflow>()
                     activity(HeartbeatingActivity())
                 }
             }

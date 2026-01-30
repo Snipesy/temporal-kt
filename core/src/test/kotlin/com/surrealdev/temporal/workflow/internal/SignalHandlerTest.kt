@@ -206,7 +206,7 @@ class SignalHandlerTest {
         registry.register(
             WorkflowRegistration(
                 workflowType = "SimpleSignalWorkflow",
-                implementation = SimpleSignalWorkflow(),
+                workflowClass = SimpleSignalWorkflow::class,
             ),
         )
 
@@ -230,7 +230,7 @@ class SignalHandlerTest {
         registry.register(
             WorkflowRegistration(
                 workflowType = "BlankNameSignalWorkflow",
-                implementation = BlankNameSignalWorkflow(),
+                workflowClass = BlankNameSignalWorkflow::class,
             ),
         )
 
@@ -245,7 +245,7 @@ class SignalHandlerTest {
         registry.register(
             WorkflowRegistration(
                 workflowType = "MultipleSignalsWorkflow",
-                implementation = MultipleSignalsWorkflow(),
+                workflowClass = MultipleSignalsWorkflow::class,
             ),
         )
 
@@ -263,7 +263,7 @@ class SignalHandlerTest {
         registry.register(
             WorkflowRegistration(
                 workflowType = "DynamicSignalWorkflow",
-                implementation = DynamicSignalWorkflow(),
+                workflowClass = DynamicSignalWorkflow::class,
             ),
         )
 
@@ -279,7 +279,7 @@ class SignalHandlerTest {
         registry.register(
             WorkflowRegistration(
                 workflowType = "SignalWithArgsWorkflow",
-                implementation = SignalWithArgsWorkflow(),
+                workflowClass = SignalWithArgsWorkflow::class,
             ),
         )
 
@@ -311,7 +311,7 @@ class SignalHandlerTest {
             registry.register(
                 WorkflowRegistration(
                     workflowType = "DuplicateSignalWorkflow",
-                    implementation = DuplicateSignalWorkflow(),
+                    workflowClass = DuplicateSignalWorkflow::class,
                 ),
             )
         }
@@ -336,7 +336,7 @@ class SignalHandlerTest {
             registry.register(
                 WorkflowRegistration(
                     workflowType = "MultipleDynamicSignalWorkflow",
-                    implementation = MultipleDynamicSignalWorkflow(),
+                    workflowClass = MultipleDynamicSignalWorkflow::class,
                 ),
             )
         }
@@ -854,7 +854,7 @@ class SignalHandlerTest {
         registry.register(
             WorkflowRegistration(
                 workflowType = workflowType,
-                implementation = workflowImpl,
+                workflowClass = workflowImpl::class,
                 // For tests, reuse the same instance so we can inspect state
                 instanceFactory = { workflowImpl },
             ),

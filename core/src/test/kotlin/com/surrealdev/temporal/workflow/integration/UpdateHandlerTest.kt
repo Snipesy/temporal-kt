@@ -60,7 +60,7 @@ class UpdateHandlerTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(UpdateCounterWorkflow())
+                    workflow<UpdateCounterWorkflow>()
                 }
             }
 
@@ -135,7 +135,7 @@ class UpdateHandlerTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(ValidatedUpdateWorkflow())
+                    workflow<ValidatedUpdateWorkflow>()
                 }
             }
 
@@ -167,7 +167,7 @@ class UpdateHandlerTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(ValidatedUpdateWorkflow())
+                    workflow<ValidatedUpdateWorkflow>()
                 }
             }
 

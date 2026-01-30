@@ -1,6 +1,7 @@
 package com.surrealdev.temporal.application
 
 import com.surrealdev.temporal.annotation.TemporalDsl
+import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.application.plugin.HookRegistry
 import com.surrealdev.temporal.application.plugin.HookRegistryImpl
 import com.surrealdev.temporal.application.plugin.PluginPipeline
@@ -25,11 +26,11 @@ import kotlin.time.Duration.Companion.minutes
  *         // Task-queue-specific configuration
  *     }
  *
- *     workflow(MyWorkflowImpl())
+ *     workflow<MyWorkflow>()
  *     activity(MyActivityImpl())
  *
  *     // Or with explicit type names
- *     workflow(MyWorkflowImpl(), workflowType = "CustomWorkflowName")
+ *     workflow<MyWorkflow>(workflowType = "CustomWorkflowName")
  *     activity(MyActivityImpl(), activityType = "CustomActivityName")
  * }
  * ```
@@ -128,37 +129,111 @@ class TaskQueueBuilder internal constructor(
     internal val activities = mutableListOf<ActivityRegistration>()
 
     /**
-     * Registers a workflow implementation.
+     * Registers a workflow class.
      *
-     * @param implementation The workflow implementation instance
-     * @param workflowType The workflow type name. Defaults to the simple class name.
+     * A new instance is created for each workflow execution using the no-arg constructor.
+     * This aligns with Temporal's execution model where workflows must be replayable.
+     *
+     * The workflow type name is resolved in this order:
+     * 1. Explicitly provided [workflowType] parameter
+     * 2. Name from @Workflow annotation on the class
+     * 3. Simple class name
+     *
+     * @param workflowType The workflow type name. If not provided, uses the @Workflow annotation name or class name.
+     * @throws IllegalArgumentException if the workflow class doesn't have a no-arg constructor
+     * @throws IllegalArgumentException if the workflow type name starts with '__temporal_' (reserved)
      */
-    inline fun <reified T : Any> workflow(
-        implementation: T,
-        workflowType: String = T::class.simpleName ?: error("Cannot determine workflow type name"),
-    ) {
+    inline fun <reified T : Any> workflow(workflowType: String? = null) {
+        val klass = T::class
+
+        // Verify the class has a no-arg constructor
+        val hasNoArgConstructor = klass.constructors.any { it.parameters.isEmpty() }
+        require(hasNoArgConstructor) {
+            "Workflow class ${klass.qualifiedName ?: klass.simpleName} must have a no-arg constructor"
+        }
+
+        // Resolve workflow type: explicit param > @Workflow annotation > class name
+        val resolvedType =
+            workflowType
+                ?: klass.annotations
+                    .filterIsInstance<Workflow>()
+                    .firstOrNull()
+                    ?.name
+                    ?.takeIf { it.isNotBlank() }
+                ?: klass.simpleName
+                ?: error("Cannot determine workflow type name for ${klass.qualifiedName}")
+
+        // Validate reserved prefix (used internally by Temporal)
+        require(!resolvedType.startsWith("__temporal_")) {
+            "Workflow type name '$resolvedType' cannot start with '__temporal_' (reserved for internal use)"
+        }
+
         workflows.add(
             WorkflowRegistration(
-                workflowType = workflowType,
-                implementation = implementation,
+                workflowType = resolvedType,
+                workflowClass = klass,
             ),
         )
     }
 
     /**
-     * Registers an activity implementation.
+     * Registers all @Activity annotated methods from an instance.
      *
-     * @param implementation The activity implementation instance
-     * @param activityType The activity type name. Defaults to the simple class name.
+     * Scans the instance for methods annotated with @Activity and registers each one.
+     * Activity instances are singletons - the same instance handles all activity executions.
+     *
+     * @param instance The activity instance containing @Activity annotated methods
      */
-    inline fun <reified T : Any> activity(
-        implementation: T,
-        activityType: String = T::class.simpleName ?: error("Cannot determine activity type name"),
+    fun <T : Any> activity(instance: T) {
+        activities.add(ActivityRegistration.InstanceRegistration(instance))
+    }
+
+    /**
+     * Registers a specific activity function.
+     *
+     * Use this to register individual activity methods or top-level functions:
+     * ```kotlin
+     * // Bound method reference from an instance
+     * val myActivity = MyActivity()
+     * activity(myActivity::greet)
+     * activity(myActivity::farewell, activityType = "CustomFarewell")
+     *
+     * // Top-level function (no class needed)
+     * activity(::processOrder)
+     * ```
+     *
+     * The activity type name is resolved in this order:
+     * 1. Explicitly provided [activityType] parameter
+     * 2. Name from @Activity annotation on the method (if present)
+     * 3. Function name
+     *
+     * @param function A function reference (e.g., `instance::method` or `::topLevelFunction`)
+     * @param activityType Optional override for the activity type name
+     * @throws IllegalArgumentException if the activity type name starts with '__temporal_' (reserved)
+     */
+    fun <R> activity(
+        function: kotlin.reflect.KFunction<R>,
+        activityType: String? = null,
     ) {
+        // Resolve activity type: explicit param > @Activity annotation > function name
+        val resolvedType =
+            activityType
+                ?: function.annotations
+                    .filterIsInstance<com.surrealdev.temporal.annotation.Activity>()
+                    .firstOrNull()
+                    ?.name
+                    ?.takeIf { it.isNotBlank() }
+                ?: function.name
+
+        // Validate reserved prefix
+        require(!resolvedType.startsWith("__temporal_")) {
+            "Activity type name '$resolvedType' cannot start with '__temporal_' (reserved for internal use)"
+        }
+
         activities.add(
-            ActivityRegistration(
-                activityType = activityType,
-                implementation = implementation,
+            ActivityRegistration.FunctionRegistration(
+                activityType = resolvedType,
+                method = function,
             ),
         )
     }

@@ -39,7 +39,7 @@ fun main() {
         },
         module = {
             taskQueue("my-queue") {
-                workflow(MyWorkflow())
+                workflow<MyWorkflow>()
             }
         },
     )
@@ -84,7 +84,7 @@ fun main() {
         },
         module = {
             taskQueue("my-queue") {
-                workflow(MyWorkflow())
+                workflow<MyWorkflow>()
             }
         },
     )

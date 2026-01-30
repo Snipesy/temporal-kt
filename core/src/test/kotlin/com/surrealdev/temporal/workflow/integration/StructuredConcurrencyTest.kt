@@ -60,7 +60,7 @@ class StructuredConcurrencyTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(AsyncOperationsWorkflow())
+                    workflow<AsyncOperationsWorkflow>()
                 }
             }
 
@@ -116,7 +116,7 @@ class StructuredConcurrencyTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(NestedAsyncWorkflow())
+                    workflow<NestedAsyncWorkflow>()
                 }
             }
 

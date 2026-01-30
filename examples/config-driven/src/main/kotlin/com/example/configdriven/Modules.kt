@@ -25,7 +25,7 @@ import kotlin.time.Duration.Companion.seconds
  */
 fun TemporalApplication.ordersModule() {
     taskQueue("orders-queue") {
-        workflow(OrderWorkflow())
+        workflow<OrderWorkflow>()
         activity(InventoryActivity())
         activity(PaymentActivity())
     }

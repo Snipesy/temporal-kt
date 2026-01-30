@@ -22,7 +22,7 @@ fun main() = temporalApplication {
             call.respond(OrderResponse(workflowId = handle.id))
         }
 
-        workflow(CreateOrderWorkflow())
+        workflow<CreateOrderWorkflow>()
         activity(PaymentActivity())
     }
 }.start()
@@ -53,7 +53,7 @@ fun TemporalApplication.ordersModule() {
             }
 
             // Workflow type: "v1/CreateOrder"
-            workflow(CreateOrderWorkflow())
+            workflow<CreateOrderWorkflow>()
             activity(PaymentActivity())
         }
     }
@@ -80,7 +80,7 @@ fun TemporalApplication.module() {
             // ...
         }
 
-        workflow(CreateOrderWorkflow())
+        workflow<CreateOrderWorkflow>()
     }
 }
 ```

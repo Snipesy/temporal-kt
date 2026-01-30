@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.application
 
+import com.surrealdev.temporal.annotation.Activity
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.testing.runTemporalTest
@@ -7,6 +8,11 @@ import com.surrealdev.temporal.workflow.WorkflowContext
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.milliseconds
+
+@Activity
+private fun someTopLevelActivity() {
+    // No-op
+}
 
 /**
  * Integration tests for workflow execution.
@@ -46,13 +52,26 @@ class WorkflowExecutionTest {
     }
 
     @Test
+    fun `worker with top-level activity starts and stops cleanly`() =
+        runTemporalTest {
+            val taskQueue = "test-queue-activity-${UUID.randomUUID()}"
+
+            application {
+                taskQueue(taskQueue) {
+                    workflow<SimpleGreetingWorkflow>()
+                    activity(::someTopLevelActivity)
+                }
+            }
+        }
+
+    @Test
     fun `worker with registered workflow starts and stops cleanly`() =
         runTemporalTest {
             val taskQueue = "test-queue-${UUID.randomUUID()}"
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(SimpleGreetingWorkflow())
+                    workflow<SimpleGreetingWorkflow>()
                 }
             }
 
@@ -67,7 +86,7 @@ class WorkflowExecutionTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(TimerWorkflow())
+                    workflow<TimerWorkflow>()
                 }
             }
         }
@@ -79,7 +98,7 @@ class WorkflowExecutionTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(PlainWorkflow())
+                    workflow<PlainWorkflow>()
                 }
             }
         }
@@ -91,9 +110,9 @@ class WorkflowExecutionTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(SimpleGreetingWorkflow())
-                    workflow(TimerWorkflow())
-                    workflow(PlainWorkflow())
+                    workflow<SimpleGreetingWorkflow>()
+                    workflow<TimerWorkflow>()
+                    workflow<PlainWorkflow>()
                 }
             }
         }

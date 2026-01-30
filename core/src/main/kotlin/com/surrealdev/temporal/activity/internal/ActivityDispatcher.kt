@@ -369,20 +369,44 @@ class ActivityDispatcher(
         // Activities run on dedicated virtual threads, so blocking calls are fine.
         // Thread interruption is handled directly via ActivityVirtualThread.interrupt().
         return withContext(context) {
+            // For bound method references, instance is null (captured in the method)
+            // For unbound methods from instance scanning, instance is provided
+            val instance = methodInfo.instance
+
             if (methodInfo.hasContextReceiver) {
                 // Method has ActivityContext as extension receiver
-                if (methodInfo.isSuspend) {
-                    method.callSuspend(methodInfo.instance, context, *args)
+                if (instance != null) {
+                    // Unbound method - need to pass instance
+                    if (methodInfo.isSuspend) {
+                        method.callSuspend(instance, context, *args)
+                    } else {
+                        method.call(instance, context, *args)
+                    }
                 } else {
-                    method.call(methodInfo.instance, context, *args)
+                    // Bound method reference - instance is captured
+                    if (methodInfo.isSuspend) {
+                        method.callSuspend(context, *args)
+                    } else {
+                        method.call(context, *args)
+                    }
                 }
             } else {
                 // Method does not use context receiver
                 // Can still access context via coroutineContext[ActivityContext]
-                if (methodInfo.isSuspend) {
-                    method.callSuspend(methodInfo.instance, *args)
+                if (instance != null) {
+                    // Unbound method - need to pass instance
+                    if (methodInfo.isSuspend) {
+                        method.callSuspend(instance, *args)
+                    } else {
+                        method.call(instance, *args)
+                    }
                 } else {
-                    method.call(methodInfo.instance, *args)
+                    // Bound method reference - instance is captured
+                    if (methodInfo.isSuspend) {
+                        method.callSuspend(*args)
+                    } else {
+                        method.call(*args)
+                    }
                 }
             }
         }

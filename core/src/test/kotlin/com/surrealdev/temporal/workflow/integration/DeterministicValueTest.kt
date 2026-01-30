@@ -43,7 +43,7 @@ class DeterministicValueTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(RandomUuidWorkflow())
+                    workflow<RandomUuidWorkflow>()
                 }
             }
 
@@ -95,7 +95,7 @@ class DeterministicValueTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(TimeProgressionWorkflow())
+                    workflow<TimeProgressionWorkflow>()
                 }
             }
 

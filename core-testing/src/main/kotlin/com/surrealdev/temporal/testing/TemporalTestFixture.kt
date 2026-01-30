@@ -39,7 +39,7 @@ import kotlin.time.Duration.Companion.seconds
  * runTemporalTest {
  *     application {
  *         taskQueue("test-queue") {
- *             workflow(MyWorkflowImpl())
+ *             workflow<MyWorkflowImpl>()
  *         }
  *     }
  *
@@ -54,7 +54,7 @@ import kotlin.time.Duration.Companion.seconds
  * runTemporalTest(timeSkipping = true) {
  *     application {
  *         taskQueue("test-queue") {
- *             workflow(MyWorkflowWithTimerImpl())
+ *             workflow<MyWorkflowWithTimerImpl>()
  *         }
  *     }
  *
@@ -268,7 +268,7 @@ class TemporalTestApplicationBuilder internal constructor(
  * fun `my workflow test`() = runTemporalTest {
  *     application {
  *         taskQueue("test-queue") {
- *             workflow(MyWorkflowImpl())
+ *             workflow<MyWorkflowImpl>()
  *             activity(MyActivityImpl())
  *         }
  *     }
@@ -285,7 +285,7 @@ class TemporalTestApplicationBuilder internal constructor(
  * fun `workflow with timer`() = runTemporalTest(timeSkipping = true) {
  *     application {
  *         taskQueue("test-queue") {
- *             workflow(MyWorkflowWithTimerImpl())
+ *             workflow<MyWorkflowWithTimerImpl>()
  *         }
  *     }
  *

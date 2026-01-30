@@ -37,7 +37,7 @@ class CancellationTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(CancellableConditionWorkflow())
+                    workflow<CancellableConditionWorkflow>()
                 }
             }
 

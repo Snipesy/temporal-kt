@@ -148,7 +148,7 @@ class ParallelPerformanceTest {
             application {
                 taskQueue(taskQueue) {
                     maxConcurrentActivities = ACTIVITY_COUNT // Allow all activities to run concurrently
-                    workflow(ParallelActivitiesWorkflow())
+                    workflow<ParallelActivitiesWorkflow>()
                     activity(SlowActivity())
                 }
             }
@@ -200,7 +200,7 @@ class ParallelPerformanceTest {
                 taskQueue(taskQueue) {
                     // Workers should work fine on a single thread with sleep timers
                     maxConcurrentWorkflows = WORKFLOW_COUNT + 100 // Allow all workflows to run concurrently
-                    workflow(OneSleepWorkflow())
+                    workflow<OneSleepWorkflow>()
                 }
             }
 
@@ -245,7 +245,7 @@ class ParallelPerformanceTest {
                 taskQueue(taskQueue) {
                     maxConcurrentWorkflows = WORKFLOW_COUNT + 100 // Allow all workflows to run concurrently
                     workflowDeadlockTimeoutMs = 60000 // additional time to avoid flakey test runner deadlock detection
-                    workflow(OneDeadLockedWorkflow())
+                    workflow<OneDeadLockedWorkflow>()
                 }
             }
 

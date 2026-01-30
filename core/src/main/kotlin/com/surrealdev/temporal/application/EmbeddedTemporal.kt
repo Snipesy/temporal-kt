@@ -24,7 +24,7 @@ import kotlin.coroutines.CoroutineContext
  * fun main() {
  *     embeddedTemporal {
  *         taskQueue("my-queue") {
- *             workflow(MyWorkflow())
+ *             workflow<MyWorkflow>()
  *         }
  *     }.start(wait = true)
  * }
@@ -82,7 +82,7 @@ class EmbeddedTemporal internal constructor(
  * // With inline module
  * embeddedTemporal {
  *     taskQueue("orders") {
- *         workflow(OrderWorkflow())
+ *         workflow<OrderWorkflow>()
  *     }
  * }.start(wait = true)
  *

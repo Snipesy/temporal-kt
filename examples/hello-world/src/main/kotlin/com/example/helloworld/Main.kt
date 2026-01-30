@@ -28,7 +28,7 @@ fun main() {
         embeddedTemporal(
             module = {
                 taskQueue("hello-world-queue") {
-                    workflow(GreetingWorkflow())
+                    workflow<GreetingWorkflow>()
                     activity(GreetingActivity())
                 }
             },
@@ -173,6 +173,9 @@ class SimpleActivities {
      */
     @Activity
     fun processData(data: String): String = data.uppercase()
+}
+
+fun functionActivity() {
 }
 
 /**

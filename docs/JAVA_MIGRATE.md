@@ -304,7 +304,7 @@ factory.start();
 fun main() {
     embeddedTemporal(module = {
         taskQueue("my-task-queue") {
-            workflow(GreetingWorkflow())
+            workflow<GreetingWorkflow>()
             activity(GreetingActivities())
         }
     }).start(wait = true)

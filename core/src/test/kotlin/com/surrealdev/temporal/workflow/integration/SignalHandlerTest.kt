@@ -80,7 +80,7 @@ class SignalHandlerTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(SignalAccumulatorWorkflow())
+                    workflow<SignalAccumulatorWorkflow>()
                 }
             }
 
@@ -153,7 +153,7 @@ class SignalHandlerTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(BufferedSignalReplayWorkflow())
+                    workflow<BufferedSignalReplayWorkflow>()
                 }
             }
 
@@ -229,7 +229,7 @@ class SignalHandlerTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(DynamicSignalWorkflow())
+                    workflow<DynamicSignalWorkflow>()
                 }
             }
 

@@ -105,7 +105,7 @@ class OpenTelemetryIntegrationTest {
                 }
 
                 taskQueue(taskQueue) {
-                    workflow(SimpleWorkflow())
+                    workflow<SimpleWorkflow>()
                 }
             }
 
@@ -162,7 +162,7 @@ class OpenTelemetryIntegrationTest {
                 }
 
                 taskQueue(taskQueue) {
-                    workflow(WorkflowWithActivity())
+                    workflow<WorkflowWithActivity>()
                     activity(GreetingActivity())
                 }
             }
@@ -218,7 +218,7 @@ class OpenTelemetryIntegrationTest {
                 }
 
                 taskQueue(taskQueue) {
-                    workflow(WorkflowWithActivity())
+                    workflow<WorkflowWithActivity>()
                     activity(GreetingActivity())
                 }
             }
@@ -278,7 +278,7 @@ class OpenTelemetryIntegrationTest {
                 }
 
                 taskQueue(taskQueue) {
-                    workflow(WorkflowWithActivity())
+                    workflow<WorkflowWithActivity>()
                     activity(GreetingActivity())
                 }
             }
@@ -325,7 +325,7 @@ class OpenTelemetryIntegrationTest {
                 }
 
                 taskQueue(taskQueue) {
-                    workflow(SimpleWorkflow())
+                    workflow<SimpleWorkflow>()
                 }
             }
 

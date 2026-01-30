@@ -36,10 +36,59 @@ fun TemporalApplication.myMainModule() {
     }
     taskQueue("my-task-queue") {
         workflow<MyWorkflow>()
-        activity<MyActivity>()
+        activity(MyActivity())
     }
 }
 ```
+
+## Registration
+
+### Workflow Registration
+
+Workflows are registered by class using type parameters. A new instance is created for each workflow execution
+(required for Temporal's replay model):
+
+```kotlin
+taskQueue("my-queue") {
+    workflow<MyWorkflow>()                              // Uses @Workflow name or class name
+    workflow<MyWorkflow>(workflowType = "CustomName")   // Explicit type name override
+}
+```
+
+### Activity Registration
+
+Activities can be registered in three ways:
+
+**1. Instance registration** - Registers all `@Activity` annotated methods from an instance:
+```kotlin
+taskQueue("my-queue") {
+    activity(MyActivity())  // Registers all @Activity methods in the class
+}
+```
+
+**2. Method reference** - Registers a specific method from an instance:
+```kotlin
+val myActivity = MyActivity()
+taskQueue("my-queue") {
+    activity(myActivity::greet)                           // Uses @Activity name or function name
+    activity(myActivity::farewell, activityType = "Bye")  // Explicit type name override
+}
+```
+
+**3. Top-level function** - Registers a standalone function (no class needed):
+```kotlin
+@Activity
+suspend fun ActivityContext.processOrder(orderId: String): OrderResult {
+    // Activity implementation
+}
+
+taskQueue("my-queue") {
+    activity(::processOrder)  // Register top-level function directly
+}
+```
+
+Activity instances are singletons - the same instance handles all activity executions.
+This allows activities to hold dependencies and shared resources.
 
 ## Available Annotations
 

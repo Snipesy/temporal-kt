@@ -22,8 +22,12 @@ data class ActivityMethodInfo(
     val activityType: String,
     /** The method to invoke. */
     val method: KFunction<*>,
-    /** The activity instance to invoke the method on. */
-    val instance: Any,
+    /**
+     * The activity instance to invoke the method on.
+     * - For unbound methods (from reflection scanning): the instance is required
+     * - For bound method references (instance::method): null, as the instance is captured in the method
+     */
+    val instance: Any?,
     /** The parameter types (excluding context receiver). */
     val parameterTypes: List<KType>,
     /** The return type. */
@@ -45,45 +49,81 @@ class ActivityRegistry {
     private val methods = mutableMapOf<String, ActivityMethodInfo>()
 
     /**
-     * Registers an activity implementation.
+     * Registers an activity.
      *
-     * Scans the implementation for @Activity annotations and registers each method.
+     * Handles two types of registrations:
+     * - [ActivityRegistration.InstanceRegistration]: Scans the instance for @Activity annotations and registers each method
+     * - [ActivityRegistration.FunctionRegistration]: Registers a specific method with a given activity type
      *
-     * @param registration The activity registration containing the implementation
+     * @param registration The activity registration
      * @throws IllegalArgumentException if no activity methods are found or duplicate types exist
      */
     fun register(registration: ActivityRegistration) {
-        val implementation = registration.implementation
-        val klass = implementation::class
+        when (registration) {
+            is ActivityRegistration.InstanceRegistration -> {
+                registerInstance(registration.instance)
+            }
+            is ActivityRegistration.FunctionRegistration -> {
+                registerFunction(
+                    method = registration.method,
+                    activityType = registration.activityType,
+                )
+            }
+        }
+    }
+
+    /**
+     * Registers all @Activity annotated methods from an instance.
+     */
+    private fun registerInstance(instance: Any) {
+        val klass = instance::class
 
         // Find all methods annotated with @Activity
         val activityMethods = klass.declaredFunctions.filter { it.hasAnnotation<Activity>() }
 
         if (activityMethods.isEmpty()) {
             throw IllegalArgumentException(
-                "Activity class ${klass.qualifiedName} has no @Activity annotations. ",
+                "Activity class ${klass.qualifiedName} has no @Activity annotations.",
             )
-        } else {
-            // Register explicitly annotated methods
-            for (method in activityMethods) {
-                registerMethod(method, implementation)
-            }
+        }
+
+        // Register each annotated method
+        for (method in activityMethods) {
+            registerMethod(method, instance, activityTypeOverride = null)
         }
     }
 
+    /**
+     * Registers a specific function as an activity (bound method reference).
+     * Instance is null because it's captured in the bound method reference.
+     */
+    private fun registerFunction(
+        method: KFunction<*>,
+        activityType: String,
+    ) {
+        registerMethod(method, instance = null, activityTypeOverride = activityType)
+    }
+
+    /**
+     * Registers a method as an activity.
+     *
+     * @param method The method to register
+     * @param instance The instance to invoke the method on (null for bound method references)
+     * @param activityTypeOverride Optional override for the activity type name
+     */
     private fun registerMethod(
         method: KFunction<*>,
-        instance: Any,
+        instance: Any?,
+        activityTypeOverride: String? = null,
     ) {
         method.isAccessible = true
 
-        // Get the activity name from @Activity annotation or use function name
+        // Resolve activity type: override > @Activity annotation > function name
         val activityAnnotation = method.findAnnotation<Activity>()
         val activityType =
-            when {
-                activityAnnotation?.name?.isNotBlank() == true -> activityAnnotation.name
-                else -> method.name
-            }
+            activityTypeOverride
+                ?: activityAnnotation?.name?.takeIf { it.isNotBlank() }
+                ?: method.name
 
         // Check for duplicate registration
         if (methods.containsKey(activityType)) {

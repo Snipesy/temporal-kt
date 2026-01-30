@@ -59,7 +59,7 @@ class MixedJobTypesTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(MixedJobTypesWorkflow())
+                    workflow<MixedJobTypesWorkflow>()
                 }
             }
 

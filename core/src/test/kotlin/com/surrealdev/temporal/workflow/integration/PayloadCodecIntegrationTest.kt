@@ -172,7 +172,7 @@ class PayloadCodecIntegrationTest {
                 }
 
                 taskQueue(taskQueue) {
-                    workflow(EchoLargeDataWorkflow())
+                    workflow<EchoLargeDataWorkflow>()
                 }
             }
 
@@ -217,7 +217,7 @@ class PayloadCodecIntegrationTest {
                 }
 
                 taskQueue(taskQueue) {
-                    workflow(ProcessLargeDataWorkflow())
+                    workflow<ProcessLargeDataWorkflow>()
                     activity(LargeDataActivity())
                 }
             }
@@ -261,7 +261,7 @@ class PayloadCodecIntegrationTest {
                 }
 
                 taskQueue(taskQueue) {
-                    workflow(GenerateLargeDataWorkflow())
+                    workflow<GenerateLargeDataWorkflow>()
                 }
             }
 
@@ -298,7 +298,7 @@ class PayloadCodecIntegrationTest {
                 }
 
                 taskQueue(taskQueue) {
-                    workflow(EchoLargeDataWorkflow())
+                    workflow<EchoLargeDataWorkflow>()
                 }
             }
 
@@ -347,7 +347,7 @@ class PayloadCodecIntegrationTest {
                 }
 
                 taskQueue(taskQueue) {
-                    workflow(EchoLargeDataWorkflow())
+                    workflow<EchoLargeDataWorkflow>()
                 }
             }
 

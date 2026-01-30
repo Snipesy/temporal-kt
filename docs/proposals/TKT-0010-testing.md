@@ -62,7 +62,7 @@ Replace activities with mocks for isolated workflow testing:
 fun `test workflow with mocked activities`() = testTemporalApplication {
     application {
         taskQueue("orders") {
-            workflow(CreateOrderWorkflow())
+            workflow<CreateOrderWorkflow>()
 
             // Mock the activity
             activity<PaymentActivity> {

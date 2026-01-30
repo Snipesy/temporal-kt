@@ -52,7 +52,7 @@ class ConditionDeterminismTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(ConditionWorkflow())
+                    workflow<ConditionWorkflow>()
                 }
             }
 
@@ -114,7 +114,7 @@ class ConditionDeterminismTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(SequentialConditionsWorkflow())
+                    workflow<SequentialConditionsWorkflow>()
                 }
             }
 
@@ -171,7 +171,7 @@ class ConditionDeterminismTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(ConditionAfterStateChangeWorkflow())
+                    workflow<ConditionAfterStateChangeWorkflow>()
                 }
             }
 
@@ -223,7 +223,7 @@ class ConditionDeterminismTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(AwaitConditionTimeoutWorkflow())
+                    workflow<AwaitConditionTimeoutWorkflow>()
                 }
             }
 
@@ -274,7 +274,7 @@ class ConditionDeterminismTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(ConditionBeforeTimeoutWorkflow())
+                    workflow<ConditionBeforeTimeoutWorkflow>()
                 }
             }
 
@@ -323,7 +323,7 @@ class ConditionDeterminismTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(AwaitConditionNoTimeoutWorkflow())
+                    workflow<AwaitConditionNoTimeoutWorkflow>()
                 }
             }
 
@@ -368,7 +368,7 @@ class ConditionDeterminismTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(ConditionAlreadyTrueWorkflow())
+                    workflow<ConditionAlreadyTrueWorkflow>()
                 }
             }
 

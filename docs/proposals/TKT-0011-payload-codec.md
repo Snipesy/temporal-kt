@@ -144,7 +144,7 @@ fun TemporalApplication.module() {
     }
 
     taskQueue("secure-queue") {
-        workflow(SecureWorkflow())
+        workflow<SecureWorkflow>()
     }
 }
 ```

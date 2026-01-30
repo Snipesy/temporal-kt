@@ -220,7 +220,7 @@ class UpdateHandlerTest {
         registry.register(
             WorkflowRegistration(
                 workflowType = "SimpleUpdateWorkflow",
-                implementation = SimpleUpdateWorkflow(),
+                workflowClass = SimpleUpdateWorkflow::class,
             ),
         )
 
@@ -244,7 +244,7 @@ class UpdateHandlerTest {
         registry.register(
             WorkflowRegistration(
                 workflowType = "BlankNameUpdateWorkflow",
-                implementation = BlankNameUpdateWorkflow(),
+                workflowClass = BlankNameUpdateWorkflow::class,
             ),
         )
 
@@ -259,7 +259,7 @@ class UpdateHandlerTest {
         registry.register(
             WorkflowRegistration(
                 workflowType = "DynamicUpdateWorkflow",
-                implementation = DynamicUpdateWorkflow(),
+                workflowClass = DynamicUpdateWorkflow::class,
             ),
         )
 
@@ -275,7 +275,7 @@ class UpdateHandlerTest {
         registry.register(
             WorkflowRegistration(
                 workflowType = "UpdateWithValidatorWorkflow",
-                implementation = UpdateWithValidatorWorkflow(),
+                workflowClass = UpdateWithValidatorWorkflow::class,
             ),
         )
 
@@ -306,7 +306,7 @@ class UpdateHandlerTest {
             registry.register(
                 WorkflowRegistration(
                     workflowType = "DuplicateUpdateWorkflow",
-                    implementation = DuplicateUpdateWorkflow(),
+                    workflowClass = DuplicateUpdateWorkflow::class,
                 ),
             )
         }
@@ -331,7 +331,7 @@ class UpdateHandlerTest {
             registry.register(
                 WorkflowRegistration(
                     workflowType = "MultipleDynamicUpdateWorkflow",
-                    implementation = MultipleDynamicUpdateWorkflow(),
+                    workflowClass = MultipleDynamicUpdateWorkflow::class,
                 ),
             )
         }
@@ -353,7 +353,7 @@ class UpdateHandlerTest {
             registry.register(
                 WorkflowRegistration(
                     workflowType = "OrphanValidatorWorkflow",
-                    implementation = OrphanValidatorWorkflow(),
+                    workflowClass = OrphanValidatorWorkflow::class,
                 ),
             )
         }
@@ -934,7 +934,7 @@ class UpdateHandlerTest {
         registry.register(
             WorkflowRegistration(
                 workflowType = workflowType,
-                implementation = workflowImpl,
+                workflowClass = workflowImpl::class,
                 // For tests, reuse the same instance so we can inspect state
                 instanceFactory = { workflowImpl },
             ),

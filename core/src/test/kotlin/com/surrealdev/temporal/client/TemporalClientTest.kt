@@ -55,7 +55,7 @@ class TemporalClientTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(GreetingWorkflow())
+                    workflow<GreetingWorkflow>()
                 }
             }
 
@@ -82,7 +82,7 @@ class TemporalClientTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(GreetingWorkflow())
+                    workflow<GreetingWorkflow>()
                 }
             }
 
@@ -108,7 +108,7 @@ class TemporalClientTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(TimerTestWorkflow())
+                    workflow<TimerTestWorkflow>()
                 }
             }
 
@@ -131,7 +131,7 @@ class TemporalClientTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(GreetingWorkflow())
+                    workflow<GreetingWorkflow>()
                 }
             }
 
@@ -159,7 +159,7 @@ class TemporalClientTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(TimerTestWorkflow())
+                    workflow<TimerTestWorkflow>()
                 }
             }
 
@@ -189,7 +189,7 @@ class TemporalClientTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(GreetingWorkflow())
+                    workflow<GreetingWorkflow>()
                 }
             }
 
@@ -217,7 +217,7 @@ class TemporalClientTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(MultiArgWorkflow())
+                    workflow<MultiArgWorkflow>()
                 }
             }
 
@@ -241,7 +241,7 @@ class TemporalClientTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(NoArgWorkflow())
+                    workflow<NoArgWorkflow>()
                 }
             }
 
@@ -264,7 +264,7 @@ class TemporalClientTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(GreetingWorkflow())
+                    workflow<GreetingWorkflow>()
                 }
             }
 

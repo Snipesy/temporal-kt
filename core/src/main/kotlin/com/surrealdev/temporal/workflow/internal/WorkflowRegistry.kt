@@ -125,14 +125,13 @@ internal class WorkflowRegistry {
     private val workflows = mutableMapOf<String, WorkflowMethodInfo>()
 
     /**
-     * Registers a workflow implementation.
+     * Registers a workflow class.
      *
-     * @param registration The workflow registration containing the implementation
+     * @param registration The workflow registration containing the workflow class
      * @throws IllegalArgumentException if no @WorkflowRun method is found or duplicate types exist
      */
     fun register(registration: WorkflowRegistration) {
-        val implementation = registration.implementation
-        val klass = implementation::class
+        val klass = registration.workflowClass
 
         // Get the workflow type from @Workflow annotation or registration
         val workflowAnnotation = klass.findAnnotation<Workflow>()

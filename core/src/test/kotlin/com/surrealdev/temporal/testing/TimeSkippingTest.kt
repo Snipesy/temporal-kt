@@ -40,7 +40,7 @@ class TimeSkippingTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(LongTimerWorkflow())
+                    workflow<LongTimerWorkflow>()
                 }
             }
 
@@ -88,7 +88,7 @@ class TimeSkippingTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(LongTimerWorkflow())
+                    workflow<LongTimerWorkflow>()
                 }
             }
 

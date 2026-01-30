@@ -111,7 +111,7 @@ class DispatcherConfigurationTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(ThreadTrackingWorkflow())
+                    workflow<ThreadTrackingWorkflow>()
                 }
             }
 
@@ -142,7 +142,7 @@ class DispatcherConfigurationTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(ThreadTrackingWorkflow())
+                    workflow<ThreadTrackingWorkflow>()
                 }
             }
 
@@ -178,7 +178,7 @@ class DispatcherConfigurationTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(WorkflowWithActivity())
+                    workflow<WorkflowWithActivity>()
                     activity(ThreadTrackingActivity())
                 }
             }
@@ -210,7 +210,7 @@ class DispatcherConfigurationTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(WorkflowWithActivity())
+                    workflow<WorkflowWithActivity>()
                     activity(ThreadTrackingActivity())
                 }
             }
@@ -247,7 +247,7 @@ class DispatcherConfigurationTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(WorkflowWithActivity())
+                    workflow<WorkflowWithActivity>()
                     activity(ThreadTrackingActivity())
                 }
             }
@@ -289,10 +289,10 @@ class DispatcherConfigurationTest {
 
             application {
                 taskQueue(taskQueue1) {
-                    workflow(ThreadTrackingWorkflow())
+                    workflow<ThreadTrackingWorkflow>()
                 }
                 taskQueue(taskQueue2) {
-                    workflow(ThreadTrackingWorkflow())
+                    workflow<ThreadTrackingWorkflow>()
                 }
             }
 

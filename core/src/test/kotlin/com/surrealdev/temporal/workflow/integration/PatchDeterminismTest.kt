@@ -54,8 +54,8 @@ class PatchDeterminismTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(SimplePatchWorkflow())
-                    workflow(MemoizedPatchWorkflow())
+                    workflow<SimplePatchWorkflow>()
+                    workflow<MemoizedPatchWorkflow>()
                 }
             }
 
@@ -124,7 +124,7 @@ class PatchDeterminismTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(MultiplePatchWorkflow())
+                    workflow<MultiplePatchWorkflow>()
                 }
             }
 
@@ -182,7 +182,7 @@ class PatchDeterminismTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(ConditionalPatchWorkflow())
+                    workflow<ConditionalPatchWorkflow>()
                 }
             }
 
@@ -225,7 +225,7 @@ class PatchDeterminismTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(VersionReportingWorkflow())
+                    workflow<VersionReportingWorkflow>()
                 }
             }
 

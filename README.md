@@ -72,7 +72,11 @@ git submodule update --init --recursive
 
 The core foundation of temporal-kt is built around 2 APIs, Declarative and Imperative (although they work together).
 
-### Imperative API [TKT-0001](docs/proposals/TKT-0001-annotations.md) and [TKT-0002](docs/proposals/TKT-0002-interfaces.md)
+
+### Imperative API [TKT-0001](docs/proposals/TKT-0001-annotations.md)
+
+Currently only TKT-0001 is supported until the core foundation and core-bridge is stable. It is unclear if we will
+support TKT-0002 (i.e. interface proxy stubs) like Java
 
 ```kotlin
 @Workflow("MyWorkflow")
@@ -93,12 +97,14 @@ fun TemporalApplication.module() {
     install(PayloadSerialization) { json() }
     taskQueue("my-queue") {
         workflow<MyWorkflow>()
-        activity<MyActivity>()
+        activity(MyActivity())
     }
 }
 ```
 
 ### Declarative API [TKT-0003](docs/proposals/TKT-0003-inline.md)
+
+Temporal TKT-0003 is currently not implemented, and will require Kotlin FIR integration in the form of [./compiler-plugin/](compiler-plugin/) 
 
 ```kotlin
 fun TemporalApplication.module() {

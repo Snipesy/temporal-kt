@@ -24,7 +24,7 @@ val app = embeddedTemporal(
         }
 
         taskQueue("my-queue") {
-            workflow(MyWorkflow())
+            workflow<MyWorkflow>()
             activity(MyActivity())
         }
     }
@@ -87,12 +87,12 @@ val app = embeddedTemporal(
             dependencies {
                 workflowSafe<FeatureFlags> { BetaFeatureFlags() }
             }
-            workflow(MyWorkflow())
+            workflow<MyWorkflow>()
         }
 
         taskQueue("production-queue") {
             // Uses the app-level ProductionFeatureFlags
-            workflow(MyWorkflow())
+            workflow<MyWorkflow>()
         }
     }
 )

@@ -159,7 +159,7 @@ fun main() {
         }
 
         taskQueue("orders-queue") {
-            workflow(OrderWorkflow())
+            workflow<OrderWorkflow>()
             activity(OrderActivity())
         }
     }).start(wait = true)
@@ -179,7 +179,7 @@ fun TemporalApplication.ordersModule() {
     }
 
     taskQueue("orders-queue") {
-        workflow(OrderWorkflow())
+        workflow<OrderWorkflow>()
         activity(OrderActivity())
     }
 }

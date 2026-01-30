@@ -158,7 +158,7 @@ class WorkflowCoroutineDispatcherTimeTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(DelayWorkflow())
+                    workflow<DelayWorkflow>()
                 }
             }
 
@@ -193,7 +193,7 @@ class WorkflowCoroutineDispatcherTimeTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(SingleTimerWorkflow())
+                    workflow<SingleTimerWorkflow>()
                 }
             }
 
@@ -222,7 +222,7 @@ class WorkflowCoroutineDispatcherTimeTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(MultipleTimersWorkflow())
+                    workflow<MultipleTimersWorkflow>()
                 }
             }
 
@@ -250,7 +250,7 @@ class WorkflowCoroutineDispatcherTimeTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(AsyncWorkflow())
+                    workflow<AsyncWorkflow>()
                 }
             }
 
@@ -280,7 +280,7 @@ class WorkflowCoroutineDispatcherTimeTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(ComputeAndSleepWorkflow())
+                    workflow<ComputeAndSleepWorkflow>()
                 }
             }
 
@@ -309,7 +309,7 @@ class WorkflowCoroutineDispatcherTimeTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(ImmediateReturnWorkflow())
+                    workflow<ImmediateReturnWorkflow>()
                 }
             }
 
@@ -342,7 +342,7 @@ class WorkflowCoroutineDispatcherTimeTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(LongTimerWorkflow())
+                    workflow<LongTimerWorkflow>()
                 }
             }
 
@@ -373,7 +373,7 @@ class WorkflowCoroutineDispatcherTimeTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(MultipleLongTimersWorkflow())
+                    workflow<MultipleLongTimersWorkflow>()
                 }
             }
 

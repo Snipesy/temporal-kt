@@ -161,7 +161,7 @@ class WorkflowFailureHandlingTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(FailingWorkflow())
+                    workflow<FailingWorkflow>()
                 }
             }
 
@@ -200,7 +200,7 @@ class WorkflowFailureHandlingTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(FailAfterSleepWorkflow())
+                    workflow<FailAfterSleepWorkflow>()
                 }
             }
 
@@ -233,7 +233,7 @@ class WorkflowFailureHandlingTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(FailInAsyncWorkflow())
+                    workflow<FailInAsyncWorkflow>()
                 }
             }
 
@@ -264,7 +264,7 @@ class WorkflowFailureHandlingTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(FailInLaunchWorkflow())
+                    workflow<FailInLaunchWorkflow>()
                 }
             }
 
@@ -300,7 +300,7 @@ class WorkflowFailureHandlingTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(CustomExceptionWorkflow())
+                    workflow<CustomExceptionWorkflow>()
                 }
             }
 
@@ -335,7 +335,7 @@ class WorkflowFailureHandlingTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(PartialAsyncFailureWorkflow())
+                    workflow<PartialAsyncFailureWorkflow>()
                 }
             }
 
@@ -376,8 +376,8 @@ class WorkflowFailureHandlingTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(FailingWorkflow())
-                    workflow(SuccessfulWorkflow())
+                    workflow<FailingWorkflow>()
+                    workflow<SuccessfulWorkflow>()
                 }
             }
 
@@ -426,7 +426,7 @@ class WorkflowFailureHandlingTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(FailingWorkflow())
+                    workflow<FailingWorkflow>()
                 }
             }
 
@@ -459,8 +459,8 @@ class WorkflowFailureHandlingTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(FailAfterSleepWorkflow())
-                    workflow(SuccessfulWorkflow())
+                    workflow<FailAfterSleepWorkflow>()
+                    workflow<SuccessfulWorkflow>()
                 }
             }
 
@@ -512,7 +512,7 @@ class WorkflowFailureHandlingTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(CancellableWorkflow())
+                    workflow<CancellableWorkflow>()
                 }
             }
 
@@ -550,8 +550,8 @@ class WorkflowFailureHandlingTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(CancellableWorkflow())
-                    workflow(SuccessfulWorkflow())
+                    workflow<CancellableWorkflow>()
+                    workflow<SuccessfulWorkflow>()
                 }
             }
 
@@ -603,7 +603,7 @@ class WorkflowFailureHandlingTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(NullPointerWorkflow())
+                    workflow<NullPointerWorkflow>()
                 }
             }
 

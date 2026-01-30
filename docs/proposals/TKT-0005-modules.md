@@ -8,8 +8,8 @@ and configuration. This pattern (inspired by Ktor) enables clean organization an
 ```kotlin
 fun TemporalApplication.ordersModule() {
     taskQueue("orders") {
-        workflow(CreateOrderWorkflow())
-        workflow(CancelOrderWorkflow())
+        workflow<CreateOrderWorkflow>()
+        workflow<CancelOrderWorkflow>()
         activity(PaymentActivity())
         activity(InventoryActivity())
     }
@@ -121,7 +121,7 @@ fun TemporalApplication.ordersModule() {
     baseModule()  // Include shared config
 
     taskQueue("orders") {
-        workflow(CreateOrderWorkflow())
+        workflow<CreateOrderWorkflow>()
     }
 }
 ```

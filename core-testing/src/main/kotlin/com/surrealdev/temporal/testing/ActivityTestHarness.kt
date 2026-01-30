@@ -145,18 +145,9 @@ class ActivityTestHarness(
      * The implementation class should contain methods annotated with [@Activity][com.surrealdev.temporal.annotation.Activity].
      *
      * @param implementation The activity implementation instance
-     * @param activityType Optional activity type override (not typically needed).
      */
-    fun register(
-        implementation: Any,
-        activityType: String = "",
-    ) {
-        registry.register(
-            ActivityRegistration(
-                activityType = activityType,
-                implementation = implementation,
-            ),
-        )
+    fun register(implementation: Any) {
+        registry.register(ActivityRegistration.InstanceRegistration(implementation))
     }
 
     /**

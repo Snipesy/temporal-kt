@@ -33,21 +33,21 @@ fun main() {
             module = {
                 // Orders domain - handles order processing workflows
                 taskQueue("orders-queue") {
-                    workflow(CreateOrderWorkflow())
+                    workflow<CreateOrderWorkflow>()
                     activity(InventoryActivity())
                     activity(PaymentActivity())
                 }
 
                 // Notifications domain - handles sending notifications
                 taskQueue("notifications-queue") {
-                    workflow(NotificationWorkflow())
+                    workflow<NotificationWorkflow>()
                     activity(EmailActivity())
                     activity(SmsActivity())
                 }
 
                 // Analytics domain - handles data processing
                 taskQueue("analytics-queue") {
-                    workflow(DailyReportWorkflow())
+                    workflow<DailyReportWorkflow>()
                     activity(AggregationActivity())
                 }
             },

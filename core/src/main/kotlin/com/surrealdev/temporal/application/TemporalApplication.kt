@@ -57,7 +57,7 @@ import kotlin.time.Duration.Companion.minutes
  * }
  *
  * app.taskQueue("my-task-queue") {
- *     workflow(MyWorkflowImpl())
+ *     workflow<MyWorkflowImpl>()
  *     activity(MyActivityImpl())
  * }
  *
@@ -454,15 +454,15 @@ internal data class TaskQueueConfig(
  * Registration info for a workflow.
  *
  * @property workflowType The workflow type name
- * @property implementation The workflow implementation instance (used to scan for methods)
+ * @property workflowClass The workflow class to instantiate for each execution
  * @property instanceFactory Optional factory to create workflow instances. If null, a factory
  *   will be created that calls the no-arg constructor. For tests that need to inspect workflow
- *   state, this can be set to `{ implementation }` to reuse the same instance.
+ *   state, this can provide a custom instance.
  */
 @PublishedApi
 internal data class WorkflowRegistration(
     val workflowType: String,
-    val implementation: Any,
+    val workflowClass: kotlin.reflect.KClass<*>,
     val instanceFactory: (() -> Any)? = null,
 )
 
@@ -470,10 +470,29 @@ internal data class WorkflowRegistration(
  * Registration info for an activity.
  */
 @InternalTemporalApi
-data class ActivityRegistration(
-    val activityType: String,
-    val implementation: Any,
-)
+sealed class ActivityRegistration {
+    /**
+     * Register all @Activity annotated methods from an instance.
+     *
+     * @property instance The activity instance containing @Activity annotated methods
+     */
+    data class InstanceRegistration(
+        val instance: Any,
+    ) : ActivityRegistration()
+
+    /**
+     * Register a specific activity function (bound method reference).
+     *
+     * The instance is captured in the bound method reference, so we only need the method.
+     *
+     * @property activityType The activity type name
+     * @property method The bound method reference (e.g., `instance::method`)
+     */
+    data class FunctionRegistration(
+        val activityType: String,
+        val method: kotlin.reflect.KFunction<*>,
+    ) : ActivityRegistration()
+}
 
 /**
  * Registers a task queue with the application.
@@ -485,7 +504,7 @@ data class ActivityRegistration(
  * ```kotlin
  * val app = TemporalApplication { connection { ... } }
  * app.taskQueue("my-queue") {
- *     workflow(MyWorkflowImpl())
+ *     workflow<MyWorkflowImpl>()
  *     activity(MyActivityImpl())
  * }
  * app.start()

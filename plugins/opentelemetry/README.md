@@ -14,7 +14,7 @@ fun main() {
             }
 
             taskQueue("my-queue") {
-                workflow(OrderWorkflow())
+                workflow<OrderWorkflow>()
                 activity(PaymentActivity())
             }
         }

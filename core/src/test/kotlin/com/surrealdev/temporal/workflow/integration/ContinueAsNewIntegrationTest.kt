@@ -180,7 +180,7 @@ class ContinueAsNewIntegrationTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(SimpleContinueAsNewWorkflow())
+                    workflow<SimpleContinueAsNewWorkflow>()
                 }
             }
 
@@ -207,7 +207,7 @@ class ContinueAsNewIntegrationTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(ChainedContinueAsNewWorkflow())
+                    workflow<ChainedContinueAsNewWorkflow>()
                 }
             }
 
@@ -234,7 +234,7 @@ class ContinueAsNewIntegrationTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(ComplexDataContinueAsNewWorkflow())
+                    workflow<ComplexDataContinueAsNewWorkflow>()
                 }
             }
 
@@ -262,7 +262,7 @@ class ContinueAsNewIntegrationTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(MultiArgContinueAsNewWorkflow())
+                    workflow<MultiArgContinueAsNewWorkflow>()
                 }
             }
 
@@ -290,7 +290,7 @@ class ContinueAsNewIntegrationTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(ContinueAsNewWithOptionsWorkflow())
+                    workflow<ContinueAsNewWithOptionsWorkflow>()
                 }
             }
 
@@ -317,8 +317,8 @@ class ContinueAsNewIntegrationTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(ContinueToNewTypeWorkflow())
-                    workflow(TargetWorkflow())
+                    workflow<ContinueToNewTypeWorkflow>()
+                    workflow<TargetWorkflow>()
                 }
             }
 
@@ -344,7 +344,7 @@ class ContinueAsNewIntegrationTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(ContinueAsNewWithTimerWorkflow())
+                    workflow<ContinueAsNewWithTimerWorkflow>()
                 }
             }
 
@@ -371,7 +371,7 @@ class ContinueAsNewIntegrationTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(ChainedContinueAsNewWorkflow())
+                    workflow<ChainedContinueAsNewWorkflow>()
                 }
             }
 
@@ -420,7 +420,7 @@ class ContinueAsNewIntegrationTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(HistoryMetricsTestWorkflow())
+                    workflow<HistoryMetricsTestWorkflow>()
                 }
             }
 

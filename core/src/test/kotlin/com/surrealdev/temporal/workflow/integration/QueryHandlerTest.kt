@@ -80,7 +80,7 @@ class QueryHandlerTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(QueryableWorkflow())
+                    workflow<QueryableWorkflow>()
                 }
             }
 
@@ -145,7 +145,7 @@ class QueryHandlerTest {
 
             application {
                 taskQueue(taskQueue) {
-                    workflow(RuntimeQueryWorkflow())
+                    workflow<RuntimeQueryWorkflow>()
                 }
             }
 
