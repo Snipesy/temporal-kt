@@ -105,7 +105,7 @@ For more examples, see the [examples](../examples) directory.
 
 The biggest feature of Temporal Kotlin is its implementations of workflows. Workflows are written as coroutines which
 allows for [structured execution](https://kotlinlang.org/docs/coroutines-basics.html#coroutine-scope-and-structured-concurrency)
-not possible with Java (even with Virtual Threads).
+not possible with Java (even with virtual threads).
 
 Example Workflow
 
