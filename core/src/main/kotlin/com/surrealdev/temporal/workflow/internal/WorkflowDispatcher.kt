@@ -8,6 +8,7 @@ import coresdk.workflow_activation.WorkflowActivationOuterClass.WorkflowActivati
 import coresdk.workflow_completion.WorkflowCompletion
 import io.temporal.api.failure.v1.Failure
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
@@ -15,6 +16,7 @@ import kotlinx.coroutines.sync.withPermit
 import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ThreadFactory
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Dispatches workflow activations to the appropriate workflow executors.
@@ -93,6 +95,13 @@ internal class WorkflowDispatcher(
 
     private val semaphore = Semaphore(maxConcurrent)
 
+    /** Flag indicating shutdown is in progress - prevents new dispatches from creating executors */
+    @Volatile
+    private var shuttingDown = false
+
+    /** Counter for in-flight dispatch operations */
+    private val inFlightDispatches = AtomicInteger(0)
+
     /**
      * Entry containing the executor, its per-run mutex, and its dedicated virtual thread.
      * The mutex ensures activations for the same run_id are processed sequentially,
@@ -140,7 +149,7 @@ internal class WorkflowDispatcher(
     suspend fun dispatch(activation: WorkflowActivation): WorkflowCompletion.WorkflowActivationCompletion {
         val runId = activation.runId
 
-        // Handle eviction (remove from cache)
+        // Handle eviction (always allowed, even during shutdown)
         if (isEviction(activation)) {
             val entry = executors.remove(runId)
             entry?.let {
@@ -158,8 +167,24 @@ internal class WorkflowDispatcher(
             return buildEmptyCompletion(runId)
         }
 
-        return semaphore.withPermit {
-            dispatchInternal(activation)
+        // Reject new work during shutdown
+        if (shuttingDown) {
+            logger.warn("Rejecting activation during shutdown. run_id={}", runId)
+            return buildShutdownFailure(activation)
+        }
+
+        // Track in-flight dispatch
+        inFlightDispatches.incrementAndGet()
+        try {
+            return semaphore.withPermit {
+                // Double-check after acquiring permit
+                if (shuttingDown) {
+                    return buildShutdownFailure(activation)
+                }
+                dispatchInternal(activation)
+            }
+        } finally {
+            inFlightDispatches.decrementAndGet()
         }
     }
 
@@ -343,14 +368,48 @@ internal class WorkflowDispatcher(
             ).build()
     }
 
+    private fun buildShutdownFailure(activation: WorkflowActivation): WorkflowCompletion.WorkflowActivationCompletion {
+        val failure =
+            Failure
+                .newBuilder()
+                .setMessage("Worker is shutting down")
+                .setSource("Kotlin")
+                .build()
+
+        return WorkflowCompletion.WorkflowActivationCompletion
+            .newBuilder()
+            .setRunId(activation.runId)
+            .setFailed(
+                WorkflowCompletion.Failure
+                    .newBuilder()
+                    .setFailure(failure),
+            ).build()
+    }
+
     /**
      * Removes all cached executors, terminates their virtual threads, and cancels their execution jobs.
      * Called during worker shutdown.
      */
     suspend fun clear() {
+        // Signal shutdown to prevent new dispatches from creating executors
+        shuttingDown = true
+
+        // Wait for in-flight dispatches to complete (with timeout)
+        val drainStart = System.currentTimeMillis()
+        while (inFlightDispatches.get() > 0) {
+            if (System.currentTimeMillis() - drainStart > DRAIN_TIMEOUT_MS) {
+                logger.warn(
+                    "[TKT1107] Timeout waiting for {} in-flight dispatches to complete during shutdown",
+                    inFlightDispatches.get(),
+                )
+                break
+            }
+            delay(10)
+        }
+
         zombieManager.logShutdownWarning()
 
-        // Launch async termination for all executors
+        // Now safe to iterate and clear - no new entries will be added
         executors.forEach { (runId, entry) ->
             entry.executor.terminateWorkflowExecutionJob()
             launchTerminationJob(
@@ -392,4 +451,12 @@ internal class WorkflowDispatcher(
      * Gets the number of cached workflow executors.
      */
     fun cachedCount(): Int = executors.size
+
+    companion object {
+        /**
+         * Timeout for draining in-flight dispatches during shutdown.
+         * If dispatches don't complete within this time, shutdown proceeds anyway.
+         */
+        private const val DRAIN_TIMEOUT_MS = 10000
+    }
 }
