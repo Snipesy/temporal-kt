@@ -213,7 +213,7 @@ suspend fun goodActivity(param: String): String = coroutineScope {
 }
 ```
 
-If you MUST have parallelism within an activity use `withContext` to switch to a different dispatcher. This gurantees
+If you MUST have parallelism within an activity use `withContext` to switch to a different dispatcher. This guarantees
 cancellation when the activity is canceled or finishes.
 
 ```kotlin
