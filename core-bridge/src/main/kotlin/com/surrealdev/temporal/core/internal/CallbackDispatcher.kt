@@ -2,6 +2,7 @@ package com.surrealdev.temporal.core.internal
 
 import io.temporal.sdkbridge.TemporalCoreWorkerCallback
 import io.temporal.sdkbridge.TemporalCoreWorkerPollCallback
+import org.slf4j.LoggerFactory
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout
@@ -35,6 +36,8 @@ internal class CallbackDispatcher(
 
     // Arena for allocating context pointers (8 bytes each)
     private val contextArena = Arena.ofShared()
+
+    private val logger = LoggerFactory.getLogger(CallbackDispatcher::class.java)
 
     /**
      * Single reusable stub for poll operations (workflow activation, activity task, nexus task).
@@ -86,8 +89,11 @@ internal class CallbackDispatcher(
                 val contextId = userDataPtr.get(ValueLayout.JAVA_LONG, 0)
                 val callback = pendingWorkerCallbacks.remove(contextId)
                 val remaining = pendingWorkerCallbacks.size
-                println(
-                    "[CallbackDispatcher] Worker callback invoked: contextId=$contextId, found=${callback != null}, remaining=$remaining",
+                logger.trace(
+                    "[CallbackDispatcher] Worker callback invoked: contextId={}, found={}, remaining={}",
+                    contextId,
+                    callback != null,
+                    remaining,
                 )
 
                 if (callback == null) {
@@ -132,7 +138,7 @@ internal class CallbackDispatcher(
         val contextId = nextContextId.getAndIncrement()
         pendingWorkerCallbacks[contextId] = callback
         val total = pendingWorkerCallbacks.size
-        println("[CallbackDispatcher] Worker callback registered: contextId=$contextId, total=$total")
+        logger.trace("[CallbackDispatcher] Worker callback registered: contextId={}, total={}", contextId, total)
         return allocateContextPointer(contextId)
     }
 
@@ -176,14 +182,14 @@ internal class CallbackDispatcher(
      * Dumps the current state of pending callbacks for debugging.
      */
     fun dumpPendingCallbacks() {
-        println("[CallbackDispatcher] Pending poll callbacks: ${pendingPollCallbacks.keys}")
-        println("[CallbackDispatcher] Pending worker callbacks: ${pendingWorkerCallbacks.keys}")
+        logger.trace("[CallbackDispatcher] Pending poll callbacks: {}", pendingPollCallbacks.keys)
+        logger.trace("[CallbackDispatcher] Pending worker callbacks: {}", pendingWorkerCallbacks.keys)
     }
 
     override fun close() {
         // Dump state before clearing
         if (pendingPollCallbacks.isNotEmpty() || pendingWorkerCallbacks.isNotEmpty()) {
-            println("[CallbackDispatcher] WARNING: Closing with pending callbacks!")
+            logger.trace("[CallbackDispatcher] WARNING: Closing with pending callbacks!")
             dumpPendingCallbacks()
         }
         // Clear any pending callbacks (they will never be invoked)
