@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.surrealdev.temporal.internal.ZombieEvictionManager
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.util.AttributeScope
@@ -13,6 +14,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ThreadFactory
 
 /**
  * Dispatches workflow activations to the appropriate workflow executors.
@@ -46,19 +48,61 @@ internal class WorkflowDispatcher(
      * All workflow executors will be children of this job (rootExecutorJob).
      */
     private val parentJob: Job,
+    /**
+     * Thread factory for creating virtual threads for workflow execution.
+     * Each workflow run gets a dedicated virtual thread.
+     */
+    private val workflowThreadFactory: ThreadFactory,
+    /**
+     * Timeout in milliseconds for detecting workflow deadlocks.
+     * If a workflow activation doesn't complete within this time, a WorkflowDeadlockException is thrown.
+     * Set to 0 to disable deadlock detection.
+     */
+    private val deadlockTimeoutMs: Long = 2000L,
+    /**
+     * Grace period in milliseconds to wait for a workflow thread to terminate after interrupt.
+     * If the thread doesn't terminate within this time, it's considered a zombie.
+     */
+    private val terminationGracePeriodMs: Long = 60_000L,
+    /**
+     * Maximum number of zombie threads before forcing worker shutdown.
+     * When this threshold is exceeded, the onFatalError callback is invoked.
+     * Set to 0 to disable (not recommended).
+     */
+    private val maxZombieCount: Int = 10,
+    /**
+     * Callback invoked when a fatal error occurs (e.g., zombie threshold exceeded).
+     * This allows the application to gracefully shut down instead of calling System.exit().
+     * The callback is invoked from a coroutine context, so it can be a suspend function.
+     */
+    private val onFatalError: (suspend () -> Unit)? = null,
+    /**
+     * Maximum number of retry attempts for zombie eviction before giving up.
+     */
+    private val maxZombieRetries: Int = 100,
+    /**
+     * Interval between zombie eviction retry attempts.
+     */
+    private val zombieRetryIntervalMs: Long = 5_000L,
+    /**
+     * Timeout for waiting on zombie eviction jobs during shutdown.
+     */
+    private val zombieEvictionShutdownTimeoutMs: Long = 30_000L,
 ) {
     private val logger = LoggerFactory.getLogger(WorkflowDispatcher::class.java)
 
     private val semaphore = Semaphore(maxConcurrent)
 
     /**
-     * Entry containing the executor and its per-run mutex.
+     * Entry containing the executor, its per-run mutex, and its dedicated virtual thread.
      * The mutex ensures activations for the same run_id are processed sequentially,
      * even if the Core SDK or polling somehow sends concurrent activations (defensive).
+     * The virtualThread ensures all activations run on the same thread, preserving ThreadLocals.
      */
     private data class ExecutorEntry(
         val executor: WorkflowExecutor,
         val mutex: Mutex = Mutex(),
+        val virtualThread: WorkflowVirtualThread,
     )
 
     /**
@@ -66,6 +110,23 @@ internal class WorkflowDispatcher(
      * Workflow runs can span multiple activations, so we cache executors.
      */
     private val executors = ConcurrentHashMap<String, ExecutorEntry>()
+
+    /**
+     * Manages zombie thread detection and eviction.
+     */
+    private val zombieManager =
+        ZombieEvictionManager(
+            logger = logger,
+            taskQueue = taskQueue,
+            terminationGracePeriodMs = terminationGracePeriodMs,
+            maxZombieCount = maxZombieCount,
+            maxZombieRetries = maxZombieRetries,
+            zombieRetryIntervalMs = zombieRetryIntervalMs,
+            evictionShutdownTimeoutMs = zombieEvictionShutdownTimeoutMs,
+            onFatalError = onFatalError,
+            errorCodePrefix = "TKT11",
+            entityType = "workflow",
+        )
 
     /**
      * Dispatches a workflow activation to the appropriate executor.
@@ -83,9 +144,16 @@ internal class WorkflowDispatcher(
         if (isEviction(activation)) {
             val entry = executors.remove(runId)
             entry?.let {
-                it.mutex.withLock {
-                    it.executor.terminateWorkflowExecutionJob()
-                }
+                // Cancel the executor job
+                it.executor.terminateWorkflowExecutionJob()
+                // Launch async termination - doesn't block the poll
+                // Use graceful termination since the thread should be idle
+                launchTerminationJob(
+                    virtualThread = it.virtualThread,
+                    runId = runId,
+                    workflowType = "evicted", // Type unknown at eviction time
+                    immediate = false,
+                )
             }
             return buildEmptyCompletion(runId)
         }
@@ -128,14 +196,49 @@ internal class WorkflowDispatcher(
         }
 
         // Serialize activations for this run_id using the per-executor mutex
+        // Route through virtual thread to ensure same thread handles all activations
         return entry.mutex.withLock {
-            entry.executor.activate(activation)
+            try {
+                entry.virtualThread.dispatch(activation)
+            } catch (e: WorkflowDeadlockException) {
+                // Deadlock detected - clean up and fail the workflow task
+                val workflowType =
+                    activation.jobsList
+                        .find { it.hasInitializeWorkflow() }
+                        ?.initializeWorkflow
+                        ?.workflowType ?: "unknown"
+
+                logger.error(
+                    "[TKT1101] Workflow deadlock detected. " +
+                        "run_id={}, workflow_type={}, task_queue={}. {}",
+                    runId,
+                    workflowType,
+                    taskQueue,
+                    e.message,
+                )
+
+                // Remove from cache
+                executors.remove(runId)
+                entry.executor.terminateWorkflowExecutionJob()
+
+                // Launch NonCancellable coroutine to keep trying to evict the zombie thread
+                launchTerminationJob(entry.virtualThread, runId, workflowType, immediate = true)
+
+                // Return failure completion to Core SDK (workflow task will retry)
+                return@withLock buildDeadlockFailure(activation, e)
+            }
         }
     }
 
     private fun createExecutorEntry(activation: WorkflowActivation): ExecutorEntry? {
         val executor = createExecutor(activation) ?: return null
-        return ExecutorEntry(executor)
+        val virtualThread =
+            WorkflowVirtualThread(
+                executor = executor,
+                threadFactory = workflowThreadFactory,
+                deadlockTimeoutMs = deadlockTimeoutMs,
+            )
+        return ExecutorEntry(executor, Mutex(), virtualThread)
     }
 
     private fun createExecutor(activation: WorkflowActivation): WorkflowExecutor? {
@@ -219,17 +322,70 @@ internal class WorkflowDispatcher(
             ).build()
     }
 
+    private fun buildDeadlockFailure(
+        activation: WorkflowActivation,
+        exception: WorkflowDeadlockException,
+    ): WorkflowCompletion.WorkflowActivationCompletion {
+        val failure =
+            Failure
+                .newBuilder()
+                .setMessage(exception.message ?: "Workflow deadlock detected")
+                .setSource("Kotlin")
+                .build()
+
+        return WorkflowCompletion.WorkflowActivationCompletion
+            .newBuilder()
+            .setRunId(activation.runId)
+            .setFailed(
+                WorkflowCompletion.Failure
+                    .newBuilder()
+                    .setFailure(failure),
+            ).build()
+    }
+
     /**
-     * Removes all cached executors and cancels their execution jobs.
+     * Removes all cached executors, terminates their virtual threads, and cancels their execution jobs.
      * Called during worker shutdown.
      */
     suspend fun clear() {
-        executors.values.forEach { entry ->
-            entry.mutex.withLock {
-                entry.executor.terminateWorkflowExecutionJob()
-            }
+        zombieManager.logShutdownWarning()
+
+        // Launch async termination for all executors
+        executors.forEach { (runId, entry) ->
+            entry.executor.terminateWorkflowExecutionJob()
+            launchTerminationJob(
+                virtualThread = entry.virtualThread,
+                runId = runId,
+                workflowType = "shutdown",
+                immediate = false,
+            )
         }
         executors.clear()
+
+        // Wait for all termination jobs to complete
+        zombieManager.awaitAllEvictions()
+    }
+
+    /**
+     * Launches an async job to terminate a workflow thread and monitor for zombies.
+     * This method does NOT block - it launches a job that handles termination asynchronously.
+     */
+    private fun launchTerminationJob(
+        virtualThread: WorkflowVirtualThread,
+        runId: String,
+        workflowType: String,
+        immediate: Boolean = true,
+    ) {
+        zombieManager.launchEviction(
+            zombieId = runId,
+            entityId = runId,
+            entityName = workflowType,
+            terminateFn = { imm -> virtualThread.terminate(immediate = imm) },
+            interruptFn = { virtualThread.interruptThread() },
+            isAliveFn = { virtualThread.isAlive() },
+            awaitTerminationFn = { timeout -> virtualThread.awaitTermination(timeout) },
+            immediate = immediate,
+        )
     }
 
     /**

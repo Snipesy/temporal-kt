@@ -28,9 +28,9 @@ class TemporalApplicationBuilder
         /**
          * Sets the base dispatcher for this application.
          *
-         * This dispatcher becomes the foundation for all coroutine operations in the application.
-         * Task queues can override with their own dispatchers via [TaskQueueBuilder.workflowDispatcher]
-         * and [TaskQueueBuilder.activityDispatcher].
+         * This dispatcher is used for polling and coroutine orchestration.
+         * Workflows and activities run on dedicated virtual threads for proper
+         * thread interruption and cancellation handling.
          *
          * Default: The dispatcher from [parentCoroutineContext], or [Dispatchers.Default] if none.
          *

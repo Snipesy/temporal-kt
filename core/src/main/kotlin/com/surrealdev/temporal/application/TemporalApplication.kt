@@ -412,26 +412,10 @@ internal data class TaskQueueConfig(
     /** Hook registry for task-queue-scoped hooks. */
     val hookRegistry: HookRegistry = HookRegistryImpl(),
     /**
-     * Dispatcher for workflow activations on this task queue.
-     * When set, workflow processing runs on this dispatcher.
-     * If null, inherits from the application's coroutine context.
-     */
-    val workflowDispatcher: kotlinx.coroutines.CoroutineDispatcher? = null,
-    /**
-     * Dispatcher for activity execution on this task queue.
-     * When set, activities are wrapped with withContext(dispatcher).
-     * If null, inherits from the application's coroutine context.
-     */
-    val activityDispatcher: kotlinx.coroutines.CoroutineDispatcher? = null,
-    /**
      * Grace period for shutdown to wait for polling jobs to complete gracefully.
      * After this timeout, polling jobs will be force-cancelled.
      */
     val shutdownGracePeriodMs: Long = 10_000L,
-    /**
-     * Additional timeout after force cancellation to wait for cleanup.
-     */
-    val shutdownForceTimeoutMs: Long = 5_000L,
     /**
      * Maximum interval for throttling activity heartbeats.
      * Heartbeats will be throttled to at most this interval.
@@ -442,6 +426,54 @@ internal data class TaskQueueConfig(
      * When a heartbeat timeout is configured, throttling uses 80% of that timeout instead.
      */
     val defaultHeartbeatThrottleIntervalMs: Long = 30_000L,
+    /**
+     * Timeout in milliseconds for detecting workflow deadlocks.
+     * If a workflow activation doesn't complete within this time, a WorkflowDeadlockException is thrown.
+     * Set to 0 to disable deadlock detection.
+     *
+     * Default: 2000ms (2 seconds)
+     */
+    val workflowDeadlockTimeoutMs: Long = 2000L,
+    /**
+     * Grace period to wait for a workflow thread to terminate after interrupt.
+     * Default: 60,000ms (60 seconds)
+     */
+    val workflowTerminationGracePeriodMs: Long = 60_000L,
+    /**
+     * Grace period to wait for an activity thread to terminate after interrupt.
+     * Default: 60,000ms (60 seconds)
+     */
+    val activityTerminationGracePeriodMs: Long = 60_000L,
+    /**
+     * Maximum number of zombie threads before initiating shutdown.
+     * Set to 0 to disable (not recommended).
+     */
+    val maxZombieCount: Int = 10,
+    /**
+     * Timeout in milliseconds for force exit when shutdown is stuck.
+     * If application.close() doesn't complete within this time due to stuck threads,
+     * System.exit(1) is called as a last resort.
+     *
+     * Default: 60,000ms (60 seconds)
+     */
+    val forceExitTimeoutMs: Long = 60_000L,
+    /**
+     * Maximum number of retry attempts for zombie eviction before giving up.
+     * At [zombieRetryIntervalMs] intervals.
+     *
+     * Default: 100
+     */
+    val maxZombieRetries: Int = 100,
+    /**
+     * Interval between zombie eviction retry attempts.
+     * Default: 5,000ms (5 seconds)
+     */
+    val zombieRetryIntervalMs: Long = 5_000L,
+    /**
+     * Timeout for waiting on zombie eviction jobs during shutdown.
+     * Default: 30,000ms (30 seconds)
+     */
+    val zombieEvictionShutdownTimeoutMs: Long = 30_000L,
 )
 
 /**

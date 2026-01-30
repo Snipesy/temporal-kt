@@ -9,74 +9,89 @@ import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.ActivityOptions
 import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.startActivity
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.newSingleThreadContext
 import org.junit.jupiter.api.Tag
 import java.util.UUID
-import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * Integration tests for dispatcher configuration at application and task-queue levels.
+ * Integration tests for virtual thread execution of workflows and activities.
  *
  * These tests verify that:
- * - Workflow dispatchers can be configured per task queue
- * - Activity dispatchers can be configured per task queue
- * - Application-level dispatcher configuration works
- * - Different dispatcher types (single thread, IO, Unconfined) work correctly
+ * - Workflows run on dedicated virtual threads (named workflow-{taskQueue}-N)
+ * - Activities run on dedicated virtual threads (named activity-{taskQueue}-N)
+ * - Different task queues have separate virtual thread naming
  */
 @Tag("integration")
-@OptIn(ExperimentalCoroutinesApi::class)
 class DispatcherConfigurationTest {
     companion object {
-        // Thread tracking for verification
-        val workflowThreads = CopyOnWriteArrayList<String>()
-        val activityThreads = CopyOnWriteArrayList<String>()
+        // Thread tracking keyed by task queue name to allow parallel test execution
+        private val workflowThreadsByQueue = ConcurrentHashMap<String, MutableList<String>>()
+        private val activityThreadsByQueue = ConcurrentHashMap<String, MutableList<String>>()
 
-        fun clearThreadTracking() {
-            workflowThreads.clear()
-            activityThreads.clear()
+        fun recordWorkflowThread(
+            taskQueue: String,
+            threadName: String,
+        ) {
+            workflowThreadsByQueue.computeIfAbsent(taskQueue) { mutableListOf() }.add(threadName)
+        }
+
+        fun recordActivityThread(
+            taskQueue: String,
+            threadName: String,
+        ) {
+            activityThreadsByQueue.computeIfAbsent(taskQueue) { mutableListOf() }.add(threadName)
+        }
+
+        fun getWorkflowThreads(taskQueue: String): List<String> = workflowThreadsByQueue[taskQueue] ?: emptyList()
+
+        fun getActivityThreads(taskQueue: String): List<String> = activityThreadsByQueue[taskQueue] ?: emptyList()
+
+        fun clearThreadTracking(taskQueue: String) {
+            workflowThreadsByQueue.remove(taskQueue)
+            activityThreadsByQueue.remove(taskQueue)
         }
     }
 
     /**
-     * Workflow that records which thread it runs on (no arguments).
+     * Workflow that records which thread it runs on.
+     * Uses the task queue from context to isolate tracking per test.
      */
     @Workflow("ThreadTrackingWorkflow")
     class ThreadTrackingWorkflow {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             val threadName = Thread.currentThread().name
-            workflowThreads.add(threadName)
+            recordWorkflowThread(info.taskQueue, threadName)
             return "workflow-on-$threadName"
         }
     }
 
     /**
-     * Activity that records which thread it runs on (no arguments).
+     * Activity that records which thread it runs on.
+     * Uses the task queue from context to isolate tracking per test.
      */
     class ThreadTrackingActivity {
         @Activity("recordThread")
-        suspend fun ActivityContext.recordThread(): String {
+        fun ActivityContext.recordThread(): String {
             val threadName = Thread.currentThread().name
-            activityThreads.add(threadName)
+            recordActivityThread(info.taskQueue, threadName)
             return "activity-on-$threadName"
         }
     }
 
     /**
-     * Workflow that calls an activity and tracks threads (no arguments).
+     * Workflow that calls an activity and tracks threads.
      */
     @Workflow("WorkflowWithActivity")
     class WorkflowWithActivity {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             val workflowThread = Thread.currentThread().name
-            workflowThreads.add(workflowThread)
+            recordWorkflowThread(info.taskQueue, workflowThread)
 
             val activityResult =
                 startActivity<String>(
@@ -89,14 +104,13 @@ class DispatcherConfigurationTest {
     }
 
     @Test
-    fun `workflow runs with default dispatcher`() =
+    fun `workflow runs on virtual thread`() =
         runTemporalTest {
-            clearThreadTracking()
             val taskQueue = "test-default-dispatcher-${UUID.randomUUID()}"
+            clearThreadTracking(taskQueue)
 
             application {
                 taskQueue(taskQueue) {
-                    // No dispatcher configuration - uses default
                     workflow(ThreadTrackingWorkflow())
                 }
             }
@@ -111,65 +125,59 @@ class DispatcherConfigurationTest {
             val result = handle.result(timeout = 30.seconds)
 
             assertTrue(result.startsWith("workflow-on-"))
-            assertEquals(1, workflowThreads.size)
-            // Default dispatcher uses DefaultDispatcher threads
+            val threads = getWorkflowThreads(taskQueue)
+            assertEquals(1, threads.size)
+            // Workflows run on virtual threads named workflow-{taskQueue}-N
             assertTrue(
-                workflowThreads[0].contains("DefaultDispatcher") ||
-                    workflowThreads[0].contains("worker"),
-                "Expected DefaultDispatcher thread, got: ${workflowThreads[0]}",
+                threads[0].contains("workflow-$taskQueue"),
+                "Expected virtual thread (workflow-$taskQueue-*), got: ${threads[0]}",
             )
         }
 
     @Test
-    fun `workflow runs on single thread dispatcher when configured`() =
+    fun `multiple workflows run on virtual threads`() =
         runTemporalTest {
-            clearThreadTracking()
-            val taskQueue = "test-single-thread-${UUID.randomUUID()}"
-            val singleThreadDispatcher = newSingleThreadContext("TestWorkflowThread")
+            val taskQueue = "test-multiple-workflows-${UUID.randomUUID()}"
+            clearThreadTracking(taskQueue)
 
-            try {
-                application {
-                    taskQueue(taskQueue) {
-                        workflowDispatcher = singleThreadDispatcher
-                        workflow(ThreadTrackingWorkflow())
-                    }
+            application {
+                taskQueue(taskQueue) {
+                    workflow(ThreadTrackingWorkflow())
                 }
+            }
 
-                val client = client()
+            val client = client()
 
-                // Run multiple workflows to verify they all use the same thread
-                repeat(3) { i ->
-                    val handle =
-                        client.startWorkflow<String>(
-                            workflowType = "ThreadTrackingWorkflow",
-                            taskQueue = taskQueue,
-                            workflowId = "wf-$taskQueue-$i",
-                        )
-                    handle.result(timeout = 30.seconds)
-                }
-
-                assertEquals(3, workflowThreads.size)
-                // All workflows should run on the same named thread
-                workflowThreads.forEach { thread ->
-                    assertTrue(
-                        thread.contains("TestWorkflowThread"),
-                        "Expected TestWorkflowThread, got: $thread",
+            // Run multiple workflows to verify they use virtual threads
+            repeat(3) { i ->
+                val handle =
+                    client.startWorkflow<String>(
+                        workflowType = "ThreadTrackingWorkflow",
+                        taskQueue = taskQueue,
+                        workflowId = "wf-$taskQueue-$i",
                     )
-                }
-            } finally {
-                singleThreadDispatcher.close()
+                handle.result(timeout = 30.seconds)
+            }
+
+            val threads = getWorkflowThreads(taskQueue)
+            assertEquals(3, threads.size)
+            // All workflows should run on virtual threads
+            threads.forEach { thread ->
+                assertTrue(
+                    thread.contains("workflow-$taskQueue"),
+                    "Expected virtual thread (workflow-$taskQueue-*), got: $thread",
+                )
             }
         }
 
     @Test
-    fun `activity runs on IO dispatcher when configured`() =
+    fun `activity runs on virtual thread`() =
         runTemporalTest {
-            clearThreadTracking()
-            val taskQueue = "test-io-activity-${UUID.randomUUID()}"
+            val taskQueue = "test-activity-virtual-thread-${UUID.randomUUID()}"
+            clearThreadTracking(taskQueue)
 
             application {
                 taskQueue(taskQueue) {
-                    activityDispatcher = Dispatchers.IO
                     workflow(WorkflowWithActivity())
                     activity(ThreadTrackingActivity())
                 }
@@ -185,156 +193,142 @@ class DispatcherConfigurationTest {
             val result = handle.result(timeout = 30.seconds)
 
             assertTrue(result.contains("activity-on-"))
-            assertEquals(1, activityThreads.size)
-            // IO dispatcher uses worker threads
+            val threads = getActivityThreads(taskQueue)
+            assertEquals(1, threads.size)
+            // Activities run on virtual threads named activity-{taskQueue}-N
             assertTrue(
-                activityThreads[0].contains("DefaultDispatcher") ||
-                    activityThreads[0].contains("worker"),
-                "Expected IO dispatcher thread, got: ${activityThreads[0]}",
+                threads[0].contains("activity-$taskQueue"),
+                "Expected virtual thread (activity-$taskQueue-*), got: ${threads[0]}",
             )
         }
 
     @Test
-    fun `activity runs on single thread dispatcher when configured`() =
+    fun `multiple activities run on virtual threads`() =
         runTemporalTest {
-            clearThreadTracking()
-            val taskQueue = "test-single-thread-activity-${UUID.randomUUID()}"
-            val singleThreadDispatcher = newSingleThreadContext("TestActivityThread")
+            val taskQueue = "test-multiple-activities-${UUID.randomUUID()}"
+            clearThreadTracking(taskQueue)
 
-            try {
-                application {
-                    taskQueue(taskQueue) {
-                        activityDispatcher = singleThreadDispatcher
-                        workflow(WorkflowWithActivity())
-                        activity(ThreadTrackingActivity())
-                    }
+            application {
+                taskQueue(taskQueue) {
+                    workflow(WorkflowWithActivity())
+                    activity(ThreadTrackingActivity())
                 }
-
-                val client = client()
-
-                // Run multiple workflows to verify activities use the same thread
-                repeat(3) { i ->
-                    val handle =
-                        client.startWorkflow<String>(
-                            workflowType = "WorkflowWithActivity",
-                            taskQueue = taskQueue,
-                            workflowId = "wf-activity-$taskQueue-$i",
-                        )
-                    handle.result(timeout = 30.seconds)
-                }
-
-                assertEquals(3, activityThreads.size)
-                // All activities should run on the same named thread
-                activityThreads.forEach { thread ->
-                    assertTrue(
-                        thread.contains("TestActivityThread"),
-                        "Expected TestActivityThread, got: $thread",
-                    )
-                }
-            } finally {
-                singleThreadDispatcher.close()
             }
-        }
 
-    @Test
-    fun `workflow and activity can have different dispatchers`() =
-        runTemporalTest {
-            clearThreadTracking()
-            val taskQueue = "test-different-dispatchers-${UUID.randomUUID()}"
-            val workflowDispatcher = newSingleThreadContext("WorkflowOnly")
-            val activityDispatcher = newSingleThreadContext("ActivityOnly")
+            val client = client()
 
-            try {
-                application {
-                    taskQueue(taskQueue) {
-                        this.workflowDispatcher = workflowDispatcher
-                        this.activityDispatcher = activityDispatcher
-                        workflow(WorkflowWithActivity())
-                        activity(ThreadTrackingActivity())
-                    }
-                }
-
-                val client = client()
+            // Run multiple workflows to verify activities run on virtual threads
+            repeat(3) { i ->
                 val handle =
                     client.startWorkflow<String>(
                         workflowType = "WorkflowWithActivity",
                         taskQueue = taskQueue,
+                        workflowId = "wf-activity-$taskQueue-$i",
                     )
+                handle.result(timeout = 30.seconds)
+            }
 
-                val result = handle.result(timeout = 30.seconds)
-
-                assertTrue(result.contains("workflow(") && result.contains("activity-on-"))
-                assertEquals(1, workflowThreads.size)
-                assertEquals(1, activityThreads.size)
-
-                // Verify they ran on different threads
+            val threads = getActivityThreads(taskQueue)
+            assertEquals(3, threads.size)
+            // All activities should run on virtual threads
+            threads.forEach { thread ->
                 assertTrue(
-                    workflowThreads[0].contains("WorkflowOnly"),
-                    "Workflow should run on WorkflowOnly thread, got: ${workflowThreads[0]}",
+                    thread.contains("activity-$taskQueue"),
+                    "Expected virtual thread (activity-$taskQueue-*), got: $thread",
                 )
-                assertTrue(
-                    activityThreads[0].contains("ActivityOnly"),
-                    "Activity should run on ActivityOnly thread, got: ${activityThreads[0]}",
-                )
-            } finally {
-                workflowDispatcher.close()
-                activityDispatcher.close()
             }
         }
 
     @Test
-    fun `multiple task queues can have different dispatchers`() =
+    fun `workflow and activity both run on virtual threads`() =
         runTemporalTest {
-            clearThreadTracking()
+            val taskQueue = "test-both-virtual-threads-${UUID.randomUUID()}"
+            clearThreadTracking(taskQueue)
+
+            application {
+                taskQueue(taskQueue) {
+                    workflow(WorkflowWithActivity())
+                    activity(ThreadTrackingActivity())
+                }
+            }
+
+            val client = client()
+            val handle =
+                client.startWorkflow<String>(
+                    workflowType = "WorkflowWithActivity",
+                    taskQueue = taskQueue,
+                )
+
+            val result = handle.result(timeout = 30.seconds)
+
+            assertTrue(result.contains("workflow(") && result.contains("activity-on-"))
+            val workflowThreads = getWorkflowThreads(taskQueue)
+            val activityThreads = getActivityThreads(taskQueue)
+            assertEquals(1, workflowThreads.size)
+            assertEquals(1, activityThreads.size)
+
+            // Verify workflow runs on virtual thread
+            assertTrue(
+                workflowThreads[0].contains("workflow-$taskQueue"),
+                "Workflow should run on virtual thread (workflow-$taskQueue-*), got: ${workflowThreads[0]}",
+            )
+            // Verify activity runs on virtual thread
+            assertTrue(
+                activityThreads[0].contains("activity-$taskQueue"),
+                "Activity should run on virtual thread (activity-$taskQueue-*), got: ${activityThreads[0]}",
+            )
+        }
+
+    @Test
+    fun `multiple task queues have separate virtual threads`() =
+        runTemporalTest {
             val taskQueue1 = "test-queue-1-${UUID.randomUUID()}"
             val taskQueue2 = "test-queue-2-${UUID.randomUUID()}"
-            val dispatcher1 = newSingleThreadContext("Queue1Thread")
-            val dispatcher2 = newSingleThreadContext("Queue2Thread")
+            clearThreadTracking(taskQueue1)
+            clearThreadTracking(taskQueue2)
 
-            try {
-                application {
-                    taskQueue(taskQueue1) {
-                        workflowDispatcher = dispatcher1
-                        workflow(ThreadTrackingWorkflow())
-                    }
-                    taskQueue(taskQueue2) {
-                        workflowDispatcher = dispatcher2
-                        workflow(ThreadTrackingWorkflow())
-                    }
+            application {
+                taskQueue(taskQueue1) {
+                    workflow(ThreadTrackingWorkflow())
                 }
-
-                val client = client()
-
-                // Run workflow on queue 1
-                val handle1 =
-                    client.startWorkflow<String>(
-                        workflowType = "ThreadTrackingWorkflow",
-                        taskQueue = taskQueue1,
-                        workflowId = "wf-q1-${UUID.randomUUID()}",
-                    )
-                handle1.result(timeout = 30.seconds)
-
-                // Run workflow on queue 2
-                val handle2 =
-                    client.startWorkflow<String>(
-                        workflowType = "ThreadTrackingWorkflow",
-                        taskQueue = taskQueue2,
-                        workflowId = "wf-q2-${UUID.randomUUID()}",
-                    )
-                handle2.result(timeout = 30.seconds)
-
-                assertEquals(2, workflowThreads.size)
-                assertTrue(
-                    workflowThreads[0].contains("Queue1Thread"),
-                    "First workflow should run on Queue1Thread, got: ${workflowThreads[0]}",
-                )
-                assertTrue(
-                    workflowThreads[1].contains("Queue2Thread"),
-                    "Second workflow should run on Queue2Thread, got: ${workflowThreads[1]}",
-                )
-            } finally {
-                dispatcher1.close()
-                dispatcher2.close()
+                taskQueue(taskQueue2) {
+                    workflow(ThreadTrackingWorkflow())
+                }
             }
+
+            val client = client()
+
+            // Run workflow on queue 1
+            val handle1 =
+                client.startWorkflow<String>(
+                    workflowType = "ThreadTrackingWorkflow",
+                    taskQueue = taskQueue1,
+                    workflowId = "wf-q1-${UUID.randomUUID()}",
+                )
+            handle1.result(timeout = 30.seconds)
+
+            // Run workflow on queue 2
+            val handle2 =
+                client.startWorkflow<String>(
+                    workflowType = "ThreadTrackingWorkflow",
+                    taskQueue = taskQueue2,
+                    workflowId = "wf-q2-${UUID.randomUUID()}",
+                )
+            handle2.result(timeout = 30.seconds)
+
+            val threads1 = getWorkflowThreads(taskQueue1)
+            val threads2 = getWorkflowThreads(taskQueue2)
+            assertEquals(1, threads1.size)
+            assertEquals(1, threads2.size)
+
+            // Each task queue has its own virtual thread naming
+            assertTrue(
+                threads1[0].contains("workflow-$taskQueue1"),
+                "First workflow should run on virtual thread (workflow-$taskQueue1-*), got: ${threads1[0]}",
+            )
+            assertTrue(
+                threads2[0].contains("workflow-$taskQueue2"),
+                "Second workflow should run on virtual thread (workflow-$taskQueue2-*), got: ${threads2[0]}",
+            )
         }
 }

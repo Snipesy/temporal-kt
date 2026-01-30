@@ -3,6 +3,7 @@ package com.surrealdev.temporal.activity.internal
 import com.google.protobuf.ByteString
 import com.surrealdev.temporal.activity.ActivityCancelledException
 import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.internal.ZombieEvictionManager
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.serialization.SerializationException
@@ -18,12 +19,11 @@ import io.temporal.api.failure.v1.Failure
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
-import java.util.logging.Logger
 import kotlin.reflect.full.callSuspend
 
 /**
@@ -31,10 +31,12 @@ import kotlin.reflect.full.callSuspend
  *
  * @property job The coroutine job executing the activity
  * @property context The activity context (for marking cancellation)
+ * @property virtualThread The virtual thread running this activity (for forced interruption)
  */
 internal data class RunningActivity(
     val job: Job,
     val context: ActivityContextImpl,
+    val virtualThread: ActivityVirtualThread? = null,
 )
 
 /**
@@ -61,13 +63,53 @@ class ActivityDispatcher(
      * Its parentScope should be the application.
      */
     private val taskQueueScope: AttributeScope,
+    /**
+     * Grace period in milliseconds to wait for an activity thread to terminate after interrupt.
+     * If the thread doesn't terminate within this time, it's considered a zombie.
+     */
+    private val terminationGracePeriodMs: Long = 60_000L,
+    /**
+     * Maximum number of zombie threads before forcing worker shutdown.
+     * Set to 0 to disable (not recommended).
+     */
+    private val maxZombieCount: Int = 10,
+    /**
+     * Callback invoked when a fatal error occurs (e.g., zombie threshold exceeded).
+     * This allows the application to gracefully shut down instead of calling System.exit().
+     */
+    private val onFatalError: (suspend () -> Unit)? = null,
+    /**
+     * Maximum number of retry attempts for zombie eviction before giving up.
+     */
+    private val maxZombieRetries: Int = 100,
+    /**
+     * Interval between zombie eviction retry attempts.
+     */
+    private val zombieRetryIntervalMs: Long = 5_000L,
+    /**
+     * Timeout for waiting on zombie eviction jobs during shutdown.
+     */
+    private val zombieEvictionShutdownTimeoutMs: Long = 30_000L,
 ) {
     private val semaphore = Semaphore(maxConcurrent)
     private val runningActivities = ConcurrentHashMap<ByteString, RunningActivity>()
 
-    companion object {
-        private val logger = Logger.getLogger(ActivityDispatcher::class.java.name)
-    }
+    private val logger = LoggerFactory.getLogger(ActivityDispatcher::class.java)
+
+    /** Manages zombie thread detection and eviction. */
+    private val zombieManager =
+        ZombieEvictionManager(
+            logger = logger,
+            taskQueue = taskQueue,
+            terminationGracePeriodMs = terminationGracePeriodMs,
+            maxZombieCount = maxZombieCount,
+            maxZombieRetries = maxZombieRetries,
+            zombieRetryIntervalMs = zombieRetryIntervalMs,
+            evictionShutdownTimeoutMs = zombieEvictionShutdownTimeoutMs,
+            onFatalError = onFatalError,
+            errorCodePrefix = "TKT12",
+            entityType = "activity",
+        )
 
     /**
      * Dispatches an activity task to the appropriate activity implementation.
@@ -82,7 +124,16 @@ class ActivityDispatcher(
      * @param task The activity task to dispatch
      * @return The activity task completion, or null for Cancel tasks
      */
-    suspend fun dispatch(task: ActivityTaskOuterClass.ActivityTask): CoreInterface.ActivityTaskCompletion? {
+    suspend fun dispatch(task: ActivityTaskOuterClass.ActivityTask): CoreInterface.ActivityTaskCompletion? =
+        dispatch(task, virtualThread = null)
+
+    /**
+     * Internal dispatch with virtual thread tracking for cancellation support.
+     */
+    internal suspend fun dispatch(
+        task: ActivityTaskOuterClass.ActivityTask,
+        virtualThread: ActivityVirtualThread?,
+    ): CoreInterface.ActivityTaskCompletion? {
         val taskToken = task.taskToken
 
         // Handle cancel variant - does NOT acquire semaphore permit
@@ -99,7 +150,7 @@ class ActivityDispatcher(
 
         // Handle start variant - acquires semaphore permit for concurrency control
         return semaphore.withPermit {
-            dispatchStartTask(task, currentJob)
+            dispatchStartTask(task, currentJob, virtualThread)
         }
     }
 
@@ -117,11 +168,11 @@ class ActivityDispatcher(
         if (running == null) {
             // Activity not found - may have already completed
             // This is normal if the activity finished before cancellation arrived
-            logger.fine { "Cancel task received for unknown activity (already completed?): $taskToken" }
+            logger.debug("Cancel task received for unknown activity (already completed?): {}", taskToken)
             return
         }
 
-        logger.info { "Cancelling activity with token $taskToken, reason: ${cancel.reason}" }
+        logger.info("Cancelling activity with token {}, reason: {}", taskToken, cancel.reason)
 
         // Map proto reason to sealed class exception
         val exception = mapCancelReason(cancel.reason)
@@ -132,6 +183,44 @@ class ActivityDispatcher(
         // Cancel the coroutine job - this will cause CancellationException
         // which gets caught and converted to cancelled completion
         running.job.cancel(CancellationException("Activity cancelled: ${cancel.reason}"))
+
+        // Interrupt the virtual thread if present and check for zombies
+        running.virtualThread?.let { vt ->
+            val thread = vt.getThread()
+            if (thread.isAlive) {
+                logger.debug("Interrupting activity virtual thread for token {}", taskToken)
+                thread.interrupt()
+
+                // Check async if thread responded to interrupt
+                val activityType = running.context.info.activityType
+                val activityId = running.context.info.activityId
+                launchZombieCheck(vt, activityType, activityId)
+            }
+        }
+    }
+
+    /**
+     * Launches an async job to terminate an activity thread and monitor for zombies.
+     * This method does NOT block - it launches a job that handles termination asynchronously.
+     */
+    private fun launchZombieCheck(
+        virtualThread: ActivityVirtualThread,
+        activityType: String,
+        activityId: String,
+    ) {
+        // Use thread ID for stable zombie identification (prevents duplicate jobs for same thread)
+        val zombieId = "activity-${virtualThread.getThread().threadId()}"
+
+        zombieManager.launchEviction(
+            zombieId = zombieId,
+            entityId = activityId,
+            entityName = activityType,
+            terminateFn = { imm -> virtualThread.terminate(immediate = imm) },
+            interruptFn = { virtualThread.interruptThread() },
+            isAliveFn = { virtualThread.isAlive() },
+            awaitTerminationFn = { timeout -> virtualThread.awaitTermination(timeout) },
+            immediate = true, // Activities always use immediate termination on cancel
+        )
     }
 
     /**
@@ -174,6 +263,7 @@ class ActivityDispatcher(
     private suspend fun dispatchStartTask(
         task: ActivityTaskOuterClass.ActivityTask,
         currentJob: Job,
+        virtualThread: ActivityVirtualThread?,
     ): CoreInterface.ActivityTaskCompletion {
         val taskToken = task.taskToken
 
@@ -212,7 +302,7 @@ class ActivityDispatcher(
             )
 
         // Track this activity for cancellation
-        val runningActivity = RunningActivity(job = currentJob, context = context)
+        val runningActivity = RunningActivity(job = currentJob, context = context, virtualThread = virtualThread)
         runningActivities[taskToken] = runningActivity
 
         try {
@@ -236,6 +326,9 @@ class ActivityDispatcher(
                 buildCancelledCompletion(taskToken)
             } catch (e: CancellationException) {
                 // Coroutine was cancelled - treat as activity cancellation
+                buildCancelledCompletion(taskToken)
+            } catch (e: InterruptedException) {
+                // Virtual thread was interrupted - treat as activity cancellation
                 buildCancelledCompletion(taskToken)
             } catch (e: Exception) {
                 buildFailureCompletion(taskToken, e)
@@ -274,15 +367,15 @@ class ActivityDispatcher(
 
         // Run within a context that includes the ActivityContext
         // This allows activity code to access context via coroutineContext[ActivityContext]
+        // Activities run on dedicated virtual threads, so blocking calls are fine.
+        // Thread interruption is handled directly via ActivityVirtualThread.interrupt().
         return withContext(context) {
             if (methodInfo.hasContextReceiver) {
                 // Method has ActivityContext as extension receiver
                 if (methodInfo.isSuspend) {
                     method.callSuspend(methodInfo.instance, context, *args)
                 } else {
-                    runInterruptible {
-                        method.call(methodInfo.instance, context, *args)
-                    }
+                    method.call(methodInfo.instance, context, *args)
                 }
             } else {
                 // Method does not use context receiver
@@ -290,9 +383,7 @@ class ActivityDispatcher(
                 if (methodInfo.isSuspend) {
                     method.callSuspend(methodInfo.instance, *args)
                 } else {
-                    runInterruptible {
-                        method.call(methodInfo.instance, *args)
-                    }
+                    method.call(methodInfo.instance, *args)
                 }
             }
         }
@@ -401,4 +492,18 @@ class ActivityDispatcher(
                 exception
             }
         }
+
+    /**
+     * Awaits completion of all zombie eviction jobs.
+     * Called during worker shutdown to ensure proper cleanup.
+     */
+    suspend fun awaitZombieEviction() {
+        zombieManager.logShutdownWarning()
+        zombieManager.awaitAllEvictions()
+    }
+
+    /**
+     * Gets the current count of zombie threads.
+     */
+    fun getZombieCount(): Int = zombieManager.getZombieCount()
 }
