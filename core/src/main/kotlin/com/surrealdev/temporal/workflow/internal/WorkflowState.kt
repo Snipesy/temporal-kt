@@ -192,6 +192,12 @@ internal class WorkflowState(
     private val commands = mutableListOf<WorkflowCommand>()
 
     /**
+     * Counter for commands added during the current processing cycle.
+     * Used by runOnce to detect if something was scheduled.
+     */
+    private var commandsAddedThisCycle = 0
+
+    /**
      * Updates state from the activation's metadata.
      */
     fun updateFromActivation(
@@ -555,7 +561,39 @@ internal class WorkflowState(
             throw ReadOnlyContextException("Cannot add command in read-only mode (e.g., during query processing)")
         }
         commands.add(cmd)
+
+        // Only count commands that will create future activations (not terminal commands)
+        if (willCreateFutureActivation(cmd)) {
+            commandsAddedThisCycle++
+        }
     }
+
+    /**
+     * Checks if a command will create a future activation.
+     * These are commands that schedule work and will receive a resolution job later.
+     */
+    private fun willCreateFutureActivation(cmd: WorkflowCommand): Boolean =
+        cmd.hasStartTimer() ||
+            cmd.hasScheduleActivity() ||
+            cmd.hasScheduleLocalActivity() ||
+            cmd.hasStartChildWorkflowExecution() ||
+            cmd.hasSignalExternalWorkflowExecution() ||
+            cmd.hasRequestCancelExternalWorkflowExecution() ||
+            cmd.hasScheduleNexusOperation()
+
+    /**
+     * Resets the command counter for the current processing cycle.
+     * Called at the start of each runOnce iteration.
+     */
+    fun resetCommandCounter() {
+        commandsAddedThisCycle = 0
+    }
+
+    /**
+     * Returns the number of commands added during the current processing cycle that
+     * will create future activations. Used by runOnce to detect if something was scheduled.
+     */
+    fun getCommandsAddedThisCycle(): Int = commandsAddedThisCycle
 
     /**
      * Drains all accumulated commands and clears the list.
@@ -570,6 +608,20 @@ internal class WorkflowState(
      * Checks if there are any pending commands.
      */
     fun hasCommands(): Boolean = commands.isNotEmpty()
+
+    /**
+     * Checks if there are any pending operations (timers, activities, child workflows, conditions, etc.)
+     * that the workflow is waiting for. Used to distinguish between:
+     * - Workflow legitimately waiting for external resolution (return true)
+     * - Workflow stuck due to escaped coroutine (return false)
+     */
+    fun hasPendingOperations(): Boolean =
+        pendingTimers.isNotEmpty() ||
+            pendingTimerContinuations.isNotEmpty() ||
+            pendingActivities.isNotEmpty() ||
+            pendingLocalActivities.isNotEmpty() ||
+            pendingChildWorkflows.isNotEmpty() ||
+            conditions.isNotEmpty()
 
     /**
      * Clears all pending operations.
@@ -628,5 +680,15 @@ class ActivityFailureException(
  * state would violate deterministic replay guarantees.
  */
 class ReadOnlyContextException(
+    message: String,
+) : RuntimeException(message)
+
+/**
+ * Exception thrown when a workflow operation is called from an escaped dispatcher context.
+ * This occurs when user code escapes the workflow dispatcher (e.g., withContext(Dispatchers.IO))
+ * and then attempts to call workflow operations like sleep(), startActivity(), etc.
+ * Such operations are non-deterministic and will cause replay failures.
+ */
+class EscapedDispatcherException(
     message: String,
 ) : RuntimeException(message)

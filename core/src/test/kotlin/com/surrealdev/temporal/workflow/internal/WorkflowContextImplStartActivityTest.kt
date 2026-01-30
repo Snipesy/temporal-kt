@@ -32,6 +32,16 @@ import kotlin.time.Instant
 class WorkflowContextImplStartActivityTest {
     private val serializer = KotlinxJsonSerializer()
 
+    @org.junit.jupiter.api.BeforeEach
+    fun setup() {
+        WorkflowContextImpl.skipDispatcherCheck = true
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    fun teardown() {
+        WorkflowContextImpl.skipDispatcherCheck = false
+    }
+
     private fun createContext(): WorkflowContextImpl {
         val state = WorkflowState("test-run-id")
         state.isReadOnly = false

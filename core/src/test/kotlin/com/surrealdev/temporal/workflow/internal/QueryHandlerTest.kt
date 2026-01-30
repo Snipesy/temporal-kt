@@ -14,6 +14,8 @@ import com.surrealdev.temporal.testing.createTestWorkflowExecutor
 import com.surrealdev.temporal.workflow.WorkflowContext
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.BeforeEach
 import java.util.UUID
 import kotlin.reflect.full.findAnnotation
 import kotlin.reflect.typeOf
@@ -35,6 +37,16 @@ import kotlin.time.Duration.Companion.seconds
  */
 class QueryHandlerTest {
     private val serializer = KotlinxJsonSerializer()
+
+    @BeforeEach
+    fun setup() {
+        WorkflowContextImpl.skipDispatcherCheck = true
+    }
+
+    @AfterEach
+    fun teardown() {
+        WorkflowContextImpl.skipDispatcherCheck = false
+    }
 
     // ================================================================
     // Test Workflow Classes

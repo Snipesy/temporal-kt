@@ -5,6 +5,9 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Delay
 import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.InternalCoroutinesApi
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 import kotlin.coroutines.CoroutineContext
 
 /**
@@ -63,12 +66,21 @@ internal class WorkflowCoroutineDispatcher(
     Delay {
     private val taskQueue = ArrayDeque<Runnable>()
 
+    /**
+     * Lock for synchronizing access to the task queue when waiting for work.
+     * Used to coordinate between threads when coroutines escape to other dispatchers.
+     */
+    private val lock = ReentrantLock()
+    private val workAvailable = lock.newCondition()
+
     override fun dispatch(
         context: CoroutineContext,
         block: Runnable,
     ) {
-        // Queue work
-        taskQueue.addLast(block)
+        lock.withLock {
+            taskQueue.addLast(block)
+            workAvailable.signal()
+        }
     }
 
     /**
@@ -125,8 +137,11 @@ internal class WorkflowCoroutineDispatcher(
      * to workflow failure completions.
      */
     fun processAllWork() {
-        while (taskQueue.isNotEmpty()) {
-            val task = taskQueue.removeFirst()
+        while (true) {
+            val task =
+                lock.withLock {
+                    taskQueue.removeFirstOrNull()
+                } ?: break
             task.run()
         }
     }
@@ -134,12 +149,32 @@ internal class WorkflowCoroutineDispatcher(
     /**
      * Returns true if there's pending work.
      */
-    fun hasPendingWork(): Boolean = taskQueue.isNotEmpty()
+    fun hasPendingWork(): Boolean = lock.withLock { taskQueue.isNotEmpty() }
+
+    /**
+     * Waits for work to become available, with a timeout.
+     * Used when coroutines have escaped to other dispatchers and we need to wait
+     * for them to dispatch back.
+     *
+     * @param timeoutMs Maximum time to wait in milliseconds
+     * @return true if work is available, false if timeout elapsed
+     */
+    fun waitForWork(timeoutMs: Long): Boolean =
+        lock.withLock {
+            if (taskQueue.isNotEmpty()) {
+                true
+            } else {
+                workAvailable.await(timeoutMs, TimeUnit.MILLISECONDS)
+                taskQueue.isNotEmpty()
+            }
+        }
 
     /**
      * Clears all pending work (used during cleanup).
      */
     fun clear() {
-        taskQueue.clear()
+        lock.withLock {
+            taskQueue.clear()
+        }
     }
 }

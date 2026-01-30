@@ -309,22 +309,59 @@ internal class WorkflowExecutor(
     /**
      * Runs one iteration of the workflow event loop, processing all queued work.
      *
-     * - Check conditions that may have been satisfied by job handlers
+     * The loop continues until one of these conditions is met:
+     * 1. The workflow coroutine completes
+     * 2. Something is scheduled (a command is added - timer, activity, child workflow, etc.)
+     * 3. The workflow is waiting for external operations (timers, activities, child workflows, conditions)
+     *
+     * When coroutines escape to other dispatchers (e.g., withContext(Dispatchers.Default)),
+     * this method waits for them to dispatch back. This is supported but not recommended
+     * as it may cause non-determinism during replay.
      *
      * @param checkConditions Whether to check await conditions after processing tasks.
      *                        Should be true for stages that can mutate state (signals, updates, resolutions).
      *                        Should be false for patches and queries.
      */
     private fun runOnce(checkConditions: Boolean) {
-        do {
-            // Process all ready tasks (inner loop in Python's _run_once)
+        while (true) {
+            // Reset command counter to track if anything gets scheduled this iteration
+            state.resetCommandCounter()
+
+            // Process all ready tasks
             workflowDispatcher.processAllWork()
+
+            // Check exit conditions
+            val workflowComplete = mainCoroutine?.isCompleted == true
+            val somethingScheduled = state.getCommandsAddedThisCycle() > 0
+
+            if (workflowComplete || somethingScheduled) {
+                break
+            }
 
             // Check conditions which may add to the ready list
             if (checkConditions) {
                 state.checkConditions()
             }
-        } while (workflowDispatcher.hasPendingWork())
+
+            // If there's pending work from conditions, continue processing
+            if (workflowDispatcher.hasPendingWork()) {
+                continue
+            }
+
+            // If the workflow is waiting for external operations (timers, activities, child workflows, conditions),
+            // this is legitimate - the workflow is properly suspended waiting for resolution.
+            if (state.hasPendingOperations()) {
+                break
+            }
+
+            // No pending work, no pending operations, workflow not complete, nothing scheduled.
+            logger.trace(
+                "Waiting for escaped coroutine to dispatch back. workflowType={}, runId={}",
+                methodInfo.workflowType,
+                runId,
+            )
+            workflowDispatcher.waitForWork(timeoutMs = Long.MAX_VALUE)
+        }
     }
 
     private suspend fun processJob(job: WorkflowActivationJob) {

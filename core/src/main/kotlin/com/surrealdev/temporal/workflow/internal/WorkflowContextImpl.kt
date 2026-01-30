@@ -22,9 +22,11 @@ import coresdk.workflow_commands.WorkflowCommands
 import io.temporal.api.common.v1.Payload
 import io.temporal.api.common.v1.Payloads
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.slf4j.MDCContext
 import java.util.logging.Logger
+import kotlin.coroutines.ContinuationInterceptor
 import kotlin.coroutines.CoroutineContext
 import kotlin.reflect.KType
 import kotlin.reflect.typeOf
@@ -52,7 +54,7 @@ internal class WorkflowContextImpl(
     override val info: WorkflowInfo,
     override val serializer: PayloadSerializer,
     internal val codec: PayloadCodec,
-    private val workflowDispatcher: WorkflowCoroutineDispatcher,
+    internal val workflowDispatcher: WorkflowCoroutineDispatcher,
     parentJob: Job,
     override val parentScope: AttributeScope,
     private val mdcContext: MDCContext? = null,
@@ -60,6 +62,32 @@ internal class WorkflowContextImpl(
     ExecutionScope {
     companion object {
         private val logger = Logger.getLogger(WorkflowContextImpl::class.java.name)
+
+        /**
+         * When true, skips dispatcher validation. Used for unit testing.
+         */
+        @Volatile
+        internal var skipDispatcherCheck: Boolean = false
+    }
+
+    /**
+     * Verifies that the current coroutine is running on the workflow dispatcher.
+     * Throws [EscapedDispatcherException] if called from an escaped context.
+     *
+     * Call this at the start of any workflow operation that creates commands or mutates state.
+     */
+    internal suspend fun ensureOnWorkflowDispatcher(operationName: String) {
+        if (skipDispatcherCheck) return
+        val currentDispatcher = currentCoroutineContext()[ContinuationInterceptor]
+        if (currentDispatcher !== workflowDispatcher) {
+            throw EscapedDispatcherException(
+                "[TKT1108] Workflow operation '$operationName' called from wrong dispatcher. " +
+                    "Workflow operations must be called from the workflow dispatcher, not from " +
+                    "withContext(Dispatchers.IO) or similar escaped contexts. " +
+                    "This is non-deterministic and will cause replay failures. " +
+                    "workflowId=${info.workflowId}, runId=${info.runId}",
+            )
+        }
     }
 
     // Workflow executions have their own attributes (currently empty, for future use)
@@ -158,6 +186,7 @@ internal class WorkflowContextImpl(
         options: ActivityOptions,
         returnType: KType?,
     ): RemoteActivityHandle<R> {
+        ensureOnWorkflowDispatcher("startActivity")
         logger.fine("Starting activity: type=$activityType, options=$options")
 
         // ========== Section 1: Validation ==========
@@ -376,6 +405,7 @@ internal class WorkflowContextImpl(
         options: LocalActivityOptions,
         returnType: KType?,
     ): LocalActivityHandle<R> {
+        ensureOnWorkflowDispatcher("startLocalActivity")
         logger.fine("Starting local activity: type=$activityType, options=$options")
 
         // ========== Section 1: Validation ==========
@@ -471,6 +501,7 @@ internal class WorkflowContextImpl(
     }
 
     override suspend fun sleep(duration: Duration) {
+        ensureOnWorkflowDispatcher("sleep")
         if (duration.isNegative() || duration == Duration.ZERO) {
             // No-op for zero or negative duration
             return
@@ -520,6 +551,7 @@ internal class WorkflowContextImpl(
         timeout: Duration?,
         timeoutSummary: String?,
     ) {
+        ensureOnWorkflowDispatcher("awaitCondition")
         // Check the condition immediately - if already true, no need to wait
         if (condition()) {
             return
@@ -584,6 +616,7 @@ internal class WorkflowContextImpl(
         options: ChildWorkflowOptions,
         returnType: KType?,
     ): ChildWorkflowHandle<R> {
+        ensureOnWorkflowDispatcher("startChildWorkflow")
         val effectiveReturnType = returnType ?: typeOf<Any?>()
         val seq = state.nextSeq()
         val childWorkflowId = options.workflowId ?: "${info.workflowId}-child-$seq"
