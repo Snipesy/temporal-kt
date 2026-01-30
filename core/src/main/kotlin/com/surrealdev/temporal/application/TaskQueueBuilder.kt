@@ -6,7 +6,6 @@ import com.surrealdev.temporal.application.plugin.HookRegistryImpl
 import com.surrealdev.temporal.application.plugin.PluginPipeline
 import com.surrealdev.temporal.util.AttributeScope
 import com.surrealdev.temporal.util.Attributes
-import kotlinx.coroutines.CoroutineDispatcher
 
 /**
  * Builder for configuring a task queue with workflows and activities.
@@ -65,28 +64,6 @@ class TaskQueueBuilder internal constructor(
     var maxConcurrentActivities: Int = 200
 
     /**
-     * Dispatcher for workflow activations on this task queue.
-     *
-     * When set, workflow processing (including the deterministic scheduler's work)
-     * runs on this dispatcher. The [WorkflowCoroutineDispatcher] still handles
-     * deterministic scheduling within this thread context.
-     *
-     * Default: null (inherits from application's coroutine context)
-     */
-    var workflowDispatcher: CoroutineDispatcher? = null
-
-    /**
-     * Dispatcher for activity execution on this task queue.
-     *
-     * When set, activities are wrapped with `withContext(dispatcher)` before execution.
-     * This allows controlling the thread pool for activity work (e.g., using
-     * [Dispatchers.IO] for I/O-bound activities).
-     *
-     * Default: null (inherits from application's coroutine context)
-     */
-    var activityDispatcher: CoroutineDispatcher? = null
-
-    /**
      * Grace period for shutdown to wait for polling jobs to complete gracefully.
      * After this timeout, polling jobs will be force-cancelled.
      *
@@ -116,6 +93,86 @@ class TaskQueueBuilder internal constructor(
      * Default: 30,000ms (30 seconds)
      */
     var defaultHeartbeatThrottleIntervalMs: Long = 30_000L
+
+    /**
+     * Timeout in milliseconds for detecting workflow deadlocks.
+     * If a workflow activation doesn't complete within this time, a WorkflowDeadlockException is thrown.
+     * Set to 0 to disable deadlock detection.
+     *
+     * Default: 2000ms (2 seconds)
+     */
+    var workflowDeadlockTimeoutMs: Long = 2000L
+
+    /**
+     * Grace period in milliseconds to wait for a workflow thread to terminate after interrupt.
+     * If the thread doesn't terminate within this time, it's considered a zombie.
+     *
+     * Higher values reduce false positives on heavily loaded machines.
+     *
+     * Default: 60,000ms (60 seconds)
+     */
+    var workflowTerminationGracePeriodMs: Long = 60_000L
+
+    /**
+     * Grace period in milliseconds to wait for an activity thread to terminate after interrupt.
+     * If the thread doesn't terminate within this time, it's considered a zombie.
+     *
+     * Higher values reduce false positives on heavily loaded machines.
+     *
+     * Default: 60,000ms (60 seconds)
+     */
+    var activityTerminationGracePeriodMs: Long = 60_000L
+
+    /**
+     * Maximum number of zombie threads (threads that don't respond to interrupt) before
+     * forcing worker shutdown.
+     *
+     * Zombie threads occur when workflow or activity code uses non-interruptible blocking
+     * operations (busy loops, certain native calls). These threads cannot be terminated
+     * and leak resources.
+     *
+     * Set to 0 to disable (allows unlimited zombie accumulation).
+     *
+     * Default: 10
+     */
+    var maxZombieCount: Int = 10
+
+    /**
+     * Timeout in milliseconds for force exit when shutdown is stuck due to
+     * unresponsive threads (zombies). If application.close() doesn't complete
+     * within this time, System.exit(1) is called as a last resort.
+     *
+     * This is the "nuclear option" - only used when graceful shutdown fails completely.
+     *
+     * Default: 60,000ms (60 seconds)
+     */
+    var forceExitTimeoutMs: Long = 60_000L
+
+    /**
+     * Maximum number of retry attempts for zombie eviction before giving up.
+     * At [zombieRetryIntervalMs] intervals between retries.
+     *
+     * After exhausting retries, the zombie thread is left leaked and counted,
+     * but the eviction loop stops. This prevents infinite CPU usage on truly
+     * unrecoverable zombies.
+     *
+     * Default: 100
+     */
+    var maxZombieRetries: Int = 100
+
+    /**
+     * Interval in milliseconds between zombie eviction retry attempts.
+     *
+     * Default: 5,000ms (5 seconds)
+     */
+    var zombieRetryIntervalMs: Long = 5_000L
+
+    /**
+     * Timeout in milliseconds for waiting on zombie eviction jobs during shutdown.
+     *
+     * Default: 30,000ms (30 seconds)
+     */
+    var zombieEvictionShutdownTimeoutMs: Long = 30_000L
 
     @PublishedApi
     internal val workflows = mutableListOf<WorkflowRegistration>()
@@ -169,11 +226,16 @@ class TaskQueueBuilder internal constructor(
             maxConcurrentActivities = maxConcurrentActivities,
             attributes = attributes,
             hookRegistry = hookRegistry,
-            workflowDispatcher = workflowDispatcher,
-            activityDispatcher = activityDispatcher,
             shutdownGracePeriodMs = shutdownGracePeriodMs,
-            shutdownForceTimeoutMs = shutdownForceTimeoutMs,
             maxHeartbeatThrottleIntervalMs = maxHeartbeatThrottleIntervalMs,
             defaultHeartbeatThrottleIntervalMs = defaultHeartbeatThrottleIntervalMs,
+            workflowDeadlockTimeoutMs = workflowDeadlockTimeoutMs,
+            workflowTerminationGracePeriodMs = workflowTerminationGracePeriodMs,
+            activityTerminationGracePeriodMs = activityTerminationGracePeriodMs,
+            maxZombieCount = maxZombieCount,
+            forceExitTimeoutMs = forceExitTimeoutMs,
+            maxZombieRetries = maxZombieRetries,
+            zombieRetryIntervalMs = zombieRetryIntervalMs,
+            zombieEvictionShutdownTimeoutMs = zombieEvictionShutdownTimeoutMs,
         )
 }

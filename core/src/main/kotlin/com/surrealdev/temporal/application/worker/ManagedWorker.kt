@@ -3,6 +3,7 @@ package com.surrealdev.temporal.application.worker
 import com.google.protobuf.ByteString
 import com.surrealdev.temporal.activity.internal.ActivityDispatcher
 import com.surrealdev.temporal.activity.internal.ActivityRegistry
+import com.surrealdev.temporal.activity.internal.ActivityVirtualThread
 import com.surrealdev.temporal.application.TaskQueueConfig
 import com.surrealdev.temporal.application.TemporalApplication
 import com.surrealdev.temporal.application.plugin.HookRegistry
@@ -31,11 +32,11 @@ import io.temporal.api.common.v1.Payload
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CompletableJob
-import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -43,8 +44,8 @@ import kotlinx.coroutines.slf4j.MDCContext
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.LoggerFactory
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.CoroutineContext
-import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.time.Duration.Companion.milliseconds
 
 /**
@@ -73,35 +74,26 @@ internal class ManagedWorker(
             ),
         )
 
-    /**
-     * Effective workflow dispatcher from task queue config.
-     * If null, inherits from parent context.
-     */
-    private val effectiveWorkflowDispatcher: CoroutineDispatcher? = config.workflowDispatcher
+    /** Virtual thread factory for workflow execution. Each workflow run gets a dedicated virtual thread. */
+    private val workflowThreadFactory: java.util.concurrent.ThreadFactory =
+        Thread
+            .ofVirtual()
+            .name("workflow-${config.name}-", 0)
+            .factory()
 
-    /**
-     * Effective activity dispatcher from task queue config.
-     * If null, activities inherit from parent context.
-     */
-    private val effectiveActivityDispatcher: CoroutineDispatcher? = config.activityDispatcher
-
-    /**
-     * Base context without optional workflow dispatcher.
-     */
-    private val baseContext: CoroutineContext =
-        parentContext + workerJob + CoroutineName("TaskQueue-${config.name}") + mdcContext
+    /** Virtual thread factory for activity execution. Each activity gets its own virtual thread. */
+    private val activityThreadFactory: java.util.concurrent.ThreadFactory =
+        Thread
+            .ofVirtual()
+            .name("activity-${config.name}-", 0)
+            .factory()
 
     /**
      * Worker's coroutine context.
-     * Includes workflow dispatcher if configured, which affects the thread
-     * on which workflow activations (and processAllWork()) run.
+     * Workflows and activities run on dedicated virtual threads, so no custom dispatcher is needed.
      */
     override val coroutineContext: CoroutineContext =
-        if (effectiveWorkflowDispatcher != null) {
-            baseContext + effectiveWorkflowDispatcher
-        } else {
-            baseContext
-        }
+        parentContext + workerJob + CoroutineName("TaskQueue-${config.name}") + mdcContext
 
     private val logger = LoggerFactory.getLogger(ManagedWorker::class.java)
 
@@ -122,6 +114,18 @@ internal class ManagedWorker(
     // This must happen before shutdown will work properly
     private val workflowPollingStarted = CompletableDeferred<Unit>()
     private val activityPollingStarted = CompletableDeferred<Unit>()
+
+    /**
+     * Tracks running activity virtual threads for zombie detection during shutdown.
+     * Key is thread identity, value is activity metadata for logging.
+     */
+    private data class ActivityThreadInfo(
+        val thread: ActivityVirtualThread,
+        val activityType: String,
+        val activityId: String,
+    )
+
+    private val runningActivityThreads = ConcurrentHashMap<Long, ActivityThreadInfo>()
 
     /**
      * Returns true if shutdown has been signaled.
@@ -174,6 +178,26 @@ internal class ManagedWorker(
                 recordActivityHeartbeat(taskToken, details)
             },
             taskQueueScope = taskQueueScope,
+            terminationGracePeriodMs = config.activityTerminationGracePeriodMs,
+            maxZombieCount = config.maxZombieCount,
+            onFatalError = {
+                val closed =
+                    withTimeoutOrNull(config.forceExitTimeoutMs) {
+                        application.close()
+                        true
+                    }
+                if (closed == null) {
+                    logger.error(
+                        "[TKT1206] FATAL: Graceful shutdown timed out after {}ms. " +
+                            "Stuck threads prevent clean shutdown. Forcing System.exit(1).",
+                        config.forceExitTimeoutMs,
+                    )
+                    System.exit(1)
+                }
+            },
+            maxZombieRetries = config.maxZombieRetries,
+            zombieRetryIntervalMs = config.zombieRetryIntervalMs,
+            zombieEvictionShutdownTimeoutMs = config.zombieEvictionShutdownTimeoutMs,
         )
 
     /**
@@ -287,10 +311,8 @@ internal class ManagedWorker(
             activityPollingJob?.cancel()
 
             // Phase 4: Wait for forced cancellation to complete
-            withTimeoutOrNull(config.shutdownForceTimeoutMs) {
-                workflowPollingJob?.join()
-                activityPollingJob?.join()
-            }
+            workflowPollingJob?.join()
+            activityPollingJob?.join()
         }
 
         // Phase 5: Cleanup core worker
@@ -322,6 +344,26 @@ internal class ManagedWorker(
                 maxConcurrent = config.maxConcurrentWorkflows,
                 taskQueueScope = taskQueueScope,
                 parentJob = rootExecutorJob,
+                workflowThreadFactory = workflowThreadFactory,
+                deadlockTimeoutMs = config.workflowDeadlockTimeoutMs,
+                terminationGracePeriodMs = config.workflowTerminationGracePeriodMs,
+                maxZombieCount = config.maxZombieCount,
+                onFatalError = {
+                    val closed =
+                        withTimeoutOrNull(config.forceExitTimeoutMs) {
+                            application.close()
+                            true
+                        }
+                    if (closed == null) {
+                        logger.error(
+                            "[TKT1106] FATAL: Graceful shutdown timed out after {}ms. " +
+                                "Stuck threads prevent clean shutdown. Forcing System.exit(1).",
+                            config.forceExitTimeoutMs,
+                        )
+                        System.exit(1)
+                    }
+                },
+                maxZombieRetries = config.maxZombieRetries,
             )
 
         var firstPoll = true
@@ -412,20 +454,24 @@ internal class ManagedWorker(
                 }
             }
         } finally {
-            logger.debug("[pollWorkflowActivations] Cleaning up workflow executors...")
-            val shutdownStart = System.currentTimeMillis()
+            // NonCancellable ensures cleanup completes even if parent scope is force-cancelled
+            withContext(NonCancellable) {
+                logger.debug("[pollWorkflowActivations] Cleaning up workflow executors...")
+                val shutdownStart = System.currentTimeMillis()
 
-            // Terminate all cached executors (clears dispatchers, cancels jobs)
-            localWorkflowDispatcher.clear()
+                // Terminate all cached executors (clears dispatchers, cancels jobs)
+                // This includes zombie eviction for any stuck threads
+                localWorkflowDispatcher.clear()
 
-            rootExecutorJob.complete()
-            rootExecutorJob.join()
+                rootExecutorJob.complete()
+                rootExecutorJob.join()
 
-            val shutdownDuration = System.currentTimeMillis() - shutdownStart
-            if (shutdownDuration > 1000) {
-                logger.info("[pollWorkflowActivations] Waited ${shutdownDuration}ms for executors to complete")
+                val shutdownDuration = System.currentTimeMillis() - shutdownStart
+                if (shutdownDuration > 1000) {
+                    logger.info("[pollWorkflowActivations] Waited ${shutdownDuration}ms for executors to complete")
+                }
+                logger.info("[pollWorkflowActivations] Workflow polling stopped for taskQueue=$taskQueue")
             }
-            logger.info("[pollWorkflowActivations] Workflow polling stopped for taskQueue=$taskQueue")
         }
     }
 
@@ -491,78 +537,83 @@ internal class ManagedWorker(
                         }
 
                     activityScope.launch(activityMdcContext + CoroutineName("Activity-$activityInfo")) {
-                        // Apply activity dispatcher if configured, otherwise use inherited context
-                        val dispatcherContext = effectiveActivityDispatcher ?: EmptyCoroutineContext
-                        withContext(dispatcherContext) {
-                            // Only fire hooks for Start tasks (not Cancel tasks)
-                            if (task.hasStart()) {
-                                val start = task.start
-                                val activityContext =
-                                    ActivityTaskContext(
+                        // Only fire hooks for Start tasks (not Cancel tasks)
+                        if (task.hasStart()) {
+                            val start = task.start
+                            val activityContext =
+                                ActivityTaskContext(
+                                    task = task,
+                                    activityType = start.activityType,
+                                    activityId = start.activityId,
+                                    workflowId = start.workflowExecution.workflowId,
+                                    runId = start.workflowExecution.runId,
+                                    taskQueue = config.name,
+                                    namespace = namespace,
+                                )
+
+                            // Fire ActivityTaskStarted hooks
+                            applicationHooks.call(ActivityTaskStarted, activityContext)
+                            config.hookRegistry.call(ActivityTaskStarted, activityContext)
+
+                            val startTime = System.currentTimeMillis()
+                            // Run activity on dedicated virtual thread for proper thread interruption
+                            val activityThread =
+                                ActivityVirtualThread(
+                                    activityDispatcher = activityDispatcher,
+                                    task = task,
+                                    threadFactory = activityThreadFactory,
+                                    mdcContextMap = org.slf4j.MDC.getCopyOfContextMap(),
+                                )
+
+                            // Track for zombie detection during shutdown
+                            val threadId = activityThread.getThread().threadId()
+                            runningActivityThreads[threadId] =
+                                ActivityThreadInfo(
+                                    thread = activityThread,
+                                    activityType = start.activityType,
+                                    activityId = start.activityId,
+                                )
+
+                            try {
+                                val completion = activityThread.start().await()
+
+                                coreWorker.completeActivityTask(completion.toByteArray())
+                                logger.debug("[pollActivityTasks] Completed activity: $activityInfo")
+
+                                // Fire ActivityTaskCompleted hooks
+                                val duration = (System.currentTimeMillis() - startTime).milliseconds
+                                val completedContext =
+                                    ActivityTaskCompletedContext(
                                         task = task,
                                         activityType = start.activityType,
-                                        activityId = start.activityId,
-                                        workflowId = start.workflowExecution.workflowId,
-                                        runId = start.workflowExecution.runId,
-                                        taskQueue = config.name,
-                                        namespace = namespace,
+                                        duration = duration,
                                     )
+                                applicationHooks.call(ActivityTaskCompleted, completedContext)
+                                config.hookRegistry.call(ActivityTaskCompleted, completedContext)
+                            } catch (e: CancellationException) {
+                                // Re-throw cancellation to properly propagate it
+                                throw e
+                            } catch (e: Exception) {
+                                // Fire ActivityTaskFailed hooks
+                                val failedContext =
+                                    ActivityTaskFailedContext(
+                                        task = task,
+                                        activityType = start.activityType,
+                                        error = e,
+                                    )
+                                applicationHooks.call(ActivityTaskFailed, failedContext)
+                                config.hookRegistry.call(ActivityTaskFailed, failedContext)
 
-                                // Fire ActivityTaskStarted hooks
-                                applicationHooks.call(ActivityTaskStarted, activityContext)
-                                config.hookRegistry.call(ActivityTaskStarted, activityContext)
-
-                                val startTime = System.currentTimeMillis()
-                                try {
-                                    val completion = activityDispatcher.dispatch(task)
-                                    if (completion != null) {
-                                        // Start tasks return completion; Cancel tasks return null
-                                        coreWorker.completeActivityTask(completion.toByteArray())
-                                        logger.debug("[pollActivityTasks] Completed activity: $activityInfo")
-
-                                        // Fire ActivityTaskCompleted hooks
-                                        val duration = (System.currentTimeMillis() - startTime).milliseconds
-                                        val completedContext =
-                                            ActivityTaskCompletedContext(
-                                                task = task,
-                                                activityType = start.activityType,
-                                                duration = duration,
-                                            )
-                                        applicationHooks.call(ActivityTaskCompleted, completedContext)
-                                        config.hookRegistry.call(ActivityTaskCompleted, completedContext)
-                                    }
-                                } catch (e: CancellationException) {
-                                    // Re-throw cancellation to properly propagate it
-                                    throw e
-                                } catch (e: Exception) {
-                                    // Fire ActivityTaskFailed hooks
-                                    val failedContext =
-                                        ActivityTaskFailedContext(
-                                            task = task,
-                                            activityType = start.activityType,
-                                            error = e,
-                                        )
-                                    applicationHooks.call(ActivityTaskFailed, failedContext)
-                                    config.hookRegistry.call(ActivityTaskFailed, failedContext)
-
-                                    logger.warn("[pollActivityTasks] Error dispatching activity: ${e.message}")
-                                    e.printStackTrace()
-                                }
-                            } else {
-                                // Cancel task - no hooks
-                                try {
-                                    val completion = activityDispatcher.dispatch(task)
-                                    if (completion != null) {
-                                        coreWorker.completeActivityTask(completion.toByteArray())
-                                        logger.debug("[pollActivityTasks] Completed activity: $activityInfo")
-                                    }
-                                } catch (e: CancellationException) {
-                                    throw e
-                                } catch (e: Exception) {
-                                    logger.warn("[pollActivityTasks] Error dispatching activity: ${e.message}")
-                                    e.printStackTrace()
-                                }
+                                logger.warn("[pollActivityTasks] Error dispatching activity: ${e.message}")
+                                e.printStackTrace()
+                            } finally {
+                                // Untrack thread
+                                runningActivityThreads.remove(threadId)
                             }
+                        } else {
+                            // Cancel task - dispatch directly without virtual thread
+                            // This allows it to interrupt running activities immediately
+                            activityDispatcher.dispatchCancel(task)
                         }
                     }
                 } catch (_: CancellationException) {
@@ -577,15 +628,46 @@ internal class ManagedWorker(
                 }
             }
         } finally {
-            logger.debug("[pollActivityTasks] Waiting for running activities to complete...")
-            val shutdownStart = System.currentTimeMillis()
-            rootActivityJob.cancel()
-            rootActivityJob.join()
-            val shutdownDuration = System.currentTimeMillis() - shutdownStart
-            if (shutdownDuration > 1000) {
-                logger.info("[pollActivityTasks] Waited ${shutdownDuration}ms for activities to complete")
+            // NonCancellable ensures cleanup completes even if parent scope is force-cancelled
+            withContext(NonCancellable) {
+                logger.debug("[pollActivityTasks] Waiting for running activities to complete...")
+                val shutdownStart = System.currentTimeMillis()
+                rootActivityJob.cancel()
+
+                // Wait for graceful completion with timeout (configurable per task queue)
+                val gracefullyCompleted =
+                    withTimeoutOrNull(config.shutdownGracePeriodMs) {
+                        rootActivityJob.join()
+                        true
+                    } ?: false
+
+                if (!gracefullyCompleted && runningActivityThreads.isNotEmpty()) {
+                    // Some activities didn't complete - attempt to terminate their threads
+                    logger.warn(
+                        "[TKT1201] Activity shutdown timeout, {} activities still running. Attempting forced termination.",
+                        runningActivityThreads.size,
+                    )
+
+                    // Try to terminate each remaining thread
+                    runningActivityThreads.values.forEach { info ->
+                        if (info.thread.isAlive()) {
+                            info.thread.terminate(immediate = true)
+                        }
+                    }
+
+                    // Final join (may still block on zombies but that's expected)
+                    rootActivityJob.join()
+                }
+
+                // Wait for any zombie eviction jobs (launched from ActivityDispatcher on cancel)
+                activityDispatcher.awaitZombieEviction()
+
+                val shutdownDuration = System.currentTimeMillis() - shutdownStart
+                if (shutdownDuration > 1000) {
+                    logger.info("[pollActivityTasks] Waited ${shutdownDuration}ms for activities to complete")
+                }
+                logger.info("[pollActivityTasks] Activity polling stopped for taskQueue=$taskQueue")
             }
-            logger.info("[pollActivityTasks] Activity polling stopped for taskQueue=$taskQueue")
         }
     }
 }

@@ -188,8 +188,7 @@ class ActivityTestHarness(
         // Cancellation in tests is handled via the heartbeat mechanism
         val completion =
             withContext(dispatcher) {
-                activityDispatcher.dispatch(task)
-                    ?: error("Unexpected null completion - test harness only sends Start tasks")
+                activityDispatcher.dispatchForTest(task)
             }
 
         // Extract result

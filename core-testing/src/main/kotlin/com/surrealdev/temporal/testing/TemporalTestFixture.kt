@@ -324,7 +324,7 @@ fun runTemporalTest(
         // (similar to Ktor's runTestWithRealTime)
         // if we don't do this then we can run info FFM issues
         withContext(Dispatchers.Default.limitedParallelism(1)) {
-            runTestApplication(parentCoroutineContext, timeSkipping, block)
+            runTestApplication(parentCoroutineContext + this.coroutineContext, timeSkipping, block)
         }
     }
 

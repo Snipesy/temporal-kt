@@ -10,14 +10,11 @@ import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.ActivityOptions
 import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.startActivity
-import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.newSingleThreadContext
 import org.junit.jupiter.api.Tag
 import java.util.*
-import java.util.concurrent.Executors
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -130,13 +127,12 @@ class ParallelPerformanceTest {
      */
     @Test
     fun `single workflow with 1000 parallel activities completes quickly`() =
-        runTemporalTest(timeSkipping = false) {
+        runTemporalTest(timeSkipping = true) {
             val taskQueue = "parallel-activities-test-${UUID.randomUUID()}"
 
             application {
                 taskQueue(taskQueue) {
                     maxConcurrentActivities = ACTIVITY_COUNT // Allow all activities to run concurrently
-                    activityDispatcher = Executors.newVirtualThreadPerTaskExecutor().asCoroutineDispatcher()
                     workflow(ParallelActivitiesWorkflow())
                     activity(SlowActivity())
                 }
@@ -182,14 +178,12 @@ class ParallelPerformanceTest {
      */
     @Test
     fun `1000 workflows each sleeping 1 second complete quickly`() =
-        runTemporalTest(timeSkipping = false) {
+        runTemporalTest(timeSkipping = true) {
             val taskQueue = "parallel-workflows-test-${UUID.randomUUID()}"
 
             application {
                 taskQueue(taskQueue) {
                     // Workers should work fine on a single thread with sleep timers
-                    workflowDispatcher = newSingleThreadContext("TestDispatcher")
-                    activityDispatcher = Executors.newVirtualThreadPerTaskExecutor().asCoroutineDispatcher()
                     maxConcurrentWorkflows = WORKFLOW_COUNT + 100 // Allow all workflows to run concurrently
                     workflow(OneSleepWorkflow())
                 }
@@ -235,7 +229,6 @@ class ParallelPerformanceTest {
             application {
                 taskQueue(taskQueue) {
                     // same test but with virtual threads
-                    workflowDispatcher = Executors.newVirtualThreadPerTaskExecutor().asCoroutineDispatcher()
                     maxConcurrentWorkflows = WORKFLOW_COUNT + 100 // Allow all workflows to run concurrently
                     workflow(OneSleepWorkflow())
                 }
