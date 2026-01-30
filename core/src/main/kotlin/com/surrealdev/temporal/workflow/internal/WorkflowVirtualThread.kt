@@ -104,7 +104,6 @@ internal class WorkflowVirtualThread(
      *
      * @throws WorkflowDeadlockException if the workflow doesn't yield within deadlockTimeoutMs
      */
-    @Suppress("BlockingMethodInNonBlockingContext")
     suspend fun dispatch(activation: WorkflowActivation): WorkflowActivationCompletion {
         val deferred = CompletableDeferred<WorkflowActivationCompletion>()
         activationQueue.put(QueueItem.Activation(ActivationItem(activation, deferred)))
