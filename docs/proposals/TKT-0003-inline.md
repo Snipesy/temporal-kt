@@ -59,7 +59,7 @@ For example, the above inline workflow/activity definitions could be converted t
 
 ```kotlin
 @Workflow("MyWorkflow")
-class MyWorkflow : WorkflowInterface<WorkflowArg, String> {
+class MyWorkflow {
     @WorkflowRun
     override suspend fun WorkflowContext.execute(arg: WorkflowArg): String {
         val greeting = activity<MyActivity>().greet(arg.name)
@@ -67,14 +67,14 @@ class MyWorkflow : WorkflowInterface<WorkflowArg, String> {
     }
 }
 
-class MyActivity : ActivityInterface<String, String> {
+class MyActivity {
     @Activity("greet")
     override suspend fun ActivityContext.greet(name: String): String {
         return "Hello, $name"
     }
 }
 
-class UnnestedActivity : ActivityInterface<String, String> {
+class UnnestedActivity {
     @Activity("greet")
     override suspend fun ActivityContext.greet(name: String): String {
         return "Hi there, $name"
