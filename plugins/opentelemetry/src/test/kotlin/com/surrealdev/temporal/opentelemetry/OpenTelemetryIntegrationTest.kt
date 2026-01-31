@@ -121,14 +121,8 @@ class OpenTelemetryIntegrationTest {
             val result = handle.result(timeout = 30.seconds)
             assertEquals("Result: World", result)
 
-            // Give spans time to be exported
-            delay(100)
-
-            // Verify workflow task spans were recorded
-            val spans = spanExporter.finishedSpanItems
-            assertTrue(spans.isNotEmpty(), "Expected at least one span to be recorded")
-
-            val workflowSpans = spans.filter { it.name == "temporal.workflow.task" }
+            // Wait for workflow task spans to be exported (with polling)
+            val workflowSpans = waitForSpans(spanExporter, "temporal.workflow.task", timeout = 5.seconds)
             assertTrue(workflowSpans.isNotEmpty(), "Expected workflow task spans")
 
             val workflowSpan = workflowSpans.first()
@@ -179,13 +173,8 @@ class OpenTelemetryIntegrationTest {
             val result = handle.result(timeout = 30.seconds)
             assertEquals("Hello, Alice!", result)
 
-            // Give spans time to be exported
-            delay(100)
-
-            // Verify activity spans were recorded
-            val spans = spanExporter.finishedSpanItems
-
-            val activitySpans = spans.filter { it.name == "temporal.activity.execute" }
+            // Wait for activity spans to be exported (with polling)
+            val activitySpans = waitForSpans(spanExporter, "temporal.activity.execute", timeout = 5.seconds)
             assertTrue(activitySpans.isNotEmpty(), "Expected activity task spans")
 
             val activitySpan = activitySpans.first()
@@ -294,13 +283,11 @@ class OpenTelemetryIntegrationTest {
 
             handle.result(timeout = 30.seconds)
 
-            delay(100)
-
-            val spans = spanExporter.finishedSpanItems
+            // Wait for activity spans (which should be recorded)
+            val activitySpans = waitForSpans(spanExporter, "temporal.activity.execute", timeout = 5.seconds)
 
             // Should have activity spans but NOT workflow spans
-            val workflowSpans = spans.filter { it.name == "temporal.workflow.task" }
-            val activitySpans = spans.filter { it.name == "temporal.activity.execute" }
+            val workflowSpans = spanExporter.finishedSpanItems.filter { it.name == "temporal.workflow.task" }
 
             assertTrue(workflowSpans.isEmpty(), "Expected NO workflow task spans when disabled")
             assertTrue(activitySpans.isNotEmpty(), "Expected activity task spans")
@@ -341,6 +328,26 @@ class OpenTelemetryIntegrationTest {
         }
 
     // ==================== Helper Methods ====================
+
+    /**
+     * Waits for spans with the given name to appear in the exporter, with polling.
+     * This avoids flaky tests due to timing issues with span export.
+     */
+    private suspend fun waitForSpans(
+        exporter: InMemorySpanExporter,
+        spanName: String,
+        timeout: kotlin.time.Duration = 5.seconds,
+    ): List<io.opentelemetry.sdk.trace.data.SpanData> {
+        val deadline = System.currentTimeMillis() + timeout.inWholeMilliseconds
+        while (System.currentTimeMillis() < deadline) {
+            val spans = exporter.finishedSpanItems.filter { it.name == spanName }
+            if (spans.isNotEmpty()) {
+                return spans
+            }
+            delay(50)
+        }
+        return exporter.finishedSpanItems.filter { it.name == spanName }
+    }
 
     private fun createTestOpenTelemetry(
         spanExporter: InMemorySpanExporter,
