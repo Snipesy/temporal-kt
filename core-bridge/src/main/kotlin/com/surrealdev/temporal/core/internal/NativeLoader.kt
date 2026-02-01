@@ -131,7 +131,7 @@ object NativeLoader {
             get() =
                 when (os) {
                     OS.DARWIN -> "darwin-${arch.name.lowercase()}"
-                    OS.LINUX -> "linux-${arch.name.lowercase()}"
+                    OS.LINUX -> "linux-${arch.name.lowercase()}-gnu"
                     OS.WINDOWS -> "windows-${arch.name.lowercase()}"
                 }
 

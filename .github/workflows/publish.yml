@@ -32,33 +32,35 @@ jobs:
       matrix:
         include:
           - os: ubuntu-24.04
-            platform: linux
-            rust-targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu
-            gradle-task: copyLinuxNativeLibs
-            artifact-name: native-libs-linux
-            artifact-path: core-bridge/build/native-libs/native/linux-*
-            needs-zig: true
+            platform: linux-x86_64-gnu
+            rust-targets: x86_64-unknown-linux-gnu
+            gradle-task: copyNativeLibLinuxx8664
+            artifact-name: native-libs-linux-x86_64-gnu
+            artifact-path: core-bridge/build/native-libs/native/linux-x86_64-gnu
+          - os: ubuntu-24.04-arm
+            platform: linux-aarch64-gnu
+            rust-targets: aarch64-unknown-linux-gnu
+            gradle-task: copyNativeLibLinuxAarch64
+            artifact-name: native-libs-linux-aarch64-gnu
+            artifact-path: core-bridge/build/native-libs/native/linux-aarch64-gnu
           - os: macos-14
             platform: darwin-aarch64
             rust-targets: aarch64-apple-darwin
             gradle-task: copyDarwinAarch64NativeLib
             artifact-name: native-libs-darwin-aarch64
             artifact-path: core-bridge/build/native-libs/native/darwin-aarch64
-            needs-zig: false
           - os: macos-15-intel
             platform: darwin-x86_64
             rust-targets: x86_64-apple-darwin
             gradle-task: copyDarwinx8664NativeLib
             artifact-name: native-libs-darwin-x86_64
             artifact-path: core-bridge/build/native-libs/native/darwin-x86_64
-            needs-zig: false
           - os: windows-latest
             platform: windows
             rust-targets: x86_64-pc-windows-msvc
             gradle-task: copyWindowsNativeLib
             artifact-name: native-libs-windows
-            artifact-path: core-bridge/build/native-libs/native/windows-*
-            needs-zig: false
+            artifact-path: core-bridge/build/native-libs/native/windows-x86_64
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -86,15 +88,9 @@ jobs:
           cache-on-failure: true
           cache-workspace-crates: "true"
 
-      - name: Set up Zig
-        if: matrix.needs-zig
-        uses: mlugg/setup-zig@v2
-
-      - name: Install cargo-zigbuild and protobuf (Linux)
+      - name: Install protobuf (Linux)
         if: runner.os == 'Linux'
-        run: |
-          cargo install cargo-zigbuild
-          sudo apt-get update && sudo apt-get install -y protobuf-compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - name: Install protobuf (macOS)
         if: runner.os == 'macOS'
@@ -130,13 +126,13 @@ jobs:
       matrix:
         include:
           - os: ubuntu-24.04
-            platform: linux-x86_64
-            artifact-name: native-libs-linux
-            artifact-path: core-bridge/build/native-libs/native/
+            platform: linux-x86_64-gnu
+            artifact-name: native-libs-linux-x86_64-gnu
+            artifact-path: core-bridge/build/native-libs/native/linux-x86_64-gnu
           - os: ubuntu-24.04-arm
-            platform: linux-aarch64
-            artifact-name: native-libs-linux
-            artifact-path: core-bridge/build/native-libs/native/
+            platform: linux-aarch64-gnu
+            artifact-name: native-libs-linux-aarch64-gnu
+            artifact-path: core-bridge/build/native-libs/native/linux-aarch64-gnu
           - os: macos-14
             platform: darwin-aarch64
             artifact-name: native-libs-darwin-aarch64
@@ -148,7 +144,7 @@ jobs:
           - os: windows-latest
             platform: windows
             artifact-name: native-libs-windows
-            artifact-path: core-bridge/build/native-libs/native/
+            artifact-path: core-bridge/build/native-libs/native/windows-x86_64
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -215,11 +211,17 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       # Download all native lib artifacts into the expected directory structure
-      - name: Download Linux native libs
+      - name: Download Linux x86_64 native lib
         uses: actions/download-artifact@v4
         with:
-          name: native-libs-linux
-          path: core-bridge/build/native-libs/native/
+          name: native-libs-linux-x86_64-gnu
+          path: core-bridge/build/native-libs/native/linux-x86_64-gnu
+
+      - name: Download Linux aarch64 native lib
+        uses: actions/download-artifact@v4
+        with:
+          name: native-libs-linux-aarch64-gnu
+          path: core-bridge/build/native-libs/native/linux-aarch64-gnu
 
       - name: Download Darwin ARM64 native lib
         uses: actions/download-artifact@v4
@@ -237,7 +239,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: native-libs-windows
-          path: core-bridge/build/native-libs/native/
+          path: core-bridge/build/native-libs/native/windows-x86_64
 
       - name: Verify native libraries
         run: |
@@ -245,8 +247,8 @@ jobs:
           find core-bridge/build/native-libs -type f -name "*.so" -o -name "*.dylib" -o -name "*.dll" | sort
           echo ""
           echo "Expected structure:"
-          echo "  native/linux-x86_64/libtemporalio_sdk_core_c_bridge.so"
-          echo "  native/linux-aarch64/libtemporalio_sdk_core_c_bridge.so"
+          echo "  native/linux-x86_64-gnu/libtemporalio_sdk_core_c_bridge.so"
+          echo "  native/linux-aarch64-gnu/libtemporalio_sdk_core_c_bridge.so"
           echo "  native/darwin-x86_64/libtemporalio_sdk_core_c_bridge.dylib"
           echo "  native/darwin-aarch64/libtemporalio_sdk_core_c_bridge.dylib"
           echo "  native/windows-x86_64/temporalio_sdk_core_c_bridge.dll"
