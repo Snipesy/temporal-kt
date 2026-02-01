@@ -83,6 +83,7 @@ jobs:
         with:
           workspaces: "core-bridge/rust -> target"
           key: ${{ matrix.platform }}
+          cache-on-failure: true
           cache-workspace-crates: "true"
 
       - name: Set up Zig

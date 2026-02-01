@@ -48,7 +48,6 @@ bin/
 
 ### Rust ###
 **/rust/target/
-Cargo.lock
 
 ### Protobuf Generated ###
 **/generated/
