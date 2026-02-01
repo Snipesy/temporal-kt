@@ -3,7 +3,6 @@ package com.surrealdev.temporal.core.internal
 import io.temporal.sdkbridge.TemporalCoreByteArrayRefArray
 import io.temporal.sdkbridge.TemporalCoreClientConnectCallback
 import io.temporal.sdkbridge.TemporalCoreClientOptions
-import io.temporal.sdkbridge.TemporalCoreClientRpcCallCallback
 import io.temporal.sdkbridge.TemporalCoreClientTlsOptions
 import io.temporal.sdkbridge.TemporalCoreRpcCallOptions
 import java.lang.foreign.Arena
@@ -236,11 +235,13 @@ internal object TemporalCoreClient {
     // ============================================================
 
     /**
-     * Makes an RPC call to the Temporal server.
+     * Makes an RPC call to the Temporal server using a reusable callback dispatcher.
+     *
+     * This version uses a shared callback stub for better performance on repeated calls.
      *
      * @param clientPtr Pointer to the client
-     * @param arena Arena for allocations
-     * @param runtimePtr Pointer to the runtime (for freeing byte arrays)
+     * @param arena Arena for allocations (for RPC options, not callback stub)
+     * @param dispatcher The callback dispatcher with reusable stubs
      * @param service The RPC service type
      * @param rpc The RPC method name
      * @param request The request payload (protobuf bytes)
@@ -248,11 +249,12 @@ internal object TemporalCoreClient {
      * @param timeoutMillis Timeout in milliseconds (0 for default)
      * @param cancellationToken Optional cancellation token
      * @param callback Callback invoked when RPC completes
+     * @return The context pointer for cancellation
      */
     fun rpcCall(
         clientPtr: MemorySegment,
         arena: Arena,
-        runtimePtr: MemorySegment,
+        dispatcher: ClientCallbackDispatcher,
         service: RpcService,
         rpc: String,
         request: ByteArray,
@@ -260,7 +262,7 @@ internal object TemporalCoreClient {
         timeoutMillis: Int = 0,
         cancellationToken: MemorySegment? = null,
         callback: RpcCallback,
-    ) {
+    ): MemorySegment {
         val options = TemporalCoreRpcCallOptions.allocate(arena)
         TemporalCoreRpcCallOptions.service(options, service.value)
         TemporalCoreRpcCallOptions.rpc(options, TemporalCoreFfmUtil.createByteArrayRef(arena, rpc))
@@ -271,8 +273,9 @@ internal object TemporalCoreClient {
         TemporalCoreRpcCallOptions.timeout_millis(options, timeoutMillis)
         TemporalCoreRpcCallOptions.cancellation_token(options, cancellationToken ?: MemorySegment.NULL)
 
-        val callbackStub = createRpcCallbackStub(arena, runtimePtr, callback)
-        CoreBridge.temporal_core_client_rpc_call(clientPtr, options, MemorySegment.NULL, callbackStub)
+        val contextPtr = dispatcher.registerRpc(callback)
+        CoreBridge.temporal_core_client_rpc_call(clientPtr, options, contextPtr, dispatcher.rpcCallbackStub)
+        return contextPtr
     }
 
     // ============================================================
@@ -481,45 +484,6 @@ internal object TemporalCoreClient {
                     if (clientPtr != MemorySegment.NULL) clientPtr else null,
                     error,
                 )
-            },
-            arena,
-        )
-
-    private fun createRpcCallbackStub(
-        arena: Arena,
-        runtimePtr: MemorySegment,
-        callback: RpcCallback,
-    ): MemorySegment =
-        TemporalCoreClientRpcCallCallback.allocate(
-            { _, successPtr, statusCode, failMessagePtr, failDetailsPtr ->
-                val response =
-                    if (successPtr != MemorySegment.NULL) {
-                        TemporalCoreFfmUtil.readByteArrayAsBytes(successPtr).also {
-                            CoreBridge.temporal_core_byte_array_free(runtimePtr, successPtr)
-                        }
-                    } else {
-                        null
-                    }
-
-                val failureMessage =
-                    if (failMessagePtr != MemorySegment.NULL) {
-                        TemporalCoreFfmUtil.readByteArray(failMessagePtr).also {
-                            CoreBridge.temporal_core_byte_array_free(runtimePtr, failMessagePtr)
-                        }
-                    } else {
-                        null
-                    }
-
-                val failureDetails =
-                    if (failDetailsPtr != MemorySegment.NULL) {
-                        TemporalCoreFfmUtil.readByteArrayAsBytes(failDetailsPtr).also {
-                            CoreBridge.temporal_core_byte_array_free(runtimePtr, failDetailsPtr)
-                        }
-                    } else {
-                        null
-                    }
-
-                callback.onComplete(response, statusCode, failureMessage, failureDetails)
             },
             arena,
         )

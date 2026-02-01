@@ -1,9 +1,13 @@
 package com.surrealdev.temporal.core
 
 import com.surrealdev.temporal.core.internal.CallbackArena
+import com.surrealdev.temporal.core.internal.ClientCallbackDispatcher
 import com.surrealdev.temporal.core.internal.ClientTlsOptions
+import kotlinx.coroutines.suspendCancellableCoroutine
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import com.surrealdev.temporal.core.internal.TemporalCoreClient as InternalClient
 
 /**
@@ -104,6 +108,7 @@ class TemporalCoreClient private constructor(
     private val runtimePtr: MemorySegment,
     private val arena: Arena,
     private val callbackArena: Arena,
+    private val dispatcher: ClientCallbackDispatcher,
     val targetUrl: String,
     val namespace: String,
 ) : AutoCloseable {
@@ -152,6 +157,7 @@ class TemporalCoreClient private constructor(
                 }
 
             val callbackArena = Arena.ofShared()
+            val dispatcher = ClientCallbackDispatcher(callbackArena, runtime.handle)
 
             return try {
                 val (arena, clientPtr) =
@@ -175,10 +181,12 @@ class TemporalCoreClient private constructor(
                     runtimePtr = runtime.handle,
                     arena = arena,
                     callbackArena = callbackArena,
+                    dispatcher = dispatcher,
                     targetUrl = targetUrl,
                     namespace = namespace,
                 )
             } catch (e: Exception) {
+                dispatcher.close()
                 callbackArena.close()
                 throw e
             }
@@ -203,8 +211,7 @@ class TemporalCoreClient private constructor(
     /**
      * Makes an RPC call to the Temporal workflow service.
      *
-     * Uses a long-lived arena because Rust spawns async tasks that hold the callback
-     * pointer, which may complete after the arena would normally be GC'd.
+     * Uses reusable callback stubs via the dispatcher for better performance.
      *
      * @param rpc The RPC method name (e.g., "StartWorkflowExecution")
      * @param request The request payload as protobuf bytes
@@ -216,22 +223,32 @@ class TemporalCoreClient private constructor(
         request: ByteArray,
     ): ByteArray {
         ensureOpen()
-        return CallbackArena.withExternalArenaNonNullResult<ByteArray>(callbackArena) { callArena, callback ->
-            InternalClient.rpcCall(
-                clientPtr = handle,
-                arena = callArena,
-                runtimePtr = runtimePtr,
-                service = InternalClient.RpcService.WORKFLOW,
-                rpc = rpc,
-                request = request,
-            ) { response, statusCode, failureMessage, _ ->
-                if (statusCode == 0) {
-                    // Status 0 means success. Use empty byte array for empty responses
-                    // (e.g., RequestCancelWorkflowExecutionResponse has no fields)
-                    callback(response ?: ByteArray(0), null)
-                } else {
-                    callback(null, failureMessage ?: "RPC call failed with status $statusCode")
+        return suspendCancellableCoroutine { continuation ->
+            var contextId: Long = 0
+            val contextPtr =
+                InternalClient.rpcCall(
+                    clientPtr = handle,
+                    arena = callbackArena,
+                    dispatcher = dispatcher,
+                    service = InternalClient.RpcService.WORKFLOW,
+                    rpc = rpc,
+                    request = request,
+                ) { response, statusCode, failureMessage, _ ->
+                    try {
+                        if (statusCode == 0) {
+                            continuation.resume(response ?: ByteArray(0))
+                        } else {
+                            continuation.resumeWithException(
+                                TemporalCoreException(failureMessage ?: "RPC call failed with status $statusCode"),
+                            )
+                        }
+                    } catch (_: IllegalStateException) {
+                        // Continuation already resumed, ignore
+                    }
                 }
+            contextId = dispatcher.getContextId(contextPtr)
+            continuation.invokeOnCancellation {
+                dispatcher.cancelRpc(contextId)
             }
         }
     }
@@ -240,8 +257,7 @@ class TemporalCoreClient private constructor(
      * Makes an RPC call to the Temporal test service.
      *
      * This is only available when connected to a test server with time-skipping enabled.
-     * Uses a long-lived arena because Rust spawns async tasks that hold the callback
-     * pointer, which may complete after the arena would normally be GC'd.
+     * Uses reusable callback stubs via the dispatcher for better performance.
      *
      * @param rpc The RPC method name (e.g., "LockTimeSkipping", "GetCurrentTime")
      * @param request The request payload as protobuf bytes
@@ -253,21 +269,32 @@ class TemporalCoreClient private constructor(
         request: ByteArray,
     ): ByteArray {
         ensureOpen()
-        return CallbackArena.withExternalArenaNonNullResult<ByteArray>(callbackArena) { callArena, callback ->
-            InternalClient.rpcCall(
-                clientPtr = handle,
-                arena = callArena,
-                runtimePtr = runtimePtr,
-                service = InternalClient.RpcService.TEST,
-                rpc = rpc,
-                request = request,
-            ) { response, statusCode, failureMessage, _ ->
-                if (statusCode == 0) {
-                    // Success - return response or empty array for empty protobuf messages
-                    callback(response ?: ByteArray(0), null)
-                } else {
-                    callback(null, failureMessage ?: "RPC call failed with status $statusCode")
+        return suspendCancellableCoroutine { continuation ->
+            var contextId: Long = 0
+            val contextPtr =
+                InternalClient.rpcCall(
+                    clientPtr = handle,
+                    arena = callbackArena,
+                    dispatcher = dispatcher,
+                    service = InternalClient.RpcService.TEST,
+                    rpc = rpc,
+                    request = request,
+                ) { response, statusCode, failureMessage, _ ->
+                    try {
+                        if (statusCode == 0) {
+                            continuation.resume(response ?: ByteArray(0))
+                        } else {
+                            continuation.resumeWithException(
+                                TemporalCoreException(failureMessage ?: "RPC call failed with status $statusCode"),
+                            )
+                        }
+                    } catch (_: IllegalStateException) {
+                        // Continuation already resumed, ignore
+                    }
                 }
+            contextId = dispatcher.getContextId(contextPtr)
+            continuation.invokeOnCancellation {
+                dispatcher.cancelRpc(contextId)
             }
         }
     }
@@ -283,6 +310,7 @@ class TemporalCoreClient private constructor(
             if (closed) return
             closed = true
             InternalClient.freeClient(handle)
+            dispatcher.close()
             arena.close()
             callbackArena.close()
         }

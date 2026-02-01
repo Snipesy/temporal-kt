@@ -45,31 +45,30 @@ class WorkerLifecycleTest {
         }
 
     @Test
-    fun `embeddedTemporal starts and stops workers`() {
-        TemporalRuntime.create().use { runtime ->
-            TemporalDevServer.start(runtime, timeoutSeconds = 120).use { devServer ->
-                val embedded =
-                    embeddedTemporal(
-                        configure = {
-                            connection {
-                                target = "http://${devServer.targetUrl}"
-                                namespace = "default"
-                            }
-                        },
-                        module = {
-                            taskQueue("embedded-queue") {
-                                // Empty task queue
-                            }
-                        },
-                    )
-                embedded.start(wait = false)
-                runBlocking {
+    fun `embeddedTemporal starts and stops workers`() =
+        runBlocking {
+            TemporalRuntime.create().use { runtime ->
+                TemporalDevServer.start(runtime).use { devServer ->
+                    val embedded =
+                        embeddedTemporal(
+                            configure = {
+                                connection {
+                                    target = "http://${devServer.targetUrl}"
+                                    namespace = "default"
+                                }
+                            },
+                            module = {
+                                taskQueue("embedded-queue") {
+                                    // Empty task queue
+                                }
+                            },
+                        )
+                    embedded.start(wait = false)
                     delay(100)
                     embedded.stop()
                 }
             }
         }
-    }
 
     @Test
     fun `application without task queues starts successfully`() =

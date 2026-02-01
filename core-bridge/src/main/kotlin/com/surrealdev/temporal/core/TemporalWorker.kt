@@ -1,6 +1,6 @@
 package com.surrealdev.temporal.core
 
-import com.surrealdev.temporal.core.internal.CallbackDispatcher
+import com.surrealdev.temporal.core.internal.WorkerCallbackDispatcher
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
@@ -92,7 +92,7 @@ class TemporalWorker private constructor(
     private val runtimePtr: MemorySegment,
     private val arena: Arena,
     private val callbackArena: Arena,
-    private val dispatcher: CallbackDispatcher,
+    private val dispatcher: WorkerCallbackDispatcher,
     val taskQueue: String,
     val namespace: String,
 ) : AutoCloseable {
@@ -126,7 +126,7 @@ class TemporalWorker private constructor(
 
             val arena = Arena.ofShared()
             val callbackArena = Arena.ofShared()
-            val dispatcher = CallbackDispatcher(callbackArena, runtime.handle)
+            val dispatcher = WorkerCallbackDispatcher(callbackArena, runtime.handle)
 
             return try {
                 val workerPtr =

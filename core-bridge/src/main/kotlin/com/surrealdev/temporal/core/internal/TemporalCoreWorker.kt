@@ -8,12 +8,10 @@ import io.temporal.sdkbridge.TemporalCorePollerBehavior
 import io.temporal.sdkbridge.TemporalCorePollerBehaviorSimpleMaximum
 import io.temporal.sdkbridge.TemporalCoreSlotSupplier
 import io.temporal.sdkbridge.TemporalCoreTunerHolder
-import io.temporal.sdkbridge.TemporalCoreWorkerCallback
 import io.temporal.sdkbridge.TemporalCoreWorkerDeploymentOptions
 import io.temporal.sdkbridge.TemporalCoreWorkerDeploymentVersion
 import io.temporal.sdkbridge.TemporalCoreWorkerOptions
 import io.temporal.sdkbridge.TemporalCoreWorkerOrFail
-import io.temporal.sdkbridge.TemporalCoreWorkerPollCallback
 import io.temporal.sdkbridge.TemporalCoreWorkerReplayPushResult
 import io.temporal.sdkbridge.TemporalCoreWorkerReplayerOrFail
 import io.temporal.sdkbridge.TemporalCoreWorkerTaskTypes
@@ -131,24 +129,6 @@ internal object TemporalCoreWorker {
     }
 
     /**
-     * Validates a worker's configuration.
-     *
-     * @param workerPtr Pointer to the worker
-     * @param arena Arena for callback allocation
-     * @param runtimePtr Pointer to the runtime
-     * @param callback Callback invoked when validation completes
-     */
-    fun validate(
-        workerPtr: MemorySegment,
-        arena: Arena,
-        runtimePtr: MemorySegment,
-        callback: WorkerCallback,
-    ) {
-        val callbackStub = createWorkerCallbackStub(arena, runtimePtr, callback)
-        CoreBridge.temporal_core_worker_validate(workerPtr, MemorySegment.NULL, callbackStub)
-    }
-
-    /**
      * Validates a worker's configuration using a reusable callback stub.
      *
      * @param workerPtr Pointer to the worker
@@ -158,7 +138,7 @@ internal object TemporalCoreWorker {
      */
     fun validate(
         workerPtr: MemorySegment,
-        dispatcher: CallbackDispatcher,
+        dispatcher: WorkerCallbackDispatcher,
         callback: WorkerCallback,
     ): MemorySegment {
         val contextPtr = dispatcher.registerWorker(callback)
@@ -194,24 +174,6 @@ internal object TemporalCoreWorker {
     // ============================================================
 
     /**
-     * Polls for a workflow activation.
-     *
-     * @param workerPtr Pointer to the worker
-     * @param arena Arena for callback allocation
-     * @param runtimePtr Pointer to the runtime
-     * @param callback Callback invoked when poll completes
-     */
-    fun pollWorkflowActivation(
-        workerPtr: MemorySegment,
-        arena: Arena,
-        runtimePtr: MemorySegment,
-        callback: PollCallback,
-    ) {
-        val callbackStub = createPollCallbackStub(arena, runtimePtr, callback)
-        CoreBridge.temporal_core_worker_poll_workflow_activation(workerPtr, MemorySegment.NULL, callbackStub)
-    }
-
-    /**
      * Polls for a workflow activation using a reusable callback stub.
      *
      * @param workerPtr Pointer to the worker
@@ -221,7 +183,7 @@ internal object TemporalCoreWorker {
      */
     fun pollWorkflowActivation(
         workerPtr: MemorySegment,
-        dispatcher: CallbackDispatcher,
+        dispatcher: WorkerCallbackDispatcher,
         callback: PollCallback,
     ): MemorySegment {
         val contextPtr = dispatcher.registerPoll(callback)
@@ -234,24 +196,6 @@ internal object TemporalCoreWorker {
     }
 
     /**
-     * Polls for an activity task.
-     *
-     * @param workerPtr Pointer to the worker
-     * @param arena Arena for callback allocation
-     * @param runtimePtr Pointer to the runtime
-     * @param callback Callback invoked when poll completes
-     */
-    fun pollActivityTask(
-        workerPtr: MemorySegment,
-        arena: Arena,
-        runtimePtr: MemorySegment,
-        callback: PollCallback,
-    ) {
-        val callbackStub = createPollCallbackStub(arena, runtimePtr, callback)
-        CoreBridge.temporal_core_worker_poll_activity_task(workerPtr, MemorySegment.NULL, callbackStub)
-    }
-
-    /**
      * Polls for an activity task using a reusable callback stub.
      *
      * @param workerPtr Pointer to the worker
@@ -261,7 +205,7 @@ internal object TemporalCoreWorker {
      */
     fun pollActivityTask(
         workerPtr: MemorySegment,
-        dispatcher: CallbackDispatcher,
+        dispatcher: WorkerCallbackDispatcher,
         callback: PollCallback,
     ): MemorySegment {
         val contextPtr = dispatcher.registerPoll(callback)
@@ -274,24 +218,6 @@ internal object TemporalCoreWorker {
     }
 
     /**
-     * Polls for a nexus task.
-     *
-     * @param workerPtr Pointer to the worker
-     * @param arena Arena for callback allocation
-     * @param runtimePtr Pointer to the runtime
-     * @param callback Callback invoked when poll completes
-     */
-    fun pollNexusTask(
-        workerPtr: MemorySegment,
-        arena: Arena,
-        runtimePtr: MemorySegment,
-        callback: PollCallback,
-    ) {
-        val callbackStub = createPollCallbackStub(arena, runtimePtr, callback)
-        CoreBridge.temporal_core_worker_poll_nexus_task(workerPtr, MemorySegment.NULL, callbackStub)
-    }
-
-    /**
      * Polls for a nexus task using a reusable callback stub.
      *
      * @param workerPtr Pointer to the worker
@@ -301,7 +227,7 @@ internal object TemporalCoreWorker {
      */
     fun pollNexusTask(
         workerPtr: MemorySegment,
-        dispatcher: CallbackDispatcher,
+        dispatcher: WorkerCallbackDispatcher,
         callback: PollCallback,
     ): MemorySegment {
         val contextPtr = dispatcher.registerPoll(callback)
@@ -318,32 +244,6 @@ internal object TemporalCoreWorker {
     // ============================================================
 
     /**
-     * Completes a workflow activation.
-     *
-     * @param workerPtr Pointer to the worker
-     * @param arena Arena for allocations
-     * @param runtimePtr Pointer to the runtime
-     * @param completion The completion protobuf bytes
-     * @param callback Callback invoked when completion is processed
-     */
-    fun completeWorkflowActivation(
-        workerPtr: MemorySegment,
-        arena: Arena,
-        runtimePtr: MemorySegment,
-        completion: ByteArray,
-        callback: WorkerCallback,
-    ) {
-        val completionRef = TemporalCoreFfmUtil.createByteArrayRef(arena, completion)
-        val callbackStub = createWorkerCallbackStub(arena, runtimePtr, callback)
-        CoreBridge.temporal_core_worker_complete_workflow_activation(
-            workerPtr,
-            completionRef,
-            MemorySegment.NULL,
-            callbackStub,
-        )
-    }
-
-    /**
      * Completes a workflow activation using a reusable callback stub.
      *
      * @param workerPtr Pointer to the worker
@@ -356,7 +256,7 @@ internal object TemporalCoreWorker {
     fun completeWorkflowActivation(
         workerPtr: MemorySegment,
         arena: Arena,
-        dispatcher: CallbackDispatcher,
+        dispatcher: WorkerCallbackDispatcher,
         completion: ByteArray,
         callback: WorkerCallback,
     ): MemorySegment {
@@ -369,32 +269,6 @@ internal object TemporalCoreWorker {
             dispatcher.workerCallbackStub,
         )
         return contextPtr
-    }
-
-    /**
-     * Completes an activity task.
-     *
-     * @param workerPtr Pointer to the worker
-     * @param arena Arena for allocations
-     * @param runtimePtr Pointer to the runtime
-     * @param completion The completion protobuf bytes
-     * @param callback Callback invoked when completion is processed
-     */
-    fun completeActivityTask(
-        workerPtr: MemorySegment,
-        arena: Arena,
-        runtimePtr: MemorySegment,
-        completion: ByteArray,
-        callback: WorkerCallback,
-    ) {
-        val completionRef = TemporalCoreFfmUtil.createByteArrayRef(arena, completion)
-        val callbackStub = createWorkerCallbackStub(arena, runtimePtr, callback)
-        CoreBridge.temporal_core_worker_complete_activity_task(
-            workerPtr,
-            completionRef,
-            MemorySegment.NULL,
-            callbackStub,
-        )
     }
 
     /**
@@ -410,7 +284,7 @@ internal object TemporalCoreWorker {
     fun completeActivityTask(
         workerPtr: MemorySegment,
         arena: Arena,
-        dispatcher: CallbackDispatcher,
+        dispatcher: WorkerCallbackDispatcher,
         completion: ByteArray,
         callback: WorkerCallback,
     ): MemorySegment {
@@ -426,27 +300,6 @@ internal object TemporalCoreWorker {
     }
 
     /**
-     * Completes a nexus task.
-     *
-     * @param workerPtr Pointer to the worker
-     * @param arena Arena for allocations
-     * @param runtimePtr Pointer to the runtime
-     * @param completion The completion protobuf bytes
-     * @param callback Callback invoked when completion is processed
-     */
-    fun completeNexusTask(
-        workerPtr: MemorySegment,
-        arena: Arena,
-        runtimePtr: MemorySegment,
-        completion: ByteArray,
-        callback: WorkerCallback,
-    ) {
-        val completionRef = TemporalCoreFfmUtil.createByteArrayRef(arena, completion)
-        val callbackStub = createWorkerCallbackStub(arena, runtimePtr, callback)
-        CoreBridge.temporal_core_worker_complete_nexus_task(workerPtr, completionRef, MemorySegment.NULL, callbackStub)
-    }
-
-    /**
      * Completes a nexus task using a reusable callback stub.
      *
      * @param workerPtr Pointer to the worker
@@ -459,7 +312,7 @@ internal object TemporalCoreWorker {
     fun completeNexusTask(
         workerPtr: MemorySegment,
         arena: Arena,
-        dispatcher: CallbackDispatcher,
+        dispatcher: WorkerCallbackDispatcher,
         completion: ByteArray,
         callback: WorkerCallback,
     ): MemorySegment {
@@ -526,24 +379,6 @@ internal object TemporalCoreWorker {
     }
 
     /**
-     * Finalizes worker shutdown.
-     *
-     * @param workerPtr Pointer to the worker
-     * @param arena Arena for callback allocation
-     * @param runtimePtr Pointer to the runtime
-     * @param callback Callback invoked when shutdown completes
-     */
-    fun finalizeShutdown(
-        workerPtr: MemorySegment,
-        arena: Arena,
-        runtimePtr: MemorySegment,
-        callback: WorkerCallback,
-    ) {
-        val callbackStub = createWorkerCallbackStub(arena, runtimePtr, callback)
-        CoreBridge.temporal_core_worker_finalize_shutdown(workerPtr, MemorySegment.NULL, callbackStub)
-    }
-
-    /**
      * Finalizes worker shutdown using a reusable callback stub.
      *
      * @param workerPtr Pointer to the worker
@@ -553,7 +388,7 @@ internal object TemporalCoreWorker {
      */
     fun finalizeShutdown(
         workerPtr: MemorySegment,
-        dispatcher: CallbackDispatcher,
+        dispatcher: WorkerCallbackDispatcher,
         callback: WorkerCallback,
     ): MemorySegment {
         val contextPtr = dispatcher.registerWorker(callback)
@@ -841,55 +676,4 @@ internal object TemporalCoreWorker {
         val fixedSize = TemporalCoreSlotSupplier.fixed_size(slotSupplier)
         TemporalCoreFixedSizeSlotSupplier.num_slots(fixedSize, numSlots)
     }
-
-    private fun createPollCallbackStub(
-        arena: Arena,
-        runtimePtr: MemorySegment,
-        callback: PollCallback,
-    ): MemorySegment =
-        TemporalCoreWorkerPollCallback.allocate(
-            { _, successPtr, failPtr ->
-                val data =
-                    if (successPtr != MemorySegment.NULL) {
-                        TemporalCoreFfmUtil.readByteArrayAsBytes(successPtr).also {
-                            CoreBridge.temporal_core_byte_array_free(runtimePtr, successPtr)
-                        }
-                    } else {
-                        null
-                    }
-
-                val error =
-                    if (failPtr != MemorySegment.NULL) {
-                        TemporalCoreFfmUtil.readByteArray(failPtr).also {
-                            CoreBridge.temporal_core_byte_array_free(runtimePtr, failPtr)
-                        }
-                    } else {
-                        null
-                    }
-
-                callback.onComplete(data, error)
-            },
-            arena,
-        )
-
-    private fun createWorkerCallbackStub(
-        arena: Arena,
-        runtimePtr: MemorySegment,
-        callback: WorkerCallback,
-    ): MemorySegment =
-        TemporalCoreWorkerCallback.allocate(
-            { _, failPtr ->
-                val error =
-                    if (failPtr != MemorySegment.NULL) {
-                        TemporalCoreFfmUtil.readByteArray(failPtr).also {
-                            CoreBridge.temporal_core_byte_array_free(runtimePtr, failPtr)
-                        }
-                    } else {
-                        null
-                    }
-
-                callback.onComplete(error)
-            },
-            arena,
-        )
 }

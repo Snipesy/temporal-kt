@@ -1,10 +1,14 @@
 package com.surrealdev.temporal.core
 
+import com.surrealdev.temporal.core.internal.EphemeralServerCallbackDispatcher
 import com.surrealdev.temporal.core.internal.TemporalCoreEphemeralServer
+import kotlinx.coroutines.suspendCancellableCoroutine
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 /**
  * An ephemeral Temporal development server.
@@ -28,6 +32,8 @@ class TemporalDevServer private constructor(
     private val serverPtr: MemorySegment,
     private val runtimePtr: MemorySegment,
     private val arena: Arena,
+    private val callbackArena: Arena,
+    private val dispatcher: EphemeralServerCallbackDispatcher,
     override val targetUrl: String,
 ) : EphemeralServer {
     @Volatile
@@ -37,7 +43,7 @@ class TemporalDevServer private constructor(
         /**
          * Starts a new development server.
          *
-         * This method blocks until the server is ready or an error occurs.
+         * Uses reusable callback stubs via the dispatcher for better performance.
          *
          * @param runtime The Temporal runtime to use
          * @param namespace The namespace to create (default: "default")
@@ -49,68 +55,80 @@ class TemporalDevServer private constructor(
          * @return A running dev server instance
          * @throws TemporalCoreException if the server fails to start
          */
-        fun start(
+        suspend fun start(
             runtime: TemporalRuntime,
             namespace: String = "default",
             ip: String = "127.0.0.1",
             existingPath: String? = null,
             downloadVersion: String? = BuildConfig.TEMPORAL_CLI_VERSION,
             downloadTtlSeconds: Long = 0,
-            timeoutSeconds: Long = 120,
         ): TemporalDevServer {
             runtime.ensureOpen()
 
             val arena = Arena.ofShared()
-            val future = CompletableFuture<TemporalDevServer>()
+            val callbackArena = Arena.ofShared()
+            val dispatcher = EphemeralServerCallbackDispatcher(callbackArena, runtime.handle)
 
-            val callback: TemporalCoreEphemeralServer.StartCallback =
-                TemporalCoreEphemeralServer.StartCallback { serverPtr, targetUrl, error ->
-                    if (error != null) {
-                        future.completeExceptionally(TemporalCoreException(error))
-                    } else if (serverPtr == null || targetUrl == null) {
-                        future.completeExceptionally(
-                            TemporalCoreException("Server start returned null without error"),
-                        )
-                    } else {
-                        future.complete(
-                            TemporalDevServer(serverPtr, runtime.handle, arena, targetUrl),
-                        )
+            return try {
+                val (serverPtr, targetUrl) =
+                    suspendCancellableCoroutine { continuation ->
+                        var contextId: Long = 0
+                        val contextPtr =
+                            TemporalCoreEphemeralServer.startDevServer(
+                                runtimePtr = runtime.handle,
+                                arena = arena,
+                                dispatcher = dispatcher,
+                                namespace = namespace,
+                                ip = ip,
+                                existingPath = existingPath,
+                                downloadVersion = downloadVersion,
+                                downloadTtlSeconds = downloadTtlSeconds,
+                            ) { serverPtr, targetUrl, error ->
+                                try {
+                                    if (error != null) {
+                                        continuation.resumeWithException(TemporalCoreException(error))
+                                    } else if (serverPtr == null || targetUrl == null) {
+                                        continuation.resumeWithException(
+                                            TemporalCoreException("Server start returned null without error"),
+                                        )
+                                    } else {
+                                        continuation.resume(Pair(serverPtr, targetUrl))
+                                    }
+                                } catch (_: IllegalStateException) {
+                                    // Continuation already resumed, ignore
+                                }
+                            }
+                        contextId = dispatcher.getContextId(contextPtr)
+                        continuation.invokeOnCancellation {
+                            dispatcher.cancelStart(contextId)
+                        }
                     }
-                }
 
-            try {
-                TemporalCoreEphemeralServer.startDevServer(
+                TemporalDevServer(
+                    serverPtr = serverPtr,
                     runtimePtr = runtime.handle,
                     arena = arena,
-                    namespace = namespace,
-                    ip = ip,
-                    existingPath = existingPath,
-                    downloadVersion = downloadVersion,
-                    downloadTtlSeconds = downloadTtlSeconds,
-                    callback = callback,
+                    callbackArena = callbackArena,
+                    dispatcher = dispatcher,
+                    targetUrl = targetUrl,
                 )
-
-                return future.get(timeoutSeconds, TimeUnit.SECONDS)
             } catch (e: Exception) {
+                dispatcher.close()
+                callbackArena.close()
                 arena.close()
                 when (e) {
-                    is TemporalCoreException -> {
-                        throw e
-                    }
-
-                    is java.util.concurrent.TimeoutException -> {
-                        throw TemporalCoreException("Server start timed out after ${timeoutSeconds}s")
-                    }
-
-                    else -> {
-                        throw TemporalCoreException("Server start failed: ${e.message}", cause = e)
-                    }
+                    is TemporalCoreException -> throw e
+                    is java.util.concurrent.TimeoutException ->
+                        throw TemporalCoreException("Server start timed out")
+                    else -> throw TemporalCoreException("Server start failed: ${e.message}", cause = e)
                 }
             }
         }
 
         /**
          * Starts a new development server asynchronously.
+         *
+         * Uses reusable callback stubs via the dispatcher for better performance.
          *
          * @param runtime The Temporal runtime to use
          * @param namespace The namespace to create (default: "default")
@@ -131,23 +149,26 @@ class TemporalDevServer private constructor(
             runtime.ensureOpen()
 
             val arena = Arena.ofShared()
+            val callbackArena = Arena.ofShared()
+            val dispatcher = EphemeralServerCallbackDispatcher(callbackArena, runtime.handle)
             val future = CompletableFuture<TemporalDevServer>()
 
-            // Track whether arena ownership was transferred to the server
-            val arenaOwnershipTransferred =
+            // Track whether ownership was transferred to the server
+            val ownershipTransferred =
                 java.util.concurrent.atomic
                     .AtomicBoolean(false)
 
             TemporalCoreEphemeralServer.startDevServer(
                 runtimePtr = runtime.handle,
                 arena = arena,
+                dispatcher = dispatcher,
                 namespace = namespace,
                 ip = ip,
                 existingPath = existingPath,
                 downloadVersion = downloadVersion,
                 downloadTtlSeconds = downloadTtlSeconds,
             ) { serverPtr, targetUrl, error ->
-                // Don't close arena in callback - it will be closed when future completes exceptionally
+                // Don't close arenas in callback - they will be closed when future completes exceptionally
                 // or transferred to the server on success
                 try {
                     if (error != null) {
@@ -157,19 +178,28 @@ class TemporalDevServer private constructor(
                             TemporalCoreException("Dev server start returned null without error"),
                         )
                     } else {
-                        arenaOwnershipTransferred.set(true)
+                        ownershipTransferred.set(true)
                         future.complete(
-                            TemporalDevServer(serverPtr, runtime.handle, arena, targetUrl),
+                            TemporalDevServer(
+                                serverPtr,
+                                runtime.handle,
+                                arena,
+                                callbackArena,
+                                dispatcher,
+                                targetUrl,
+                            ),
                         )
                     }
-                } catch (e: Exception) {
+                } catch (_: Exception) {
                     // Callback already completed, ignore
                 }
             }
 
-            // Close arena if the future completes exceptionally (arena wasn't transferred)
+            // Close arenas if the future completes exceptionally (ownership wasn't transferred)
             future.whenComplete { _, throwable ->
-                if (throwable != null && !arenaOwnershipTransferred.get()) {
+                if (throwable != null && !ownershipTransferred.get()) {
+                    dispatcher.close()
+                    callbackArena.close()
                     arena.close()
                 }
             }
@@ -187,6 +217,7 @@ class TemporalDevServer private constructor(
      * Shuts down and closes this dev server.
      *
      * This method blocks until the server is fully shut down.
+     * Uses reusable callback stubs via the dispatcher.
      */
     override fun close() {
         if (closed) return
@@ -198,8 +229,7 @@ class TemporalDevServer private constructor(
 
             TemporalCoreEphemeralServer.shutdownServer(
                 serverPtr = serverPtr,
-                arena = arena,
-                runtimePtr = runtimePtr,
+                dispatcher = dispatcher,
             ) { error ->
                 if (error != null) {
                     shutdownFuture.completeExceptionally(TemporalCoreException(error))
@@ -214,8 +244,12 @@ class TemporalDevServer private constructor(
                 // Ignore shutdown errors
             }
 
+            // Close dispatcher first to cancel any pending callbacks
+            // Late-firing callbacks will see null and just free Rust memory
+            dispatcher.close()
             TemporalCoreEphemeralServer.freeServer(serverPtr)
             arena.close()
+            callbackArena.close()
         }
     }
 }

@@ -14,10 +14,10 @@ import kotlin.test.assertTrue
  */
 class TemporalCoreClientTest {
     @Test
-    fun `can connect and close client`() {
-        TemporalRuntime.create().use { runtime ->
-            TemporalDevServer.start(runtime, timeoutSeconds = 120).use { server ->
-                runBlocking {
+    fun `can connect and close client`() =
+        runBlocking {
+            TemporalRuntime.create().use { runtime ->
+                TemporalDevServer.start(runtime).use { server ->
                     val client =
                         TemporalCoreClient.connect(
                             runtime = runtime,
@@ -33,13 +33,12 @@ class TemporalCoreClientTest {
                 }
             }
         }
-    }
 
     @Test
-    fun `client is closed after close call`() {
-        TemporalRuntime.create().use { runtime ->
-            TemporalDevServer.start(runtime, timeoutSeconds = 120).use { server ->
-                runBlocking {
+    fun `client is closed after close call`() =
+        runBlocking {
+            TemporalRuntime.create().use { runtime ->
+                TemporalDevServer.start(runtime).use { server ->
                     val client =
                         TemporalCoreClient.connect(
                             runtime = runtime,
@@ -55,13 +54,12 @@ class TemporalCoreClientTest {
                 }
             }
         }
-    }
 
     @Test
-    fun `can connect with custom options`() {
-        TemporalRuntime.create().use { runtime ->
-            TemporalDevServer.start(runtime, timeoutSeconds = 120).use { server ->
-                runBlocking {
+    fun `can connect with custom options`() =
+        runBlocking {
+            TemporalRuntime.create().use { runtime ->
+                TemporalDevServer.start(runtime).use { server ->
                     val options =
                         ClientOptions(
                             clientName = "test-client",
@@ -82,5 +80,4 @@ class TemporalCoreClientTest {
                 }
             }
         }
-    }
 }

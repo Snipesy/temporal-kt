@@ -1,8 +1,6 @@
 package com.surrealdev.temporal.core.internal
 
 import io.temporal.sdkbridge.TemporalCoreDevServerOptions
-import io.temporal.sdkbridge.TemporalCoreEphemeralServerShutdownCallback
-import io.temporal.sdkbridge.TemporalCoreEphemeralServerStartCallback
 import io.temporal.sdkbridge.TemporalCoreTestServerOptions
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
@@ -112,27 +110,30 @@ internal object TemporalCoreEphemeralServer {
     // ============================================================
 
     /**
-     * Starts a development server.
+     * Starts a development server using a reusable callback dispatcher.
      *
      * @param runtimePtr Pointer to the runtime
-     * @param arena Arena for allocations (must outlive the callback)
+     * @param arena Arena for allocations (for options, not callback stub)
+     * @param dispatcher The callback dispatcher with reusable stubs
      * @param namespace The namespace to use
      * @param ip The IP address to bind to
      * @param existingPath Path to existing Temporal CLI (skips download if set)
-     * @param downloadVersion Version to download ("default", "latest", or semver). Ignored if existingPath is set.
-     * @param downloadTtlSeconds Cache duration for downloads (0 = no TTL)
+     * @param downloadVersion Version to download
+     * @param downloadTtlSeconds Cache duration for downloads
      * @param callback Callback invoked when server starts or fails
+     * @return The context pointer for cancellation
      */
     fun startDevServer(
         runtimePtr: MemorySegment,
         arena: Arena,
+        dispatcher: EphemeralServerCallbackDispatcher,
         namespace: String = "default",
         ip: String = "127.0.0.1",
         existingPath: String? = null,
         downloadVersion: String? = "default",
         downloadTtlSeconds: Long = 0,
         callback: StartCallback,
-    ) {
+    ): MemorySegment {
         val testServerOptions = buildTestServerOptions(arena, existingPath, downloadVersion, downloadTtlSeconds)
         val devServerOptions =
             buildDevServerOptions(
@@ -147,41 +148,46 @@ internal object TemporalCoreEphemeralServer {
                 logLevel = "warn",
             )
 
-        val callbackStub = createStartCallbackStub(arena, runtimePtr, callback)
+        val contextPtr = dispatcher.registerStart(callback)
         CoreBridge.temporal_core_ephemeral_server_start_dev_server(
             runtimePtr,
             devServerOptions,
-            MemorySegment.NULL,
-            callbackStub,
+            contextPtr,
+            dispatcher.startCallbackStub,
         )
+        return contextPtr
     }
 
     /**
-     * Starts a test server (with time skipping support).
+     * Starts a test server using a reusable callback dispatcher.
      *
      * @param runtimePtr Pointer to the runtime
-     * @param arena Arena for allocations (must outlive the callback)
-     * @param existingPath Path to existing test server binary (skips download if set)
-     * @param downloadVersion Version to download ("default", "latest", or semver)
-     * @param downloadTtlSeconds Cache duration for downloads (0 = no TTL)
+     * @param arena Arena for allocations (for options, not callback stub)
+     * @param dispatcher The callback dispatcher with reusable stubs
+     * @param existingPath Path to existing test server binary
+     * @param downloadVersion Version to download
+     * @param downloadTtlSeconds Cache duration for downloads
      * @param callback Callback invoked when server starts or fails
+     * @return The context pointer for cancellation
      */
     fun startTestServer(
         runtimePtr: MemorySegment,
         arena: Arena,
+        dispatcher: EphemeralServerCallbackDispatcher,
         existingPath: String? = null,
         downloadVersion: String? = "default",
         downloadTtlSeconds: Long = 0,
         callback: StartCallback,
-    ) {
+    ): MemorySegment {
         val testServerOptions = buildTestServerOptions(arena, existingPath, downloadVersion, downloadTtlSeconds)
-        val callbackStub = createStartCallbackStub(arena, runtimePtr, callback)
+        val contextPtr = dispatcher.registerStart(callback)
         CoreBridge.temporal_core_ephemeral_server_start_test_server(
             runtimePtr,
             testServerOptions,
-            MemorySegment.NULL,
-            callbackStub,
+            contextPtr,
+            dispatcher.startCallbackStub,
         )
+        return contextPtr
     }
 
     /**
@@ -194,91 +200,20 @@ internal object TemporalCoreEphemeralServer {
     }
 
     /**
-     * Shuts down an ephemeral server.
+     * Shuts down an ephemeral server using a reusable callback dispatcher.
      *
      * @param serverPtr Pointer to the server
-     * @param arena Arena for callback stub allocation
-     * @param runtimePtr Pointer to the runtime
+     * @param dispatcher The callback dispatcher with reusable stubs
      * @param callback Callback invoked when shutdown completes
+     * @return The context pointer for cancellation
      */
     fun shutdownServer(
         serverPtr: MemorySegment,
-        arena: Arena,
-        runtimePtr: MemorySegment,
+        dispatcher: EphemeralServerCallbackDispatcher,
         callback: ShutdownCallback,
-    ) {
-        val callbackStub = createShutdownCallbackStub(arena, runtimePtr, callback)
-        CoreBridge.temporal_core_ephemeral_server_shutdown(serverPtr, MemorySegment.NULL, callbackStub)
+    ): MemorySegment {
+        val contextPtr = dispatcher.registerShutdown(callback)
+        CoreBridge.temporal_core_ephemeral_server_shutdown(serverPtr, contextPtr, dispatcher.shutdownCallbackStub)
+        return contextPtr
     }
-
-    // ============================================================
-    // Callback Stub Creation (using jextract-generated callback classes)
-    // ============================================================
-
-    /**
-     * Creates an upcall stub for the server start callback using jextract-generated callback class.
-     */
-    private fun createStartCallbackStub(
-        arena: Arena,
-        runtimePtr: MemorySegment,
-        callback: StartCallback,
-    ): MemorySegment =
-        TemporalCoreEphemeralServerStartCallback.allocate(
-            { _, serverPtr, targetUrlPtr, failPtr ->
-                val targetUrl =
-                    if (targetUrlPtr != MemorySegment.NULL) {
-                        TemporalCoreFfmUtil.readByteArray(targetUrlPtr)
-                    } else {
-                        null
-                    }
-                val error =
-                    if (failPtr != MemorySegment.NULL) {
-                        TemporalCoreFfmUtil.readByteArray(failPtr)
-                    } else {
-                        null
-                    }
-
-                // Free the byte arrays if present
-                if (targetUrlPtr != MemorySegment.NULL) {
-                    CoreBridge.temporal_core_byte_array_free(runtimePtr, targetUrlPtr)
-                }
-                if (failPtr != MemorySegment.NULL) {
-                    CoreBridge.temporal_core_byte_array_free(runtimePtr, failPtr)
-                }
-
-                callback.onComplete(
-                    if (serverPtr != MemorySegment.NULL) serverPtr else null,
-                    targetUrl,
-                    error,
-                )
-            },
-            arena,
-        )
-
-    /**
-     * Creates an upcall stub for the server shutdown callback using jextract-generated callback class.
-     */
-    private fun createShutdownCallbackStub(
-        arena: Arena,
-        runtimePtr: MemorySegment,
-        callback: ShutdownCallback,
-    ): MemorySegment =
-        TemporalCoreEphemeralServerShutdownCallback.allocate(
-            { _, failPtr ->
-                val error =
-                    if (failPtr != MemorySegment.NULL) {
-                        TemporalCoreFfmUtil.readByteArray(failPtr)
-                    } else {
-                        null
-                    }
-
-                // Free the byte array if present
-                if (failPtr != MemorySegment.NULL) {
-                    CoreBridge.temporal_core_byte_array_free(runtimePtr, failPtr)
-                }
-
-                callback.onComplete(error)
-            },
-            arena,
-        )
 }

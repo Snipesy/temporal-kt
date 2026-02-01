@@ -3,17 +3,19 @@ package com.surrealdev.temporal.core
 import com.google.protobuf.Empty
 import com.google.protobuf.duration
 import com.google.protobuf.timestamp
+import com.surrealdev.temporal.core.internal.EphemeralServerCallbackDispatcher
 import com.surrealdev.temporal.core.internal.TemporalCoreEphemeralServer
 import io.temporal.api.testservice.v1.GetCurrentTimeResponse
 import io.temporal.api.testservice.v1.LockTimeSkippingRequest
 import io.temporal.api.testservice.v1.SleepRequest
 import io.temporal.api.testservice.v1.SleepUntilRequest
 import io.temporal.api.testservice.v1.UnlockTimeSkippingRequest
+import kotlinx.coroutines.suspendCancellableCoroutine
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
 import java.time.Instant
-import java.util.concurrent.CompletableFuture
-import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlin.time.Duration
 import kotlin.time.toJavaDuration
 
@@ -51,6 +53,8 @@ class TemporalTestServer private constructor(
     private val serverPtr: MemorySegment,
     private val runtimePtr: MemorySegment,
     private val arena: Arena,
+    private val callbackArena: Arena,
+    private val dispatcher: EphemeralServerCallbackDispatcher,
     override val targetUrl: String,
     private val coreClient: TemporalCoreClient,
 ) : EphemeralServer {
@@ -61,12 +65,11 @@ class TemporalTestServer private constructor(
         /**
          * Starts a new test server with time-skipping support.
          *
-         * This method blocks until the server is ready or an error occurs.
+         * Uses reusable callback stubs via the dispatcher for better performance.
          *
          * @param runtime The Temporal runtime to use
          * @param existingPath Path to existing test server binary (optional, will download if not set)
          * @param downloadTtlSeconds Cache duration for downloads in seconds (0 = no TTL, indefinite cache)
-         * @param timeoutSeconds Maximum time to wait for server start
          * @return A running test server instance
          * @throws TemporalCoreException if the server fails to start
          */
@@ -74,38 +77,45 @@ class TemporalTestServer private constructor(
             runtime: TemporalRuntime,
             existingPath: String? = null,
             downloadTtlSeconds: Long = 0,
-            timeoutSeconds: Long = 120,
         ): TemporalTestServer {
             runtime.ensureOpen()
 
             val arena = Arena.ofShared()
-            val future = CompletableFuture<Pair<MemorySegment, String>>()
+            val callbackArena = Arena.ofShared()
+            val dispatcher = EphemeralServerCallbackDispatcher(callbackArena, runtime.handle)
 
-            val callback: TemporalCoreEphemeralServer.StartCallback =
-                TemporalCoreEphemeralServer.StartCallback { serverPtr, targetUrl, error ->
-                    if (error != null) {
-                        future.completeExceptionally(TemporalCoreException(error))
-                    } else if (serverPtr == null || targetUrl == null) {
-                        future.completeExceptionally(
-                            TemporalCoreException("Test server start returned null without error"),
-                        )
-                    } else {
-                        future.complete(Pair(serverPtr, targetUrl))
+            return try {
+                val (serverPtr, targetUrl) =
+                    suspendCancellableCoroutine { continuation ->
+                        var contextId: Long = 0
+                        val contextPtr =
+                            TemporalCoreEphemeralServer.startTestServer(
+                                runtimePtr = runtime.handle,
+                                arena = arena,
+                                dispatcher = dispatcher,
+                                existingPath = existingPath,
+                                downloadVersion = "default",
+                                downloadTtlSeconds = downloadTtlSeconds,
+                            ) { serverPtr, targetUrl, error ->
+                                try {
+                                    if (error != null) {
+                                        continuation.resumeWithException(TemporalCoreException(error))
+                                    } else if (serverPtr == null || targetUrl == null) {
+                                        continuation.resumeWithException(
+                                            TemporalCoreException("Test server start returned null without error"),
+                                        )
+                                    } else {
+                                        continuation.resume(Pair(serverPtr, targetUrl))
+                                    }
+                                } catch (_: IllegalStateException) {
+                                    // Continuation already resumed, ignore
+                                }
+                            }
+                        contextId = dispatcher.getContextId(contextPtr)
+                        continuation.invokeOnCancellation {
+                            dispatcher.cancelStart(contextId)
+                        }
                     }
-                }
-
-            try {
-                // Test server uses "default" version - it has different versioning than CLI
-                TemporalCoreEphemeralServer.startTestServer(
-                    runtimePtr = runtime.handle,
-                    arena = arena,
-                    existingPath = existingPath,
-                    downloadVersion = "default",
-                    downloadTtlSeconds = downloadTtlSeconds,
-                    callback = callback,
-                )
-
-                val (serverPtr, targetUrl) = future.get(timeoutSeconds, TimeUnit.SECONDS)
 
                 // Connect a client for TestService RPC calls
                 val client =
@@ -115,27 +125,22 @@ class TemporalTestServer private constructor(
                         namespace = "default",
                     )
 
-                return TemporalTestServer(
+                TemporalTestServer(
                     serverPtr = serverPtr,
                     runtimePtr = runtime.handle,
                     arena = arena,
+                    callbackArena = callbackArena,
+                    dispatcher = dispatcher,
                     targetUrl = targetUrl,
                     coreClient = client,
                 )
             } catch (e: Exception) {
+                dispatcher.close()
+                callbackArena.close()
                 arena.close()
                 when (e) {
-                    is TemporalCoreException -> {
-                        throw e
-                    }
-
-                    is java.util.concurrent.TimeoutException -> {
-                        throw TemporalCoreException("Test server start timed out after ${timeoutSeconds}s")
-                    }
-
-                    else -> {
-                        throw TemporalCoreException("Test server start failed: ${e.message}", cause = e)
-                    }
+                    is TemporalCoreException -> throw e
+                    else -> throw TemporalCoreException("Test server start failed: ${e.message}", cause = e)
                 }
             }
         }
@@ -270,6 +275,7 @@ class TemporalTestServer private constructor(
      * Shuts down and closes this test server.
      *
      * This method blocks until the server is fully shut down.
+     * Uses reusable callback stubs via the dispatcher.
      */
     override fun close() {
         if (closed) return
@@ -280,12 +286,11 @@ class TemporalTestServer private constructor(
             // Close the client first
             coreClient.close()
 
-            val shutdownFuture = CompletableFuture<Unit>()
+            val shutdownFuture = java.util.concurrent.CompletableFuture<Unit>()
 
             TemporalCoreEphemeralServer.shutdownServer(
                 serverPtr = serverPtr,
-                arena = arena,
-                runtimePtr = runtimePtr,
+                dispatcher = dispatcher,
             ) { error ->
                 if (error != null) {
                     shutdownFuture.completeExceptionally(TemporalCoreException(error))
@@ -295,13 +300,17 @@ class TemporalTestServer private constructor(
             }
 
             try {
-                shutdownFuture.get(30, TimeUnit.SECONDS)
+                shutdownFuture.get(30, java.util.concurrent.TimeUnit.SECONDS)
             } catch (_: Exception) {
                 // Ignore shutdown errors
             }
 
+            // Close dispatcher first to cancel any pending callbacks
+            // Late-firing callbacks will see null and just free Rust memory
+            dispatcher.close()
             TemporalCoreEphemeralServer.freeServer(serverPtr)
             arena.close()
+            callbackArena.close()
         }
     }
 

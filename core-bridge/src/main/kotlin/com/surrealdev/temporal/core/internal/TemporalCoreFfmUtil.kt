@@ -5,6 +5,7 @@ import io.temporal.sdkbridge.TemporalCoreByteArrayRef
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.SegmentAllocator
 import java.lang.foreign.ValueLayout
+import io.temporal.sdkbridge.temporal_sdk_core_c_bridge_h as CoreBridge
 
 /**
  * Common FFM utilities for the Temporal Core bridge.
@@ -103,6 +104,59 @@ internal object TemporalCoreFfmUtil {
         val bytes = ByteArray(size.toInt())
         MemorySegment.copy(dataSegment, ValueLayout.JAVA_BYTE, 0, bytes, 0, size.toInt())
         return bytes
+    }
+
+    // ============================================================
+    // ByteArray Read-and-Free Functions (for callback results)
+    // ============================================================
+
+    /**
+     * Frees a TemporalCoreByteArray if not null.
+     *
+     * @param runtimePtr Pointer to the Temporal runtime
+     * @param ptr Pointer to the byte array (may be NULL)
+     */
+    fun freeByteArrayIfNotNull(
+        runtimePtr: MemorySegment,
+        ptr: MemorySegment,
+    ) {
+        if (ptr != MemorySegment.NULL) {
+            CoreBridge.temporal_core_byte_array_free(runtimePtr, ptr)
+        }
+    }
+
+    /**
+     * Reads a string from a TemporalCoreByteArray and frees the native memory.
+     *
+     * @param runtimePtr Pointer to the Temporal runtime (for freeing)
+     * @param ptr Pointer to the byte array (may be NULL)
+     * @return The string content, or null if pointer is NULL
+     */
+    fun readAndFreeByteArray(
+        runtimePtr: MemorySegment,
+        ptr: MemorySegment,
+    ): String? {
+        if (ptr == MemorySegment.NULL) return null
+        return readByteArray(ptr).also {
+            CoreBridge.temporal_core_byte_array_free(runtimePtr, ptr)
+        }
+    }
+
+    /**
+     * Reads raw bytes from a TemporalCoreByteArray and frees the native memory.
+     *
+     * @param runtimePtr Pointer to the Temporal runtime (for freeing)
+     * @param ptr Pointer to the byte array (may be NULL)
+     * @return The byte content, or null if pointer is NULL
+     */
+    fun readAndFreeByteArrayAsBytes(
+        runtimePtr: MemorySegment,
+        ptr: MemorySegment,
+    ): ByteArray? {
+        if (ptr == MemorySegment.NULL) return null
+        return readByteArrayAsBytes(ptr).also {
+            CoreBridge.temporal_core_byte_array_free(runtimePtr, ptr)
+        }
     }
 
     // ============================================================

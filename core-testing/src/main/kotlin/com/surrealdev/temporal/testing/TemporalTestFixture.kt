@@ -352,7 +352,7 @@ suspend fun TestScope.runTestApplication(
             }
 
         if (timeSkipping) {
-            TemporalTestServer.start(runtime, timeoutSeconds = 120).use { testServer ->
+            TemporalTestServer.start(runtime).use { testServer ->
                 // Time skipping starts LOCKED (Python SDK behavior)
                 // It will be automatically unlocked when awaiting workflow results
                 // via TemporalTestClient/TimeSkippingWorkflowHandle
@@ -369,7 +369,7 @@ suspend fun TestScope.runTestApplication(
                 }
             }
         } else {
-            TemporalDevServer.start(runtime, timeoutSeconds = 120).use { devServer ->
+            TemporalDevServer.start(runtime).use { devServer ->
                 val builder =
                     TemporalTestApplicationBuilder(
                         server = devServer,
