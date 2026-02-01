@@ -31,22 +31,8 @@ Temporal-KT currently supports:
 * Linux aarch64
 * Windows x86_64
 
-### Cross-Platform Build (Optional)
-
-To build native libraries for all platforms, install:
-
-- **cargo-zigbuild** - `cargo install cargo-zigbuild`
-- **Zig** - `brew install zig` (macOS) or [ziglang.org/download](https://ziglang.org/download/)
-- **Rust targets** - Install the cross-compilation targets
-  
-Then you can build cross-platform artifacts with
-```bash
-gradle cargoBuildAll
-gradle copyAllNativeLibs
-```
-
-However, it is recommended to build on the target platform for best results. Release binaries are created
-on the appropriate platforms.
+Native libraries are built on each platform's native GitHub Actions runner. Release binaries are built
+and tested on the appropriate platforms (Linux x86_64, Linux aarch64, macOS x86_64, macOS aarch64, Windows x86_64).
 
 ## Cloning
 

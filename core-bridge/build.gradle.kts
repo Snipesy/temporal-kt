@@ -37,8 +37,8 @@ val nativePlatform: String =
     when {
         os.isMacOsX && arch == "aarch64" -> "darwin-aarch64"
         os.isMacOsX -> "darwin-x86_64"
-        os.isLinux && arch == "aarch64" -> "linux-aarch64"
-        os.isLinux -> "linux-x86_64"
+        os.isLinux && arch == "aarch64" -> "linux-aarch64-gnu"
+        os.isLinux -> "linux-x86_64-gnu"
         os.isWindows -> "windows-x86_64"
         else -> throw GradleException("Unsupported platform: ${os.name} / $arch")
     }
@@ -82,12 +82,12 @@ val copyNativeLib by tasks.registering(Copy::class) {
     into(nativeLibsDir.map { it.dir("native/$nativePlatform") })
 }
 
-// Cross-compilation for Linux x86_64 (requires cargo-zigbuild)
+// Native build for Linux x86_64 (runs on x86_64 Linux runner)
 val cargoBuildLinuxx8664 by tasks.registering(Exec::class) {
-    description = "Build native library for linux-x86_64 (requires cargo-zigbuild)"
+    description = "Build native library for linux-x86_64-gnu"
     group = "build"
     workingDir = file("rust/sdk-core/crates/sdk-core-c-bridge")
-    commandLine("cargo-zigbuild", "build", "--release", "--target", "x86_64-unknown-linux-gnu")
+    commandLine("cargo", "build", "--release", "--target", "x86_64-unknown-linux-gnu")
 
     inputs.files(
         fileTree("rust/sdk-core") {
@@ -98,20 +98,20 @@ val cargoBuildLinuxx8664 by tasks.registering(Exec::class) {
 }
 
 val copyNativeLibLinuxx8664 by tasks.registering(Copy::class) {
-    description = "Copy native library for linux-x86_64 to build directory"
+    description = "Copy native library for linux-x86_64-gnu to build directory"
     group = "build"
     dependsOn(cargoBuildLinuxx8664)
 
     from("rust/sdk-core/target/x86_64-unknown-linux-gnu/release/lib$nativeLibName.so")
-    into(nativeLibsDir.map { it.dir("native/linux-x86_64") })
+    into(nativeLibsDir.map { it.dir("native/linux-x86_64-gnu") })
 }
 
-// Cross-compilation for Linux aarch64 (requires cargo-zigbuild)
+// Native build for Linux aarch64 (runs on aarch64 Linux runner)
 val cargoBuildLinuxAarch64 by tasks.registering(Exec::class) {
-    description = "Build native library for linux-aarch64 (requires cargo-zigbuild)"
+    description = "Build native library for linux-aarch64-gnu"
     group = "build"
     workingDir = file("rust/sdk-core/crates/sdk-core-c-bridge")
-    commandLine("cargo-zigbuild", "build", "--release", "--target", "aarch64-unknown-linux-gnu")
+    commandLine("cargo", "build", "--release", "--target", "aarch64-unknown-linux-gnu")
 
     inputs.files(
         fileTree("rust/sdk-core") {
@@ -122,12 +122,12 @@ val cargoBuildLinuxAarch64 by tasks.registering(Exec::class) {
 }
 
 val copyNativeLibLinuxAarch64 by tasks.registering(Copy::class) {
-    description = "Copy native library for linux-aarch64 to build directory"
+    description = "Copy native library for linux-aarch64-gnu to build directory"
     group = "build"
     dependsOn(cargoBuildLinuxAarch64)
 
     from("rust/sdk-core/target/aarch64-unknown-linux-gnu/release/lib$nativeLibName.so")
-    into(nativeLibsDir.map { it.dir("native/linux-aarch64") })
+    into(nativeLibsDir.map { it.dir("native/linux-aarch64-gnu") })
 }
 
 // Windows x86_64 build (native MSVC on Windows runner)
