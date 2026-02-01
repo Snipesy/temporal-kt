@@ -223,26 +223,19 @@ class OpenTelemetryIntegrationTest {
 
             handle.result(timeout = 30.seconds)
 
-            // Give metrics time to be collected
-            delay(100)
-
-            // Collect and verify metrics
-            val metrics = metricReader.collectAllMetrics()
-
-            // Check for workflow task counter
-            val workflowTaskMetric = metrics.find { it.name == "temporal.workflow.task.total" }
+            // Wait for metrics to be collected (with polling)
+            val workflowTaskMetric = waitForMetric(metricReader, "temporal.workflow.task.total", timeout = 5.seconds)
             assertNotNull(workflowTaskMetric, "Expected workflow task counter metric")
 
-            // Check for activity task counter
-            val activityTaskMetric = metrics.find { it.name == "temporal.activity.task.total" }
+            val activityTaskMetric = waitForMetric(metricReader, "temporal.activity.task.total", timeout = 5.seconds)
             assertNotNull(activityTaskMetric, "Expected activity task counter metric")
 
-            // Check for workflow task duration histogram
-            val workflowDurationMetric = metrics.find { it.name == "temporal.workflow.task.duration" }
+            val workflowDurationMetric =
+                waitForMetric(metricReader, "temporal.workflow.task.duration", timeout = 5.seconds)
             assertNotNull(workflowDurationMetric, "Expected workflow task duration metric")
 
-            // Check for activity task duration histogram
-            val activityDurationMetric = metrics.find { it.name == "temporal.activity.task.duration" }
+            val activityDurationMetric =
+                waitForMetric(metricReader, "temporal.activity.task.duration", timeout = 5.seconds)
             assertNotNull(activityDurationMetric, "Expected activity task duration metric")
 
             openTelemetry.close()
@@ -316,12 +309,8 @@ class OpenTelemetryIntegrationTest {
                 }
             }
 
-            // Give time for worker started hook to fire
-            delay(200)
-
-            val metrics = metricReader.collectAllMetrics()
-
-            val workerStartedMetric = metrics.find { it.name == "temporal.worker.started.total" }
+            // Wait for worker started metric (with polling)
+            val workerStartedMetric = waitForMetric(metricReader, "temporal.worker.started.total", timeout = 5.seconds)
             assertNotNull(workerStartedMetric, "Expected worker started counter metric")
 
             openTelemetry.close()
@@ -347,6 +336,26 @@ class OpenTelemetryIntegrationTest {
             delay(50)
         }
         return exporter.finishedSpanItems.filter { it.name == spanName }
+    }
+
+    /**
+     * Waits for a metric with the given name to appear in the reader, with polling.
+     * This avoids flaky tests due to timing issues with metric collection.
+     */
+    private suspend fun waitForMetric(
+        reader: InMemoryMetricReader,
+        metricName: String,
+        timeout: kotlin.time.Duration = 5.seconds,
+    ): io.opentelemetry.sdk.metrics.data.MetricData? {
+        val deadline = System.currentTimeMillis() + timeout.inWholeMilliseconds
+        while (System.currentTimeMillis() < deadline) {
+            val metric = reader.collectAllMetrics().find { it.name == metricName }
+            if (metric != null) {
+                return metric
+            }
+            delay(50)
+        }
+        return reader.collectAllMetrics().find { it.name == metricName }
     }
 
     private fun createTestOpenTelemetry(
