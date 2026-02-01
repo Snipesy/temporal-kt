@@ -71,6 +71,7 @@ class TemporalTestApplicationBuilder internal constructor(
     private val parentCoroutineContext: CoroutineContext,
 ) {
     private var _application: TemporalApplication? = null
+    private var cachedClient: TemporalClient? = null
     private var configured = false
     private var deploymentOptions: WorkerDeploymentOptions? = null
     private var shutdownConfig: ShutdownConfig = ShutdownConfig()
@@ -159,18 +160,29 @@ class TemporalTestApplicationBuilder internal constructor(
      * When using a test server (timeSkipping = true), this returns a [TemporalTestClient]
      * that automatically manages time skipping around workflow result awaits.
      *
+     * The client is cached, so multiple calls return the same instance. This ensures
+     * all workflow handles share the same time-skipping state tracker.
+     *
      * @throws IllegalStateException if [application] hasn't been called
      */
     suspend fun client(): TemporalClient {
         checkStarted()
+
+        // Return cached client if available
+        cachedClient?.let { return it }
+
         val baseClient = _application!!.client()
 
         // Wrap in TemporalTestClient if using a test server for time-skipping support
-        return if (testServer != null) {
-            TemporalTestClient(baseClient as TemporalClientImpl, testServer!!)
-        } else {
-            baseClient
-        }
+        val client =
+            if (testServer != null) {
+                TemporalTestClient(baseClient as TemporalClientImpl, testServer!!)
+            } else {
+                baseClient
+            }
+
+        cachedClient = client
+        return client
     }
 
     /**

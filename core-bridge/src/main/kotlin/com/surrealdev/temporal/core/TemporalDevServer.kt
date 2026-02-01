@@ -117,10 +117,17 @@ class TemporalDevServer private constructor(
                 callbackArena.close()
                 arena.close()
                 when (e) {
-                    is TemporalCoreException -> throw e
-                    is java.util.concurrent.TimeoutException ->
+                    is TemporalCoreException -> {
+                        throw e
+                    }
+
+                    is java.util.concurrent.TimeoutException -> {
                         throw TemporalCoreException("Server start timed out")
-                    else -> throw TemporalCoreException("Server start failed: ${e.message}", cause = e)
+                    }
+
+                    else -> {
+                        throw TemporalCoreException("Server start failed: ${e.message}", cause = e)
+                    }
                 }
             }
         }

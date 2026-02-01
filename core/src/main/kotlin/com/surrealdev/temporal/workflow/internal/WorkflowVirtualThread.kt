@@ -65,7 +65,10 @@ internal class WorkflowVirtualThread(
                     }
 
                 when (item) {
-                    is QueueItem.Terminate -> break
+                    is QueueItem.Terminate -> {
+                        break
+                    }
+
                     is QueueItem.Activation -> {
                         val activationItem = item.item
                         try {

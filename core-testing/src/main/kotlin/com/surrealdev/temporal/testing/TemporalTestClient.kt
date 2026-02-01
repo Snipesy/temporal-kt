@@ -8,8 +8,57 @@ import com.surrealdev.temporal.client.history.WorkflowHistory
 import com.surrealdev.temporal.core.TemporalTestServer
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import io.temporal.api.common.v1.Payloads
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.reflect.KType
 import kotlin.time.Duration
+
+/**
+ * Tracks time-skipping state locally to avoid redundant RPC calls.
+ *
+ * The test server uses a counter-based lock system. This tracker mirrors that
+ * counter locally so we only make RPC calls when the state actually changes.
+ *
+ * Uses a Mutex to ensure thread-safe state transitions. When multiple handles
+ * call result() concurrently, only the first unlock and last lock make actual
+ * RPC calls to the server.
+ *
+ * Note: Like the Python SDK, concurrent workflow result awaiting from the same
+ * client shares time-skipping state. All concurrent awaits will have time
+ * skipping unlocked until all complete.
+ */
+internal class TimeSkippingStateTracker(
+    private val testServer: TemporalTestServer,
+) {
+    private val mutex = Mutex()
+    private var unlockCount = 0
+
+    /**
+     * Increments unlock count. Only makes RPC if transitioning from locked → unlocked.
+     * Thread-safe via mutex.
+     */
+    suspend fun unlock() {
+        mutex.withLock {
+            if (unlockCount == 0) {
+                testServer.unlockTimeSkipping()
+            }
+            unlockCount++
+        }
+    }
+
+    /**
+     * Decrements unlock count. Only makes RPC if transitioning from unlocked → locked.
+     * Thread-safe via mutex.
+     */
+    suspend fun lock() {
+        mutex.withLock {
+            unlockCount--
+            if (unlockCount == 0) {
+                testServer.lockTimeSkipping()
+            }
+        }
+    }
+}
 
 /**
  * A test client that wraps [TemporalClientImpl] and provides time-skipping support.
@@ -30,6 +79,8 @@ class TemporalTestClient internal constructor(
     private val delegate: TemporalClientImpl,
     private val testServer: TemporalTestServer,
 ) : TemporalClient {
+    // Shared state tracker for all handles from this client
+    internal val timeSkippingState = TimeSkippingStateTracker(testServer)
     override val serializer: PayloadSerializer
         get() = delegate.serializer
 
@@ -50,7 +101,7 @@ class TemporalTestClient internal constructor(
                 options = options,
                 resultTypeInfo = resultTypeInfo,
             )
-        return TimeSkippingWorkflowHandle(handle, testServer)
+        return TimeSkippingWorkflowHandle(handle, timeSkippingState)
     }
 
     override fun <R> getWorkflowHandleInternal(
@@ -64,7 +115,7 @@ class TemporalTestClient internal constructor(
                 runId = runId,
                 resultTypeInfo = resultTypeInfo,
             )
-        return TimeSkippingWorkflowHandle(handle, testServer)
+        return TimeSkippingWorkflowHandle(handle, timeSkippingState)
     }
 
     override suspend fun close() {
@@ -79,12 +130,15 @@ class TemporalTestClient internal constructor(
  * - Time skipping is unlocked before awaiting the result
  * - Time skipping is locked again after the result is obtained (or on error)
  *
+ * Uses a shared [TimeSkippingStateTracker] to avoid redundant RPC calls when
+ * multiple handles are awaited concurrently.
+ *
  * All other operations (signal, update, query, etc.) pass through to the delegate
  * without modifying time skipping state.
  */
 internal class TimeSkippingWorkflowHandle<R>(
     private val delegate: WorkflowHandle<R>,
-    private val testServer: TemporalTestServer,
+    private val stateTracker: TimeSkippingStateTracker,
 ) : WorkflowHandle<R> {
     override val workflowId: String
         get() = delegate.workflowId
@@ -100,14 +154,17 @@ internal class TimeSkippingWorkflowHandle<R>(
      *
      * Time skipping is unlocked before awaiting the result and locked again
      * after the result is obtained (or if an error occurs).
+     *
+     * When multiple handles call result() concurrently, only the first unlock
+     * and last lock make actual RPC calls, thanks to the shared state tracker.
      */
     override suspend fun result(timeout: Duration): R {
-        testServer.unlockTimeSkipping()
+        stateTracker.unlock()
         try {
             return delegate.result(timeout)
         } finally {
             try {
-                testServer.lockTimeSkipping()
+                stateTracker.lock()
             } catch (_: Exception) {
                 // Swallow errors when locking - the result is more important
             }

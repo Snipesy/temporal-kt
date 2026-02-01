@@ -63,6 +63,7 @@ class ActivityRegistry {
             is ActivityRegistration.InstanceRegistration -> {
                 registerInstance(registration.instance)
             }
+
             is ActivityRegistration.FunctionRegistration -> {
                 registerFunction(
                     method = registration.method,
