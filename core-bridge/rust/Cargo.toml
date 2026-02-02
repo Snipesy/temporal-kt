@@ -1,11 +1,44 @@
-[package]
-name = "temporal_core_bridge"
-version = "0.1.0"
-edition = "2021"
-description = "FFM bridge for Temporal Rust SDK Core"
+[workspace]
+resolver = "2"
+members = [
+    "sdk-core/crates/sdk-core",
+    "sdk-core/crates/client",
+    "sdk-core/crates/common",
+    "sdk-core/crates/macros",
+    "sdk-core/crates/sdk",
+    "sdk-core/crates/sdk-core-c-bridge",
+]
 
-[lib]
-crate-type = ["cdylib"]
+[workspace.package]
+license = "MIT"
+license-file = "sdk-core/LICENSE.txt"
 
-[dependencies]
-temporalio-sdk-core-c-bridge = { version = "0.1.0", path = "./sdk-core/crates/sdk-core-c-bridge" }
+# Mirror sdk-core's workspace dependencies so inheritance works
+[workspace.dependencies]
+bon = { version = "3", features = ["implied-bounds"] }
+derive_more = { version = "2.0", features = [
+    "constructor",
+    "display",
+    "from",
+    "into",
+    "debug",
+    "try_into",
+] }
+thiserror = "2"
+tonic = "0.14"
+tonic-prost = "0.14"
+tonic-prost-build = "0.14"
+opentelemetry = { version = "0.31", features = ["metrics"] }
+prost = "0.14"
+prost-types = { version = "0.7", package = "prost-wkt-types" }
+
+[workspace.lints.rust]
+unreachable_pub = "warn"
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(tokio_unstable)'] }
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+
+[profile.release-lto]
+inherits = "release"
+lto = true

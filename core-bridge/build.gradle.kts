@@ -75,19 +75,22 @@ val nativeLibName = "temporalio_sdk_core_c_bridge"
 // Output directory for native libraries (in build folder, not src)
 val nativeLibsDir = layout.buildDirectory.dir("native-libs")
 
-// Native build for current platform - builds the official sdk-core-c-bridge
+// Native build for current platform - builds from parent workspace with locked dependencies
 val cargoBuild by tasks.registering(Exec::class) {
     description = "Build Temporal SDK Core C bridge for current platform ($nativePlatform)"
     group = "build"
-    workingDir = file("rust/sdk-core/crates/sdk-core-c-bridge")
-    commandLine("cargo", "build", "--release")
+    workingDir = file("rust")
+    commandLine("cargo", "build", "--release", "--locked", "-p", "temporalio-sdk-core-c-bridge")
 
     inputs.files(
+        fileTree("rust") {
+            include("Cargo.toml", "Cargo.lock")
+        },
         fileTree("rust/sdk-core") {
-            include("**/*.rs", "**/Cargo.toml", "**/Cargo.lock")
+            include("**/*.rs", "**/Cargo.toml")
         },
     )
-    outputs.file("rust/sdk-core/target/release/${libPrefix}$nativeLibName.$libExtension")
+    outputs.file("rust/target/release/${libPrefix}$nativeLibName.$libExtension")
 }
 
 val copyNativeLib by tasks.registering(Copy::class) {
@@ -95,7 +98,7 @@ val copyNativeLib by tasks.registering(Copy::class) {
     group = "build"
     dependsOn(cargoBuild)
 
-    from("rust/sdk-core/target/release/${libPrefix}$nativeLibName.$libExtension")
+    from("rust/target/release/${libPrefix}$nativeLibName.$libExtension")
     into(nativeLibsDir.map { it.dir("native/$nativePlatform") })
 }
 
@@ -103,15 +106,27 @@ val copyNativeLib by tasks.registering(Copy::class) {
 val cargoBuildLinuxx8664 by tasks.registering(Exec::class) {
     description = "Build native library for linux-x86_64-gnu"
     group = "build"
-    workingDir = file("rust/sdk-core/crates/sdk-core-c-bridge")
-    commandLine("cargo", "build", "--release", "--target", "x86_64-unknown-linux-gnu")
+    workingDir = file("rust")
+    commandLine(
+        "cargo",
+        "build",
+        "--release",
+        "--locked",
+        "-p",
+        "temporalio-sdk-core-c-bridge",
+        "--target",
+        "x86_64-unknown-linux-gnu",
+    )
 
     inputs.files(
+        fileTree("rust") {
+            include("Cargo.toml", "Cargo.lock")
+        },
         fileTree("rust/sdk-core") {
-            include("**/*.rs", "**/Cargo.toml", "**/Cargo.lock")
+            include("**/*.rs", "**/Cargo.toml")
         },
     )
-    outputs.file("rust/sdk-core/target/x86_64-unknown-linux-gnu/release/lib$nativeLibName.so")
+    outputs.file("rust/target/x86_64-unknown-linux-gnu/release/lib$nativeLibName.so")
 }
 
 val copyNativeLibLinuxx8664 by tasks.registering(Copy::class) {
@@ -119,7 +134,7 @@ val copyNativeLibLinuxx8664 by tasks.registering(Copy::class) {
     group = "build"
     dependsOn(cargoBuildLinuxx8664)
 
-    from("rust/sdk-core/target/x86_64-unknown-linux-gnu/release/lib$nativeLibName.so")
+    from("rust/target/x86_64-unknown-linux-gnu/release/lib$nativeLibName.so")
     into(nativeLibsDir.map { it.dir("native/linux-x86_64-gnu") })
 }
 
@@ -127,15 +142,27 @@ val copyNativeLibLinuxx8664 by tasks.registering(Copy::class) {
 val cargoBuildLinuxAarch64 by tasks.registering(Exec::class) {
     description = "Build native library for linux-aarch64-gnu"
     group = "build"
-    workingDir = file("rust/sdk-core/crates/sdk-core-c-bridge")
-    commandLine("cargo", "build", "--release", "--target", "aarch64-unknown-linux-gnu")
+    workingDir = file("rust")
+    commandLine(
+        "cargo",
+        "build",
+        "--release",
+        "--locked",
+        "-p",
+        "temporalio-sdk-core-c-bridge",
+        "--target",
+        "aarch64-unknown-linux-gnu",
+    )
 
     inputs.files(
+        fileTree("rust") {
+            include("Cargo.toml", "Cargo.lock")
+        },
         fileTree("rust/sdk-core") {
-            include("**/*.rs", "**/Cargo.toml", "**/Cargo.lock")
+            include("**/*.rs", "**/Cargo.toml")
         },
     )
-    outputs.file("rust/sdk-core/target/aarch64-unknown-linux-gnu/release/lib$nativeLibName.so")
+    outputs.file("rust/target/aarch64-unknown-linux-gnu/release/lib$nativeLibName.so")
 }
 
 val copyNativeLibLinuxAarch64 by tasks.registering(Copy::class) {
@@ -143,7 +170,7 @@ val copyNativeLibLinuxAarch64 by tasks.registering(Copy::class) {
     group = "build"
     dependsOn(cargoBuildLinuxAarch64)
 
-    from("rust/sdk-core/target/aarch64-unknown-linux-gnu/release/lib$nativeLibName.so")
+    from("rust/target/aarch64-unknown-linux-gnu/release/lib$nativeLibName.so")
     into(nativeLibsDir.map { it.dir("native/linux-aarch64-gnu") })
 }
 
@@ -151,15 +178,27 @@ val copyNativeLibLinuxAarch64 by tasks.registering(Copy::class) {
 val cargoBuildWindowsx8664 by tasks.registering(Exec::class) {
     description = "Build native library for windows-x86_64 (native MSVC)"
     group = "build"
-    workingDir = file("rust/sdk-core/crates/sdk-core-c-bridge")
-    commandLine("cargo", "build", "--release", "--target", "x86_64-pc-windows-msvc")
+    workingDir = file("rust")
+    commandLine(
+        "cargo",
+        "build",
+        "--release",
+        "--locked",
+        "-p",
+        "temporalio-sdk-core-c-bridge",
+        "--target",
+        "x86_64-pc-windows-msvc",
+    )
 
     inputs.files(
+        fileTree("rust") {
+            include("Cargo.toml", "Cargo.lock")
+        },
         fileTree("rust/sdk-core") {
-            include("**/*.rs", "**/Cargo.toml", "**/Cargo.lock")
+            include("**/*.rs", "**/Cargo.toml")
         },
     )
-    outputs.file("rust/sdk-core/target/x86_64-pc-windows-msvc/release/$nativeLibName.dll")
+    outputs.file("rust/target/x86_64-pc-windows-msvc/release/$nativeLibName.dll")
 }
 
 val copyNativeLibWindowsx8664 by tasks.registering(Copy::class) {
@@ -167,7 +206,7 @@ val copyNativeLibWindowsx8664 by tasks.registering(Copy::class) {
     group = "build"
     dependsOn(cargoBuildWindowsx8664)
 
-    from("rust/sdk-core/target/x86_64-pc-windows-msvc/release/$nativeLibName.dll")
+    from("rust/target/x86_64-pc-windows-msvc/release/$nativeLibName.dll")
     into(nativeLibsDir.map { it.dir("native/windows-x86_64") })
 }
 
@@ -175,15 +214,27 @@ val copyNativeLibWindowsx8664 by tasks.registering(Copy::class) {
 val cargoBuildMacosAarch64 by tasks.registering(Exec::class) {
     description = "Build native library for macos-aarch64 (native on ARM Mac)"
     group = "build"
-    workingDir = file("rust/sdk-core/crates/sdk-core-c-bridge")
-    commandLine("cargo", "build", "--release", "--target", "aarch64-apple-darwin")
+    workingDir = file("rust")
+    commandLine(
+        "cargo",
+        "build",
+        "--release",
+        "--locked",
+        "-p",
+        "temporalio-sdk-core-c-bridge",
+        "--target",
+        "aarch64-apple-darwin",
+    )
 
     inputs.files(
+        fileTree("rust") {
+            include("Cargo.toml", "Cargo.lock")
+        },
         fileTree("rust/sdk-core") {
-            include("**/*.rs", "**/Cargo.toml", "**/Cargo.lock")
+            include("**/*.rs", "**/Cargo.toml")
         },
     )
-    outputs.file("rust/sdk-core/target/aarch64-apple-darwin/release/lib$nativeLibName.dylib")
+    outputs.file("rust/target/aarch64-apple-darwin/release/lib$nativeLibName.dylib")
 }
 
 val copyNativeLibMacosAarch64 by tasks.registering(Copy::class) {
@@ -191,7 +242,7 @@ val copyNativeLibMacosAarch64 by tasks.registering(Copy::class) {
     group = "build"
     dependsOn(cargoBuildMacosAarch64)
 
-    from("rust/sdk-core/target/aarch64-apple-darwin/release/lib$nativeLibName.dylib")
+    from("rust/target/aarch64-apple-darwin/release/lib$nativeLibName.dylib")
     into(nativeLibsDir.map { it.dir("native/macos-aarch64") })
 }
 
@@ -199,15 +250,27 @@ val copyNativeLibMacosAarch64 by tasks.registering(Copy::class) {
 val cargoBuildMacosx8664 by tasks.registering(Exec::class) {
     description = "Build native library for macos-x86_64 (native on Intel Mac)"
     group = "build"
-    workingDir = file("rust/sdk-core/crates/sdk-core-c-bridge")
-    commandLine("cargo", "build", "--release", "--target", "x86_64-apple-darwin")
+    workingDir = file("rust")
+    commandLine(
+        "cargo",
+        "build",
+        "--release",
+        "--locked",
+        "-p",
+        "temporalio-sdk-core-c-bridge",
+        "--target",
+        "x86_64-apple-darwin",
+    )
 
     inputs.files(
+        fileTree("rust") {
+            include("Cargo.toml", "Cargo.lock")
+        },
         fileTree("rust/sdk-core") {
-            include("**/*.rs", "**/Cargo.toml", "**/Cargo.lock")
+            include("**/*.rs", "**/Cargo.toml")
         },
     )
-    outputs.file("rust/sdk-core/target/x86_64-apple-darwin/release/lib$nativeLibName.dylib")
+    outputs.file("rust/target/x86_64-apple-darwin/release/lib$nativeLibName.dylib")
 }
 
 val copyNativeLibMacosx8664 by tasks.registering(Copy::class) {
@@ -215,7 +278,7 @@ val copyNativeLibMacosx8664 by tasks.registering(Copy::class) {
     group = "build"
     dependsOn(cargoBuildMacosx8664)
 
-    from("rust/sdk-core/target/x86_64-apple-darwin/release/lib$nativeLibName.dylib")
+    from("rust/target/x86_64-apple-darwin/release/lib$nativeLibName.dylib")
     into(nativeLibsDir.map { it.dir("native/macos-x86_64") })
 }
 
@@ -313,7 +376,7 @@ tasks.named<ProcessResources>("processTestResources") {
 tasks.register<Delete>("cargoClean") {
     description = "Clean Rust build artifacts"
     group = "build"
-    delete("rust/sdk-core/target")
+    delete("rust/target")
 }
 
 tasks.named("clean") {

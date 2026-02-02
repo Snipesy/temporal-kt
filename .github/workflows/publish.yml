@@ -79,7 +79,7 @@ jobs:
         with:
           toolchain: stable
           target: ${{ matrix.rust-targets }}
-          cache-workspaces: "core-bridge/rust/sdk-core -> target"
+          cache-workspaces: "core-bridge/rust -> target"
           cache-all-crates: true
           cache-on-failure: true
 

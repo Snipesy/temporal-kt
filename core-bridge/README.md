@@ -7,8 +7,9 @@ Most (if not all) interop is done against
 [temporal-sdk-core-c-bridge.h](./rust/sdk-core/crates/sdk-core-c-bridge/include/temporal-sdk-core-c-bridge.h) found in
 the Temporal [SDK-Core submodule](./rust/sdk-core/).
 
-The SDK-Core submodule is used [in a small rust project](./rust) which builds its C-Compatible shared library. This rust
-project is then build as part of the Gradle build for this module.
+The SDK-Core submodule is included as a workspace member in our [parent Rust workspace](./rust). This workspace wraps the
+sdk-core crates and maintains its own `Cargo.lock` for reproducible builds (the sdk-core submodule gitignores its lock file
+since it's a library). The C-compatible shared library is built as part of the Gradle build for this module.
 
 ## Build (Your Platform)
 
@@ -28,6 +29,10 @@ gradle build
 
 ### Cargo.lock (Rust dependency version bumps)
 
+The `Cargo.lock` at `core-bridge/rust/Cargo.lock` is maintained by our parent workspace (not the sdk-core submodule).
+This is intentional - sdk-core gitignores its lock file since it's a library, but we need locked dependencies for
+reproducible CI builds. The Gradle build uses `--locked` to enforce this.
+
 To update all Rust dependencies to their latest compatible versions:
 
 ```bash
@@ -40,16 +45,27 @@ To update a specific dependency:
 cargo update --manifest-path core-bridge/rust/Cargo.toml -p <package-name>
 ```
 
+After updating, commit the updated `Cargo.lock`:
+
+```bash
+git add core-bridge/rust/Cargo.lock
+git commit -m "Update Rust dependencies"
+```
+
 ### SDK-Core Submodule (upstream changes)
 
 The SDK-Core submodule (`core-bridge/rust/sdk-core`) is a fork/clone of [temporalio/sdk-core](https://github.com/temporalio/sdk-core).
+
+**Important:** Our parent workspace (`core-bridge/rust/Cargo.toml`) mirrors the `[workspace.dependencies]` from
+sdk-core's Cargo.toml. When updating sdk-core, check if its workspace dependencies changed and sync them if needed.
 
 To update to the latest upstream master:
 
 ```bash
 git submodule update --remote core-bridge/rust/sdk-core
+# Check if workspace.dependencies changed in sdk-core/Cargo.toml and sync to rust/Cargo.toml if needed
 cargo update --manifest-path core-bridge/rust/Cargo.toml
-git add core-bridge/rust/sdk-core core-bridge/rust/Cargo.lock
+git add core-bridge/rust/sdk-core core-bridge/rust/Cargo.lock core-bridge/rust/Cargo.toml
 git commit -m "Update sdk-core to <commit-sha>"
 ```
 
@@ -60,8 +76,9 @@ cd core-bridge/rust/sdk-core
 git fetch origin
 git checkout <commit-sha-or-tag>
 cd ../../..
+# Check if workspace.dependencies changed in sdk-core/Cargo.toml and sync to rust/Cargo.toml if needed
 cargo update --manifest-path core-bridge/rust/Cargo.toml
-git add core-bridge/rust/sdk-core core-bridge/rust/Cargo.lock
+git add core-bridge/rust/sdk-core core-bridge/rust/Cargo.lock core-bridge/rust/Cargo.toml
 git commit -m "Update sdk-core to <version>"
 ```
 
