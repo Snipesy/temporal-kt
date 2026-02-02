@@ -41,16 +41,6 @@ internal object TemporalCoreWorker {
     // ============================================================
 
     /**
-     * Callback interface for poll operations.
-     */
-    fun interface PollCallback {
-        fun onComplete(
-            data: ByteArray?,
-            error: String?,
-        )
-    }
-
-    /**
      * Callback interface for simple operations (validate, shutdown).
      */
     fun interface WorkerCallback {
@@ -174,19 +164,22 @@ internal object TemporalCoreWorker {
     // ============================================================
 
     /**
-     * Polls for a workflow activation using a reusable callback stub.
+     * Polls for a workflow activation with zero-copy protobuf parsing.
+     * The message is parsed directly from native memory without intermediate ByteArray copy.
      *
      * @param workerPtr Pointer to the worker
      * @param dispatcher Callback dispatcher with reusable stubs
-     * @param callback Callback invoked when poll completes
+     * @param callback Typed callback invoked when poll completes
+     * @param parser Function that parses the CodedInputStream into the message type
      * @return Context pointer containing the callback ID (for cancellation support)
      */
-    fun pollWorkflowActivation(
+    fun <T : com.google.protobuf.MessageLite> pollWorkflowActivation(
         workerPtr: MemorySegment,
         dispatcher: WorkerCallbackDispatcher,
-        callback: PollCallback,
+        callback: TemporalCoreFfmUtil.TypedCallback<T>,
+        parser: (com.google.protobuf.CodedInputStream) -> T,
     ): MemorySegment {
-        val contextPtr = dispatcher.registerPoll(callback)
+        val contextPtr = dispatcher.registerPoll(callback, parser)
         CoreBridge.temporal_core_worker_poll_workflow_activation(
             workerPtr,
             contextPtr,
@@ -196,19 +189,22 @@ internal object TemporalCoreWorker {
     }
 
     /**
-     * Polls for an activity task using a reusable callback stub.
+     * Polls for an activity task with zero-copy protobuf parsing.
+     * The message is parsed directly from native memory without intermediate ByteArray copy.
      *
      * @param workerPtr Pointer to the worker
      * @param dispatcher Callback dispatcher with reusable stubs
-     * @param callback Callback invoked when poll completes
+     * @param callback Typed callback invoked when poll completes
+     * @param parser Function that parses the CodedInputStream into the message type
      * @return Context pointer containing the callback ID (for cancellation support)
      */
-    fun pollActivityTask(
+    fun <T : com.google.protobuf.MessageLite> pollActivityTask(
         workerPtr: MemorySegment,
         dispatcher: WorkerCallbackDispatcher,
-        callback: PollCallback,
+        callback: TemporalCoreFfmUtil.TypedCallback<T>,
+        parser: (com.google.protobuf.CodedInputStream) -> T,
     ): MemorySegment {
-        val contextPtr = dispatcher.registerPoll(callback)
+        val contextPtr = dispatcher.registerPoll(callback, parser)
         CoreBridge.temporal_core_worker_poll_activity_task(
             workerPtr,
             contextPtr,
@@ -218,19 +214,22 @@ internal object TemporalCoreWorker {
     }
 
     /**
-     * Polls for a nexus task using a reusable callback stub.
+     * Polls for a nexus task with zero-copy protobuf parsing.
+     * The message is parsed directly from native memory without intermediate ByteArray copy.
      *
      * @param workerPtr Pointer to the worker
      * @param dispatcher Callback dispatcher with reusable stubs
-     * @param callback Callback invoked when poll completes
+     * @param callback Typed callback invoked when poll completes
+     * @param parser Function that parses the CodedInputStream into the message type
      * @return Context pointer containing the callback ID (for cancellation support)
      */
-    fun pollNexusTask(
+    fun <T : com.google.protobuf.MessageLite> pollNexusTask(
         workerPtr: MemorySegment,
         dispatcher: WorkerCallbackDispatcher,
-        callback: PollCallback,
+        callback: TemporalCoreFfmUtil.TypedCallback<T>,
+        parser: (com.google.protobuf.CodedInputStream) -> T,
     ): MemorySegment {
-        val contextPtr = dispatcher.registerPoll(callback)
+        val contextPtr = dispatcher.registerPoll(callback, parser)
         CoreBridge.temporal_core_worker_poll_nexus_task(
             workerPtr,
             contextPtr,

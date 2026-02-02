@@ -1,5 +1,7 @@
 package com.surrealdev.temporal.core.internal
 
+import com.google.protobuf.CodedInputStream
+import com.google.protobuf.MessageLite
 import io.temporal.sdkbridge.TemporalCoreClientConnectCallback
 import io.temporal.sdkbridge.TemporalCoreClientRpcCallCallback
 import org.slf4j.LoggerFactory
@@ -7,11 +9,37 @@ import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
 
 /**
+ * Wrapper for RPC callbacks that captures the typed callback and parser for deferred invocation.
+ * Parses the response protobuf directly from native memory (zero-copy) when invoked.
+ */
+internal class RpcCallbackWrapper<T : MessageLite>(
+    private val callback: TemporalCoreClient.TypedRpcCallback<T>,
+    private val parser: (CodedInputStream) -> T,
+) {
+    fun invoke(
+        runtimePtr: MemorySegment,
+        successPtr: MemorySegment,
+        statusCode: Int,
+        failMessagePtr: MemorySegment,
+        failDetailsPtr: MemorySegment,
+    ) {
+        val response = TemporalCoreFfmUtil.readAndParseProto(runtimePtr, successPtr, parser)
+        val failureMessage = TemporalCoreFfmUtil.readAndFreeByteArray(runtimePtr, failMessagePtr)
+        // Failure details is also a protobuf (google.rpc.Status), but we keep it as bytes
+        // for now since it's typically only used for error handling
+        val failureDetails = TemporalCoreFfmUtil.readAndFreeByteArrayAsBytes(runtimePtr, failDetailsPtr)
+        callback.onComplete(response, statusCode, failureMessage, failureDetails)
+    }
+}
+
+/**
  * Manages reusable callback stubs for FFM client operations.
  *
  * Instead of creating a new upcall stub for each RPC call or connect operation,
  * this dispatcher creates reusable stubs and uses the user_data pointer to dispatch
  * to the correct Kotlin callback.
+ *
+ * All RPC callbacks use zero-copy protobuf parsing directly from native memory.
  *
  * @param arena The arena for allocating the reusable stubs (typically client's callbackArena)
  * @param runtimePtr Pointer to the Temporal runtime for freeing byte arrays
@@ -21,7 +49,9 @@ internal class ClientCallbackDispatcher(
     private val runtimePtr: MemorySegment,
 ) : AutoCloseable {
     private val pendingConnectCallbacks = PendingCallbacks<TemporalCoreClient.ConnectCallback>()
-    private val pendingRpcCallbacks = PendingCallbacks<TemporalCoreClient.RpcCallback>()
+
+    // Use type-erased wrapper to store different message types in the same map
+    private val pendingRpcCallbacks = PendingCallbacks<RpcCallbackWrapper<*>>()
 
     private val logger = LoggerFactory.getLogger(ClientCallbackDispatcher::class.java)
 
@@ -53,14 +83,15 @@ internal class ClientCallbackDispatcher(
     /**
      * Single reusable stub for RPC call operations.
      * Dispatches to the correct callback based on context ID in user_data.
+     * Uses zero-copy protobuf parsing directly from native memory.
      */
     val rpcCallbackStub: MemorySegment =
         TemporalCoreClientRpcCallCallback.allocate(
             { userDataPtr, successPtr, statusCode, failMessagePtr, failDetailsPtr ->
                 val contextId = PendingCallbacks.getContextId(userDataPtr)
-                val callback = pendingRpcCallbacks.remove(contextId)
+                val wrapper = pendingRpcCallbacks.remove(contextId)
 
-                if (callback == null) {
+                if (wrapper == null) {
                     // Callback was canceled or already dispatched - just free Rust memory
                     TemporalCoreFfmUtil.freeByteArrayIfNotNull(runtimePtr, successPtr)
                     TemporalCoreFfmUtil.freeByteArrayIfNotNull(runtimePtr, failMessagePtr)
@@ -68,10 +99,8 @@ internal class ClientCallbackDispatcher(
                     return@allocate
                 }
 
-                val response = TemporalCoreFfmUtil.readAndFreeByteArrayAsBytes(runtimePtr, successPtr)
-                val failureMessage = TemporalCoreFfmUtil.readAndFreeByteArray(runtimePtr, failMessagePtr)
-                val failureDetails = TemporalCoreFfmUtil.readAndFreeByteArrayAsBytes(runtimePtr, failDetailsPtr)
-                callback.onComplete(response, statusCode, failureMessage, failureDetails)
+                // Invoke the wrapper - it handles zero-copy parsing
+                wrapper.invoke(runtimePtr, successPtr, statusCode, failMessagePtr, failDetailsPtr)
             },
             arena,
         )
@@ -86,12 +115,17 @@ internal class ClientCallbackDispatcher(
         pendingConnectCallbacks.register(callback)
 
     /**
-     * Registers an RPC callback and returns a context pointer to pass as user_data.
+     * Registers a typed RPC callback with zero-copy protobuf parsing.
+     * The parser is invoked directly on native memory without intermediate ByteArray copy.
      *
-     * @param callback The callback to invoke when the RPC completes
+     * @param callback The typed callback to invoke when the RPC completes
+     * @param parser Function that parses the CodedInputStream into the response type
      * @return A MemorySegment containing the context ID (pass as user_data to FFI)
      */
-    fun registerRpc(callback: TemporalCoreClient.RpcCallback): MemorySegment = pendingRpcCallbacks.register(callback)
+    fun <T : MessageLite> registerRpc(
+        callback: TemporalCoreClient.TypedRpcCallback<T>,
+        parser: (CodedInputStream) -> T,
+    ): MemorySegment = pendingRpcCallbacks.register(RpcCallbackWrapper(callback, parser))
 
     /**
      * Extracts the context ID from a context pointer.

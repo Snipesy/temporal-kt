@@ -1,5 +1,7 @@
 package com.surrealdev.temporal.core
 
+import com.google.protobuf.CodedInputStream
+import com.google.protobuf.MessageLite
 import com.surrealdev.temporal.core.internal.CallbackArena
 import com.surrealdev.temporal.core.internal.ClientCallbackDispatcher
 import com.surrealdev.temporal.core.internal.ClientTlsOptions
@@ -209,19 +211,22 @@ class TemporalCoreClient private constructor(
     }
 
     /**
-     * Makes an RPC call to the Temporal workflow service.
+     * Makes an RPC call to the Temporal workflow service with zero-copy protobuf parsing.
      *
      * Uses reusable callback stubs via the dispatcher for better performance.
+     * The response is parsed directly from native memory without intermediate ByteArray copy.
      *
      * @param rpc The RPC method name (e.g., "StartWorkflowExecution")
      * @param request The request payload as protobuf bytes
-     * @return The response payload as protobuf bytes
+     * @param parser Function that parses the CodedInputStream into the response type
+     * @return The parsed response
      * @throws TemporalCoreException if the RPC call fails
      */
-    suspend fun workflowServiceCall(
+    suspend fun <T : MessageLite> workflowServiceCall(
         rpc: String,
         request: ByteArray,
-    ): ByteArray {
+        parser: (CodedInputStream) -> T,
+    ): T {
         ensureOpen()
         return suspendCancellableCoroutine { continuation ->
             var contextId: Long = 0
@@ -233,13 +238,18 @@ class TemporalCoreClient private constructor(
                     service = InternalClient.RpcService.WORKFLOW,
                     rpc = rpc,
                     request = request,
+                    parser = parser,
                 ) { response, statusCode, failureMessage, _ ->
                     try {
-                        if (statusCode == 0) {
-                            continuation.resume(response ?: ByteArray(0))
-                        } else {
+                        if (statusCode == 0 && response != null) {
+                            continuation.resume(response)
+                        } else if (statusCode != 0) {
                             continuation.resumeWithException(
                                 TemporalCoreException(failureMessage ?: "RPC call failed with status $statusCode"),
+                            )
+                        } else {
+                            continuation.resumeWithException(
+                                TemporalCoreException("RPC call returned null response"),
                             )
                         }
                     } catch (_: IllegalStateException) {
@@ -254,20 +264,23 @@ class TemporalCoreClient private constructor(
     }
 
     /**
-     * Makes an RPC call to the Temporal test service.
+     * Makes an RPC call to the Temporal test service with zero-copy protobuf parsing.
      *
      * This is only available when connected to a test server with time-skipping enabled.
      * Uses reusable callback stubs via the dispatcher for better performance.
+     * The response is parsed directly from native memory without intermediate ByteArray copy.
      *
      * @param rpc The RPC method name (e.g., "LockTimeSkipping", "GetCurrentTime")
      * @param request The request payload as protobuf bytes
-     * @return The response payload as protobuf bytes (empty array for empty responses)
+     * @param parser Function that parses the CodedInputStream into the response type
+     * @return The parsed response
      * @throws TemporalCoreException if the RPC call fails
      */
-    suspend fun testServiceCall(
+    suspend fun <T : MessageLite> testServiceCall(
         rpc: String,
         request: ByteArray,
-    ): ByteArray {
+        parser: (CodedInputStream) -> T,
+    ): T {
         ensureOpen()
         return suspendCancellableCoroutine { continuation ->
             var contextId: Long = 0
@@ -279,13 +292,18 @@ class TemporalCoreClient private constructor(
                     service = InternalClient.RpcService.TEST,
                     rpc = rpc,
                     request = request,
+                    parser = parser,
                 ) { response, statusCode, failureMessage, _ ->
                     try {
-                        if (statusCode == 0) {
-                            continuation.resume(response ?: ByteArray(0))
-                        } else {
+                        if (statusCode == 0 && response != null) {
+                            continuation.resume(response)
+                        } else if (statusCode != 0) {
                             continuation.resumeWithException(
                                 TemporalCoreException(failureMessage ?: "RPC call failed with status $statusCode"),
+                            )
+                        } else {
+                            continuation.resumeWithException(
+                                TemporalCoreException("RPC call returned null response"),
                             )
                         }
                     } catch (_: IllegalStateException) {

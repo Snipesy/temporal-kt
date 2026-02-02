@@ -407,15 +407,16 @@ internal class ManagedWorker(
                         workflowPollingStarted.complete(Unit)
                         firstPoll = false
                     }
-                    val activationBytes = coreWorker.pollWorkflowActivation()
-                    if (activationBytes == null) {
+                    // Use zero-copy parsing - parse directly from native memory without ByteArray copy
+                    val activation =
+                        coreWorker.pollWorkflowActivation { input ->
+                            WorkflowActivationOuterClass.WorkflowActivation.parseFrom(input)
+                        }
+                    if (activation == null) {
                         // Shutdown signal received
                         logger.info("[pollWorkflowActivations] Received shutdown signal, exiting")
                         break
                     }
-
-                    // Parse the activation
-                    val activation = WorkflowActivationOuterClass.WorkflowActivation.parseFrom(activationBytes)
                     logger.debug("[pollWorkflowActivations] Received activation for workflow ${activation.runId}")
 
                     // Extract workflow type from initialize job if present
@@ -576,15 +577,16 @@ internal class ManagedWorker(
                         activityPollingStarted.complete(Unit)
                         firstPoll = false
                     }
-                    val taskBytes = coreWorker.pollActivityTask()
-                    if (taskBytes == null) {
+                    // Use zero-copy parsing - parse directly from native memory without ByteArray copy
+                    val task =
+                        coreWorker.pollActivityTask { input ->
+                            ActivityTaskOuterClass.ActivityTask.parseFrom(input)
+                        }
+                    if (task == null) {
                         // Shutdown signal received
                         logger.info("[pollActivityTasks] Received shutdown signal, exiting")
                         break
                     }
-
-                    // Parse the activity task
-                    val task = ActivityTaskOuterClass.ActivityTask.parseFrom(taskBytes)
                     val activityInfo = if (task.hasStart()) "type=${task.start.activityType}" else "cancel"
                     logger.debug("[pollActivityTasks] Received activity task: $activityInfo")
 

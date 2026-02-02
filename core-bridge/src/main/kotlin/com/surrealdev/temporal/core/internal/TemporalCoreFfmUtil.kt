@@ -1,5 +1,7 @@
 package com.surrealdev.temporal.core.internal
 
+import com.google.protobuf.CodedInputStream
+import com.google.protobuf.MessageLite
 import io.temporal.sdkbridge.TemporalCoreByteArray
 import io.temporal.sdkbridge.TemporalCoreByteArrayRef
 import java.lang.foreign.MemorySegment
@@ -156,6 +158,96 @@ internal object TemporalCoreFfmUtil {
         if (ptr == MemorySegment.NULL) return null
         return readByteArrayAsBytes(ptr).also {
             CoreBridge.temporal_core_byte_array_free(runtimePtr, ptr)
+        }
+    }
+
+    // ============================================================
+    // Zero-Copy Protobuf Parsing Functions
+    // ============================================================
+
+    /**
+     * Parses a protobuf message directly from native memory without intermediate ByteArray copy.
+     * Uses MemorySegment.asByteBuffer() for zero-copy access to native memory.
+     *
+     * IMPORTANT: This function does NOT use aliasing because the native memory is freed
+     * immediately after parsing. The parsed message is fully materialized before returning.
+     *
+     * @param runtimePtr The runtime pointer for freeing memory
+     * @param ptr The TemporalCoreByteArray pointer from Rust
+     * @param parser Function that parses the CodedInputStream into a protobuf message
+     * @return Parsed message, or null if ptr is NULL
+     */
+    inline fun <T : MessageLite> readAndParseProto(
+        runtimePtr: MemorySegment,
+        ptr: MemorySegment,
+        parser: (CodedInputStream) -> T,
+    ): T? {
+        if (ptr == MemorySegment.NULL) return null
+
+        try {
+            val reinterpreted = ptr.reinterpret(TemporalCoreByteArray.sizeof())
+            val dataPtr = TemporalCoreByteArray.data(reinterpreted)
+            val size = TemporalCoreByteArray.size(reinterpreted)
+
+            // Create CodedInputStream - handles empty data (valid for messages like Empty)
+            val codedInput =
+                if (dataPtr == MemorySegment.NULL || size == 0L) {
+                    // Empty data is valid for some protobuf messages (e.g., Empty)
+                    // Parse from empty input to get default instance
+                    CodedInputStream.newInstance(ByteArray(0))
+                } else {
+                    // Reinterpret to get a segment with the actual data size
+                    val dataSegment = dataPtr.reinterpret(size)
+
+                    // Zero-copy: get ByteBuffer view of native memory
+                    // Note: ByteOrder does not affect protobuf parsing (varint encoding is byte-stream based)
+                    val byteBuffer = dataSegment.asByteBuffer()
+
+                    // Create CodedInputStream from ByteBuffer (no copy during parsing)
+                    CodedInputStream.newInstance(byteBuffer)
+                }
+
+            // DO NOT enable aliasing - memory will be freed after this function
+            // The parsed message must be fully materialized
+
+            return parser(codedInput)
+        } finally {
+            // Free native memory AFTER parsing is complete
+            CoreBridge.temporal_core_byte_array_free(runtimePtr, ptr)
+        }
+    }
+
+    // ============================================================
+    // Typed Callback Infrastructure (Shared)
+    // ============================================================
+
+    /**
+     * Generic typed callback interface for zero-copy protobuf parsing.
+     * Used by both worker poll and client RPC operations.
+     */
+    fun interface TypedCallback<T> {
+        fun onComplete(
+            data: T?,
+            error: String?,
+        )
+    }
+
+    /**
+     * Wrapper that captures a typed callback and its parser for deferred invocation.
+     * Parses protobuf directly from native memory (zero-copy) when invoked.
+     */
+    class TypedCallbackWrapper<T : MessageLite>(
+        private val callback: TypedCallback<T>,
+        private val parser: (CodedInputStream) -> T,
+    ) {
+        fun invoke(
+            runtimePtr: MemorySegment,
+            successPtr: MemorySegment,
+            failPtr: MemorySegment,
+        ) {
+            val data = readAndParseProto(runtimePtr, successPtr, parser)
+            val error = readAndFreeByteArray(runtimePtr, failPtr)
+            callback.onComplete(data, error)
         }
     }
 

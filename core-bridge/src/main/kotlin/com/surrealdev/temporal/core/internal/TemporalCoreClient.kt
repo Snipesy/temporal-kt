@@ -92,11 +92,12 @@ internal object TemporalCoreClient {
     }
 
     /**
-     * Callback interface for RPC calls.
+     * Typed callback interface for RPC calls with zero-copy protobuf parsing.
+     * The response message is parsed directly from native memory without intermediate ByteArray copy.
      */
-    fun interface RpcCallback {
+    fun interface TypedRpcCallback<T> {
         fun onComplete(
-            response: ByteArray?,
+            response: T?,
             statusCode: Int,
             failureMessage: String?,
             failureDetails: ByteArray?,
@@ -235,9 +236,10 @@ internal object TemporalCoreClient {
     // ============================================================
 
     /**
-     * Makes an RPC call to the Temporal server using a reusable callback dispatcher.
+     * Makes an RPC call to the Temporal server with zero-copy protobuf parsing.
      *
      * This version uses a shared callback stub for better performance on repeated calls.
+     * The response is parsed directly from native memory without intermediate ByteArray copy.
      *
      * @param clientPtr Pointer to the client
      * @param arena Arena for allocations (for RPC options, not callback stub)
@@ -245,23 +247,25 @@ internal object TemporalCoreClient {
      * @param service The RPC service type
      * @param rpc The RPC method name
      * @param request The request payload (protobuf bytes)
+     * @param parser Function that parses the CodedInputStream into the response type
      * @param retry Whether to retry on failure
      * @param timeoutMillis Timeout in milliseconds (0 for default)
      * @param cancellationToken Optional cancellation token
-     * @param callback Callback invoked when RPC completes
+     * @param callback Typed callback invoked when RPC completes
      * @return The context pointer for cancellation
      */
-    fun rpcCall(
+    fun <T : com.google.protobuf.MessageLite> rpcCall(
         clientPtr: MemorySegment,
         arena: Arena,
         dispatcher: ClientCallbackDispatcher,
         service: RpcService,
         rpc: String,
         request: ByteArray,
+        parser: (com.google.protobuf.CodedInputStream) -> T,
         retry: Boolean = true,
         timeoutMillis: Int = 0,
         cancellationToken: MemorySegment? = null,
-        callback: RpcCallback,
+        callback: TypedRpcCallback<T>,
     ): MemorySegment {
         val options = TemporalCoreRpcCallOptions.allocate(arena)
         TemporalCoreRpcCallOptions.service(options, service.value)
@@ -273,7 +277,7 @@ internal object TemporalCoreClient {
         TemporalCoreRpcCallOptions.timeout_millis(options, timeoutMillis)
         TemporalCoreRpcCallOptions.cancellation_token(options, cancellationToken ?: MemorySegment.NULL)
 
-        val contextPtr = dispatcher.registerRpc(callback)
+        val contextPtr = dispatcher.registerRpc(callback, parser)
         CoreBridge.temporal_core_client_rpc_call(clientPtr, options, contextPtr, dispatcher.rpcCallbackStub)
         return contextPtr
     }

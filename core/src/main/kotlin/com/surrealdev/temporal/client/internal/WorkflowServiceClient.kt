@@ -22,8 +22,8 @@ import io.temporal.api.workflowservice.v1.UpdateWorkflowExecutionResponse
  * Internal low-level client for making workflow service RPC calls.
  *
  * This class wraps the [TemporalCoreClient] and provides type-safe methods
- * for each workflow service operation. It handles protobuf serialization
- * and deserialization.
+ * for each workflow service operation. Uses zero-copy protobuf parsing
+ * directly from native memory.
  */
 internal class WorkflowServiceClient(
     private val coreClient: TemporalCoreClient,
@@ -32,104 +32,80 @@ internal class WorkflowServiceClient(
     /**
      * Starts a new workflow execution.
      */
-    suspend fun startWorkflowExecution(request: StartWorkflowExecutionRequest): StartWorkflowExecutionResponse {
-        val responseBytes =
-            coreClient.workflowServiceCall(
-                rpc = "StartWorkflowExecution",
-                request = request.toByteArray(),
-            )
-        return StartWorkflowExecutionResponse.parseFrom(responseBytes)
-    }
+    suspend fun startWorkflowExecution(request: StartWorkflowExecutionRequest): StartWorkflowExecutionResponse =
+        coreClient.workflowServiceCall(
+            rpc = "StartWorkflowExecution",
+            request = request.toByteArray(),
+        ) { input -> StartWorkflowExecutionResponse.parseFrom(input) }
 
     /**
      * Gets the execution history for a workflow.
      */
     suspend fun getWorkflowExecutionHistory(
         request: GetWorkflowExecutionHistoryRequest,
-    ): GetWorkflowExecutionHistoryResponse {
-        val responseBytes =
-            coreClient.workflowServiceCall(
-                rpc = "GetWorkflowExecutionHistory",
-                request = request.toByteArray(),
-            )
-        return GetWorkflowExecutionHistoryResponse.parseFrom(responseBytes)
-    }
+    ): GetWorkflowExecutionHistoryResponse =
+        coreClient.workflowServiceCall(
+            rpc = "GetWorkflowExecutionHistory",
+            request = request.toByteArray(),
+        ) { input -> GetWorkflowExecutionHistoryResponse.parseFrom(input) }
 
     /**
      * Describes a workflow execution, returning its current status and configuration.
      */
     suspend fun describeWorkflowExecution(
         request: DescribeWorkflowExecutionRequest,
-    ): DescribeWorkflowExecutionResponse {
-        val responseBytes =
-            coreClient.workflowServiceCall(
-                rpc = "DescribeWorkflowExecution",
-                request = request.toByteArray(),
-            )
-        return DescribeWorkflowExecutionResponse.parseFrom(responseBytes)
-    }
+    ): DescribeWorkflowExecutionResponse =
+        coreClient.workflowServiceCall(
+            rpc = "DescribeWorkflowExecution",
+            request = request.toByteArray(),
+        ) { input -> DescribeWorkflowExecutionResponse.parseFrom(input) }
 
     /**
      * Terminates a workflow execution.
      */
     suspend fun terminateWorkflowExecution(
         request: TerminateWorkflowExecutionRequest,
-    ): TerminateWorkflowExecutionResponse {
-        val responseBytes =
-            coreClient.workflowServiceCall(
-                rpc = "TerminateWorkflowExecution",
-                request = request.toByteArray(),
-            )
-        return TerminateWorkflowExecutionResponse.parseFrom(responseBytes)
-    }
+    ): TerminateWorkflowExecutionResponse =
+        coreClient.workflowServiceCall(
+            rpc = "TerminateWorkflowExecution",
+            request = request.toByteArray(),
+        ) { input -> TerminateWorkflowExecutionResponse.parseFrom(input) }
 
     /**
      * Sends a signal to a workflow execution.
      */
-    suspend fun signalWorkflowExecution(request: SignalWorkflowExecutionRequest): SignalWorkflowExecutionResponse {
-        val responseBytes =
-            coreClient.workflowServiceCall(
-                rpc = "SignalWorkflowExecution",
-                request = request.toByteArray(),
-            )
-        return SignalWorkflowExecutionResponse.parseFrom(responseBytes)
-    }
+    suspend fun signalWorkflowExecution(request: SignalWorkflowExecutionRequest): SignalWorkflowExecutionResponse =
+        coreClient.workflowServiceCall(
+            rpc = "SignalWorkflowExecution",
+            request = request.toByteArray(),
+        ) { input -> SignalWorkflowExecutionResponse.parseFrom(input) }
 
     /**
      * Requests cancellation of a workflow execution.
      */
     suspend fun requestCancelWorkflowExecution(
         request: RequestCancelWorkflowExecutionRequest,
-    ): RequestCancelWorkflowExecutionResponse {
-        val responseBytes =
-            coreClient.workflowServiceCall(
-                rpc = "RequestCancelWorkflowExecution",
-                request = request.toByteArray(),
-            )
-        return RequestCancelWorkflowExecutionResponse.parseFrom(responseBytes)
-    }
+    ): RequestCancelWorkflowExecutionResponse =
+        coreClient.workflowServiceCall(
+            rpc = "RequestCancelWorkflowExecution",
+            request = request.toByteArray(),
+        ) { input -> RequestCancelWorkflowExecutionResponse.parseFrom(input) }
 
     /**
      * Sends an update to a workflow execution and waits for the result.
      */
-    suspend fun updateWorkflowExecution(request: UpdateWorkflowExecutionRequest): UpdateWorkflowExecutionResponse {
-        val responseBytes =
-            coreClient.workflowServiceCall(
-                rpc = "UpdateWorkflowExecution",
-                request = request.toByteArray(),
-            )
-        return UpdateWorkflowExecutionResponse.parseFrom(responseBytes)
-    }
+    suspend fun updateWorkflowExecution(request: UpdateWorkflowExecutionRequest): UpdateWorkflowExecutionResponse =
+        coreClient.workflowServiceCall(
+            rpc = "UpdateWorkflowExecution",
+            request = request.toByteArray(),
+        ) { input -> UpdateWorkflowExecutionResponse.parseFrom(input) }
 
     /**
      * Queries a workflow execution for its current state.
      */
-    suspend fun queryWorkflow(request: QueryWorkflowRequest): QueryWorkflowResponse {
-        val responseBytes =
-            coreClient.workflowServiceCall(
-                rpc = "QueryWorkflow",
-                request = request.toByteArray(),
-            )
-        return QueryWorkflowResponse.parseFrom(responseBytes)
-    }
+    suspend fun queryWorkflow(request: QueryWorkflowRequest): QueryWorkflowResponse =
+        coreClient.workflowServiceCall(
+            rpc = "QueryWorkflow",
+            request = request.toByteArray(),
+        ) { input -> QueryWorkflowResponse.parseFrom(input) }
 }

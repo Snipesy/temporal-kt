@@ -1,5 +1,7 @@
 package com.surrealdev.temporal.core
 
+import com.google.protobuf.CodedInputStream
+import com.google.protobuf.MessageLite
 import com.surrealdev.temporal.core.internal.WorkerCallbackDispatcher
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.lang.foreign.Arena
@@ -187,26 +189,27 @@ class TemporalWorker private constructor(
     }
 
     /**
-     * Polls for a workflow activation.
+     * Polls for a workflow activation with zero-copy protobuf parsing.
      *
      * This method suspends until a workflow activation is available or shutdown is complete.
-     * Uses reusable callback stubs for better performance.
+     * The protobuf message is parsed directly from native memory without intermediate ByteArray copy.
      *
-     * @return The workflow activation protobuf bytes, or null if shutdown is complete
+     * @param parser Function that parses the CodedInputStream into the message type
+     * @return The parsed workflow activation, or null if shutdown is complete
      * @throws TemporalCoreException if polling fails
      */
-    suspend fun pollWorkflowActivation(): ByteArray? {
+    suspend fun <T : MessageLite> pollWorkflowActivation(parser: (CodedInputStream) -> T): T? {
         ensureOpen()
         return try {
             suspendCancellableCoroutine { continuation ->
                 val callback =
-                    InternalWorker.PollCallback { data, error ->
+                    com.surrealdev.temporal.core.internal.TemporalCoreFfmUtil.TypedCallback<T> { data, error ->
                         when {
                             error != null -> continuation.resumeWithException(TemporalCoreException(error))
                             else -> continuation.resume(data)
                         }
                     }
-                val contextPtr = InternalWorker.pollWorkflowActivation(handle, dispatcher, callback)
+                val contextPtr = InternalWorker.pollWorkflowActivation(handle, dispatcher, callback, parser)
                 val contextId = dispatcher.getContextId(contextPtr)
                 continuation.invokeOnCancellation {
                     dispatcher.cancelPoll(contextId)
@@ -219,26 +222,27 @@ class TemporalWorker private constructor(
     }
 
     /**
-     * Polls for an activity task.
+     * Polls for an activity task with zero-copy protobuf parsing.
      *
      * This method suspends until an activity task is available or shutdown is complete.
-     * Uses reusable callback stubs for better performance.
+     * The protobuf message is parsed directly from native memory without intermediate ByteArray copy.
      *
-     * @return The activity task protobuf bytes, or null if shutdown is complete
+     * @param parser Function that parses the CodedInputStream into the message type
+     * @return The parsed activity task, or null if shutdown is complete
      * @throws TemporalCoreException if polling fails
      */
-    suspend fun pollActivityTask(): ByteArray? {
+    suspend fun <T : MessageLite> pollActivityTask(parser: (CodedInputStream) -> T): T? {
         ensureOpen()
         return try {
             suspendCancellableCoroutine { continuation ->
                 val callback =
-                    InternalWorker.PollCallback { data, error ->
+                    com.surrealdev.temporal.core.internal.TemporalCoreFfmUtil.TypedCallback<T> { data, error ->
                         when {
                             error != null -> continuation.resumeWithException(TemporalCoreException(error))
                             else -> continuation.resume(data)
                         }
                     }
-                val contextPtr = InternalWorker.pollActivityTask(handle, dispatcher, callback)
+                val contextPtr = InternalWorker.pollActivityTask(handle, dispatcher, callback, parser)
                 val contextId = dispatcher.getContextId(contextPtr)
                 continuation.invokeOnCancellation {
                     dispatcher.cancelPoll(contextId)

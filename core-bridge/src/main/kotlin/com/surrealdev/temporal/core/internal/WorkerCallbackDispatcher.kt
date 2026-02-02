@@ -1,5 +1,7 @@
 package com.surrealdev.temporal.core.internal
 
+import com.google.protobuf.CodedInputStream
+import com.google.protobuf.MessageLite
 import io.temporal.sdkbridge.TemporalCoreWorkerCallback
 import io.temporal.sdkbridge.TemporalCoreWorkerPollCallback
 import org.slf4j.LoggerFactory
@@ -14,6 +16,8 @@ import java.lang.foreign.MemorySegment
  * worker callbacks) and uses the user_data pointer to dispatch to the correct
  * Kotlin callback.
  *
+ * All poll callbacks use zero-copy protobuf parsing directly from native memory.
+ *
  * @param arena The arena for allocating the reusable stubs (typically worker's callbackArena)
  * @param runtimePtr Pointer to the Temporal runtime for freeing byte arrays
  */
@@ -21,7 +25,8 @@ internal class WorkerCallbackDispatcher(
     arena: Arena,
     private val runtimePtr: MemorySegment,
 ) : AutoCloseable {
-    private val pendingPollCallbacks = PendingCallbacks<TemporalCoreWorker.PollCallback>()
+    // Use type-erased wrapper to store different message types in the same map
+    private val pendingPollCallbacks = PendingCallbacks<TemporalCoreFfmUtil.TypedCallbackWrapper<*>>()
     private val pendingWorkerCallbacks = PendingCallbacks<TemporalCoreWorker.WorkerCallback>()
 
     private val logger = LoggerFactory.getLogger(WorkerCallbackDispatcher::class.java)
@@ -29,23 +34,23 @@ internal class WorkerCallbackDispatcher(
     /**
      * Single reusable stub for poll operations (workflow activation, activity task, nexus task).
      * Dispatches to the correct callback based on context ID in user_data.
+     * Uses zero-copy protobuf parsing directly from native memory.
      */
     val pollCallbackStub: MemorySegment =
         TemporalCoreWorkerPollCallback.allocate(
             { userDataPtr, successPtr, failPtr ->
                 val contextId = PendingCallbacks.getContextId(userDataPtr)
-                val callback = pendingPollCallbacks.remove(contextId)
+                val wrapper = pendingPollCallbacks.remove(contextId)
 
-                if (callback == null) {
+                if (wrapper == null) {
                     // Callback was canceled or already dispatched - just free Rust memory
                     TemporalCoreFfmUtil.freeByteArrayIfNotNull(runtimePtr, successPtr)
                     TemporalCoreFfmUtil.freeByteArrayIfNotNull(runtimePtr, failPtr)
                     return@allocate
                 }
 
-                val data = TemporalCoreFfmUtil.readAndFreeByteArrayAsBytes(runtimePtr, successPtr)
-                val error = TemporalCoreFfmUtil.readAndFreeByteArray(runtimePtr, failPtr)
-                callback.onComplete(data, error)
+                // Invoke the wrapper - it handles zero-copy parsing
+                wrapper.invoke(runtimePtr, successPtr, failPtr)
             },
             arena,
         )
@@ -80,12 +85,17 @@ internal class WorkerCallbackDispatcher(
         )
 
     /**
-     * Registers a poll callback and returns a context pointer to pass as user_data.
+     * Registers a typed poll callback with zero-copy protobuf parsing.
+     * The parser is invoked directly on native memory without intermediate ByteArray copy.
      *
-     * @param callback The callback to invoke when the poll completes
+     * @param callback The typed callback to invoke when the poll completes
+     * @param parser Function that parses the CodedInputStream into the message type
      * @return A MemorySegment containing the context ID (pass as user_data to FFI)
      */
-    fun registerPoll(callback: TemporalCoreWorker.PollCallback): MemorySegment = pendingPollCallbacks.register(callback)
+    fun <T : MessageLite> registerPoll(
+        callback: TemporalCoreFfmUtil.TypedCallback<T>,
+        parser: (CodedInputStream) -> T,
+    ): MemorySegment = pendingPollCallbacks.register(TemporalCoreFfmUtil.TypedCallbackWrapper(callback, parser))
 
     /**
      * Registers a worker callback and returns a context pointer to pass as user_data.
