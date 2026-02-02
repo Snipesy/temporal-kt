@@ -94,22 +94,6 @@ internal class ClientCallbackDispatcher(
     ): MemorySegment = pendingRpcCallbacks.register(RpcCallbackWrapper(callback, parser))
 
     /**
-     * Cancels a pending connect callback.
-     *
-     * @param contextId The context ID from getContextId()
-     * @return true if the callback was found and removed, false if already dispatched/canceled
-     */
-    fun cancelConnect(contextId: Long): Boolean = pendingConnectCallbacks.cancel(contextId)
-
-    /**
-     * Cancels a pending RPC callback.
-     *
-     * @param contextId The context ID from getContextId()
-     * @return true if the callback was found and removed, false if already dispatched/canceled
-     */
-    fun cancelRpc(contextId: Long): Boolean = pendingRpcCallbacks.cancel(contextId)
-
-    /**
      * Blocks until all pending callbacks have been dispatched.
      *
      * This must be called BEFORE freeing the native client handle to ensure

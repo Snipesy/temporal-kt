@@ -50,16 +50,6 @@ internal class EphemeralServerCallbackDispatcher(
         pendingShutdownCallbacks.register(callback)
 
     /**
-     * Cancels a pending start callback.
-     */
-    fun cancelStart(contextId: Long): Boolean = pendingStartCallbacks.cancel(contextId)
-
-    /**
-     * Cancels a pending shutdown callback.
-     */
-    fun cancelShutdown(contextId: Long): Boolean = pendingShutdownCallbacks.cancel(contextId)
-
-    /**
      * Blocks until all pending callbacks have been dispatched.
      *
      * This must be called BEFORE freeing the native server handle to ensure

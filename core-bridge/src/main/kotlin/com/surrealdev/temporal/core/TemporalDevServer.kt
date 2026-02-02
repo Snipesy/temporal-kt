@@ -69,35 +69,32 @@ class TemporalDevServer private constructor(
             return FactoryArenaScope.create(runtime.handle, ::EphemeralServerCallbackDispatcher).createResource {
                 val (serverPtr, targetUrl) =
                     suspendCancellableCoroutine { continuation ->
-                        val contextPtr =
-                            TemporalCoreEphemeralServer.startDevServer(
-                                runtimePtr = runtime.handle,
-                                arena = resourceArena,
-                                dispatcher = dispatcher,
-                                namespace = namespace,
-                                ip = ip,
-                                existingPath = existingPath,
-                                downloadVersion = downloadVersion,
-                                downloadTtlSeconds = downloadTtlSeconds,
-                            ) { serverPtr, targetUrl, error ->
-                                try {
-                                    if (error != null) {
-                                        continuation.resumeWithException(TemporalCoreException(error))
-                                    } else if (serverPtr == null || targetUrl == null) {
-                                        continuation.resumeWithException(
-                                            TemporalCoreException("Server start returned null without error"),
-                                        )
-                                    } else {
-                                        continuation.resume(Pair(serverPtr, targetUrl))
-                                    }
-                                } catch (_: IllegalStateException) {
-                                    // Continuation already resumed, ignore
+                        TemporalCoreEphemeralServer.startDevServer(
+                            runtimePtr = runtime.handle,
+                            arena = resourceArena,
+                            dispatcher = dispatcher,
+                            namespace = namespace,
+                            ip = ip,
+                            existingPath = existingPath,
+                            downloadVersion = downloadVersion,
+                            downloadTtlSeconds = downloadTtlSeconds,
+                        ) { serverPtr, targetUrl, error ->
+                            try {
+                                if (error != null) {
+                                    continuation.resumeWithException(TemporalCoreException(error))
+                                } else if (serverPtr == null || targetUrl == null) {
+                                    continuation.resumeWithException(
+                                        TemporalCoreException("Server start returned null without error"),
+                                    )
+                                } else {
+                                    continuation.resume(Pair(serverPtr, targetUrl))
                                 }
+                            } catch (_: IllegalStateException) {
+                                // Continuation already resumed, ignore
                             }
-                        val contextId = dispatcher.getContextId(contextPtr)
-                        continuation.invokeOnCancellation {
-                            dispatcher.cancelStart(contextId)
                         }
+                        // Note: We intentionally do NOT cancel on coroutine cancellation.
+                        // The Rust callback will always fire, and we must wait for it to complete.
                     }
 
                 TemporalDevServer(

@@ -16,10 +16,13 @@ import java.util.concurrent.atomic.AtomicLong
  * after the suspend completes (via ManagedArena or similar patterns). This avoids
  * FFM "session acquired" errors that occur when closing arenas during upcalls.
  *
+ * Note: Callbacks are NOT cancellable. The Rust Core SDK always invokes callbacks
+ * (even on shutdown), so we wait for callbacks to fire naturally. This ensures
+ * awaitEmpty() properly blocks until all native operations complete.
+ *
  * Thread Safety:
  * - Registration uses AtomicLong for ID generation and ConcurrentHashMap for storage
  * - Dispatch uses ConcurrentHashMap.remove() for atomic get-and-remove
- * - Cancel vs dispatch races are safe: exactly one wins, the other gets null
  *
  * @param T The callback type
  */
@@ -49,7 +52,7 @@ internal class PendingCallbacks<T> {
      * Removes and returns the callback for the given context ID.
      *
      * This is called from the native callback stub to dispatch to the correct callback.
-     * Returns null if the callback was already dispatched or cancelled.
+     * Returns null if the callback was already dispatched.
      *
      * @param contextId The context ID (from userDataPtr.address())
      * @return The callback, or null if not found
@@ -58,18 +61,6 @@ internal class PendingCallbacks<T> {
         val callback = pending.remove(contextId) ?: return null
         checkAndSignalEmpty()
         return callback
-    }
-
-    /**
-     * Cancels a pending callback.
-     *
-     * @param contextId The context ID
-     * @return true if the callback was found and removed, false if already dispatched/cancelled
-     */
-    fun cancel(contextId: Long): Boolean {
-        val removed = pending.remove(contextId) != null
-        if (removed) checkAndSignalEmpty()
-        return removed
     }
 
     /**

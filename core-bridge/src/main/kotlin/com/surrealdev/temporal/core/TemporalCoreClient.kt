@@ -5,7 +5,6 @@ import com.google.protobuf.MessageLite
 import com.surrealdev.temporal.core.internal.ClientCallbackDispatcher
 import com.surrealdev.temporal.core.internal.ClientTlsOptions
 import com.surrealdev.temporal.core.internal.FactoryArenaScope
-import com.surrealdev.temporal.core.internal.PendingCallbacks
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
@@ -197,10 +196,8 @@ class TemporalCoreClient private constructor(
                                 }
                             }
 
-                        val contextId = PendingCallbacks.getContextId(contextPtr)
-                        continuation.invokeOnCancellation {
-                            scope.dispatcher.cancelConnect(contextId)
-                        }
+                        // Note: We intentionally do NOT cancel on coroutine cancellation.
+                        // The Rust callback will always fire, and we must wait for it to complete.
                     }
 
                 scope.transferOwnership()
@@ -287,20 +284,17 @@ class TemporalCoreClient private constructor(
     ): Resp {
         ensureOpen()
         return dispatcher.withManagedArena { arena, continuation ->
-            val contextPtr =
-                InternalClient.rpcCall(
-                    clientPtr = handle,
-                    arena = arena,
-                    dispatcher = dispatcher,
-                    service = service,
-                    rpc = rpc,
-                    request = request,
-                    parser = parser,
-                ) { response, statusCode, failureMessage, _ ->
-                    with(dispatcher) { continuation.resumeRpcResult(response, statusCode, failureMessage) }
-                }
-            val contextId = dispatcher.getContextId(contextPtr);
-            { dispatcher.cancelRpc(contextId) }
+            InternalClient.rpcCall(
+                clientPtr = handle,
+                arena = arena,
+                dispatcher = dispatcher,
+                service = service,
+                rpc = rpc,
+                request = request,
+                parser = parser,
+            ) { response, statusCode, failureMessage, _ ->
+                with(dispatcher) { continuation.resumeRpcResult(response, statusCode, failureMessage) }
+            }
         }
     }
 

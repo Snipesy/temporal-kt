@@ -107,10 +107,8 @@ class TemporalTestServer private constructor(
                                     // Continuation already resumed, ignore
                                 }
                             }
-                        val contextId = dispatcher.getContextId(contextPtr)
-                        continuation.invokeOnCancellation {
-                            dispatcher.cancelStart(contextId)
-                        }
+                        // Note: We intentionally do NOT cancel on coroutine cancellation.
+                        // The Rust callback will always fire, and we must wait for it to complete.
                     }
 
                 // Connect a client for TestService RPC calls

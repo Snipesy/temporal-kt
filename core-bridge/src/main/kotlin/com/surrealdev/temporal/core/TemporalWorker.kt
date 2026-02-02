@@ -196,11 +196,10 @@ class TemporalWorker private constructor(
                             else -> continuation.resume(data)
                         }
                     }
-                val contextPtr = InternalWorker.pollWorkflowActivation(handle, dispatcher, callback, parser)
-                val contextId = dispatcher.getContextId(contextPtr)
-                continuation.invokeOnCancellation {
-                    dispatcher.cancelPoll(contextId)
-                }
+                InternalWorker.pollWorkflowActivation(handle, dispatcher, callback, parser)
+                // Note: We intentionally do NOT cancel on coroutine cancellation.
+                // The Rust callback will always fire (even on shutdown), and awaitPendingCallbacks()
+                // must wait for it to ensure Arc references are released before finalize_shutdown.
             }
         } catch (e: TemporalCoreException) {
             // Treat shutdown errors as normal completion
@@ -229,11 +228,10 @@ class TemporalWorker private constructor(
                             else -> continuation.resume(data)
                         }
                     }
-                val contextPtr = InternalWorker.pollActivityTask(handle, dispatcher, callback, parser)
-                val contextId = dispatcher.getContextId(contextPtr)
-                continuation.invokeOnCancellation {
-                    dispatcher.cancelPoll(contextId)
-                }
+                InternalWorker.pollActivityTask(handle, dispatcher, callback, parser)
+                // Note: We intentionally do NOT cancel on coroutine cancellation.
+                // The Rust callback will always fire (even on shutdown), and awaitPendingCallbacks()
+                // must wait for it to ensure Arc references are released before finalize_shutdown.
             }
         } catch (e: TemporalCoreException) {
             // Treat shutdown errors as normal completion
@@ -257,16 +255,13 @@ class TemporalWorker private constructor(
                 InternalWorker.WorkerCallback { error ->
                     with(dispatcher) { continuation.resumeWorkerResult(error) }
                 }
-            val contextPtr =
-                InternalWorker.completeWorkflowActivation(
-                    handle,
-                    arena,
-                    dispatcher,
-                    completion,
-                    callback,
-                )
-            val contextId = dispatcher.getContextId(contextPtr);
-            { dispatcher.cancelWorker(contextId) }
+            InternalWorker.completeWorkflowActivation(
+                handle,
+                arena,
+                dispatcher,
+                completion,
+                callback,
+            )
         }
     }
 
@@ -286,16 +281,13 @@ class TemporalWorker private constructor(
                 InternalWorker.WorkerCallback { error ->
                     with(dispatcher) { continuation.resumeWorkerResult(error) }
                 }
-            val contextPtr =
-                InternalWorker.completeActivityTask(
-                    handle,
-                    arena,
-                    dispatcher,
-                    completion,
-                    callback,
-                )
-            val contextId = dispatcher.getContextId(contextPtr);
-            { dispatcher.cancelWorker(contextId) }
+            InternalWorker.completeActivityTask(
+                handle,
+                arena,
+                dispatcher,
+                completion,
+                callback,
+            )
         }
     }
 
@@ -359,11 +351,9 @@ class TemporalWorker private constructor(
                         continuation.resume(Unit)
                     }
                 }
-            val contextPtr = InternalWorker.finalizeShutdown(handle, dispatcher, callback)
-            val contextId = dispatcher.getContextId(contextPtr)
-            continuation.invokeOnCancellation {
-                dispatcher.cancelWorker(contextId)
-            }
+            InternalWorker.finalizeShutdown(handle, dispatcher, callback)
+            // Note: We intentionally do NOT cancel on coroutine cancellation.
+            // The Rust callback will always fire, and we must wait for it to complete.
         }
     }
 

@@ -416,7 +416,7 @@ internal data class TaskQueueConfig(
     val hookRegistry: HookRegistry = HookRegistryImpl(),
     /**
      * Grace period for shutdown to wait for polling jobs to complete gracefully.
-     * After this timeout, polling jobs will be force-cancelled.
+     * After this timeout, polling jobs will be force-canceled.
      */
     val shutdownGracePeriodMs: Long = 10_000L,
     /**

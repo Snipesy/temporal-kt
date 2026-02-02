@@ -76,22 +76,6 @@ internal class WorkerCallbackDispatcher(
     }
 
     /**
-     * Cancels a pending poll callback. Used when a coroutine is cancelled.
-     *
-     * @param contextId The context ID from getContextId()
-     * @return true if the callback was found and removed, false if already dispatched/canceled
-     */
-    fun cancelPoll(contextId: Long): Boolean = pendingPollCallbacks.cancel(contextId)
-
-    /**
-     * Cancels a pending worker callback. Used when a coroutine is cancelled.
-     *
-     * @param contextId The context ID from getContextId()
-     * @return true if the callback was found and removed, false if already dispatched/canceled
-     */
-    fun cancelWorker(contextId: Long): Boolean = pendingWorkerCallbacks.cancel(contextId)
-
-    /**
      * Dumps the current state of pending callbacks for debugging.
      */
     fun dumpPendingCallbacks() {

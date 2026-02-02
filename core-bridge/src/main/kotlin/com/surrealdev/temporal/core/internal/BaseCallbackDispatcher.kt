@@ -35,16 +35,17 @@ internal abstract class BaseCallbackDispatcher(
      * Executes an async native operation with automatic arena lifecycle management.
      *
      * Creates a per-call arena and suspends until the callback fires. The arena is
-     * automatically closed by the dispatcher when the callback completes or is cancelled.
+     * automatically closed by the dispatcher when the callback completes.
      *
-     * @param block Function that:
-     *   1. Registers the callback with the dispatcher (passing the arena)
-     *   2. Makes the native call
-     *   3. Returns a cancel function
+     * Note: Rust always invokes callbacks (even on shutdown), so this function
+     * does not support cancellation of the native operation. We simply wait for
+     * the callback to fire naturally.
+     *
+     * @param block Function that registers the callback and makes the native call
      * @return The result from the callback
      */
     suspend inline fun <T> withManagedArena(
-        crossinline block: (arena: Arena, continuation: CancellableContinuation<T>) -> (() -> Unit),
+        crossinline block: (arena: Arena, continuation: CancellableContinuation<T>) -> Unit,
     ): T = CallbackArena.withManagedArena(block)
 
     // ============================================================

@@ -33,28 +33,29 @@ internal object CallbackArena {
      * The block should NOT register the arena with PendingCallbacks. The arena
      * lifecycle is managed entirely by this function.
      *
+     * Note: This function does NOT support cancellation of the native operation.
+     * The Rust Core SDK always invokes callbacks (even on shutdown), so we simply
+     * wait for the callback to fire. The arena is closed after the suspend completes.
+     *
      * Arena lifecycle:
      * - Normal completion: arena is closed after suspendCancellableCoroutine returns
-     * - Cancellation: arena is closed in the cancellation handler
+     * - Cancellation: coroutine is cancelled but we still wait for callback, arena closed after
      * - Exception in block: arena is closed immediately before re-throwing
      *
-     * @param block Function that registers the callback, makes the native call,
-     *              and returns a cancel function to be invoked if the coroutine is cancelled
+     * @param block Function that registers the callback and makes the native call
      * @return The result from the callback
      */
     suspend inline fun <T> withManagedArena(
-        crossinline block: (arena: Arena, continuation: CancellableContinuation<T>) -> (() -> Unit),
+        crossinline block: (arena: Arena, continuation: CancellableContinuation<T>) -> Unit,
     ): T {
         val managed = ManagedArena()
 
         return try {
             suspendCancellableCoroutine { continuation ->
                 try {
-                    val cancel = block(managed.arena, continuation)
-                    continuation.invokeOnCancellation {
-                        cancel()
-                        managed.closeOnce()
-                    }
+                    block(managed.arena, continuation)
+                    // Note: No invokeOnCancellation - Rust always calls callbacks,
+                    // so we wait for the callback to fire naturally.
                 } catch (e: Throwable) {
                     // If block throws before registering callback, close arena to prevent leak
                     managed.closeOnce()
