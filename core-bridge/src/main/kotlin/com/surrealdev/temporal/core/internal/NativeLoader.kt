@@ -49,8 +49,24 @@ object NativeLoader {
         val resourceStream =
             NativeLoader::class.java.getResourceAsStream(resourcePath)
                 ?: throw UnsatisfiedLinkError(
-                    "Native library not found in JAR: $resourcePath. " +
-                        "Make sure the library was built for platform: ${platform.resourceDir}",
+                    $$"""
+                    Native library not found for platform: $${platform.resourceDir}
+
+                    Add the platform-specific dependency:
+
+                    Gradle (recommended - with osdetector):
+                      plugins { id("com.google.osdetector") version "1.7.3" }
+                      dependencies {
+                        implementation("com.surrealdev.temporal:core-bridge:VERSION")
+                        val nativeClassifier = if (osdetector.os == "linux") "${osdetector.classifier}-gnu" else osdetector.classifier
+                        runtimeOnly("com.surrealdev.temporal:core-bridge:VERSION:$nativeClassifier")
+                      }
+
+                    Or specify the classifier directly:
+                      runtimeOnly("com.surrealdev.temporal:core-bridge:VERSION:$${platform.mavenClassifier}")
+
+                    Supported classifiers: linux-x86_64-gnu, linux-aarch64-gnu, macos-x86_64, macos-aarch64, windows-x86_64
+                    """.trimIndent(),
                 )
 
         val tempDir = Files.createTempDirectory("temporal-core-bridge")
@@ -94,12 +110,35 @@ object NativeLoader {
         val osName = System.getProperty("os.name").lowercase()
         val arch = System.getProperty("os.arch").lowercase()
 
+        // Detect Linux libc variant (glibc vs musl)
+        // Default to glibc; musl is typically used in Alpine Linux
+        val isMusl = osName.contains("linux") && detectMuslLibc()
+
         val os =
             when {
-                osName.contains("mac") || osName.contains("darwin") -> OS.DARWIN
-                osName.contains("linux") -> OS.LINUX
-                osName.contains("windows") -> OS.WINDOWS
-                else -> throw IllegalStateException("Unsupported operating system: $osName")
+                osName.contains("mac") || osName.contains("darwin") -> {
+                    OS.MACOS
+                }
+
+                osName.contains("linux") && isMusl -> {
+                    throw IllegalStateException(
+                        "Musl libc (Alpine Linux) is not currently supported. " +
+                            "Please use a glibc-based Linux distribution (e.g., Debian, Ubuntu). " +
+                            "For container deployments, use a glibc-based base image instead of Alpine.",
+                    )
+                }
+
+                osName.contains("linux") -> {
+                    OS.LINUXGNU
+                }
+
+                osName.contains("windows") -> {
+                    OS.WINDOWS
+                }
+
+                else -> {
+                    throw IllegalStateException("Unsupported operating system: $osName")
+                }
             }
 
         val architecture =
@@ -112,9 +151,36 @@ object NativeLoader {
         return Platform(os, architecture)
     }
 
+    /**
+     * Detect if the current Linux system uses musl libc (e.g., Alpine Linux).
+     * This is a best-effort detection based on common indicators.
+     */
+    private fun detectMuslLibc(): Boolean {
+        // Check for Alpine Linux indicator
+        val alpineRelease = java.io.File("/etc/alpine-release")
+        if (alpineRelease.exists()) {
+            return true
+        }
+
+        // Check ldd version output for musl
+        return try {
+            val process =
+                ProcessBuilder("ldd", "--version")
+                    .redirectErrorStream(true)
+                    .start()
+            val output = process.inputStream.bufferedReader().readText()
+            process.waitFor()
+            output.lowercase().contains("musl")
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     private enum class OS {
-        DARWIN,
-        LINUX,
+        MACOS,
+        LINUXGNU,
+
+        // LINUXMUSL,  // Future: Alpine Linux support
         WINDOWS,
     }
 
@@ -127,18 +193,33 @@ object NativeLoader {
         val os: OS,
         val arch: Arch,
     ) {
+        /**
+         * Internal resource directory path within the JAR.
+         */
         val resourceDir: String
             get() =
                 when (os) {
-                    OS.DARWIN -> "darwin-${arch.name.lowercase()}"
-                    OS.LINUX -> "linux-${arch.name.lowercase()}-gnu"
+                    OS.MACOS -> "macos-${arch.name.lowercase()}"
+                    OS.LINUXGNU -> "linux-${arch.name.lowercase()}-gnu"
+                    OS.WINDOWS -> "windows-${arch.name.lowercase()}"
+                }
+
+        /**
+         * Maven classifier for the platform-specific JAR artifact.
+         * Use this when declaring the runtimeOnly dependency.
+         */
+        val mavenClassifier: String
+            get() =
+                when (os) {
+                    OS.MACOS -> "macos-${arch.name.lowercase()}"
+                    OS.LINUXGNU -> "linux-${arch.name.lowercase()}-gnu"
                     OS.WINDOWS -> "windows-${arch.name.lowercase()}"
                 }
 
         fun libFileName(baseName: String): String =
             when (os) {
-                OS.DARWIN -> "lib$baseName.dylib"
-                OS.LINUX -> "lib$baseName.so"
+                OS.MACOS -> "lib$baseName.dylib"
+                OS.LINUXGNU -> "lib$baseName.so"
                 OS.WINDOWS -> "$baseName.dll"
             }
     }
