@@ -1,12 +1,14 @@
 package com.surrealdev.temporal.core
 
 import com.surrealdev.temporal.core.internal.EphemeralServerCallbackDispatcher
+import com.surrealdev.temporal.core.internal.FactoryArenaScope
 import com.surrealdev.temporal.core.internal.TemporalCoreEphemeralServer
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -51,7 +53,6 @@ class TemporalDevServer private constructor(
          * @param existingPath Path to existing Temporal CLI binary (optional, will download if not set)
          * @param downloadVersion Version to download (semver like "1.3.0", "latest", or "default"). Ignored if existingPath is set. Defaults to version from BuildConfig.
          * @param downloadTtlSeconds Cache duration for downloads in seconds (0 = no TTL, indefinite cache)
-         * @param timeoutSeconds Maximum time to wait for server start
          * @return A running dev server instance
          * @throws TemporalCoreException if the server fails to start
          */
@@ -65,18 +66,13 @@ class TemporalDevServer private constructor(
         ): TemporalDevServer {
             runtime.ensureOpen()
 
-            val arena = Arena.ofShared()
-            val callbackArena = Arena.ofShared()
-            val dispatcher = EphemeralServerCallbackDispatcher(callbackArena, runtime.handle)
-
-            return try {
+            return FactoryArenaScope.create(runtime.handle, ::EphemeralServerCallbackDispatcher).createResource {
                 val (serverPtr, targetUrl) =
                     suspendCancellableCoroutine { continuation ->
-                        var contextId: Long = 0
                         val contextPtr =
                             TemporalCoreEphemeralServer.startDevServer(
                                 runtimePtr = runtime.handle,
-                                arena = arena,
+                                arena = resourceArena,
                                 dispatcher = dispatcher,
                                 namespace = namespace,
                                 ip = ip,
@@ -98,7 +94,7 @@ class TemporalDevServer private constructor(
                                     // Continuation already resumed, ignore
                                 }
                             }
-                        contextId = dispatcher.getContextId(contextPtr)
+                        val contextId = dispatcher.getContextId(contextPtr)
                         continuation.invokeOnCancellation {
                             dispatcher.cancelStart(contextId)
                         }
@@ -107,28 +103,11 @@ class TemporalDevServer private constructor(
                 TemporalDevServer(
                     serverPtr = serverPtr,
                     runtimePtr = runtime.handle,
-                    arena = arena,
+                    arena = resourceArena,
                     callbackArena = callbackArena,
                     dispatcher = dispatcher,
                     targetUrl = targetUrl,
                 )
-            } catch (e: Exception) {
-                dispatcher.close()
-                callbackArena.close()
-                arena.close()
-                when (e) {
-                    is TemporalCoreException -> {
-                        throw e
-                    }
-
-                    is java.util.concurrent.TimeoutException -> {
-                        throw TemporalCoreException("Server start timed out")
-                    }
-
-                    else -> {
-                        throw TemporalCoreException("Server start failed: ${e.message}", cause = e)
-                    }
-                }
             }
         }
 
@@ -155,28 +134,20 @@ class TemporalDevServer private constructor(
         ): CompletableFuture<TemporalDevServer> {
             runtime.ensureOpen()
 
-            val arena = Arena.ofShared()
-            val callbackArena = Arena.ofShared()
-            val dispatcher = EphemeralServerCallbackDispatcher(callbackArena, runtime.handle)
+            val scope = FactoryArenaScope.create(runtime.handle, ::EphemeralServerCallbackDispatcher)
             val future = CompletableFuture<TemporalDevServer>()
-
-            // Track whether ownership was transferred to the server
-            val ownershipTransferred =
-                java.util.concurrent.atomic
-                    .AtomicBoolean(false)
+            val ownershipTransferred = AtomicBoolean(false)
 
             TemporalCoreEphemeralServer.startDevServer(
                 runtimePtr = runtime.handle,
-                arena = arena,
-                dispatcher = dispatcher,
+                arena = scope.resourceArena,
+                dispatcher = scope.dispatcher,
                 namespace = namespace,
                 ip = ip,
                 existingPath = existingPath,
                 downloadVersion = downloadVersion,
                 downloadTtlSeconds = downloadTtlSeconds,
             ) { serverPtr, targetUrl, error ->
-                // Don't close arenas in callback - they will be closed when future completes exceptionally
-                // or transferred to the server on success
                 try {
                     if (error != null) {
                         future.completeExceptionally(TemporalCoreException(error))
@@ -186,13 +157,14 @@ class TemporalDevServer private constructor(
                         )
                     } else {
                         ownershipTransferred.set(true)
+                        scope.transferOwnership()
                         future.complete(
                             TemporalDevServer(
                                 serverPtr,
                                 runtime.handle,
-                                arena,
-                                callbackArena,
-                                dispatcher,
+                                scope.resourceArena,
+                                scope.callbackArena,
+                                scope.dispatcher,
                                 targetUrl,
                             ),
                         )
@@ -205,9 +177,7 @@ class TemporalDevServer private constructor(
             // Close arenas if the future completes exceptionally (ownership wasn't transferred)
             future.whenComplete { _, throwable ->
                 if (throwable != null && !ownershipTransferred.get()) {
-                    dispatcher.close()
-                    callbackArena.close()
-                    arena.close()
+                    scope.close()
                 }
             }
 

@@ -16,6 +16,8 @@ import java.lang.foreign.MemorySegment
  *
  * All poll callbacks use zero-copy protobuf parsing directly from native memory.
  *
+ * Arena lifecycle is managed by the caller (via ManagedArena), not by this dispatcher.
+ *
  * @param arena The arena for allocating the reusable stubs (typically worker's callbackArena)
  * @param runtimePtr Pointer to the Temporal runtime for freeing byte arrays
  */
@@ -33,7 +35,6 @@ internal class WorkerCallbackDispatcher(
      * Single reusable stub for poll operations (workflow activation, activity task, nexus task).
      * Dispatches to the correct callback based on context ID in user_data.
      * Uses zero-copy protobuf parsing directly from native memory.
-     * When the callback is invoked, any arena registered with it is automatically closed.
      */
     val pollCallbackStub: MemorySegment =
         CallbackStubFactory.createPollCallbackStub(arena, pendingPollCallbacks, runtimePtr)
@@ -41,7 +42,6 @@ internal class WorkerCallbackDispatcher(
     /**
      * Single reusable stub for worker operations (complete, validate, shutdown).
      * Dispatches to the correct callback based on context ID in user_data.
-     * When the callback is invoked, any arena registered with it is automatically closed.
      */
     val workerCallbackStub: MemorySegment =
         CallbackStubFactory.createWorkerCallbackStub(arena, pendingWorkerCallbacks, runtimePtr)
@@ -52,28 +52,21 @@ internal class WorkerCallbackDispatcher(
      *
      * @param callback The typed callback to invoke when the poll completes
      * @param parser Function that parses the CodedInputStream into the message type
-     * @param optionsArena Optional arena containing options; closed when callback completes or is cancelled
      * @return A MemorySegment containing the context ID (pass as user_data to FFI)
      */
     fun <T : MessageLite> registerPoll(
         callback: TemporalCoreFfmUtil.TypedCallback<T>,
         parser: (CodedInputStream) -> T,
-        optionsArena: Arena? = null,
-    ): MemorySegment =
-        pendingPollCallbacks.register(TemporalCoreFfmUtil.TypedCallbackWrapper(callback, parser), optionsArena)
+    ): MemorySegment = pendingPollCallbacks.register(TemporalCoreFfmUtil.TypedCallbackWrapper(callback, parser))
 
     /**
      * Registers a worker callback and returns a context pointer to pass as user_data.
      *
      * @param callback The callback to invoke when the operation completes
-     * @param optionsArena Optional arena containing options; closed when callback completes or is cancelled
      * @return A MemorySegment containing the context ID (pass as user_data to FFI)
      */
-    fun registerWorker(
-        callback: TemporalCoreWorker.WorkerCallback,
-        optionsArena: Arena? = null,
-    ): MemorySegment {
-        val contextPtr = pendingWorkerCallbacks.register(callback, optionsArena)
+    fun registerWorker(callback: TemporalCoreWorker.WorkerCallback): MemorySegment {
+        val contextPtr = pendingWorkerCallbacks.register(callback)
         logger.trace(
             "[CallbackDispatcher] Worker callback registered: contextId={}, total={}",
             PendingCallbacks.getContextId(contextPtr),
@@ -104,6 +97,17 @@ internal class WorkerCallbackDispatcher(
     fun dumpPendingCallbacks() {
         logger.trace("[CallbackDispatcher] Pending poll callbacks: {}", pendingPollCallbacks.keys)
         logger.trace("[CallbackDispatcher] Pending worker callbacks: {}", pendingWorkerCallbacks.keys)
+    }
+
+    /**
+     * Blocks until all pending callbacks have been dispatched.
+     *
+     * This must be called BEFORE freeing the native worker handle to ensure
+     * all Tokio tasks holding references to the worker have completed.
+     */
+    fun awaitPendingCallbacks() {
+        pendingPollCallbacks.awaitEmpty()
+        pendingWorkerCallbacks.awaitEmpty()
     }
 
     override fun close() {

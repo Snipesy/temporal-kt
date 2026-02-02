@@ -263,7 +263,7 @@ internal object TemporalCoreWorker {
         callback: WorkerCallback,
     ): MemorySegment {
         val completionRef = TemporalCoreFfmUtil.serializeToByteArrayRef(arena, completion)
-        val contextPtr = dispatcher.registerWorker(callback, arena)
+        val contextPtr = dispatcher.registerWorker(callback)
         CoreBridge.temporal_core_worker_complete_workflow_activation(
             workerPtr,
             completionRef,
@@ -294,7 +294,7 @@ internal object TemporalCoreWorker {
         callback: WorkerCallback,
     ): MemorySegment {
         val completionRef = TemporalCoreFfmUtil.serializeToByteArrayRef(arena, completion)
-        val contextPtr = dispatcher.registerWorker(callback, arena)
+        val contextPtr = dispatcher.registerWorker(callback)
         CoreBridge.temporal_core_worker_complete_activity_task(
             workerPtr,
             completionRef,
@@ -325,7 +325,7 @@ internal object TemporalCoreWorker {
         callback: WorkerCallback,
     ): MemorySegment {
         val completionRef = TemporalCoreFfmUtil.serializeToByteArrayRef(arena, completion)
-        val contextPtr = dispatcher.registerWorker(callback, arena)
+        val contextPtr = dispatcher.registerWorker(callback)
         CoreBridge.temporal_core_worker_complete_nexus_task(
             workerPtr,
             completionRef,

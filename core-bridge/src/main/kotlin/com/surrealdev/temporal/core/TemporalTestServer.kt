@@ -4,6 +4,7 @@ import com.google.protobuf.Empty
 import com.google.protobuf.duration
 import com.google.protobuf.timestamp
 import com.surrealdev.temporal.core.internal.EphemeralServerCallbackDispatcher
+import com.surrealdev.temporal.core.internal.FactoryArenaScope
 import com.surrealdev.temporal.core.internal.TemporalCoreEphemeralServer
 import io.temporal.api.testservice.v1.GetCurrentTimeResponse
 import io.temporal.api.testservice.v1.LockTimeSkippingRequest
@@ -80,18 +81,13 @@ class TemporalTestServer private constructor(
         ): TemporalTestServer {
             runtime.ensureOpen()
 
-            val arena = Arena.ofShared()
-            val callbackArena = Arena.ofShared()
-            val dispatcher = EphemeralServerCallbackDispatcher(callbackArena, runtime.handle)
-
-            return try {
+            return FactoryArenaScope.create(runtime.handle, ::EphemeralServerCallbackDispatcher).createResource {
                 val (serverPtr, targetUrl) =
                     suspendCancellableCoroutine { continuation ->
-                        var contextId: Long = 0
                         val contextPtr =
                             TemporalCoreEphemeralServer.startTestServer(
                                 runtimePtr = runtime.handle,
-                                arena = arena,
+                                arena = resourceArena,
                                 dispatcher = dispatcher,
                                 existingPath = existingPath,
                                 downloadVersion = "default",
@@ -111,7 +107,7 @@ class TemporalTestServer private constructor(
                                     // Continuation already resumed, ignore
                                 }
                             }
-                        contextId = dispatcher.getContextId(contextPtr)
+                        val contextId = dispatcher.getContextId(contextPtr)
                         continuation.invokeOnCancellation {
                             dispatcher.cancelStart(contextId)
                         }
@@ -128,20 +124,12 @@ class TemporalTestServer private constructor(
                 TemporalTestServer(
                     serverPtr = serverPtr,
                     runtimePtr = runtime.handle,
-                    arena = arena,
+                    arena = resourceArena,
                     callbackArena = callbackArena,
                     dispatcher = dispatcher,
                     targetUrl = targetUrl,
                     coreClient = client,
                 )
-            } catch (e: Exception) {
-                dispatcher.close()
-                callbackArena.close()
-                arena.close()
-                when (e) {
-                    is TemporalCoreException -> throw e
-                    else -> throw TemporalCoreException("Test server start failed: ${e.message}", cause = e)
-                }
             }
         }
     }
@@ -317,10 +305,13 @@ class TemporalTestServer private constructor(
                 // Ignore shutdown errors
             }
 
-            // Close dispatcher first to cancel any pending callbacks
-            // Late-firing callbacks will see null and just free Rust memory
-            dispatcher.close()
+            // Wait for any other pending callbacks before freeing
+            dispatcher.awaitPendingCallbacks()
+
+            // NOW safe to free
             TemporalCoreEphemeralServer.freeServer(serverPtr)
+
+            dispatcher.close()
             arena.close()
             callbackArena.close()
         }

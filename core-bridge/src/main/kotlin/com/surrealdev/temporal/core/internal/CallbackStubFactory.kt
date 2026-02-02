@@ -18,9 +18,9 @@ import java.lang.foreign.MemorySegment
  * 3. Handle null (canceled/already dispatched) by freeing Rust memory
  * 4. Invoke the callback with the result
  *
- * The "Arena Follows Callback" principle is implemented by PendingCallbacks:
- * when a callback is registered with an arena, the arena is automatically
- * closed when the callback completes or is cancelled.
+ * Arena lifecycle is managed by callers (via ManagedArena or similar patterns),
+ * not by these stubs. This avoids FFM "session acquired" errors that occur
+ * when closing arenas during upcalls.
  */
 internal object CallbackStubFactory {
     /**
@@ -29,7 +29,7 @@ internal object CallbackStubFactory {
      * The stub dispatches to the correct Kotlin callback based on the context ID
      * stored in the user_data pointer. When the callback is invoked:
      * 1. Extracts context ID from user_data
-     * 2. Looks up and removes the callback from pending (also closes any attached arena)
+     * 2. Looks up and removes the callback from pending
      * 3. If callback was cancelled, frees Rust memory and returns
      * 4. Otherwise invokes the callback with client pointer or error
      *
@@ -81,9 +81,9 @@ internal object CallbackStubFactory {
         TemporalCoreClientRpcCallCallback.allocate(
             { userDataPtr, successPtr, statusCode, failMessagePtr, failDetailsPtr ->
                 val contextId = PendingCallbacks.getContextId(userDataPtr)
-                val wrapper = pending.remove(contextId)
+                val callback = pending.remove(contextId)
 
-                if (wrapper == null) {
+                if (callback == null) {
                     // Callback was canceled or already dispatched - just free Rust memory
                     TemporalCoreFfmUtil.freeByteArrayIfNotNull(runtimePtr, successPtr)
                     TemporalCoreFfmUtil.freeByteArrayIfNotNull(runtimePtr, failMessagePtr)
@@ -92,7 +92,7 @@ internal object CallbackStubFactory {
                 }
 
                 // Invoke the wrapper - it handles zero-copy parsing
-                wrapper.invoke(runtimePtr, successPtr, statusCode, failMessagePtr, failDetailsPtr)
+                callback.invoke(runtimePtr, successPtr, statusCode, failMessagePtr, failDetailsPtr)
             },
             arena,
         )
@@ -115,9 +115,9 @@ internal object CallbackStubFactory {
         TemporalCoreWorkerPollCallback.allocate(
             { userDataPtr, successPtr, failPtr ->
                 val contextId = PendingCallbacks.getContextId(userDataPtr)
-                val wrapper = pending.remove(contextId)
+                val callback = pending.remove(contextId)
 
-                if (wrapper == null) {
+                if (callback == null) {
                     // Callback was canceled or already dispatched - just free Rust memory
                     TemporalCoreFfmUtil.freeByteArrayIfNotNull(runtimePtr, successPtr)
                     TemporalCoreFfmUtil.freeByteArrayIfNotNull(runtimePtr, failPtr)
@@ -125,7 +125,7 @@ internal object CallbackStubFactory {
                 }
 
                 // Invoke the wrapper - it handles zero-copy parsing
-                wrapper.invoke(runtimePtr, successPtr, failPtr)
+                callback.invoke(runtimePtr, successPtr, failPtr)
             },
             arena,
         )

@@ -2,6 +2,7 @@ package com.surrealdev.temporal.core
 
 import com.google.protobuf.CodedInputStream
 import com.google.protobuf.MessageLite
+import com.surrealdev.temporal.core.internal.FactoryArenaScope
 import com.surrealdev.temporal.core.internal.WorkerCallbackDispatcher
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.lang.foreign.Arena
@@ -125,15 +126,11 @@ class TemporalWorker private constructor(
             runtime.ensureOpen()
             client.ensureOpen()
 
-            val arena = Arena.ofShared()
-            val callbackArena = Arena.ofShared()
-            val dispatcher = WorkerCallbackDispatcher(callbackArena, runtime.handle)
-
-            return try {
+            return FactoryArenaScope.create(runtime.handle, ::WorkerCallbackDispatcher).createResource {
                 val workerPtr =
                     InternalWorker.createWorker(
                         clientPtr = client.handle,
-                        arena = arena,
+                        arena = resourceArena,
                         namespace = namespace,
                         taskQueue = taskQueue,
                         maxCachedWorkflows = config.maxCachedWorkflows,
@@ -148,20 +145,12 @@ class TemporalWorker private constructor(
                     )
                 TemporalWorker(
                     handle = workerPtr,
-                    arena = arena,
+                    arena = resourceArena,
                     callbackArena = callbackArena,
                     dispatcher = dispatcher,
                     taskQueue = taskQueue,
                     namespace = namespace,
                 )
-            } catch (e: Exception) {
-                dispatcher.close()
-                callbackArena.close()
-                arena.close()
-                when (e) {
-                    is TemporalCoreException -> throw e
-                    else -> throw TemporalCoreException("Worker creation failed: ${e.message}", cause = e)
-                }
             }
         }
     }
@@ -263,29 +252,21 @@ class TemporalWorker private constructor(
      */
     suspend fun <T : MessageLite> completeWorkflowActivation(completion: T) {
         ensureOpen()
-        // Per-call arena for data - closed by dispatcher when callback fires or is cancelled
-        val dataArena = Arena.ofShared()
-        suspendCancellableCoroutine { continuation ->
+        dispatcher.withManagedArena { arena, continuation ->
             val callback =
                 InternalWorker.WorkerCallback { error ->
-                    if (error != null) {
-                        continuation.resumeWithException(TemporalCoreException(error))
-                    } else {
-                        continuation.resume(Unit)
-                    }
+                    with(dispatcher) { continuation.resumeWorkerResult(error) }
                 }
             val contextPtr =
                 InternalWorker.completeWorkflowActivation(
                     handle,
-                    dataArena,
+                    arena,
                     dispatcher,
                     completion,
                     callback,
                 )
-            val contextId = dispatcher.getContextId(contextPtr)
-            continuation.invokeOnCancellation {
-                dispatcher.cancelWorker(contextId)
-            }
+            val contextId = dispatcher.getContextId(contextPtr);
+            { dispatcher.cancelWorker(contextId) }
         }
     }
 
@@ -300,29 +281,21 @@ class TemporalWorker private constructor(
      */
     suspend fun <T : MessageLite> completeActivityTask(completion: T) {
         ensureOpen()
-        // Per-call arena for data - closed by dispatcher when callback fires or is cancelled
-        val dataArena = Arena.ofShared()
-        suspendCancellableCoroutine { continuation ->
+        dispatcher.withManagedArena { arena, continuation ->
             val callback =
                 InternalWorker.WorkerCallback { error ->
-                    if (error != null) {
-                        continuation.resumeWithException(TemporalCoreException(error))
-                    } else {
-                        continuation.resume(Unit)
-                    }
+                    with(dispatcher) { continuation.resumeWorkerResult(error) }
                 }
             val contextPtr =
                 InternalWorker.completeActivityTask(
                     handle,
-                    dataArena,
+                    arena,
                     dispatcher,
                     completion,
                     callback,
                 )
-            val contextId = dispatcher.getContextId(contextPtr)
-            continuation.invokeOnCancellation {
-                dispatcher.cancelWorker(contextId)
-            }
+            val contextId = dispatcher.getContextId(contextPtr);
+            { dispatcher.cancelWorker(contextId) }
         }
     }
 
@@ -405,7 +378,13 @@ class TemporalWorker private constructor(
         synchronized(this) {
             if (closed) return
             closed = true
+
+            // MUST await BEFORE freeing - Tokio tasks hold &Worker references to this Box
+            dispatcher.awaitPendingCallbacks()
+
+            // NOW safe to free - no more callbacks will reference the Worker
             InternalWorker.freeWorker(handle)
+
             dispatcher.close()
             arena.close()
             callbackArena.close()

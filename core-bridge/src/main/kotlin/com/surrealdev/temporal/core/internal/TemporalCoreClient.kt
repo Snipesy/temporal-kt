@@ -289,7 +289,7 @@ internal object TemporalCoreClient {
         TemporalCoreRpcCallOptions.timeout_millis(options, timeoutMillis)
         TemporalCoreRpcCallOptions.cancellation_token(options, cancellationToken ?: MemorySegment.NULL)
 
-        val contextPtr = dispatcher.registerRpc(callback, parser, arena)
+        val contextPtr = dispatcher.registerRpc(callback, parser)
         CoreBridge.temporal_core_client_rpc_call(clientPtr, options, contextPtr, dispatcher.rpcCallbackStub)
         return contextPtr
     }

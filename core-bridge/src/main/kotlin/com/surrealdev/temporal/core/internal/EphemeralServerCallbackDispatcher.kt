@@ -26,7 +26,6 @@ internal class EphemeralServerCallbackDispatcher(
     /**
      * Single reusable stub for server start operations.
      * Dispatches to the correct callback based on context ID in user_data.
-     * When the callback is invoked, any arena registered with it is automatically closed.
      */
     val startCallbackStub: MemorySegment =
         CallbackStubFactory.createServerStartCallbackStub(arena, pendingStartCallbacks, runtimePtr)
@@ -34,7 +33,6 @@ internal class EphemeralServerCallbackDispatcher(
     /**
      * Single reusable stub for server shutdown operations.
      * Dispatches to the correct callback based on context ID in user_data.
-     * When the callback is invoked, any arena registered with it is automatically closed.
      */
     val shutdownCallbackStub: MemorySegment =
         CallbackStubFactory.createServerShutdownCallbackStub(arena, pendingShutdownCallbacks, runtimePtr)
@@ -60,6 +58,17 @@ internal class EphemeralServerCallbackDispatcher(
      * Cancels a pending shutdown callback.
      */
     fun cancelShutdown(contextId: Long): Boolean = pendingShutdownCallbacks.cancel(contextId)
+
+    /**
+     * Blocks until all pending callbacks have been dispatched.
+     *
+     * This must be called BEFORE freeing the native server handle to ensure
+     * all Tokio tasks holding references to the server have completed.
+     */
+    fun awaitPendingCallbacks() {
+        pendingStartCallbacks.awaitEmpty()
+        pendingShutdownCallbacks.awaitEmpty()
+    }
 
     override fun close() {
         if (pendingStartCallbacks.isNotEmpty() || pendingShutdownCallbacks.isNotEmpty()) {

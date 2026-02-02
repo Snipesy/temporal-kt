@@ -1,8 +1,8 @@
 package com.surrealdev.temporal.core.internal
 
-import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -12,29 +12,24 @@ import java.util.concurrent.atomic.AtomicLong
  * user_data pointer value (via MemorySegment.ofAddress), rather than allocating
  * memory to store it.
  *
- * Supports optional arena lifecycle management: when an arena is registered with a callback,
- * it will be automatically closed when the callback is dispatched, cancelled, or cleared.
- * This enables per-call arena allocation for FFI options structs without memory leaks.
+ * Arena lifecycle is NOT managed here - callers are responsible for closing arenas
+ * after the suspend completes (via ManagedArena or similar patterns). This avoids
+ * FFM "session acquired" errors that occur when closing arenas during upcalls.
  *
  * Thread Safety:
  * - Registration uses AtomicLong for ID generation and ConcurrentHashMap for storage
  * - Dispatch uses ConcurrentHashMap.remove() for atomic get-and-remove
  * - Cancel vs dispatch races are safe: exactly one wins, the other gets null
- * - Arena close is called exactly once by whichever operation removes the entry
  *
  * @param T The callback type
  */
 internal class PendingCallbacks<T> {
-    /**
-     * Entry holding a callback and its optional associated arena.
-     */
-    private data class Entry<T>(
-        val callback: T,
-        val arena: Arena?,
-    )
-
     private val nextContextId = AtomicLong(1)
-    private val pending = ConcurrentHashMap<Long, Entry<T & Any>>()
+    private val pending = ConcurrentHashMap<Long, T & Any>()
+
+    @Volatile
+    private var completionLatch: CountDownLatch? = null
+    private val latchLock = Any()
 
     /**
      * Registers a callback and returns a context pointer to pass as user_data.
@@ -42,15 +37,11 @@ internal class PendingCallbacks<T> {
      * The returned MemorySegment's address IS the context ID (zero allocation).
      *
      * @param callback The callback to register
-     * @param arena Optional arena to close when this callback completes or is cancelled
      * @return A MemorySegment to pass as user_data to FFI
      */
-    fun register(
-        callback: T,
-        arena: Arena? = null,
-    ): MemorySegment {
+    fun register(callback: T): MemorySegment {
         val contextId = nextContextId.getAndIncrement()
-        pending[contextId] = Entry(callback!!, arena)
+        pending[contextId] = callback!!
         return MemorySegment.ofAddress(contextId)
     }
 
@@ -60,29 +51,25 @@ internal class PendingCallbacks<T> {
      * This is called from the native callback stub to dispatch to the correct callback.
      * Returns null if the callback was already dispatched or cancelled.
      *
-     * If an arena was registered with the callback, it will be closed before returning.
-     *
      * @param contextId The context ID (from userDataPtr.address())
      * @return The callback, or null if not found
      */
     fun remove(contextId: Long): T? {
-        val entry = pending.remove(contextId) ?: return null
-        entry.arena?.close()
-        return entry.callback
+        val callback = pending.remove(contextId) ?: return null
+        checkAndSignalEmpty()
+        return callback
     }
 
     /**
      * Cancels a pending callback.
      *
-     * If an arena was registered with the callback, it will be closed.
-     *
      * @param contextId The context ID
      * @return true if the callback was found and removed, false if already dispatched/cancelled
      */
     fun cancel(contextId: Long): Boolean {
-        val entry = pending.remove(contextId) ?: return false
-        entry.arena?.close()
-        return true
+        val removed = pending.remove(contextId) != null
+        if (removed) checkAndSignalEmpty()
+        return removed
     }
 
     /**
@@ -101,11 +88,40 @@ internal class PendingCallbacks<T> {
     fun isNotEmpty(): Boolean = pending.isNotEmpty()
 
     /**
-     * Clears all pending callbacks and closes any associated arenas.
+     * Blocks until all pending callbacks have been dispatched.
+     *
+     * This is used during shutdown to ensure all native callbacks complete
+     * before freeing the native handle they reference.
+     */
+    fun awaitEmpty() {
+        if (pending.isEmpty()) return
+        synchronized(latchLock) {
+            if (pending.isEmpty()) return
+            completionLatch = CountDownLatch(1)
+        }
+        try {
+            completionLatch!!.await()
+        } finally {
+            synchronized(latchLock) { completionLatch = null }
+        }
+    }
+
+    /**
+     * Signals the completion latch if the pending map is empty.
+     * Called after removing entries from the map.
+     */
+    private fun checkAndSignalEmpty() {
+        if (pending.isEmpty()) {
+            synchronized(latchLock) {
+                completionLatch?.countDown()
+            }
+        }
+    }
+
+    /**
+     * Clears all pending callbacks.
      */
     fun clear() {
-        // Close all arenas before clearing
-        pending.values.forEach { it.arena?.close() }
         pending.clear()
     }
 

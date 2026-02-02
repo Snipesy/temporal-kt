@@ -4,6 +4,7 @@ import com.google.protobuf.CodedInputStream
 import com.google.protobuf.MessageLite
 import com.surrealdev.temporal.core.internal.ClientCallbackDispatcher
 import com.surrealdev.temporal.core.internal.ClientTlsOptions
+import com.surrealdev.temporal.core.internal.FactoryArenaScope
 import com.surrealdev.temporal.core.internal.PendingCallbacks
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.lang.foreign.Arena
@@ -157,14 +158,7 @@ class TemporalCoreClient private constructor(
                     else -> null
                 }
 
-            val callbackArena = Arena.ofShared()
-            val dispatcher = ClientCallbackDispatcher(callbackArena, runtime.handle)
-
-            // Use dispatcher-based connect with reusable callback stub
-            // The optionsArena is NOT registered with the callback because its lifetime
-            // should match the client's lifetime (it contains options data)
-            val optionsArena = Arena.ofShared()
-            var ownershipTransferred = false
+            val scope = FactoryArenaScope.create(runtime.handle, ::ClientCallbackDispatcher)
 
             return try {
                 val clientPtr =
@@ -172,8 +166,8 @@ class TemporalCoreClient private constructor(
                         val contextPtr =
                             InternalClient.connect(
                                 runtimePtr = runtime.handle,
-                                optionsArena = optionsArena,
-                                dispatcher = dispatcher,
+                                optionsArena = scope.resourceArena,
+                                dispatcher = scope.dispatcher,
                                 targetUrl = targetUrl,
                                 namespace = namespace,
                                 clientName = options.clientName,
@@ -189,7 +183,6 @@ class TemporalCoreClient private constructor(
                                         }
 
                                         clientPtr != null -> {
-                                            ownershipTransferred = true
                                             continuation.resume(clientPtr)
                                         }
 
@@ -206,31 +199,21 @@ class TemporalCoreClient private constructor(
 
                         val contextId = PendingCallbacks.getContextId(contextPtr)
                         continuation.invokeOnCancellation {
-                            dispatcher.cancelConnect(contextId)
-                            // Close arena on cancellation since no client will be created
-                            optionsArena.close()
+                            scope.dispatcher.cancelConnect(contextId)
                         }
                     }
 
+                scope.transferOwnership()
                 TemporalCoreClient(
                     handle = clientPtr,
-                    arena = optionsArena,
-                    callbackArena = callbackArena,
-                    dispatcher = dispatcher,
+                    arena = scope.resourceArena,
+                    callbackArena = scope.callbackArena,
+                    dispatcher = scope.dispatcher,
                     targetUrl = targetUrl,
                     namespace = namespace,
                 )
             } catch (e: Exception) {
-                // On error, close the options arena only if ownership wasn't transferred
-                if (!ownershipTransferred) {
-                    try {
-                        optionsArena.close()
-                    } catch (_: IllegalStateException) {
-                        // Arena already closed by cancellation handler
-                    }
-                }
-                dispatcher.close()
-                callbackArena.close()
+                scope.close()
                 throw e
             }
         }
@@ -331,7 +314,13 @@ class TemporalCoreClient private constructor(
         synchronized(this) {
             if (closed) return
             closed = true
+
+            // MUST await BEFORE freeing - Tokio tasks hold references to Client
+            dispatcher.awaitPendingCallbacks()
+
+            // NOW safe to free
             InternalClient.freeClient(handle)
+
             dispatcher.close()
             arena.close()
             callbackArena.close()
