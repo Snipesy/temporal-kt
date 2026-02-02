@@ -7,6 +7,23 @@ plugins {
     id("com.github.gmazzo.buildconfig")
 }
 
+// Platform classifier to internal resource directory mapping
+data class NativePlatform(
+    val classifier: String,
+    val resourceDir: String,
+)
+
+val nativePlatforms =
+    listOf(
+        NativePlatform("linux-x86_64-gnu", "linux-x86_64-gnu"),
+        NativePlatform("linux-aarch64-gnu", "linux-aarch64-gnu"),
+        // Future: NativePlatform("linux-x86_64-musl", "linux-x86_64-musl"),
+        // Future: NativePlatform("linux-aarch64-musl", "linux-aarch64-musl"),
+        NativePlatform("macos-x86_64", "macos-x86_64"),
+        NativePlatform("macos-aarch64", "macos-aarch64"),
+        NativePlatform("windows-x86_64", "windows-x86_64"),
+    )
+
 dependencies {
     implementation(libs.protobufJava)
     implementation(libs.protobufKotlin)
@@ -35,8 +52,8 @@ val arch: String = System.getProperty("os.arch")
 
 val nativePlatform: String =
     when {
-        os.isMacOsX && arch == "aarch64" -> "darwin-aarch64"
-        os.isMacOsX -> "darwin-x86_64"
+        os.isMacOsX && arch == "aarch64" -> "macos-aarch64"
+        os.isMacOsX -> "macos-x86_64"
         os.isLinux && arch == "aarch64" -> "linux-aarch64-gnu"
         os.isLinux -> "linux-x86_64-gnu"
         os.isWindows -> "windows-x86_64"
@@ -155,8 +172,8 @@ val copyNativeLibWindowsx8664 by tasks.registering(Copy::class) {
 }
 
 // macOS aarch64 (Apple Silicon) build - native on ARM Mac runner
-val cargoBuildDarwinAarch64 by tasks.registering(Exec::class) {
-    description = "Build native library for darwin-aarch64 (native on ARM Mac)"
+val cargoBuildMacosAarch64 by tasks.registering(Exec::class) {
+    description = "Build native library for macos-aarch64 (native on ARM Mac)"
     group = "build"
     workingDir = file("rust/sdk-core/crates/sdk-core-c-bridge")
     commandLine("cargo", "build", "--release", "--target", "aarch64-apple-darwin")
@@ -169,18 +186,18 @@ val cargoBuildDarwinAarch64 by tasks.registering(Exec::class) {
     outputs.file("rust/sdk-core/target/aarch64-apple-darwin/release/lib$nativeLibName.dylib")
 }
 
-val copyNativeLibDarwinAarch64 by tasks.registering(Copy::class) {
-    description = "Copy native library for darwin-aarch64 to build directory"
+val copyNativeLibMacosAarch64 by tasks.registering(Copy::class) {
+    description = "Copy native library for macos-aarch64 to build directory"
     group = "build"
-    dependsOn(cargoBuildDarwinAarch64)
+    dependsOn(cargoBuildMacosAarch64)
 
     from("rust/sdk-core/target/aarch64-apple-darwin/release/lib$nativeLibName.dylib")
-    into(nativeLibsDir.map { it.dir("native/darwin-aarch64") })
+    into(nativeLibsDir.map { it.dir("native/macos-aarch64") })
 }
 
 // macOS x86_64 (Intel) build - native on Intel Mac runner
-val cargoBuildDarwinx8664 by tasks.registering(Exec::class) {
-    description = "Build native library for darwin-x86_64 (native on Intel Mac)"
+val cargoBuildMacosx8664 by tasks.registering(Exec::class) {
+    description = "Build native library for macos-x86_64 (native on Intel Mac)"
     group = "build"
     workingDir = file("rust/sdk-core/crates/sdk-core-c-bridge")
     commandLine("cargo", "build", "--release", "--target", "x86_64-apple-darwin")
@@ -193,13 +210,13 @@ val cargoBuildDarwinx8664 by tasks.registering(Exec::class) {
     outputs.file("rust/sdk-core/target/x86_64-apple-darwin/release/lib$nativeLibName.dylib")
 }
 
-val copyNativeLibDarwinx8664 by tasks.registering(Copy::class) {
-    description = "Copy native library for darwin-x86_64 to build directory"
+val copyNativeLibMacosx8664 by tasks.registering(Copy::class) {
+    description = "Copy native library for macos-x86_64 to build directory"
     group = "build"
-    dependsOn(cargoBuildDarwinx8664)
+    dependsOn(cargoBuildMacosx8664)
 
     from("rust/sdk-core/target/x86_64-apple-darwin/release/lib$nativeLibName.dylib")
-    into(nativeLibsDir.map { it.dir("native/darwin-x86_64") })
+    into(nativeLibsDir.map { it.dir("native/macos-x86_64") })
 }
 
 // Build all platforms task
@@ -210,8 +227,8 @@ val cargoBuildAll by tasks.registering {
         cargoBuildLinuxx8664,
         cargoBuildLinuxAarch64,
         cargoBuildWindowsx8664,
-        cargoBuildDarwinAarch64,
-        cargoBuildDarwinx8664,
+        cargoBuildMacosAarch64,
+        cargoBuildMacosx8664,
     )
 }
 
@@ -222,8 +239,8 @@ val copyAllNativeLibs by tasks.registering {
         copyNativeLibLinuxx8664,
         copyNativeLibLinuxAarch64,
         copyNativeLibWindowsx8664,
-        copyNativeLibDarwinAarch64,
-        copyNativeLibDarwinx8664,
+        copyNativeLibMacosAarch64,
+        copyNativeLibMacosx8664,
     )
 }
 
@@ -234,16 +251,16 @@ val copyLinuxNativeLibs by tasks.registering {
     dependsOn(copyNativeLibLinuxx8664, copyNativeLibLinuxAarch64)
 }
 
-val copyDarwinAarch64NativeLib by tasks.registering {
-    description = "Copy Darwin ARM64 native library (for ARM Mac CI runner)"
+val copyMacosAarch64NativeLib by tasks.registering {
+    description = "Copy macOS ARM64 native library (for ARM Mac CI runner)"
     group = "build"
-    dependsOn(copyNativeLibDarwinAarch64)
+    dependsOn(copyNativeLibMacosAarch64)
 }
 
-val copyDarwinx8664NativeLib by tasks.registering {
-    description = "Copy Darwin x86_64 native library (for Intel Mac CI runner)"
+val copyMacosx8664NativeLib by tasks.registering {
+    description = "Copy macOS x86_64 native library (for Intel Mac CI runner)"
     group = "build"
-    dependsOn(copyNativeLibDarwinx8664)
+    dependsOn(copyNativeLibMacosx8664)
 }
 
 val copyWindowsNativeLib by tasks.registering {
@@ -252,12 +269,9 @@ val copyWindowsNativeLib by tasks.registering {
     dependsOn(copyNativeLibWindowsx8664)
 }
 
-// Include native libs from build directory in resources and sdk-core protos
+// Configure sdk-core protos (native libs are NOT included in main JAR - they go in classifier JARs)
 sourceSets {
     main {
-        resources {
-            srcDir(nativeLibsDir)
-        }
         proto {
             srcDir("rust/sdk-core/crates/common/protos/local")
             srcDir("rust/sdk-core/crates/common/protos/api_upstream")
@@ -269,20 +283,30 @@ sourceSets {
     }
 }
 
-// Ensure native lib is built before processing resources (unless pre-built for CI)
 // Set -PskipNativeBuild=true to skip native library building (used in CI publish job)
 val skipNativeBuild = project.findProperty("skipNativeBuild")?.toString()?.toBoolean() ?: false
 
-tasks.named("processResources") {
-    if (!skipNativeBuild) {
-        dependsOn(copyNativeLib)
+// Create platform-specific classifier JARs containing only the native library
+nativePlatforms.forEach { platform ->
+    val taskName = "${platform.classifier.replace("-", "").replace("_", "")}NativeJar"
+    tasks.register<Jar>(taskName) {
+        description = "Create classifier JAR with native library for ${platform.classifier}"
+        group = "build"
+        archiveClassifier.set(platform.classifier)
+        from(nativeLibsDir.map { it.dir("native/${platform.resourceDir}") }) {
+            into("native/${platform.resourceDir}")
+        }
     }
 }
 
-// Configure sourcesJar to exclude native libraries (they're resources, not sources)
-tasks.matching { it.name == "sourcesJar" }.configureEach {
-    this as Jar
-    exclude("native/**")
+// For local development/testing, include current platform's native lib in test resources
+tasks.named<ProcessResources>("processTestResources") {
+    if (!skipNativeBuild) {
+        dependsOn(copyNativeLib)
+    }
+    from(nativeLibsDir) {
+        into("")
+    }
 }
 
 // Clean task for Rust artifacts
@@ -327,5 +351,21 @@ mavenPublishing {
     pom {
         name.set("Temporal KT Core Bridge")
         description.set("Kotlin FFM Bridge to Temporal Core SDK")
+    }
+}
+
+// Configure publishing to include platform-specific classifier JARs
+afterEvaluate {
+    publishing {
+        publications {
+            named<MavenPublication>("maven") {
+                nativePlatforms.forEach { platform ->
+                    val taskName = "${platform.classifier.replace("-", "").replace("_", "")}NativeJar"
+                    artifact(tasks.named(taskName)) {
+                        classifier = platform.classifier
+                    }
+                }
+            }
+        }
     }
 }

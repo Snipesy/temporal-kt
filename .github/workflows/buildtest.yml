@@ -28,7 +28,8 @@ jobs:
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: "core-bridge/rust -> target"
+          workspaces: "core-bridge/rust/sdk-core -> target"
+          cache-all-crates: true
           cache-on-failure: true
 
       - name: Install Protobuf

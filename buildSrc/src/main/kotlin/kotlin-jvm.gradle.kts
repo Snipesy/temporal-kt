@@ -50,3 +50,24 @@ tasks.withType<JavaExec>().configureEach {
     // Enable native access for FFM
     jvmArgs(nativeAccessArgs)
 }
+
+// Native library path for internal development
+// Skip for core-bridge since it already handles its own native library inclusion
+if (project.name != "core-bridge") {
+    val nativeLibsDir = rootProject.layout.projectDirectory.dir("core-bridge/build/native-libs")
+    val skipNativeBuild = project.findProperty("skipNativeBuild")?.toString()?.toBoolean() ?: false
+
+    // Add native libs to test resources so NativeLoader can find them
+    sourceSets {
+        test {
+            resources.srcDir(nativeLibsDir)
+        }
+    }
+
+    // Ensure native lib is built before processing test resources
+    tasks.named("processTestResources") {
+        if (!skipNativeBuild) {
+            dependsOn(":core-bridge:copyNativeLib")
+        }
+    }
+}

@@ -44,17 +44,17 @@ jobs:
             artifact-name: native-libs-linux-aarch64-gnu
             artifact-path: core-bridge/build/native-libs/native/linux-aarch64-gnu
           - os: macos-14
-            platform: darwin-aarch64
+            platform: macos-aarch64
             rust-targets: aarch64-apple-darwin
-            gradle-task: copyDarwinAarch64NativeLib
-            artifact-name: native-libs-darwin-aarch64
-            artifact-path: core-bridge/build/native-libs/native/darwin-aarch64
+            gradle-task: copyMacosAarch64NativeLib
+            artifact-name: native-libs-macos-aarch64
+            artifact-path: core-bridge/build/native-libs/native/macos-aarch64
           - os: macos-15-intel
-            platform: darwin-x86_64
+            platform: macos-x86_64
             rust-targets: x86_64-apple-darwin
-            gradle-task: copyDarwinx8664NativeLib
-            artifact-name: native-libs-darwin-x86_64
-            artifact-path: core-bridge/build/native-libs/native/darwin-x86_64
+            gradle-task: copyMacosx8664NativeLib
+            artifact-name: native-libs-macos-x86_64
+            artifact-path: core-bridge/build/native-libs/native/macos-x86_64
           - os: windows-latest
             platform: windows
             rust-targets: x86_64-pc-windows-msvc
@@ -83,10 +83,10 @@ jobs:
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: "core-bridge/rust -> target"
+          workspaces: "core-bridge/rust/sdk-core -> target"
           key: ${{ matrix.platform }}
           cache-on-failure: true
-          cache-workspace-crates: "true"
+          cache-all-crates: true
 
       - name: Install protobuf (Linux)
         if: runner.os == 'Linux'
@@ -134,13 +134,13 @@ jobs:
             artifact-name: native-libs-linux-aarch64-gnu
             artifact-path: core-bridge/build/native-libs/native/linux-aarch64-gnu
           - os: macos-14
-            platform: darwin-aarch64
-            artifact-name: native-libs-darwin-aarch64
-            artifact-path: core-bridge/build/native-libs/native/darwin-aarch64
+            platform: macos-aarch64
+            artifact-name: native-libs-macos-aarch64
+            artifact-path: core-bridge/build/native-libs/native/macos-aarch64
           - os: macos-15-intel
-            platform: darwin-x86_64
-            artifact-name: native-libs-darwin-x86_64
-            artifact-path: core-bridge/build/native-libs/native/darwin-x86_64
+            platform: macos-x86_64
+            artifact-name: native-libs-macos-x86_64
+            artifact-path: core-bridge/build/native-libs/native/macos-x86_64
           - os: windows-latest
             platform: windows
             artifact-name: native-libs-windows
@@ -223,17 +223,17 @@ jobs:
           name: native-libs-linux-aarch64-gnu
           path: core-bridge/build/native-libs/native/linux-aarch64-gnu
 
-      - name: Download Darwin ARM64 native lib
+      - name: Download macOS ARM64 native lib
         uses: actions/download-artifact@v4
         with:
-          name: native-libs-darwin-aarch64
-          path: core-bridge/build/native-libs/native/darwin-aarch64
+          name: native-libs-macos-aarch64
+          path: core-bridge/build/native-libs/native/macos-aarch64
 
-      - name: Download Darwin x86_64 native lib
+      - name: Download macOS x86_64 native lib
         uses: actions/download-artifact@v4
         with:
-          name: native-libs-darwin-x86_64
-          path: core-bridge/build/native-libs/native/darwin-x86_64
+          name: native-libs-macos-x86_64
+          path: core-bridge/build/native-libs/native/macos-x86_64
 
       - name: Download Windows native lib
         uses: actions/download-artifact@v4
@@ -249,9 +249,40 @@ jobs:
           echo "Expected structure:"
           echo "  native/linux-x86_64-gnu/libtemporalio_sdk_core_c_bridge.so"
           echo "  native/linux-aarch64-gnu/libtemporalio_sdk_core_c_bridge.so"
-          echo "  native/darwin-x86_64/libtemporalio_sdk_core_c_bridge.dylib"
-          echo "  native/darwin-aarch64/libtemporalio_sdk_core_c_bridge.dylib"
+          echo "  native/macos-x86_64/libtemporalio_sdk_core_c_bridge.dylib"
+          echo "  native/macos-aarch64/libtemporalio_sdk_core_c_bridge.dylib"
           echo "  native/windows-x86_64/temporalio_sdk_core_c_bridge.dll"
+
+      - name: Build classifier JARs
+        run: |
+          ./gradlew :core-bridge:jar \
+            :core-bridge:linuxx8664gnuNativeJar \
+            :core-bridge:linuxaarch64gnuNativeJar \
+            :core-bridge:macosx8664NativeJar \
+            :core-bridge:macosaarch64NativeJar \
+            :core-bridge:windowsx8664NativeJar \
+            -PskipNativeBuild=true --no-daemon
+
+      - name: Verify JAR contents
+        run: |
+          echo "=== Main JAR (should have no natives) ==="
+          MAIN_JAR=$(ls core-bridge/build/libs/core-bridge-*.jar | grep -v '\-linux\|\-macos\|\-windows' | head -1)
+          echo "Checking: $MAIN_JAR"
+          if jar tf "$MAIN_JAR" | grep -q "^native/"; then
+            echo "ERROR: Main JAR contains native libraries!"
+            jar tf "$MAIN_JAR" | grep "^native/"
+            exit 1
+          else
+            echo "OK - No native libraries in main JAR"
+          fi
+          echo ""
+          echo "=== Classifier JARs ==="
+          for f in core-bridge/build/libs/core-bridge-*-linux-*.jar core-bridge/build/libs/core-bridge-*-macos-*.jar core-bridge/build/libs/core-bridge-*-windows-*.jar; do
+            if [ -f "$f" ]; then
+              echo "--- $f ---"
+              jar tf "$f" | head -5
+            fi
+          done
 
       - name: Set version from release tag
         if: github.event_name == 'release'
@@ -282,6 +313,11 @@ jobs:
         if: github.event_name == 'release'
         run: |
           ./gradlew jar \
+            :core-bridge:linuxx8664gnuNativeJar \
+            :core-bridge:linuxaarch64gnuNativeJar \
+            :core-bridge:macosx8664NativeJar \
+            :core-bridge:macosaarch64NativeJar \
+            :core-bridge:windowsx8664NativeJar \
             -PskipNativeBuild=true --no-configuration-cache --no-daemon
 
       - name: Upload artifacts to GitHub Release

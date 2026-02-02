@@ -25,14 +25,55 @@ sdk env install
 
 Temporal-KT currently supports:
 
-* MacOS aarch64
-* MacOS x86_64
-* Linux x86_64
-* Linux aarch64
+* macOS aarch64
+* macOS x86_64
+* Linux x86_64 (glibc)
+* Linux aarch64 (glibc)
 * Windows x86_64
+
+> **Note:** Alpine Linux and other musl libc distributions are not currently supported.
+> For containerized deployments, use a glibc-based image (e.g., `debian`, `ubuntu`) instead of Alpine.
 
 Native libraries are built on each platform's native GitHub Actions runner. Release binaries are built
 and tested on the appropriate platforms (Linux x86_64, Linux aarch64, macOS x86_64, macOS aarch64, Windows x86_64).
+
+### Installation
+
+The Temporal Gradle plugin automatically handles platform detection:
+
+```kotlin
+plugins {
+    id("com.surrealdev.temporal") version "VERSION"
+}
+
+dependencies {
+    implementation("com.surrealdev.temporal:core:VERSION")
+}
+
+temporal {
+    native()  // Adds the correct platform-specific native library
+}
+```
+
+Or with an explicit version for the native library:
+
+```kotlin
+temporal {
+    native("1.0.0")  // Use specific version
+}
+```
+
+#### Manual Installation
+
+If you prefer not to use the plugin, specify your platform directly:
+
+| Platform                      | Classifier          |
+|-------------------------------|---------------------|
+| Linux x86_64                  | `linux-x86_64-gnu`  |
+| Linux aarch64                 | `linux-aarch64-gnu` |
+| macOS x86_64                  | `macos-x86_64`      |
+| macOS aarch64 (Apple Silicon) | `macos-aarch64`     |
+| Windows x86_64                | `windows-x86_64`    |
 
 ## Cloning
 
