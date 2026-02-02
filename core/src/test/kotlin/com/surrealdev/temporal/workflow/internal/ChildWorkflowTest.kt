@@ -13,11 +13,13 @@ import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveChildWorkflowExec
 import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveChildWorkflowStartCancelledJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveChildWorkflowStartFailedJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveChildWorkflowStartJob
+import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveSignalExternalWorkflowJob
 import com.surrealdev.temporal.testing.createTestWorkflowExecutor
 import com.surrealdev.temporal.workflow.ChildWorkflowHandle
 import com.surrealdev.temporal.workflow.ChildWorkflowOptions
 import com.surrealdev.temporal.workflow.ParentClosePolicy
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.signal
 import com.surrealdev.temporal.workflow.startChildWorkflow
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
@@ -124,6 +126,20 @@ class ChildWorkflowTest {
             handle = startChildWorkflow<String>("ChildWorkflow", ChildWorkflowOptions())
             handle!!.cancel("Test cancellation")
             return "cancelled"
+        }
+    }
+
+    @Workflow("ChildWorkflowSignalParent")
+    class ChildWorkflowSignalParent {
+        var handle: ChildWorkflowHandle<String>? = null
+        var signalSent: Boolean = false
+
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            handle = startChildWorkflow<String>("ChildWorkflow", ChildWorkflowOptions())
+            handle!!.signal("testSignal", "signal-value")
+            signalSent = true
+            return handle!!.result()
         }
     }
 
@@ -447,7 +463,7 @@ class ChildWorkflowTest {
             createInitializedExecutor(workflow)
 
             assertNotNull(workflow.handle)
-            assertTrue(workflow.handle!!.id.contains("-child-"))
+            assertTrue(workflow.handle!!.workflowId.contains("-child-"))
         }
 
     @Test
@@ -458,6 +474,58 @@ class ChildWorkflowTest {
 
             assertNotNull(workflow.handle)
             assertNull(workflow.handle!!.firstExecutionRunId)
+        }
+
+    // ================================================================
+    // Signal Tests
+    // ================================================================
+
+    @Test
+    fun `signal child workflow generates SignalExternalWorkflowExecution command`() =
+        runTest {
+            val workflow = ChildWorkflowSignalParent()
+            val result = createInitializedExecutor(workflow)
+
+            // First activation: starts child workflow, then suspends waiting for start resolution
+            // before sending signal (signalWithPayloads awaits startDeferred)
+            val commands = getCommandsFromCompletion(result.completion)
+            val startCommand = commands.find { it.hasStartChildWorkflowExecution() }
+            assertNotNull(startCommand, "Should have StartChildWorkflowExecution command")
+
+            // Signal command should NOT be in the first activation (awaiting child start)
+            val signalCommandFirstActivation = commands.find { it.hasSignalExternalWorkflowExecution() }
+            assertNull(signalCommandFirstActivation, "Signal should not be sent before child starts")
+
+            // Resolve child start
+            val childRunId = UUID.randomUUID().toString()
+            val startActivation =
+                createActivation(
+                    runId = result.runId,
+                    jobs = listOf(resolveChildWorkflowStartJob(seq = 1, runId = childRunId)),
+                )
+            val afterStartCompletion = result.executor.activate(startActivation)
+
+            // After child start is resolved, signal command should be generated
+            val commandsAfterStart = getCommandsFromCompletion(afterStartCompletion)
+            val signalCommand = commandsAfterStart.find { it.hasSignalExternalWorkflowExecution() }
+            assertNotNull(signalCommand, "Should have SignalExternalWorkflowExecution command after start resolves")
+
+            // Verify signal command uses child_workflow_id target
+            val signalExternal = signalCommand.signalExternalWorkflowExecution
+            assertEquals("testSignal", signalExternal.signalName)
+            assertTrue(signalExternal.hasChildWorkflowId(), "Should use child_workflow_id target")
+            assertEquals(workflow.handle!!.workflowId, signalExternal.childWorkflowId)
+
+            // Resolve signal
+            val signalActivation =
+                createActivation(
+                    runId = result.runId,
+                    jobs = listOf(resolveSignalExternalWorkflowJob(seq = signalExternal.seq)),
+                )
+            result.executor.activate(signalActivation)
+
+            // Workflow should have sent the signal
+            assertTrue(workflow.signalSent)
         }
 
     // ================================================================

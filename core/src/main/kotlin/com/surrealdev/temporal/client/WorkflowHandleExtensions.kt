@@ -4,36 +4,8 @@ import com.surrealdev.temporal.serialization.deserialize
 import com.surrealdev.temporal.serialization.serialize
 import io.temporal.api.common.v1.Payloads
 
-/**
- * Sends a signal to the workflow with a single argument of type [T].
- *
- * @param signalName The name of the signal to send.
- * @param arg The argument to send with the signal.
- */
-suspend inline fun <R, reified T> WorkflowHandle<R>.signal(
-    signalName: String,
-    arg: T,
-) {
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg))
-    this.signalWithPayloads(
-        signalName,
-        payloadsBuilder.build(),
-    )
-}
-
-/**
- * Sends a signal to the workflow with no arguments.
- *
- * @param signalName The name of the signal to send.
- */
-suspend fun <R> WorkflowHandle<R>.signal(signalName: String) {
-    val emptyPayloads = Payloads.newBuilder().build()
-    this.signalWithPayloads(
-        signalName,
-        emptyPayloads,
-    )
-}
+// Note: Signal extensions are now in WorkflowHandleBaseExtensions.kt
+// and work for both WorkflowHandle and ChildWorkflowHandle.
 
 /**
  * Queries the workflow and returns the result of type [T].

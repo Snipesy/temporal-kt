@@ -4,12 +4,12 @@ import com.surrealdev.temporal.annotation.Signal
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.taskQueue
-import com.surrealdev.temporal.client.signal
 import com.surrealdev.temporal.client.startWorkflow
 import com.surrealdev.temporal.serialization.deserialize
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.signal
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout

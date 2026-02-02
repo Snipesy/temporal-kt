@@ -1,16 +1,19 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.workflow.ChildWorkflowCancellationType
 import com.surrealdev.temporal.workflow.ChildWorkflowCancelledException
 import com.surrealdev.temporal.workflow.ChildWorkflowFailureException
 import com.surrealdev.temporal.workflow.ChildWorkflowHandle
 import com.surrealdev.temporal.workflow.ChildWorkflowStartFailureException
+import com.surrealdev.temporal.workflow.SignalExternalWorkflowFailedException
 import com.surrealdev.temporal.workflow.StartChildWorkflowFailureCause
 import coresdk.child_workflow.ChildWorkflow
 import coresdk.workflow_activation.WorkflowActivationOuterClass.ResolveChildWorkflowExecutionStart
 import coresdk.workflow_commands.WorkflowCommands
 import io.temporal.api.common.v1.Payload
+import io.temporal.api.common.v1.Payloads
 import kotlinx.coroutines.CompletableDeferred
 import kotlin.reflect.KType
 
@@ -24,7 +27,7 @@ import kotlin.reflect.KType
  * 4. Execution resolution received → completed, failed, or cancelled
  *
  * @param R The result type of the child workflow
- * @param id The workflow ID of the child
+ * @param workflowId The workflow ID of the child
  * @param seq The sequence number for this child workflow (used to correlate commands/resolutions)
  * @param workflowType The child workflow type name
  * @param state Reference to the workflow state for adding cancel commands
@@ -33,11 +36,11 @@ import kotlin.reflect.KType
  * @param cancellationType How to handle cancellation
  */
 internal class ChildWorkflowHandleImpl<R>(
-    override val id: String,
+    override val workflowId: String,
     internal val seq: Int,
     private val workflowType: String,
     private val state: WorkflowState,
-    private val serializer: PayloadSerializer,
+    override val serializer: PayloadSerializer,
     private val returnType: KType,
     private val cancellationType: ChildWorkflowCancellationType,
 ) : ChildWorkflowHandle<R> {
@@ -76,7 +79,7 @@ internal class ChildWorkflowHandleImpl<R>(
             result.hasFailed() -> {
                 val failure = result.failed.failure
                 throw ChildWorkflowFailureException(
-                    childWorkflowId = id,
+                    childWorkflowId = workflowId,
                     childWorkflowType = workflowType,
                     failure = failure,
                 )
@@ -85,7 +88,7 @@ internal class ChildWorkflowHandleImpl<R>(
             result.hasCancelled() -> {
                 val failure = result.cancelled.failure
                 throw ChildWorkflowCancelledException(
-                    childWorkflowId = id,
+                    childWorkflowId = workflowId,
                     childWorkflowType = workflowType,
                     failure = failure,
                 )
@@ -109,6 +112,46 @@ internal class ChildWorkflowHandleImpl<R>(
                 ).build()
 
         state.addCommand(command)
+    }
+
+    @InternalTemporalApi
+    override suspend fun signalWithPayloads(
+        signalName: String,
+        args: Payloads,
+    ) {
+        // Wait for child workflow to start before signaling
+        // This ensures the child exists on the server before we try to signal it
+        startDeferred.await()
+
+        val signalSeq = state.nextSeq()
+
+        // Build signal command using child_workflow_id target
+        val command =
+            WorkflowCommands.WorkflowCommand
+                .newBuilder()
+                .setSignalExternalWorkflowExecution(
+                    WorkflowCommands.SignalExternalWorkflowExecution
+                        .newBuilder()
+                        .setSeq(signalSeq)
+                        .setChildWorkflowId(workflowId)
+                        .setSignalName(signalName)
+                        .addAllArgs(args.payloadsList),
+                ).build()
+
+        state.addCommand(command)
+
+        // Register and await resolution
+        val deferred = state.registerExternalSignal(signalSeq)
+        val failure = deferred.await()
+
+        // If there was a failure, throw an exception
+        if (failure != null) {
+            throw SignalExternalWorkflowFailedException(
+                targetWorkflowId = workflowId,
+                signalName = signalName,
+                failure = failure,
+            )
+        }
     }
 
     /**
@@ -152,7 +195,7 @@ internal class ChildWorkflowHandleImpl<R>(
                 val cancelled = resolution.cancelled
                 val exception =
                     ChildWorkflowCancelledException(
-                        childWorkflowId = id,
+                        childWorkflowId = workflowId,
                         childWorkflowType = workflowType,
                         failure = cancelled.failure,
                     )

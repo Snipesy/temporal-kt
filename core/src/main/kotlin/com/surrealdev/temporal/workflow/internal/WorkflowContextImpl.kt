@@ -653,7 +653,7 @@ internal class WorkflowContextImpl(
         // Create and register the handle
         val handle =
             ChildWorkflowHandleImpl<R>(
-                id = childWorkflowId,
+                workflowId = childWorkflowId,
                 seq = seq,
                 workflowType = workflowType,
                 state = state,

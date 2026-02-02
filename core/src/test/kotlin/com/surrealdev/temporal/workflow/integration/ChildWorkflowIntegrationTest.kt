@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.workflow.integration
 
+import com.surrealdev.temporal.annotation.Signal
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.taskQueue
@@ -9,6 +10,7 @@ import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.ChildWorkflowFailureException
 import com.surrealdev.temporal.workflow.ChildWorkflowOptions
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.signal
 import com.surrealdev.temporal.workflow.startChildWorkflow
 import kotlinx.serialization.Serializable
 import org.junit.jupiter.api.Tag
@@ -179,6 +181,39 @@ class ChildWorkflowIntegrationTest {
         }
     }
 
+    /**
+     * Child workflow that waits for a signal before completing.
+     */
+    @Workflow("SignalableChildWorkflow")
+    class SignalableChildWorkflow {
+        private var receivedSignal: String? = null
+
+        @Signal("completeWithValue")
+        fun completeWithValue(value: String) {
+            receivedSignal = value
+        }
+
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            awaitCondition { receivedSignal != null }
+            return "Child received: $receivedSignal"
+        }
+    }
+
+    /**
+     * Parent workflow that signals its child workflow.
+     */
+    @Workflow("ParentThatSignalsChild")
+    class ParentThatSignalsChild {
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            val childHandle = startChildWorkflow<String>("SignalableChildWorkflow", ChildWorkflowOptions())
+            // Signal the child to complete
+            childHandle.signal("completeWithValue", "hello from parent")
+            return "Parent got: ${childHandle.result()}"
+        }
+    }
+
     // ================================================================
     // Tests
     // ================================================================
@@ -343,6 +378,33 @@ class ChildWorkflowIntegrationTest {
 
             val result = handle.result(timeout = 30.seconds)
             assertTrue(result.contains("grandchild"))
+
+            handle.assertHistory {
+                completed()
+            }
+        }
+
+    @Test
+    fun `parent workflow can signal child workflow`() =
+        runTemporalTest {
+            val taskQueue = "test-signal-child-${UUID.randomUUID()}"
+
+            application {
+                taskQueue(taskQueue) {
+                    workflow<ParentThatSignalsChild>()
+                    workflow<SignalableChildWorkflow>()
+                }
+            }
+
+            val client = client()
+            val handle =
+                client.startWorkflow<String>(
+                    workflowType = "ParentThatSignalsChild",
+                    taskQueue = taskQueue,
+                )
+
+            val result = handle.result(timeout = 30.seconds)
+            assertTrue(result.contains("hello from parent"))
 
             handle.assertHistory {
                 completed()

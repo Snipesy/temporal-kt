@@ -167,6 +167,14 @@ internal class WorkflowState(
     private val pendingLocalActivities = ConcurrentHashMap<Int, LocalActivityHandleImpl<*>>()
 
     /**
+     * Pending external signal operations, keyed by sequence number.
+     * Used when signaling child workflows or external workflows.
+     * The deferred completes with the failure (or null on success) when the signal resolution is received.
+     */
+    private val pendingExternalSignals =
+        ConcurrentHashMap<Int, CompletableDeferred<io.temporal.api.failure.v1.Failure?>>()
+
+    /**
      * Registered conditions waiting to be satisfied.
      * Each entry is a pair of (predicate, deferred) where the deferred completes when the predicate returns true.
      * This enables deterministic condition waiting without busy-wait loops.
@@ -442,6 +450,40 @@ internal class WorkflowState(
     ) {
         val handle = pendingChildWorkflows.remove(seq) ?: return
         handle.resolveExecution(result)
+    }
+
+    /**
+     * Registers a pending external signal operation.
+     * Returns a deferred that completes with the failure (or null on success)
+     * when the signal resolution is received.
+     *
+     * @param seq The sequence number for this signal operation
+     * @return A deferred that completes with the failure or null
+     */
+    fun registerExternalSignal(seq: Int): CompletableDeferred<io.temporal.api.failure.v1.Failure?> {
+        if (isReadOnly) {
+            throw ReadOnlyContextException(
+                "Cannot register external signal in read-only mode (e.g., during query processing)",
+            )
+        }
+        val deferred = CompletableDeferred<io.temporal.api.failure.v1.Failure?>()
+        pendingExternalSignals[seq] = deferred
+        return deferred
+    }
+
+    /**
+     * Resolves an external signal by its sequence number.
+     * Called when a ResolveSignalExternalWorkflow job is received.
+     *
+     * @param seq The sequence number of the signal
+     * @param failure The failure if the signal failed, or null on success
+     */
+    fun resolveExternalSignal(
+        seq: Int,
+        failure: io.temporal.api.failure.v1.Failure?,
+    ) {
+        val deferred = pendingExternalSignals.remove(seq) ?: return
+        deferred.complete(failure)
     }
 
     /**

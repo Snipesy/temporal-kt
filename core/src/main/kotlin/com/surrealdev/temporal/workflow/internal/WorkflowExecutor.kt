@@ -627,7 +627,8 @@ internal class WorkflowExecutor(
     private fun handleSignalExternalWorkflow(
         signal: coresdk.workflow_activation.WorkflowActivationOuterClass.ResolveSignalExternalWorkflow,
     ) {
-        // TODO: Implement external workflow signal resolution when external signals are implemented
+        val failure = if (signal.hasFailure()) signal.failure else null
+        state.resolveExternalSignal(signal.seq, failure)
     }
 
     private fun handleCancelExternalWorkflow(

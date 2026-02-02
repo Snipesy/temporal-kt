@@ -116,23 +116,23 @@ class MyWorkflow {
     @WorkflowRun
     suspend fun run(input: InputModel): OutputModel {
         // Run 2 activities sequentially
-        val resultA = executeActivity<String, String>("activityB", input.paramB).result()
-        val resultB = executeActivity<String, String>("activityA", input.paramA).result()
+        val resultA = workflow().executeActivity<String, String>("activityB", input.paramB).result()
+        val resultB = workflow().executeActivity<String, String>("activityA", input.paramA).result()
 
 
         // Run multiple activities in parallel
         val deferredActivities = listOf(
-            executeActivity<String, String>("activityC", resultA),
-            executeActivity<String, String>("activityD", resultB)
+            workflow().executeActivity<String, String>("activityC", resultA),
+            workflow().executeActivity<String, String>("activityD", resultB)
         )
         val results = listOf(
-            deferredActivities[0].result(),
-            deferredActivities[1].result()
+            workflow().deferredActivities[0].result(),
+            workflow().deferredActivities[1].result()
         )
         
         // or use structured async
-        val deferred1 = async { executeActivity<String, String>("activityC", resultA).result() }
-        val deferred2 = async { executeActivity<String, String>("activityD", resultB).result() }
+        val deferred1 = async { workflow().executeActivity<String, String>("activityC", resultA).result() }
+        val deferred2 = async { workflow().executeActivity<String, String>("activityD", resultB).result() }
         val results2 = listOf(
             deferred1.await(),
             deferred2.await()

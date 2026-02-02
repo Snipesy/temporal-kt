@@ -5,6 +5,7 @@ import com.surrealdev.temporal.client.history.WorkflowHistory
 import com.surrealdev.temporal.client.internal.WorkflowServiceClient
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
+import com.surrealdev.temporal.workflow.WorkflowHandleBase
 import io.temporal.api.common.v1.Payloads
 import io.temporal.api.common.v1.WorkflowExecution
 import io.temporal.api.enums.v1.EventType
@@ -27,11 +28,11 @@ private val logger = LoggerFactory.getLogger(WorkflowHandleImpl::class.java)
  *
  * @param R The expected result type of the workflow.
  */
-interface WorkflowHandle<R> {
+interface WorkflowHandle<R> : WorkflowHandleBase<R> {
     /**
      * The workflow ID.
      */
-    val workflowId: String
+    override val workflowId: String
 
     /**
      * The run ID of the workflow execution.
@@ -42,7 +43,7 @@ interface WorkflowHandle<R> {
     /**
      * Serializer associated with this workflow handle.
      */
-    val serializer: PayloadSerializer
+    override val serializer: PayloadSerializer
 
     /**
      * Waits for the workflow to complete and returns the result.
@@ -67,7 +68,7 @@ interface WorkflowHandle<R> {
      * @param args Arguments to pass with the signal.
      */
     @InternalTemporalApi
-    suspend fun signalWithPayloads(
+    override suspend fun signalWithPayloads(
         signalName: String,
         args: Payloads,
     )

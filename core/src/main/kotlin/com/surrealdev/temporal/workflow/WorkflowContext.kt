@@ -557,49 +557,6 @@ data class ChildWorkflowOptions(
 )
 
 /**
- * Handle to a running or completed child workflow.
- *
- * Obtain a handle by calling [WorkflowContext.startChildWorkflowWithPayloads] or related extension functions.
- *
- * @param R The result type of the child workflow
- */
-interface ChildWorkflowHandle<R> {
-    /**
-     * The workflow ID of this child workflow.
-     */
-    val id: String
-
-    /**
-     * The run ID of the first execution of this child workflow.
-     * Available after the child workflow has started.
-     */
-    val firstExecutionRunId: String?
-
-    /**
-     * Waits for the child workflow to complete and returns its result.
-     *
-     * @return The result of the child workflow
-     * @throws ChildWorkflowFailureException if the child workflow failed
-     * @throws ChildWorkflowCancelledException if the child workflow was cancelled
-     * @throws ChildWorkflowStartFailureException if the child workflow failed to start
-     */
-    suspend fun result(): R
-
-    /**
-     * Requests cancellation of the child workflow.
-     *
-     * The behavior depends on the [ChildWorkflowCancellationType] set in the options:
-     * - ABANDON: Returns immediately, child continues running
-     * - TRY_CANCEL: Sends cancel request, returns immediately
-     * - WAIT_CANCELLATION_REQUESTED: Waits for cancel request acknowledgment
-     * - WAIT_CANCELLATION_COMPLETED: Waits for child to fully complete cancellation
-     *
-     * @param reason Optional reason for cancellation (for debugging)
-     */
-    fun cancel(reason: String = "Cancelled by parent workflow")
-}
-
-/**
  * Policy for retrying failed operations.
  */
 data class RetryPolicy(
