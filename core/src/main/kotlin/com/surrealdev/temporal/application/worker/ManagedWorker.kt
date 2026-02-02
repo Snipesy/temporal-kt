@@ -247,7 +247,7 @@ internal class ManagedWorker(
         check(!started) { "Worker already started" }
         started = true
 
-        logger.info("[start] Starting worker for taskQueue=$taskQueue")
+        logger.info("[start] Starting worker for taskQueue={}", taskQueue)
 
         // Keep explicit references to polling jobs
         workflowPollingJob =
@@ -279,7 +279,7 @@ internal class ManagedWorker(
             }
         }
 
-        logger.info("[start] Worker started for taskQueue=$taskQueue")
+        logger.info("[start] Worker started for taskQueue={}", taskQueue)
         return workerJob
     }
 
@@ -294,7 +294,7 @@ internal class ManagedWorker(
         if (stopped) return
         stopped = true
 
-        logger.info("[stop] Initiating shutdown for taskQueue=$taskQueue")
+        logger.info("[stop] Initiating shutdown for taskQueue={}", taskQueue)
 
         // Phase 1: Signal shutdown intent
         shutdownSignal.complete()
@@ -333,11 +333,11 @@ internal class ManagedWorker(
         // Phase 6: Complete this worker job
         workerJob.complete()
 
-        logger.info("[stop] Worker stopped for taskQueue=$taskQueue")
+        logger.info("[stop] Worker stopped for taskQueue={}", taskQueue)
     }
 
     private suspend fun pollWorkflowActivations() {
-        logger.info("[pollWorkflowActivations] Starting workflow polling for taskQueue=$taskQueue")
+        logger.info("[pollWorkflowActivations] Starting workflow polling for taskQueue={}", taskQueue)
 
         val rootExecutorJob = SupervisorJob(coroutineContext[Job])
 
@@ -413,7 +413,7 @@ internal class ManagedWorker(
                         logger.info("[pollWorkflowActivations] Received shutdown signal, exiting")
                         break
                     }
-                    logger.debug("[pollWorkflowActivations] Received activation for workflow ${activation.runId}")
+                    logger.debug("[pollWorkflowActivations] Received activation for workflow {}", activation.runId)
 
                     // Extract workflow type from initialize job if present
                     val workflowType =
@@ -455,13 +455,8 @@ internal class ManagedWorker(
                             // Dispatch to workflow executor
                             val completion = localWorkflowDispatcher.dispatch(activation)
 
-                            // Send completion back to core
-                            coreWorker.completeWorkflowActivation(completion)
-                            logger.debug(
-                                "[pollWorkflowActivations] Completed activation for workflow ${activation.runId}",
-                            )
-
-                            // Fire WorkflowTaskCompleted hooks
+                            // Fire WorkflowTaskCompleted hooks before sending completion to core
+                            // This ensures spans are finished before clients can receive results
                             val duration = (System.currentTimeMillis() - startTime).milliseconds
                             val completedContext =
                                 WorkflowTaskCompletedContext(
@@ -472,6 +467,13 @@ internal class ManagedWorker(
                                 )
                             applicationHooks.call(WorkflowTaskCompleted, completedContext)
                             config.hookRegistry.call(WorkflowTaskCompleted, completedContext)
+
+                            // Send completion back to core
+                            coreWorker.completeWorkflowActivation(completion)
+                            logger.debug(
+                                "[pollWorkflowActivations] Completed activation for workflow {}",
+                                activation.runId,
+                            )
                         } catch (e: CancellationException) {
                             // Propagate cancellation
                             throw e
@@ -535,15 +537,15 @@ internal class ManagedWorker(
 
                 val shutdownDuration = System.currentTimeMillis() - shutdownStart
                 if (shutdownDuration > 1000) {
-                    logger.info("[pollWorkflowActivations] Waited ${shutdownDuration}ms for executors to complete")
+                    logger.info("[pollWorkflowActivations] Waited {}ms for executors to complete", shutdownDuration)
                 }
-                logger.info("[pollWorkflowActivations] Workflow polling stopped for taskQueue=$taskQueue")
+                logger.info("[pollWorkflowActivations] Workflow polling stopped for taskQueue={}", taskQueue)
             }
         }
     }
 
     private suspend fun pollActivityTasks() {
-        logger.info("[pollActivityTasks] Starting activity polling for taskQueue=$taskQueue")
+        logger.info("[pollActivityTasks] Starting activity polling for taskQueue={}", taskQueue)
 
         // Root job for all activities - isolated from each other (SupervisorJob)
         val rootActivityJob = SupervisorJob(coroutineContext[Job])
@@ -584,7 +586,7 @@ internal class ManagedWorker(
                         break
                     }
                     val activityInfo = if (task.hasStart()) "type=${task.start.activityType}" else "cancel"
-                    logger.debug("[pollActivityTasks] Received activity task: $activityInfo")
+                    logger.debug("[pollActivityTasks] Received activity task: {}", activityInfo)
 
                     // Dispatch to activity executor in its own coroutine context
                     // Each activity gets its own context with MDC for logging
@@ -645,10 +647,8 @@ internal class ManagedWorker(
                             try {
                                 val completion = activityThread.start().await()
 
-                                coreWorker.completeActivityTask(completion)
-                                logger.debug("[pollActivityTasks] Completed activity: $activityInfo")
-
-                                // Fire ActivityTaskCompleted hooks
+                                // Fire ActivityTaskCompleted hooks before sending completion to core
+                                // This ensures spans are finished before clients can receive results
                                 val duration = (System.currentTimeMillis() - startTime).milliseconds
                                 val completedContext =
                                     ActivityTaskCompletedContext(
@@ -658,6 +658,9 @@ internal class ManagedWorker(
                                     )
                                 applicationHooks.call(ActivityTaskCompleted, completedContext)
                                 config.hookRegistry.call(ActivityTaskCompleted, completedContext)
+
+                                coreWorker.completeActivityTask(completion)
+                                logger.debug("[pollActivityTasks] Completed activity: {}", activityInfo)
                             } catch (e: CancellationException) {
                                 // Re-throw cancellation to properly propagate it
                                 throw e
@@ -730,9 +733,9 @@ internal class ManagedWorker(
 
                 val shutdownDuration = System.currentTimeMillis() - shutdownStart
                 if (shutdownDuration > 1000) {
-                    logger.info("[pollActivityTasks] Waited ${shutdownDuration}ms for activities to complete")
+                    logger.info("[pollActivityTasks] Waited {}ms for activities to complete", shutdownDuration)
                 }
-                logger.info("[pollActivityTasks] Activity polling stopped for taskQueue=$taskQueue")
+                logger.info("[pollActivityTasks] Activity polling stopped for taskQueue={}", taskQueue)
             }
         }
     }
