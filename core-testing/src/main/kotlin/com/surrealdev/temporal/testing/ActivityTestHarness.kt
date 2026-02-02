@@ -218,11 +218,11 @@ class ActivityTestHarness(
      * Requests cancellation of the current or next activity execution.
      *
      * The activity will be notified via:
-     * - [heartbeat()][com.surrealdev.temporal.activity.ActivityContext.heartbeat] throwing
+     * - [heartbeat()][com.surrealdev.temporal.activity.ActivityContext.heartbeatWithPayload] throwing
      *   [ActivityCancelledException][com.surrealdev.temporal.activity.ActivityCancelledException]
      *
      * Note: For cancellation to take effect mid-execution, the activity must
-     * call [heartbeat()][com.surrealdev.temporal.activity.ActivityContext.heartbeat] periodically.
+     * call [heartbeat()][com.surrealdev.temporal.activity.ActivityContext.heartbeatWithPayload] periodically.
      */
     fun requestCancellation() {
         _isCancellationRequested = true
@@ -288,32 +288,9 @@ class ActivityTestHarness(
  * @property details The serialized heartbeat details, or null if no details were provided
  */
 data class HeartbeatRecord(
-    val taskToken: ByteArray,
-    val details: ByteArray?,
-) {
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (javaClass != other?.javaClass) return false
-
-        other as HeartbeatRecord
-
-        if (!taskToken.contentEquals(other.taskToken)) return false
-        if (details != null) {
-            if (other.details == null) return false
-            if (!details.contentEquals(other.details)) return false
-        } else if (other.details != null) {
-            return false
-        }
-
-        return true
-    }
-
-    override fun hashCode(): Int {
-        var result = taskToken.contentHashCode()
-        result = 31 * result + (details?.contentHashCode() ?: 0)
-        return result
-    }
-}
+    val taskToken: ByteString,
+    val details: Payload?,
+)
 
 /**
  * Exception thrown when an activity fails during testing.

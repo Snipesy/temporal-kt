@@ -167,7 +167,7 @@ class TemporalTestServer private constructor(
     suspend fun lockTimeSkipping() {
         ensureOpen()
         val request = LockTimeSkippingRequest.getDefaultInstance()
-        coreClient.testServiceCall("LockTimeSkipping", request.toByteArray()) { input ->
+        coreClient.testServiceCall("LockTimeSkipping", request) { input ->
             Empty.parseFrom(input)
         }
     }
@@ -186,7 +186,7 @@ class TemporalTestServer private constructor(
     suspend fun unlockTimeSkipping() {
         ensureOpen()
         val request = UnlockTimeSkippingRequest.getDefaultInstance()
-        coreClient.testServiceCall("UnlockTimeSkipping", request.toByteArray()) { input ->
+        coreClient.testServiceCall("UnlockTimeSkipping", request) { input ->
             Empty.parseFrom(input)
         }
     }
@@ -210,7 +210,7 @@ class TemporalTestServer private constructor(
                 .newBuilder()
                 .setDuration(duration.toProtoDuration())
                 .build()
-        coreClient.testServiceCall("UnlockTimeSkippingWithSleep", request.toByteArray()) { input ->
+        coreClient.testServiceCall("UnlockTimeSkippingWithSleep", request) { input ->
             Empty.parseFrom(input)
         }
     }
@@ -226,7 +226,7 @@ class TemporalTestServer private constructor(
         ensureOpen()
         val request = Empty.getDefaultInstance()
         val response =
-            coreClient.testServiceCall("GetCurrentTime", request.toByteArray()) { input ->
+            coreClient.testServiceCall("GetCurrentTime", request) { input ->
                 GetCurrentTimeResponse.parseFrom(input)
             }
         return response.time.toInstant()
@@ -247,7 +247,7 @@ class TemporalTestServer private constructor(
                 .newBuilder()
                 .setDuration(duration.toProtoDuration())
                 .build()
-        coreClient.testServiceCall("Sleep", request.toByteArray()) { input ->
+        coreClient.testServiceCall("Sleep", request) { input ->
             Empty.parseFrom(input)
         }
     }
@@ -268,7 +268,7 @@ class TemporalTestServer private constructor(
                 .newBuilder()
                 .setTimestamp(time.toProtoTimestamp())
                 .build()
-        coreClient.testServiceCall("SleepUntil", request.toByteArray()) { input ->
+        coreClient.testServiceCall("SleepUntil", request) { input ->
             Empty.parseFrom(input)
         }
     }

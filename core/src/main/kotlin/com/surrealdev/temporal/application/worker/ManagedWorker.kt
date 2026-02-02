@@ -221,21 +221,17 @@ internal class ManagedWorker(
      * will send a Cancel task through the normal [pollActivityTasks] mechanism.
      */
     private fun recordActivityHeartbeat(
-        taskToken: ByteArray,
-        details: ByteArray?,
+        taskToken: ByteString,
+        details: Payload?,
     ) {
         val heartbeat =
             activityHeartbeat {
-                this.taskToken = ByteString.copyFrom(taskToken)
+                this.taskToken = taskToken
                 if (details != null) {
-                    this.details +=
-                        Payload
-                            .newBuilder()
-                            .setData(ByteString.copyFrom(details))
-                            .build()
+                    this.details += details
                 }
             }
-        coreWorker.recordActivityHeartbeat(heartbeat.toByteArray())
+        coreWorker.recordActivityHeartbeat(heartbeat)
     }
 
     /**
@@ -460,7 +456,7 @@ internal class ManagedWorker(
                             val completion = localWorkflowDispatcher.dispatch(activation)
 
                             // Send completion back to core
-                            coreWorker.completeWorkflowActivation(completion.toByteArray())
+                            coreWorker.completeWorkflowActivation(completion)
                             logger.debug(
                                 "[pollWorkflowActivations] Completed activation for workflow ${activation.runId}",
                             )
@@ -649,7 +645,7 @@ internal class ManagedWorker(
                             try {
                                 val completion = activityThread.start().await()
 
-                                coreWorker.completeActivityTask(completion.toByteArray())
+                                coreWorker.completeActivityTask(completion)
                                 logger.debug("[pollActivityTasks] Completed activity: $activityInfo")
 
                                 // Fire ActivityTaskCompleted hooks

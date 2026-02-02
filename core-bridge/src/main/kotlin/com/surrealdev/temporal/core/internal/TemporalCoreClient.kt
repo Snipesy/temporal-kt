@@ -1,7 +1,6 @@
 package com.surrealdev.temporal.core.internal
 
 import io.temporal.sdkbridge.TemporalCoreByteArrayRefArray
-import io.temporal.sdkbridge.TemporalCoreClientConnectCallback
 import io.temporal.sdkbridge.TemporalCoreClientOptions
 import io.temporal.sdkbridge.TemporalCoreClientTlsOptions
 import io.temporal.sdkbridge.TemporalCoreRpcCallOptions
@@ -138,18 +137,26 @@ internal object TemporalCoreClient {
     // ============================================================
 
     /**
-     * Connects to a Temporal server.
+     * Connects to a Temporal server using a reusable callback dispatcher.
+     *
+     * Note: For connect operations, the arena is NOT registered with the callback because
+     * the arena's lifetime should match the client's lifetime (it contains options data
+     * that may be referenced by the native client). The caller is responsible for
+     * managing the arena's lifecycle.
      *
      * @param runtimePtr Pointer to the runtime
-     * @param arena Arena for allocations
+     * @param optionsArena Arena for allocating connection options (caller manages lifecycle)
+     * @param dispatcher The callback dispatcher with reusable stubs
      * @param targetUrl The server URL (e.g., "http://localhost:7233")
      * @param namespace The namespace to use
      * @param tls TLS configuration, or null for no TLS
      * @param callback Callback invoked when connection completes
+     * @return Context pointer for cancellation support
      */
     fun connect(
         runtimePtr: MemorySegment,
-        arena: Arena,
+        optionsArena: Arena,
+        dispatcher: ClientCallbackDispatcher,
         targetUrl: String,
         namespace: String = "default",
         clientName: String = "temporal-kotlin",
@@ -158,10 +165,10 @@ internal object TemporalCoreClient {
         tls: ClientTlsOptions? = null,
         apiKey: String? = null,
         callback: ConnectCallback,
-    ) {
+    ): MemorySegment {
         val options =
             buildClientOptions(
-                arena = arena,
+                arena = optionsArena,
                 targetUrl = targetUrl,
                 clientName = clientName,
                 clientVersion = clientVersion,
@@ -170,8 +177,11 @@ internal object TemporalCoreClient {
                 apiKey = apiKey,
             )
 
-        val callbackStub = createConnectCallbackStub(arena, runtimePtr, callback)
-        CoreBridge.temporal_core_client_connect(runtimePtr, options, MemorySegment.NULL, callbackStub)
+        // Register callback WITHOUT arena - the arena is managed by the caller
+        // because its lifetime should match the client's lifetime
+        val contextPtr = dispatcher.registerConnect(callback)
+        CoreBridge.temporal_core_client_connect(runtimePtr, options, contextPtr, dispatcher.connectCallbackStub)
+        return contextPtr
     }
 
     /**
@@ -236,17 +246,19 @@ internal object TemporalCoreClient {
     // ============================================================
 
     /**
-     * Makes an RPC call to the Temporal server with zero-copy protobuf parsing.
+     * Makes an RPC call to the Temporal server with zero-copy protobuf serialization and parsing.
      *
      * This version uses a shared callback stub for better performance on repeated calls.
-     * The response is parsed directly from native memory without intermediate ByteArray copy.
+     * Both request serialization and response parsing use zero-copy:
+     * - Request is serialized directly to native memory without intermediate ByteArray
+     * - Response is parsed directly from native memory without intermediate ByteArray copy
      *
      * @param clientPtr Pointer to the client
      * @param arena Arena for allocations (for RPC options, not callback stub)
      * @param dispatcher The callback dispatcher with reusable stubs
      * @param service The RPC service type
      * @param rpc The RPC method name
-     * @param request The request payload (protobuf bytes)
+     * @param request The request protobuf message
      * @param parser Function that parses the CodedInputStream into the response type
      * @param retry Whether to retry on failure
      * @param timeoutMillis Timeout in milliseconds (0 for default)
@@ -254,30 +266,30 @@ internal object TemporalCoreClient {
      * @param callback Typed callback invoked when RPC completes
      * @return The context pointer for cancellation
      */
-    fun <T : com.google.protobuf.MessageLite> rpcCall(
+    fun <Req : com.google.protobuf.MessageLite, Resp : com.google.protobuf.MessageLite> rpcCall(
         clientPtr: MemorySegment,
         arena: Arena,
         dispatcher: ClientCallbackDispatcher,
         service: RpcService,
         rpc: String,
-        request: ByteArray,
-        parser: (com.google.protobuf.CodedInputStream) -> T,
+        request: Req,
+        parser: (com.google.protobuf.CodedInputStream) -> Resp,
         retry: Boolean = true,
         timeoutMillis: Int = 0,
         cancellationToken: MemorySegment? = null,
-        callback: TypedRpcCallback<T>,
+        callback: TypedRpcCallback<Resp>,
     ): MemorySegment {
         val options = TemporalCoreRpcCallOptions.allocate(arena)
         TemporalCoreRpcCallOptions.service(options, service.value)
         TemporalCoreRpcCallOptions.rpc(options, TemporalCoreFfmUtil.createByteArrayRef(arena, rpc))
-        TemporalCoreRpcCallOptions.req(options, TemporalCoreFfmUtil.createByteArrayRef(arena, request))
+        TemporalCoreRpcCallOptions.req(options, TemporalCoreFfmUtil.serializeToByteArrayRef(arena, request))
         TemporalCoreRpcCallOptions.retry(options, retry)
         TemporalCoreRpcCallOptions.metadata(options, createEmptyMetadataRef(arena))
         TemporalCoreRpcCallOptions.binary_metadata(options, createEmptyMetadataRef(arena))
         TemporalCoreRpcCallOptions.timeout_millis(options, timeoutMillis)
         TemporalCoreRpcCallOptions.cancellation_token(options, cancellationToken ?: MemorySegment.NULL)
 
-        val contextPtr = dispatcher.registerRpc(callback, parser)
+        val contextPtr = dispatcher.registerRpc(callback, parser, arena)
         CoreBridge.temporal_core_client_rpc_call(clientPtr, options, contextPtr, dispatcher.rpcCallbackStub)
         return contextPtr
     }
@@ -467,28 +479,4 @@ internal object TemporalCoreClient {
         TemporalCoreByteArrayRefArray.size(ref, entryCount.toLong())
         return ref
     }
-
-    private fun createConnectCallbackStub(
-        arena: Arena,
-        runtimePtr: MemorySegment,
-        callback: ConnectCallback,
-    ): MemorySegment =
-        TemporalCoreClientConnectCallback.allocate(
-            { _, clientPtr, failPtr ->
-                val error =
-                    if (failPtr != MemorySegment.NULL) {
-                        TemporalCoreFfmUtil.readByteArray(failPtr).also {
-                            CoreBridge.temporal_core_byte_array_free(runtimePtr, failPtr)
-                        }
-                    } else {
-                        null
-                    }
-
-                callback.onComplete(
-                    if (clientPtr != MemorySegment.NULL) clientPtr else null,
-                    error,
-                )
-            },
-            arena,
-        )
 }

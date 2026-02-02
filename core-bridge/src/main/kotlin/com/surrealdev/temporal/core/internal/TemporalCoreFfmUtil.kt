@@ -1,6 +1,7 @@
 package com.surrealdev.temporal.core.internal
 
 import com.google.protobuf.CodedInputStream
+import com.google.protobuf.CodedOutputStream
 import com.google.protobuf.MessageLite
 import io.temporal.sdkbridge.TemporalCoreByteArray
 import io.temporal.sdkbridge.TemporalCoreByteArrayRef
@@ -18,6 +19,12 @@ import io.temporal.sdkbridge.temporal_sdk_core_c_bridge_h as CoreBridge
  * Uses jextract-generated struct classes for memory layout handling.
  */
 internal object TemporalCoreFfmUtil {
+    /**
+     * Cached empty byte array for parsing empty protobuf messages.
+     * Avoids allocation for frequent empty responses (e.g., Empty messages).
+     */
+    private val EMPTY_BYTES = ByteArray(0)
+
     /**
      * Ensures the native library is loaded.
      * Must be called before using any jextract-generated bindings.
@@ -194,7 +201,7 @@ internal object TemporalCoreFfmUtil {
                 if (dataPtr == MemorySegment.NULL || size == 0L) {
                     // Empty data is valid for some protobuf messages (e.g., Empty)
                     // Parse from empty input to get default instance
-                    CodedInputStream.newInstance(ByteArray(0))
+                    CodedInputStream.newInstance(EMPTY_BYTES)
                 } else {
                     // Reinterpret to get a segment with the actual data size
                     val dataSegment = dataPtr.reinterpret(size)
@@ -215,6 +222,39 @@ internal object TemporalCoreFfmUtil {
             // Free native memory AFTER parsing is complete
             CoreBridge.temporal_core_byte_array_free(runtimePtr, ptr)
         }
+    }
+
+    // ============================================================
+    // Zero-Copy Protobuf Serialization Functions
+    // ============================================================
+
+    /**
+     * Serializes a protobuf message directly to native memory without intermediate ByteArray copy.
+     * Uses MemorySegment.asByteBuffer() for zero-copy access to native memory.
+     *
+     * @param allocator The allocator to use (typically an Arena)
+     * @param message The protobuf message to serialize
+     * @return A MemorySegment containing the ByteArrayRef struct pointing to the serialized data
+     */
+    fun <T : MessageLite> serializeToByteArrayRef(
+        allocator: SegmentAllocator,
+        message: T,
+    ): MemorySegment {
+        val size = message.serializedSize
+        if (size == 0) {
+            return createEmptyByteArrayRef(allocator)
+        }
+
+        // Allocate native memory for the serialized data
+        val dataSegment = allocator.allocate(size.toLong())
+
+        // Zero-copy: get ByteBuffer view of native memory and serialize directly into it
+        val byteBuffer = dataSegment.asByteBuffer()
+        val codedOutput = CodedOutputStream.newInstance(byteBuffer)
+        message.writeTo(codedOutput)
+
+        // Create ByteArrayRef pointing to the native memory
+        return createByteArrayRef(allocator, dataSegment, size.toLong())
     }
 
     // ============================================================

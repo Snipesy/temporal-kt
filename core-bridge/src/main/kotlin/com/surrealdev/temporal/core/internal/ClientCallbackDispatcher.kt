@@ -2,8 +2,6 @@ package com.surrealdev.temporal.core.internal
 
 import com.google.protobuf.CodedInputStream
 import com.google.protobuf.MessageLite
-import io.temporal.sdkbridge.TemporalCoreClientConnectCallback
-import io.temporal.sdkbridge.TemporalCoreClientRpcCallCallback
 import org.slf4j.LoggerFactory
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
@@ -41,13 +39,28 @@ internal class RpcCallbackWrapper<T : MessageLite>(
  *
  * All RPC callbacks use zero-copy protobuf parsing directly from native memory.
  *
+ * ## Arena Lifecycle Patterns
+ *
+ * The "Arena Follows Callback" principle ensures that any arena registered with a callback
+ * is automatically closed when the callback completes or is cancelled.
+ *
+ * **RPC Operations**: The options arena is registered with the callback via [registerRpc].
+ * When the callback fires or is canceled, [PendingCallbacks] automatically closes the arena.
+ *
+ * **Connect Operations**: The options arena is NOT registered with the callback. This is
+ * intentional because the arena contains connection configuration data (target URL, TLS options,
+ * etc.) that may be referenced by the native client for its entire lifetime. The arena's
+ * lifecycle is instead managed by the caller:
+ * - On success: ownership transfers to [TemporalCoreClient], closed in its `close()` method
+ * - On failure/cancellation: caller closes the arena explicitly
+ *
  * @param arena The arena for allocating the reusable stubs (typically client's callbackArena)
  * @param runtimePtr Pointer to the Temporal runtime for freeing byte arrays
  */
 internal class ClientCallbackDispatcher(
     arena: Arena,
-    private val runtimePtr: MemorySegment,
-) : AutoCloseable {
+    runtimePtr: MemorySegment,
+) : BaseCallbackDispatcher(runtimePtr) {
     private val pendingConnectCallbacks = PendingCallbacks<TemporalCoreClient.ConnectCallback>()
 
     // Use type-erased wrapper to store different message types in the same map
@@ -56,63 +69,33 @@ internal class ClientCallbackDispatcher(
     private val logger = LoggerFactory.getLogger(ClientCallbackDispatcher::class.java)
 
     /**
-     * Single reusable stub for client connect operations.
+     * Single reusable stub for connect operations.
      * Dispatches to the correct callback based on context ID in user_data.
+     * When the callback is invoked, any arena registered with it is automatically closed.
      */
     val connectCallbackStub: MemorySegment =
-        TemporalCoreClientConnectCallback.allocate(
-            { userDataPtr, clientPtr, failPtr ->
-                val contextId = PendingCallbacks.getContextId(userDataPtr)
-                val callback = pendingConnectCallbacks.remove(contextId)
-
-                if (callback == null) {
-                    // Callback was canceled or already dispatched - just free Rust memory
-                    TemporalCoreFfmUtil.freeByteArrayIfNotNull(runtimePtr, failPtr)
-                    return@allocate
-                }
-
-                val error = TemporalCoreFfmUtil.readAndFreeByteArray(runtimePtr, failPtr)
-                callback.onComplete(
-                    if (clientPtr != MemorySegment.NULL) clientPtr else null,
-                    error,
-                )
-            },
-            arena,
-        )
+        CallbackStubFactory.createConnectCallbackStub(arena, pendingConnectCallbacks, runtimePtr)
 
     /**
      * Single reusable stub for RPC call operations.
      * Dispatches to the correct callback based on context ID in user_data.
      * Uses zero-copy protobuf parsing directly from native memory.
+     * When the callback is invoked, any arena registered with it is automatically closed.
      */
     val rpcCallbackStub: MemorySegment =
-        TemporalCoreClientRpcCallCallback.allocate(
-            { userDataPtr, successPtr, statusCode, failMessagePtr, failDetailsPtr ->
-                val contextId = PendingCallbacks.getContextId(userDataPtr)
-                val wrapper = pendingRpcCallbacks.remove(contextId)
-
-                if (wrapper == null) {
-                    // Callback was canceled or already dispatched - just free Rust memory
-                    TemporalCoreFfmUtil.freeByteArrayIfNotNull(runtimePtr, successPtr)
-                    TemporalCoreFfmUtil.freeByteArrayIfNotNull(runtimePtr, failMessagePtr)
-                    TemporalCoreFfmUtil.freeByteArrayIfNotNull(runtimePtr, failDetailsPtr)
-                    return@allocate
-                }
-
-                // Invoke the wrapper - it handles zero-copy parsing
-                wrapper.invoke(runtimePtr, successPtr, statusCode, failMessagePtr, failDetailsPtr)
-            },
-            arena,
-        )
+        CallbackStubFactory.createRpcCallbackStub(arena, pendingRpcCallbacks, runtimePtr)
 
     /**
      * Registers a connect callback and returns a context pointer to pass as user_data.
      *
      * @param callback The callback to invoke when the connect completes
+     * @param optionsArena Optional arena containing connection options; closed when callback completes or is cancelled
      * @return A MemorySegment containing the context ID (pass as user_data to FFI)
      */
-    fun registerConnect(callback: TemporalCoreClient.ConnectCallback): MemorySegment =
-        pendingConnectCallbacks.register(callback)
+    fun registerConnect(
+        callback: TemporalCoreClient.ConnectCallback,
+        optionsArena: Arena? = null,
+    ): MemorySegment = pendingConnectCallbacks.register(callback, optionsArena)
 
     /**
      * Registers a typed RPC callback with zero-copy protobuf parsing.
@@ -120,20 +103,14 @@ internal class ClientCallbackDispatcher(
      *
      * @param callback The typed callback to invoke when the RPC completes
      * @param parser Function that parses the CodedInputStream into the response type
+     * @param optionsArena Optional arena containing RPC options; closed when callback completes or is cancelled
      * @return A MemorySegment containing the context ID (pass as user_data to FFI)
      */
     fun <T : MessageLite> registerRpc(
         callback: TemporalCoreClient.TypedRpcCallback<T>,
         parser: (CodedInputStream) -> T,
-    ): MemorySegment = pendingRpcCallbacks.register(RpcCallbackWrapper(callback, parser))
-
-    /**
-     * Extracts the context ID from a context pointer.
-     *
-     * @param contextPtr The context pointer returned from register methods
-     * @return The context ID
-     */
-    fun getContextId(contextPtr: MemorySegment): Long = PendingCallbacks.getContextId(contextPtr)
+        optionsArena: Arena? = null,
+    ): MemorySegment = pendingRpcCallbacks.register(RpcCallbackWrapper(callback, parser), optionsArena)
 
     /**
      * Cancels a pending connect callback.

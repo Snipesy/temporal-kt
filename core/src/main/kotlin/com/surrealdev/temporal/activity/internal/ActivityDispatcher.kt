@@ -58,7 +58,7 @@ class ActivityDispatcher(
     private val codec: PayloadCodec,
     private val taskQueue: String,
     maxConcurrent: Int,
-    private val heartbeatFn: suspend (ByteArray, ByteArray?) -> Unit = { _, _ -> },
+    private val heartbeatFn: suspend (ByteString, Payload?) -> Unit = { _, _ -> },
     /**
      * The task queue scope for hierarchical attribute lookup.
      * Its parentScope should be the application.

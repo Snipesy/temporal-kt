@@ -245,22 +245,25 @@ internal object TemporalCoreWorker {
     /**
      * Completes a workflow activation using a reusable callback stub.
      *
+     * Uses zero-copy serialization: the protobuf message is serialized directly
+     * to native memory without intermediate ByteArray allocation.
+     *
      * @param workerPtr Pointer to the worker
      * @param arena Arena for allocations (for completion data)
      * @param dispatcher Callback dispatcher with reusable stubs
-     * @param completion The completion protobuf bytes
+     * @param completion The completion protobuf message
      * @param callback Callback invoked when completion is processed
      * @return Context pointer containing the callback ID (for cancellation support)
      */
-    fun completeWorkflowActivation(
+    fun <T : com.google.protobuf.MessageLite> completeWorkflowActivation(
         workerPtr: MemorySegment,
         arena: Arena,
         dispatcher: WorkerCallbackDispatcher,
-        completion: ByteArray,
+        completion: T,
         callback: WorkerCallback,
     ): MemorySegment {
-        val completionRef = TemporalCoreFfmUtil.createByteArrayRef(arena, completion)
-        val contextPtr = dispatcher.registerWorker(callback)
+        val completionRef = TemporalCoreFfmUtil.serializeToByteArrayRef(arena, completion)
+        val contextPtr = dispatcher.registerWorker(callback, arena)
         CoreBridge.temporal_core_worker_complete_workflow_activation(
             workerPtr,
             completionRef,
@@ -273,22 +276,25 @@ internal object TemporalCoreWorker {
     /**
      * Completes an activity task using a reusable callback stub.
      *
+     * Uses zero-copy serialization: the protobuf message is serialized directly
+     * to native memory without intermediate ByteArray allocation.
+     *
      * @param workerPtr Pointer to the worker
      * @param arena Arena for allocations (for completion data)
      * @param dispatcher Callback dispatcher with reusable stubs
-     * @param completion The completion protobuf bytes
+     * @param completion The completion protobuf message
      * @param callback Callback invoked when completion is processed
      * @return Context pointer containing the callback ID (for cancellation support)
      */
-    fun completeActivityTask(
+    fun <T : com.google.protobuf.MessageLite> completeActivityTask(
         workerPtr: MemorySegment,
         arena: Arena,
         dispatcher: WorkerCallbackDispatcher,
-        completion: ByteArray,
+        completion: T,
         callback: WorkerCallback,
     ): MemorySegment {
-        val completionRef = TemporalCoreFfmUtil.createByteArrayRef(arena, completion)
-        val contextPtr = dispatcher.registerWorker(callback)
+        val completionRef = TemporalCoreFfmUtil.serializeToByteArrayRef(arena, completion)
+        val contextPtr = dispatcher.registerWorker(callback, arena)
         CoreBridge.temporal_core_worker_complete_activity_task(
             workerPtr,
             completionRef,
@@ -301,22 +307,25 @@ internal object TemporalCoreWorker {
     /**
      * Completes a nexus task using a reusable callback stub.
      *
+     * Uses zero-copy serialization: the protobuf message is serialized directly
+     * to native memory without intermediate ByteArray allocation.
+     *
      * @param workerPtr Pointer to the worker
      * @param arena Arena for allocations (for completion data)
      * @param dispatcher Callback dispatcher with reusable stubs
-     * @param completion The completion protobuf bytes
+     * @param completion The completion protobuf message
      * @param callback Callback invoked when completion is processed
      * @return Context pointer containing the callback ID (for cancellation support)
      */
-    fun completeNexusTask(
+    fun <T : com.google.protobuf.MessageLite> completeNexusTask(
         workerPtr: MemorySegment,
         arena: Arena,
         dispatcher: WorkerCallbackDispatcher,
-        completion: ByteArray,
+        completion: T,
         callback: WorkerCallback,
     ): MemorySegment {
-        val completionRef = TemporalCoreFfmUtil.createByteArrayRef(arena, completion)
-        val contextPtr = dispatcher.registerWorker(callback)
+        val completionRef = TemporalCoreFfmUtil.serializeToByteArrayRef(arena, completion)
+        val contextPtr = dispatcher.registerWorker(callback, arena)
         CoreBridge.temporal_core_worker_complete_nexus_task(
             workerPtr,
             completionRef,
@@ -329,17 +338,20 @@ internal object TemporalCoreWorker {
     /**
      * Records an activity heartbeat.
      *
+     * Uses zero-copy serialization: the protobuf message is serialized directly
+     * to native memory without intermediate ByteArray allocation.
+     *
      * @param workerPtr Pointer to the worker
      * @param arena Arena for allocations
-     * @param heartbeat The heartbeat protobuf bytes
+     * @param heartbeat The heartbeat protobuf message
      * @return Error message if failed, null if successful
      */
-    fun recordActivityHeartbeat(
+    fun <T : com.google.protobuf.MessageLite> recordActivityHeartbeat(
         workerPtr: MemorySegment,
         arena: Arena,
-        heartbeat: ByteArray,
+        heartbeat: T,
     ): String? {
-        val heartbeatRef = TemporalCoreFfmUtil.createByteArrayRef(arena, heartbeat)
+        val heartbeatRef = TemporalCoreFfmUtil.serializeToByteArrayRef(arena, heartbeat)
         val result = CoreBridge.temporal_core_worker_record_activity_heartbeat(workerPtr, heartbeatRef)
         return if (result != MemorySegment.NULL) {
             TemporalCoreFfmUtil.readByteArray(result)

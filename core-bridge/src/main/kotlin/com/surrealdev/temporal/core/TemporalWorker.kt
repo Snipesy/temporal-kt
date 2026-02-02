@@ -91,7 +91,6 @@ data class WorkerConfig(
  */
 class TemporalWorker private constructor(
     internal val handle: MemorySegment,
-    private val runtimePtr: MemorySegment,
     private val arena: Arena,
     private val callbackArena: Arena,
     private val dispatcher: WorkerCallbackDispatcher,
@@ -149,7 +148,6 @@ class TemporalWorker private constructor(
                     )
                 TemporalWorker(
                     handle = workerPtr,
-                    runtimePtr = runtime.handle,
                     arena = arena,
                     callbackArena = callbackArena,
                     dispatcher = dispatcher,
@@ -256,77 +254,75 @@ class TemporalWorker private constructor(
 
     /**
      * Completes a workflow activation.
-     * Uses reusable callback stubs for better performance.
      *
-     * @param completion The completion protobuf bytes
+     * Uses zero-copy serialization: the protobuf message is serialized directly
+     * to native memory without intermediate ByteArray allocation.
+     *
+     * @param completion The completion protobuf message
      * @throws TemporalCoreException if completion fails
      */
-    suspend fun completeWorkflowActivation(completion: ByteArray) {
+    suspend fun <T : MessageLite> completeWorkflowActivation(completion: T) {
         ensureOpen()
+        // Per-call arena for data - closed by dispatcher when callback fires or is cancelled
         val dataArena = Arena.ofShared()
-        try {
-            suspendCancellableCoroutine { continuation ->
-                val callback =
-                    InternalWorker.WorkerCallback { error ->
-                        if (error != null) {
-                            continuation.resumeWithException(TemporalCoreException(error))
-                        } else {
-                            continuation.resume(Unit)
-                        }
+        suspendCancellableCoroutine { continuation ->
+            val callback =
+                InternalWorker.WorkerCallback { error ->
+                    if (error != null) {
+                        continuation.resumeWithException(TemporalCoreException(error))
+                    } else {
+                        continuation.resume(Unit)
                     }
-                val contextPtr =
-                    InternalWorker.completeWorkflowActivation(
-                        handle,
-                        dataArena,
-                        dispatcher,
-                        completion,
-                        callback,
-                    )
-                val contextId = dispatcher.getContextId(contextPtr)
-                continuation.invokeOnCancellation {
-                    dispatcher.cancelWorker(contextId)
                 }
+            val contextPtr =
+                InternalWorker.completeWorkflowActivation(
+                    handle,
+                    dataArena,
+                    dispatcher,
+                    completion,
+                    callback,
+                )
+            val contextId = dispatcher.getContextId(contextPtr)
+            continuation.invokeOnCancellation {
+                dispatcher.cancelWorker(contextId)
             }
-        } finally {
-            dataArena.close()
         }
     }
 
     /**
      * Completes an activity task.
-     * Uses reusable callback stubs for better performance.
      *
-     * @param completion The completion protobuf bytes
+     * Uses zero-copy serialization: the protobuf message is serialized directly
+     * to native memory without intermediate ByteArray allocation.
+     *
+     * @param completion The completion protobuf message
      * @throws TemporalCoreException if completion fails
      */
-    suspend fun completeActivityTask(completion: ByteArray) {
+    suspend fun <T : MessageLite> completeActivityTask(completion: T) {
         ensureOpen()
+        // Per-call arena for data - closed by dispatcher when callback fires or is cancelled
         val dataArena = Arena.ofShared()
-        try {
-            suspendCancellableCoroutine { continuation ->
-                val callback =
-                    InternalWorker.WorkerCallback { error ->
-                        if (error != null) {
-                            continuation.resumeWithException(TemporalCoreException(error))
-                        } else {
-                            continuation.resume(Unit)
-                        }
+        suspendCancellableCoroutine { continuation ->
+            val callback =
+                InternalWorker.WorkerCallback { error ->
+                    if (error != null) {
+                        continuation.resumeWithException(TemporalCoreException(error))
+                    } else {
+                        continuation.resume(Unit)
                     }
-                val contextPtr =
-                    InternalWorker.completeActivityTask(
-                        handle,
-                        dataArena,
-                        dispatcher,
-                        completion,
-                        callback,
-                    )
-                val contextId = dispatcher.getContextId(contextPtr)
-                continuation.invokeOnCancellation {
-                    dispatcher.cancelWorker(contextId)
                 }
+            val contextPtr =
+                InternalWorker.completeActivityTask(
+                    handle,
+                    dataArena,
+                    dispatcher,
+                    completion,
+                    callback,
+                )
+            val contextId = dispatcher.getContextId(contextPtr)
+            continuation.invokeOnCancellation {
+                dispatcher.cancelWorker(contextId)
             }
-        } finally {
-            dataArena.close()
         }
     }
 
@@ -337,13 +333,16 @@ class TemporalWorker private constructor(
      * batching internally. The heartbeat is queued and sent to the server
      * asynchronously by the Core SDK.
      *
+     * Uses zero-copy serialization: the protobuf message is serialized directly
+     * to native memory without intermediate ByteArray allocation.
+     *
      * If cancellation is requested, the Core SDK will send a Cancel task
      * through the normal [pollActivityTask] mechanism.
      *
-     * @param heartbeat The heartbeat protobuf bytes (ActivityHeartbeat message)
+     * @param heartbeat The heartbeat protobuf message (ActivityHeartbeat)
      * @throws TemporalCoreException if recording fails
      */
-    fun recordActivityHeartbeat(heartbeat: ByteArray) {
+    fun <T : MessageLite> recordActivityHeartbeat(heartbeat: T) {
         ensureOpen()
         Arena.ofConfined().use { arena ->
             val error = InternalWorker.recordActivityHeartbeat(handle, arena, heartbeat)

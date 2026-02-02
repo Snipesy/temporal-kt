@@ -2,9 +2,9 @@ package com.surrealdev.temporal.core
 
 import com.google.protobuf.CodedInputStream
 import com.google.protobuf.MessageLite
-import com.surrealdev.temporal.core.internal.CallbackArena
 import com.surrealdev.temporal.core.internal.ClientCallbackDispatcher
 import com.surrealdev.temporal.core.internal.ClientTlsOptions
+import com.surrealdev.temporal.core.internal.PendingCallbacks
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
@@ -107,7 +107,6 @@ data class TlsOptions(
  */
 class TemporalCoreClient private constructor(
     internal val handle: MemorySegment,
-    private val runtimePtr: MemorySegment,
     private val arena: Arena,
     private val callbackArena: Arena,
     private val dispatcher: ClientCallbackDispatcher,
@@ -161,33 +160,75 @@ class TemporalCoreClient private constructor(
             val callbackArena = Arena.ofShared()
             val dispatcher = ClientCallbackDispatcher(callbackArena, runtime.handle)
 
+            // Use dispatcher-based connect with reusable callback stub
+            // The optionsArena is NOT registered with the callback because its lifetime
+            // should match the client's lifetime (it contains options data)
+            val optionsArena = Arena.ofShared()
+            var ownershipTransferred = false
+
             return try {
-                val (arena, clientPtr) =
-                    CallbackArena.withOwnershipTransfer<MemorySegment> { arena, callback ->
-                        InternalClient.connect(
-                            runtimePtr = runtime.handle,
-                            arena = arena,
-                            targetUrl = targetUrl,
-                            namespace = namespace,
-                            clientName = options.clientName,
-                            clientVersion = options.clientVersion,
-                            identity = options.identity,
-                            tls = effectiveTls,
-                            apiKey = apiKey,
-                            callback = callback,
-                        )
+                val clientPtr =
+                    suspendCancellableCoroutine { continuation ->
+                        val contextPtr =
+                            InternalClient.connect(
+                                runtimePtr = runtime.handle,
+                                optionsArena = optionsArena,
+                                dispatcher = dispatcher,
+                                targetUrl = targetUrl,
+                                namespace = namespace,
+                                clientName = options.clientName,
+                                clientVersion = options.clientVersion,
+                                identity = options.identity,
+                                tls = effectiveTls,
+                                apiKey = apiKey,
+                            ) { clientPtr, error ->
+                                try {
+                                    when {
+                                        error != null -> {
+                                            continuation.resumeWithException(TemporalCoreException(error))
+                                        }
+
+                                        clientPtr != null -> {
+                                            ownershipTransferred = true
+                                            continuation.resume(clientPtr)
+                                        }
+
+                                        else -> {
+                                            continuation.resumeWithException(
+                                                TemporalCoreException("Connect returned null without error"),
+                                            )
+                                        }
+                                    }
+                                } catch (_: IllegalStateException) {
+                                    // Continuation already resumed, ignore
+                                }
+                            }
+
+                        val contextId = PendingCallbacks.getContextId(contextPtr)
+                        continuation.invokeOnCancellation {
+                            dispatcher.cancelConnect(contextId)
+                            // Close arena on cancellation since no client will be created
+                            optionsArena.close()
+                        }
                     }
 
                 TemporalCoreClient(
                     handle = clientPtr,
-                    runtimePtr = runtime.handle,
-                    arena = arena,
+                    arena = optionsArena,
                     callbackArena = callbackArena,
                     dispatcher = dispatcher,
                     targetUrl = targetUrl,
                     namespace = namespace,
                 )
             } catch (e: Exception) {
+                // On error, close the options arena only if ownership wasn't transferred
+                if (!ownershipTransferred) {
+                    try {
+                        optionsArena.close()
+                    } catch (_: IllegalStateException) {
+                        // Arena already closed by cancellation handler
+                    }
+                }
                 dispatcher.close()
                 callbackArena.close()
                 throw e
@@ -211,109 +252,72 @@ class TemporalCoreClient private constructor(
     }
 
     /**
-     * Makes an RPC call to the Temporal workflow service with zero-copy protobuf parsing.
+     * Makes an RPC call to the Temporal workflow service with zero-copy protobuf serialization and parsing.
      *
      * Uses reusable callback stubs via the dispatcher for better performance.
-     * The response is parsed directly from native memory without intermediate ByteArray copy.
+     * Both request serialization and response parsing use zero-copy:
+     * - Request is serialized directly to native memory without intermediate ByteArray
+     * - Response is parsed directly from native memory without intermediate ByteArray copy
      *
      * @param rpc The RPC method name (e.g., "StartWorkflowExecution")
-     * @param request The request payload as protobuf bytes
+     * @param request The request protobuf message
      * @param parser Function that parses the CodedInputStream into the response type
      * @return The parsed response
      * @throws TemporalCoreException if the RPC call fails
      */
-    suspend fun <T : MessageLite> workflowServiceCall(
+    suspend fun <Req : MessageLite, Resp : MessageLite> workflowServiceCall(
         rpc: String,
-        request: ByteArray,
-        parser: (CodedInputStream) -> T,
-    ): T {
-        ensureOpen()
-        return suspendCancellableCoroutine { continuation ->
-            var contextId: Long = 0
-            val contextPtr =
-                InternalClient.rpcCall(
-                    clientPtr = handle,
-                    arena = callbackArena,
-                    dispatcher = dispatcher,
-                    service = InternalClient.RpcService.WORKFLOW,
-                    rpc = rpc,
-                    request = request,
-                    parser = parser,
-                ) { response, statusCode, failureMessage, _ ->
-                    try {
-                        if (statusCode == 0 && response != null) {
-                            continuation.resume(response)
-                        } else if (statusCode != 0) {
-                            continuation.resumeWithException(
-                                TemporalCoreException(failureMessage ?: "RPC call failed with status $statusCode"),
-                            )
-                        } else {
-                            continuation.resumeWithException(
-                                TemporalCoreException("RPC call returned null response"),
-                            )
-                        }
-                    } catch (_: IllegalStateException) {
-                        // Continuation already resumed, ignore
-                    }
-                }
-            contextId = dispatcher.getContextId(contextPtr)
-            continuation.invokeOnCancellation {
-                dispatcher.cancelRpc(contextId)
-            }
-        }
-    }
+        request: Req,
+        parser: (CodedInputStream) -> Resp,
+    ): Resp = rpcCallInternal(InternalClient.RpcService.WORKFLOW, rpc, request, parser)
 
     /**
-     * Makes an RPC call to the Temporal test service with zero-copy protobuf parsing.
+     * Makes an RPC call to the Temporal test service with zero-copy protobuf serialization and parsing.
      *
      * This is only available when connected to a test server with time-skipping enabled.
      * Uses reusable callback stubs via the dispatcher for better performance.
-     * The response is parsed directly from native memory without intermediate ByteArray copy.
+     * Both request serialization and response parsing use zero-copy:
+     * - Request is serialized directly to native memory without intermediate ByteArray
+     * - Response is parsed directly from native memory without intermediate ByteArray copy
      *
      * @param rpc The RPC method name (e.g., "LockTimeSkipping", "GetCurrentTime")
-     * @param request The request payload as protobuf bytes
+     * @param request The request protobuf message
      * @param parser Function that parses the CodedInputStream into the response type
      * @return The parsed response
      * @throws TemporalCoreException if the RPC call fails
      */
-    suspend fun <T : MessageLite> testServiceCall(
+    suspend fun <Req : MessageLite, Resp : MessageLite> testServiceCall(
         rpc: String,
-        request: ByteArray,
-        parser: (CodedInputStream) -> T,
-    ): T {
+        request: Req,
+        parser: (CodedInputStream) -> Resp,
+    ): Resp = rpcCallInternal(InternalClient.RpcService.TEST, rpc, request, parser)
+
+    // ============================================================
+    // Private RPC Helpers
+    // ============================================================
+
+    private suspend fun <Req : MessageLite, Resp : MessageLite> rpcCallInternal(
+        service: InternalClient.RpcService,
+        rpc: String,
+        request: Req,
+        parser: (CodedInputStream) -> Resp,
+    ): Resp {
         ensureOpen()
-        return suspendCancellableCoroutine { continuation ->
-            var contextId: Long = 0
+        return dispatcher.withManagedArena { arena, continuation ->
             val contextPtr =
                 InternalClient.rpcCall(
                     clientPtr = handle,
-                    arena = callbackArena,
+                    arena = arena,
                     dispatcher = dispatcher,
-                    service = InternalClient.RpcService.TEST,
+                    service = service,
                     rpc = rpc,
                     request = request,
                     parser = parser,
                 ) { response, statusCode, failureMessage, _ ->
-                    try {
-                        if (statusCode == 0 && response != null) {
-                            continuation.resume(response)
-                        } else if (statusCode != 0) {
-                            continuation.resumeWithException(
-                                TemporalCoreException(failureMessage ?: "RPC call failed with status $statusCode"),
-                            )
-                        } else {
-                            continuation.resumeWithException(
-                                TemporalCoreException("RPC call returned null response"),
-                            )
-                        }
-                    } catch (_: IllegalStateException) {
-                        // Continuation already resumed, ignore
-                    }
+                    with(dispatcher) { continuation.resumeRpcResult(response, statusCode, failureMessage) }
                 }
-            contextId = dispatcher.getContextId(contextPtr)
-            continuation.invokeOnCancellation {
-                dispatcher.cancelRpc(contextId)
-            }
+            val contextId = dispatcher.getContextId(contextPtr);
+            { dispatcher.cancelRpc(contextId) }
         }
     }
 

@@ -407,7 +407,7 @@ class ActivityTestHarnessTest {
                 execute<Int, Int>("longRunning", 1)
 
                 assertEquals(1, heartbeats.size)
-                assertTrue(heartbeats[0].taskToken.isNotEmpty())
+                assertTrue(!heartbeats[0].taskToken.isEmpty)
             }
     }
 

@@ -35,7 +35,7 @@ internal class WorkflowServiceClient(
     suspend fun startWorkflowExecution(request: StartWorkflowExecutionRequest): StartWorkflowExecutionResponse =
         coreClient.workflowServiceCall(
             rpc = "StartWorkflowExecution",
-            request = request.toByteArray(),
+            request = request,
         ) { input -> StartWorkflowExecutionResponse.parseFrom(input) }
 
     /**
@@ -46,7 +46,7 @@ internal class WorkflowServiceClient(
     ): GetWorkflowExecutionHistoryResponse =
         coreClient.workflowServiceCall(
             rpc = "GetWorkflowExecutionHistory",
-            request = request.toByteArray(),
+            request = request,
         ) { input -> GetWorkflowExecutionHistoryResponse.parseFrom(input) }
 
     /**
@@ -57,7 +57,7 @@ internal class WorkflowServiceClient(
     ): DescribeWorkflowExecutionResponse =
         coreClient.workflowServiceCall(
             rpc = "DescribeWorkflowExecution",
-            request = request.toByteArray(),
+            request = request,
         ) { input -> DescribeWorkflowExecutionResponse.parseFrom(input) }
 
     /**
@@ -68,7 +68,7 @@ internal class WorkflowServiceClient(
     ): TerminateWorkflowExecutionResponse =
         coreClient.workflowServiceCall(
             rpc = "TerminateWorkflowExecution",
-            request = request.toByteArray(),
+            request = request,
         ) { input -> TerminateWorkflowExecutionResponse.parseFrom(input) }
 
     /**
@@ -77,7 +77,7 @@ internal class WorkflowServiceClient(
     suspend fun signalWorkflowExecution(request: SignalWorkflowExecutionRequest): SignalWorkflowExecutionResponse =
         coreClient.workflowServiceCall(
             rpc = "SignalWorkflowExecution",
-            request = request.toByteArray(),
+            request = request,
         ) { input -> SignalWorkflowExecutionResponse.parseFrom(input) }
 
     /**
@@ -88,7 +88,7 @@ internal class WorkflowServiceClient(
     ): RequestCancelWorkflowExecutionResponse =
         coreClient.workflowServiceCall(
             rpc = "RequestCancelWorkflowExecution",
-            request = request.toByteArray(),
+            request = request,
         ) { input -> RequestCancelWorkflowExecutionResponse.parseFrom(input) }
 
     /**
@@ -97,7 +97,7 @@ internal class WorkflowServiceClient(
     suspend fun updateWorkflowExecution(request: UpdateWorkflowExecutionRequest): UpdateWorkflowExecutionResponse =
         coreClient.workflowServiceCall(
             rpc = "UpdateWorkflowExecution",
-            request = request.toByteArray(),
+            request = request,
         ) { input -> UpdateWorkflowExecutionResponse.parseFrom(input) }
 
     /**
@@ -106,6 +106,6 @@ internal class WorkflowServiceClient(
     suspend fun queryWorkflow(request: QueryWorkflowRequest): QueryWorkflowResponse =
         coreClient.workflowServiceCall(
             rpc = "QueryWorkflow",
-            request = request.toByteArray(),
+            request = request,
         ) { input -> QueryWorkflowResponse.parseFrom(input) }
 }

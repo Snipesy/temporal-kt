@@ -11,6 +11,7 @@ import com.surrealdev.temporal.util.AttributeScope
 import com.surrealdev.temporal.util.Attributes
 import com.surrealdev.temporal.util.ExecutionScope
 import coresdk.activity_task.ActivityTaskOuterClass.Start
+import io.temporal.api.common.v1.Payload
 import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration.Companion.nanoseconds
 import kotlin.time.Duration.Companion.seconds
@@ -28,7 +29,7 @@ internal class ActivityContextImpl(
     private val taskToken: ByteString,
     private val taskQueue: String,
     override val serializer: PayloadSerializer,
-    private val heartbeatFn: suspend (ByteArray, ByteArray?) -> Unit,
+    private val heartbeatFn: suspend (ByteString, Payload?) -> Unit,
     override val parentScope: AttributeScope,
     private val parentCoroutineContext: CoroutineContext,
 ) : ActivityContext,
@@ -48,11 +49,11 @@ internal class ActivityContextImpl(
         buildActivityInfo()
     }
 
-    override suspend fun heartbeatWithPayload(details: io.temporal.api.common.v1.Payload?) {
+    override suspend fun heartbeatWithPayload(details: Payload?) {
         // Check cancellation before heartbeating
         cancellationException?.let { throw it }
 
-        heartbeatFn(taskToken.toByteArray(), details?.toByteArray())
+        heartbeatFn(taskToken, details)
 
         // Check cancellation after heartbeating (in case it was set during the call)
         cancellationException?.let { throw it }
