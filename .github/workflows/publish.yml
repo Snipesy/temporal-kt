@@ -248,6 +248,21 @@ jobs:
           echo "  native/macos-aarch64/libtemporalio_sdk_core_c_bridge.dylib"
           echo "  native/windows-x86_64/temporalio_sdk_core_c_bridge.dll"
 
+      - name: Set version from release tag
+        if: github.event_name == 'release'
+        run: |
+          VERSION="${{ github.event.release.tag_name }}"
+          # Remove 'v' prefix if present
+          VERSION="${VERSION#v}"
+          echo "Publishing version: $VERSION"
+          sed -i "s/version=.*/version=$VERSION/" gradle.properties
+
+      - name: Set version from input
+        if: github.event_name == 'workflow_dispatch' && inputs.version != ''
+        run: |
+          echo "Publishing version: ${{ inputs.version }}"
+          sed -i "s/version=.*/version=${{ inputs.version }}/" gradle.properties
+
       - name: Build classifier JARs
         run: |
           ./gradlew :core-bridge:jar \
@@ -278,21 +293,6 @@ jobs:
               jar tf "$f" | head -5
             fi
           done
-
-      - name: Set version from release tag
-        if: github.event_name == 'release'
-        run: |
-          VERSION="${{ github.event.release.tag_name }}"
-          # Remove 'v' prefix if present
-          VERSION="${VERSION#v}"
-          echo "Publishing version: $VERSION"
-          sed -i "s/version=.*/version=$VERSION/" gradle.properties
-
-      - name: Set version from input
-        if: github.event_name == 'workflow_dispatch' && inputs.version != ''
-        run: |
-          echo "Publishing version: ${{ inputs.version }}"
-          sed -i "s/version=.*/version=${{ inputs.version }}/" gradle.properties
 
       - name: Publish to Maven Central
         run: |
