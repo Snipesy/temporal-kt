@@ -130,29 +130,12 @@ public class GreetingWorkflowImpl implements GreetingWorkflow {
 @Workflow("GreetingWorkflow")
 class GreetingWorkflow {
     @WorkflowRun
-    suspend fun WorkflowContext.run(name: String): String {
-        return startActivity<String, String, String>(
-            activityType = "composeGreeting",
-            arg1 = "Hello",
-            arg2 = name,
-            startToCloseTimeout = 10.seconds,
-        ).result()
-    }
-}
-```
-
-Or use the `workflow()` helper to grab context from any coroutine:
-
-```kotlin
-@Workflow("GreetingWorkflow")
-class GreetingWorkflow {
-    @WorkflowRun
     suspend fun run(name: String): String {
         return workflow().startActivity<String, String, String>(
             activityType = "composeGreeting",
             arg1 = "Hello",
             arg2 = name,
-            startToCloseTimeout = 10.seconds,
+            scheduleToCloseTimeout = 10.seconds,
         ).result()
     }
 }
@@ -167,8 +150,7 @@ Workflow.sleep(Duration.ofSeconds(10));
 
 ```kotlin
 // Kotlin
-sleep(10.seconds)
-delay(10.seconds)  // from kotlinx.coroutines will also work when called inside a workflow context
+workflow().sleep(10.seconds)
 ```
 
 ### Random & UUID
@@ -181,8 +163,7 @@ String uuid = Workflow.randomUUID().toString();
 
 ```kotlin
 // Kotlin
-val random = random().nextInt()
-val uuid = randomUuid()
+val uuid = workflow().randomUuid()
 ```
 
 ## Signals
@@ -207,15 +188,15 @@ class OrderWorkflow {
     private var approver: String? = null
 
     @WorkflowRun
-    suspend fun WorkflowContext.run(order: Order): OrderResult {
-        awaitCondition { approved }
+    suspend fun run(order: Order): OrderResult {
+        workflow().awaitCondition { approved }
         return OrderResult(order.id, approver!!)
     }
 
     @Signal("approve")
-    fun WorkflowContext.approve(approver: String) {
-        this@OrderWorkflow.approved = true
-        this@OrderWorkflow.approver = approver
+    fun approve(approver: String) {
+        this.approved = true
+        this.approver = approver
     }
 }
 ```
@@ -238,10 +219,10 @@ class OrderWorkflow {
     private var status = OrderStatus.PENDING
 
     @Query("getStatus")
-    fun WorkflowContext.getStatus(): OrderStatus = status
+    fun getStatus(): OrderStatus = status
 
     @WorkflowRun
-    suspend fun WorkflowContext.run(order: Order): OrderResult {
+    suspend fun run(order: Order): OrderResult {
         status = OrderStatus.PROCESSING
         // ...
     }
@@ -274,14 +255,14 @@ class CartWorkflow {
     }
 
     @Update("addItem")
-    suspend fun WorkflowContext.addItem(item: CartItem): Int {
+    fun addItem(item: CartItem): Int {
         items.add(item)
         return items.size
     }
 
     @WorkflowRun
-    suspend fun WorkflowContext.run(): CartResult {
-        awaitCondition { items.isNotEmpty() }
+    suspend fun run(): CartResult {
+        workflow().awaitCondition { items.isNotEmpty() }
         // ...
     }
 }
@@ -343,5 +324,6 @@ val result = handle.result()
 handle.signal("approve", "manager@example.com")
 
 // Query workflow
-val status = handle.query<OrderStatus>("getStatus")
+// Type parameters are <WorkflowResult, QueryResult>
+val status = handle.query<String, OrderStatus>("getStatus")
 ```

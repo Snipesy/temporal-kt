@@ -14,18 +14,41 @@ to the Python SDK than it is to the Java SDK.
 
 ### Installation
 
-Add the core dependency to your `build.gradle.kts`:
+The Temporal Gradle plugin automatically handles platform detection:
 
 ```kotlin
 plugins {
-    kotlin("jvm") version "2.3.0"
-    kotlin("plugin.serialization") version "2.3.0"
+    id("com.surrealdev.temporal") version "VERSION"
 }
 
 dependencies {
-    implementation("com.surrealdev.temporal:core:0.1.0-alpha06")
+    implementation("com.surrealdev.temporal:core:VERSION")
+}
+
+temporal {
+    native()  // Adds the correct platform-specific native library
 }
 ```
+
+Or with an explicit version for the native library:
+
+```kotlin
+temporal {
+    native("1.0.0")  // Use specific version
+}
+```
+
+#### Manual Installation
+
+If you prefer not to use the plugin, specify your platform directly:
+
+| Platform                      | Classifier          |
+|-------------------------------|---------------------|
+| Linux x86_64                  | `linux-x86_64-gnu`  |
+| Linux aarch64                 | `linux-aarch64-gnu` |
+| macOS x86_64                  | `macos-x86_64`      |
+| macOS aarch64 (Apple Silicon) | `macos-aarch64`     |
+| Windows x86_64                | `windows-x86_64`    |
 
 ### Hello World
 
@@ -110,34 +133,55 @@ not possible with Java (even with virtual threads).
 Example Workflow
 
 ```kotlin
-
 @Workflow("MyWorkflowName")
 class MyWorkflow {
     @WorkflowRun
     suspend fun run(input: InputModel): OutputModel {
+        val ctx = workflow()
+
         // Run 2 activities sequentially
-        val resultA = workflow().executeActivity<String, String>("activityB", input.paramB).result()
-        val resultB = workflow().executeActivity<String, String>("activityA", input.paramA).result()
+        val resultA = ctx.startActivity<String, String>(
+            activityType = "activityA",
+            arg = input.paramA,
+            scheduleToCloseTimeout = 10.seconds
+        ).result()
 
+        val resultB = ctx.startActivity<String, String>(
+            activityType = "activityB",
+            arg = input.paramB,
+            scheduleToCloseTimeout = 10.seconds
+        ).result()
 
-        // Run multiple activities in parallel
-        val deferredActivities = listOf(
-            workflow().executeActivity<String, String>("activityC", resultA),
-            workflow().executeActivity<String, String>("activityD", resultB)
+        // Run multiple activities in parallel using handles
+        val handleC = ctx.startActivity<String, String>(
+            activityType = "activityC",
+            arg = resultA,
+            scheduleToCloseTimeout = 10.seconds
         )
-        val results = listOf(
-            workflow().deferredActivities[0].result(),
-            workflow().deferredActivities[1].result()
+        val handleD = ctx.startActivity<String, String>(
+            activityType = "activityD",
+            arg = resultB,
+            scheduleToCloseTimeout = 10.seconds
         )
-        
-        // or use structured async
-        val deferred1 = async { workflow().executeActivity<String, String>("activityC", resultA).result() }
-        val deferred2 = async { workflow().executeActivity<String, String>("activityD", resultB).result() }
-        val results2 = listOf(
-            deferred1.await(),
-            deferred2.await()
-        ) // or use awaitAll()
-        
+        val results = listOf(handleC.result(), handleD.result())
+
+        // Or use coroutine async for parallel execution
+        val deferred1 = async {
+            ctx.startActivity<String, String>(
+                activityType = "activityC",
+                arg = resultA,
+                scheduleToCloseTimeout = 10.seconds
+            ).result()
+        }
+        val deferred2 = async {
+            ctx.startActivity<String, String>(
+                activityType = "activityD",
+                arg = resultB,
+                scheduleToCloseTimeout = 10.seconds
+            ).result()
+        }
+        val results2 = awaitAll(deferred1, deferred2)
+
         return OutputModel(results[0], results[1])
     }
 }

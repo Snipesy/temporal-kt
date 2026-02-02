@@ -260,7 +260,7 @@ val client = TemporalClient.connect {
     apiKey = System.getenv("TEMPORAL_API_KEY")
 }
 
-val handle: String = client.startWorkflow(
+val handle = client.startWorkflow<String, String>(
     workflowType = "MyWorkflow",
     taskQueue = "my-queue",
     arg = "input",
