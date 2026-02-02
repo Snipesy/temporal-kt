@@ -79,14 +79,9 @@ jobs:
         with:
           toolchain: stable
           target: ${{ matrix.rust-targets }}
-
-      - name: Cache Rust build
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: "core-bridge/rust/sdk-core -> target"
-          key: ${{ matrix.platform }}
-          cache-on-failure: true
+          cache-workspaces: "core-bridge/rust/sdk-core -> target"
           cache-all-crates: true
+          cache-on-failure: true
 
       - name: Install protobuf (Linux)
         if: runner.os == 'Linux'

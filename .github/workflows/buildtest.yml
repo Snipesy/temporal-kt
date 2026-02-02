@@ -24,11 +24,10 @@ jobs:
 
       - name: Set up Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
-
-      - name: Cache Rust build
-        uses: Swatinem/rust-cache@v2
         with:
-          workspaces: "core-bridge/rust/sdk-core -> target"
+          toolchain: stable
+          target: ${{ matrix.rust-targets }}
+          cache-workspaces: "core-bridge/rust/sdk-core -> target"
           cache-all-crates: true
           cache-on-failure: true
 
