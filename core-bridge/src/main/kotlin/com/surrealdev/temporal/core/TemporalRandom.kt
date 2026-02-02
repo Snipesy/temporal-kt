@@ -23,7 +23,6 @@ class TemporalRandom(
     seed: Long,
 ) : AutoCloseable {
     private val handle: MemorySegment = TemporalCoreRandom.createRandom(seed)
-    private val arena: Arena = Arena.ofConfined()
 
     @Volatile
     private var closed = false
@@ -69,7 +68,9 @@ class TemporalRandom(
      */
     fun nextBytes(bytes: ByteArray) {
         ensureOpen()
-        TemporalCoreRandom.randomFillBytes(handle, arena, bytes)
+        Arena.ofConfined().use { arena ->
+            TemporalCoreRandom.randomFillBytes(handle, arena, bytes)
+        }
     }
 
     /**
@@ -101,7 +102,6 @@ class TemporalRandom(
             if (closed) return
             closed = true
             TemporalCoreRandom.freeRandom(handle)
-            arena.close()
         }
     }
 }
