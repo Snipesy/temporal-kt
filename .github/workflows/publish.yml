@@ -83,10 +83,10 @@ jobs:
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: "core-bridge/rust -> target"
+          workspaces: "core-bridge/rust/sdk-core -> target"
           key: ${{ matrix.platform }}
           cache-on-failure: true
-          cache-workspace-crates: "true"
+          cache-all-crates: true
 
       - name: Install protobuf (Linux)
         if: runner.os == 'Linux'
