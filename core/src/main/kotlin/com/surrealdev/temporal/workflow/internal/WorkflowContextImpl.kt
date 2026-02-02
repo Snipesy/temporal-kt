@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.util.AttributeScope
@@ -62,12 +63,6 @@ internal class WorkflowContextImpl(
     ExecutionScope {
     companion object {
         private val logger = Logger.getLogger(WorkflowContextImpl::class.java.name)
-
-        /**
-         * When true, skips dispatcher validation. Used for unit testing.
-         */
-        @Volatile
-        internal var skipDispatcherCheck: Boolean = false
     }
 
     /**
@@ -77,7 +72,7 @@ internal class WorkflowContextImpl(
      * Call this at the start of any workflow operation that creates commands or mutates state.
      */
     internal suspend fun ensureOnWorkflowDispatcher(operationName: String) {
-        if (skipDispatcherCheck) return
+        if (currentCoroutineContext()[SkipDispatcherCheck.Key] != null) return
         val currentDispatcher = currentCoroutineContext()[ContinuationInterceptor]
         if (currentDispatcher !== workflowDispatcher) {
             throw EscapedDispatcherException(
@@ -898,4 +893,25 @@ private fun com.surrealdev.temporal.workflow.RetryPolicy.toProto(): io.temporal.
     }
 
     return retryPolicyBuilder.build()
+}
+
+/**
+ * Coroutine context element that signals to skip dispatcher validation.
+ *
+ * Used for unit testing workflow context operations without a full workflow environment.
+ * When present in the coroutine context, [WorkflowContextImpl.ensureOnWorkflowDispatcher]
+ * will not throw [EscapedDispatcherException].
+ *
+ * Usage:
+ * ```kotlin
+ * withContext(SkipDispatcherCheck) {
+ *     // workflow context operations work without dispatcher validation
+ * }
+ * ```
+ */
+@InternalTemporalApi
+object SkipDispatcherCheck : CoroutineContext.Element {
+    override val key: CoroutineContext.Key<*> = Key
+
+    object Key : CoroutineContext.Key<SkipDispatcherCheck>
 }

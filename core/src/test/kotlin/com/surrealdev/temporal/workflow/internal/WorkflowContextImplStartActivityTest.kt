@@ -1,6 +1,7 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
+import com.surrealdev.temporal.testing.runWorkflowUnitTest
 import com.surrealdev.temporal.util.Attributes
 import com.surrealdev.temporal.util.SimpleAttributeScope
 import com.surrealdev.temporal.workflow.ActivityOptions
@@ -8,7 +9,6 @@ import com.surrealdev.temporal.workflow.RetryPolicy
 import com.surrealdev.temporal.workflow.WorkflowInfo
 import com.surrealdev.temporal.workflow.startActivity
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -31,16 +31,6 @@ import kotlin.time.Instant
  */
 class WorkflowContextImplStartActivityTest {
     private val serializer = KotlinxJsonSerializer()
-
-    @org.junit.jupiter.api.BeforeEach
-    fun setup() {
-        WorkflowContextImpl.skipDispatcherCheck = true
-    }
-
-    @org.junit.jupiter.api.AfterEach
-    fun teardown() {
-        WorkflowContextImpl.skipDispatcherCheck = false
-    }
 
     private fun createContext(): WorkflowContextImpl {
         val state = WorkflowState("test-run-id")
@@ -93,7 +83,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `startActivity throws ReadOnlyContextException during query processing`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
             val state = getState(context)
             state.isReadOnly = true // Simulate query processing
@@ -112,7 +102,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `startActivity validates activityType is non-blank`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
             val options = ActivityOptions(startToCloseTimeout = 30.seconds)
 
@@ -128,7 +118,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `startActivity requires at least one timeout`() =
-        runTest {
+        runWorkflowUnitTest {
             // Validation now happens in ActivityOptions constructor
             val exception =
                 assertFailsWith<IllegalArgumentException> {
@@ -145,7 +135,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `startActivity validates startToCloseTimeout is positive`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
             val options = ActivityOptions(startToCloseTimeout = (-1).seconds)
 
@@ -160,7 +150,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `startActivity validates scheduleToCloseTimeout is positive`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
             val options = ActivityOptions(scheduleToCloseTimeout = (-1).seconds)
 
@@ -175,7 +165,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `startActivity validates scheduleToStartTimeout is positive`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
             val options =
                 ActivityOptions(
@@ -194,7 +184,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `startActivity validates heartbeatTimeout is positive`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
             val options =
                 ActivityOptions(
@@ -215,7 +205,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `startActivity validates scheduleToClose greater than or equal to startToClose`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
             val options =
                 ActivityOptions(
@@ -234,7 +224,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `startActivity validates scheduleToStart less than scheduleToClose`() =
-        runTest {
+        runWorkflowUnitTest {
             // Validation now happens in ActivityOptions constructor
             val exception =
                 assertFailsWith<IllegalArgumentException> {
@@ -250,7 +240,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `startActivity rejects scheduleToStart equal to scheduleToClose`() =
-        runTest {
+        runWorkflowUnitTest {
             // Validation now happens in ActivityOptions constructor
             // Equal is NOT valid - must be strictly less than
             val exception =
@@ -266,7 +256,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `startActivity validates three-timeout relationship`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
             val options =
                 ActivityOptions(
@@ -287,7 +277,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `startActivity accepts valid three-timeout relationship`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
             val options =
                 ActivityOptions(
@@ -305,7 +295,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `startActivity warns when heartbeat greater than or equal to startToClose`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
             val options =
                 ActivityOptions(
@@ -322,7 +312,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `startActivity validates priority minimum is 0`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
             val options =
                 ActivityOptions(
@@ -341,7 +331,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `startActivity validates priority maximum is 100`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
             val options =
                 ActivityOptions(
@@ -360,7 +350,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `startActivity accepts valid priority range`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
 
             // Test boundary values
@@ -394,7 +384,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `startActivity validates RetryPolicy backoffCoefficient greater than 1`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
             val options =
                 ActivityOptions(
@@ -413,7 +403,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `startActivity validates RetryPolicy maximumAttempts positive`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
             val options =
                 ActivityOptions(
@@ -431,7 +421,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `startActivity validates RetryPolicy maximumInterval greater than or equal to initialInterval`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
             val options =
                 ActivityOptions(
@@ -456,7 +446,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `startActivity generates correct activity ID from seq`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
             val options = ActivityOptions(startToCloseTimeout = 30.seconds)
 
@@ -468,7 +458,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `startActivity uses custom activity ID when provided`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
             val customId = "custom-activity-id-123"
             val options =
@@ -486,7 +476,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `startActivity returns handle with correct properties`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
             val options =
                 ActivityOptions(
@@ -505,7 +495,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `startActivity registers handle in workflow state`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
             val state =
                 (context as WorkflowContextImpl).let { ctx ->
@@ -530,7 +520,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `startActivity generates ScheduleActivity command`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
             val state = getState(context)
             val options = ActivityOptions(startToCloseTimeout = 30.seconds)
@@ -544,7 +534,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `ScheduleActivity command has correct seq`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
             val state = getState(context)
             val options = ActivityOptions(startToCloseTimeout = 30.seconds)
@@ -557,7 +547,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `ScheduleActivity command has correct activityId and activityType`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
             val state = getState(context)
             val options =
@@ -575,7 +565,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `ScheduleActivity command uses workflow taskQueue by default`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
             val state = getState(context)
             val options = ActivityOptions(startToCloseTimeout = 30.seconds)
@@ -588,7 +578,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `ScheduleActivity command uses custom taskQueue when provided`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
             val state = getState(context)
             val options =
@@ -605,7 +595,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `ScheduleActivity command sets all timeout fields`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
             val state = getState(context)
             val options =
@@ -632,7 +622,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `ScheduleActivity command sets retry policy correctly`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
             val state = getState(context)
             val options =
@@ -663,7 +653,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `ScheduleActivity command sets cancellation type`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
             val state = getState(context)
 
@@ -695,7 +685,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `ScheduleActivity command sets versioning intent`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
             val state = getState(context)
 
@@ -727,7 +717,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `ScheduleActivity command sets headers when provided`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
             val state = getState(context)
             val headers =
@@ -763,7 +753,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `ScheduleActivity command sets disableEagerExecution flag`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
             val state = getState(context)
 
@@ -792,7 +782,7 @@ class WorkflowContextImplStartActivityTest {
 
     @Test
     fun `ScheduleActivity command sets priority field`() =
-        runTest {
+        runWorkflowUnitTest {
             val context = createContext()
             val state = getState(context)
 

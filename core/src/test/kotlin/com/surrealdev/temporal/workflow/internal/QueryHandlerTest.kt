@@ -11,11 +11,9 @@ import com.surrealdev.temporal.testing.ProtoTestHelpers.createActivation
 import com.surrealdev.temporal.testing.ProtoTestHelpers.initializeWorkflowJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.queryWorkflowJob
 import com.surrealdev.temporal.testing.createTestWorkflowExecutor
+import com.surrealdev.temporal.testing.runWorkflowUnitTest
 import com.surrealdev.temporal.workflow.WorkflowContext
-import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
-import org.junit.jupiter.api.AfterEach
-import org.junit.jupiter.api.BeforeEach
 import java.util.UUID
 import kotlin.reflect.full.findAnnotation
 import kotlin.reflect.typeOf
@@ -37,16 +35,6 @@ import kotlin.time.Duration.Companion.seconds
  */
 class QueryHandlerTest {
     private val serializer = KotlinxJsonSerializer()
-
-    @BeforeEach
-    fun setup() {
-        WorkflowContextImpl.skipDispatcherCheck = true
-    }
-
-    @AfterEach
-    fun teardown() {
-        WorkflowContextImpl.skipDispatcherCheck = false
-    }
 
     // ================================================================
     // Test Workflow Classes
@@ -364,7 +352,7 @@ class QueryHandlerTest {
 
     @Test
     fun `query handler returns result successfully`() =
-        runTest {
+        runWorkflowUnitTest {
             val (executor, runId) = createInitializedExecutor(SimpleQueryWorkflow())
 
             // Process query
@@ -386,7 +374,7 @@ class QueryHandlerTest {
 
     @Test
     fun `query handler with arguments deserializes args correctly`() =
-        runTest {
+        runWorkflowUnitTest {
             val (executor, runId) = createInitializedExecutor(QueryWithArgsWorkflow())
 
             // Serialize the argument
@@ -423,7 +411,7 @@ class QueryHandlerTest {
 
     @Test
     fun `query handler with multiple arguments works correctly`() =
-        runTest {
+        runWorkflowUnitTest {
             val (executor, runId) = createInitializedExecutor(QueryWithArgsWorkflow())
 
             val startArg = serializer.serialize(1)
@@ -459,7 +447,7 @@ class QueryHandlerTest {
 
     @Test
     fun `suspend query handler executes correctly`() =
-        runTest {
+        runWorkflowUnitTest {
             val (executor, runId) = createInitializedExecutor(SuspendQueryWorkflow())
 
             val queryActivation =
@@ -479,7 +467,7 @@ class QueryHandlerTest {
 
     @Test
     fun `query handler without context receiver works`() =
-        runTest {
+        runWorkflowUnitTest {
             val (executor, runId) = createInitializedExecutor(NoContextQueryWorkflow())
 
             val queryActivation =
@@ -499,7 +487,7 @@ class QueryHandlerTest {
 
     @Test
     fun `complex query with serializable types works`() =
-        runTest {
+        runWorkflowUnitTest {
             val (executor, runId) = createInitializedExecutor(ComplexQueryWorkflow())
 
             val arg = QueryArg(name = "Test", value = 2)
@@ -540,7 +528,7 @@ class QueryHandlerTest {
 
     @Test
     fun `dynamic handler is used for unknown query types`() =
-        runTest {
+        runWorkflowUnitTest {
             val (executor, runId) = createInitializedExecutor(DynamicQueryWorkflow())
 
             val queryActivation =
@@ -560,7 +548,7 @@ class QueryHandlerTest {
 
     @Test
     fun `specific handler takes precedence over dynamic handler`() =
-        runTest {
+        runWorkflowUnitTest {
             val (executor, runId) = createInitializedExecutor(DynamicQueryWorkflow())
 
             val queryActivation =
@@ -590,7 +578,7 @@ class QueryHandlerTest {
 
     @Test
     fun `unknown query type returns failure when no dynamic handler`() =
-        runTest {
+        runWorkflowUnitTest {
             val (executor, runId) = createInitializedExecutor(SimpleQueryWorkflow())
 
             val queryActivation =
@@ -612,7 +600,7 @@ class QueryHandlerTest {
 
     @Test
     fun `query handler exception returns failure result`() =
-        runTest {
+        runWorkflowUnitTest {
             val (executor, runId) = createInitializedExecutor(ThrowingQueryWorkflow())
 
             val queryActivation =
@@ -633,7 +621,7 @@ class QueryHandlerTest {
 
     @Test
     fun `query handler null pointer exception returns failure result`() =
-        runTest {
+        runWorkflowUnitTest {
             val (executor, runId) = createInitializedExecutor(ThrowingQueryWorkflow())
 
             val queryActivation =
@@ -657,7 +645,7 @@ class QueryHandlerTest {
 
     @Test
     fun `multiple queries in same activation are all processed`() =
-        runTest {
+        runWorkflowUnitTest {
             val (executor, runId) = createInitializedExecutor(MultiQueryWorkflow())
 
             val queryActivation =
@@ -687,7 +675,7 @@ class QueryHandlerTest {
 
     @Test
     fun `mixed success and failure queries in same activation`() =
-        runTest {
+        runWorkflowUnitTest {
             val (executor, runId) = createInitializedExecutor(SimpleQueryWorkflow())
 
             val queryActivation =
@@ -796,7 +784,7 @@ class QueryHandlerTest {
 
     @Test
     fun `runtime query handler is invoked correctly`() =
-        runTest {
+        runWorkflowUnitTest {
             val (executor, runId) = createInitializedExecutor(RuntimeQueryWorkflow())
 
             val queryActivation =
@@ -822,7 +810,7 @@ class QueryHandlerTest {
 
     @Test
     fun `runtime dynamic query handler catches unknown queries`() =
-        runTest {
+        runWorkflowUnitTest {
             val (executor, runId) = createInitializedExecutor(RuntimeDynamicQueryWorkflow())
 
             val queryActivation =
@@ -848,7 +836,7 @@ class QueryHandlerTest {
 
     @Test
     fun `runtime handler takes precedence over annotation handler`() =
-        runTest {
+        runWorkflowUnitTest {
             val (executor, runId) = createInitializedExecutor(RuntimeOverrideWorkflow())
 
             val queryActivation =
@@ -874,7 +862,7 @@ class QueryHandlerTest {
 
     @Test
     fun `runtime handler serializes string correctly`() =
-        runTest {
+        runWorkflowUnitTest {
             val (executor, runId) = createInitializedExecutor(RuntimeSerializationWorkflow())
 
             val queryActivation =
@@ -900,7 +888,7 @@ class QueryHandlerTest {
 
     @Test
     fun `runtime handler serializes int correctly`() =
-        runTest {
+        runWorkflowUnitTest {
             val (executor, runId) = createInitializedExecutor(RuntimeSerializationWorkflow())
 
             val queryActivation =
@@ -926,7 +914,7 @@ class QueryHandlerTest {
 
     @Test
     fun `runtime handler serializes list correctly`() =
-        runTest {
+        runWorkflowUnitTest {
             val (executor, runId) = createInitializedExecutor(RuntimeSerializationWorkflow())
 
             val queryActivation =
@@ -952,7 +940,7 @@ class QueryHandlerTest {
 
     @Test
     fun `runtime handler serializes complex type correctly`() =
-        runTest {
+        runWorkflowUnitTest {
             val (executor, runId) = createInitializedExecutor(RuntimeSerializationWorkflow())
 
             val queryActivation =
@@ -978,7 +966,7 @@ class QueryHandlerTest {
 
     @Test
     fun `runtime handler returning null produces empty payload`() =
-        runTest {
+        runWorkflowUnitTest {
             val (executor, runId) = createInitializedExecutor(RuntimeSerializationWorkflow())
 
             val queryActivation =
@@ -1005,7 +993,7 @@ class QueryHandlerTest {
 
     @Test
     fun `unregistered runtime handler falls through to annotation or fails`() =
-        runTest {
+        runWorkflowUnitTest {
             val (executor, runId) = createInitializedExecutor(RuntimeUnregisterWorkflow())
 
             val queryActivation =
@@ -1031,7 +1019,7 @@ class QueryHandlerTest {
 
     @Test
     fun `query handler state mutation attempt returns failure`() =
-        runTest {
+        runWorkflowUnitTest {
             val (executor, runId) = createInitializedExecutor(MutatingQueryWorkflow())
 
             val queryActivation =
