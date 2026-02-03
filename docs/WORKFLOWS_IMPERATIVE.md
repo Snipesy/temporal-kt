@@ -887,3 +887,194 @@ class LoggingWorkflow {
         }
     }
 }
+```
+
+### Search Attributes
+
+Search attributes allow you to query workflows based on custom metadata. They enable powerful workflow visibility and filtering through Temporal's search functionality.
+
+#### Search Attribute Types
+
+Temporal supports several typed search attributes:
+
+| Type | Kotlin Type | Description |
+|------|-------------|-------------|
+| `Text` | `String` | Full-text searchable string |
+| `Keyword` | `String` | Exact-match string (for filtering/equality) |
+| `Int` | `Long` | 64-bit integer |
+| `Double` | `Double` | Floating point number |
+| `Bool` | `Boolean` | Boolean value |
+| `Datetime` | `Instant` | Timestamp (stored as ISO 8601) |
+| `KeywordList` | `List<String>` | List of exact-match strings |
+
+#### Define Search Attribute Keys
+
+```kotlin
+import com.surrealdev.temporal.common.SearchAttributeKey
+
+// Define reusable keys as constants
+val CUSTOMER_ID = SearchAttributeKey.forKeyword("CustomerId")
+val ORDER_COUNT = SearchAttributeKey.forInt("OrderCount")
+val IS_PREMIUM = SearchAttributeKey.forBool("IsPremium")
+val CREATED_AT = SearchAttributeKey.forDatetime("CreatedAt")
+val TOTAL_AMOUNT = SearchAttributeKey.forDouble("TotalAmount")
+val TAGS = SearchAttributeKey.forKeywordList("Tags")
+val DESCRIPTION = SearchAttributeKey.forText("Description")
+```
+
+#### Start Workflow with Search Attributes
+
+```kotlin
+import com.surrealdev.temporal.common.searchAttributes
+import java.time.Instant
+
+fun main() = runBlocking {
+    val client = TemporalClient.connect {
+        target = "http://localhost:7233"
+        namespace = "default"
+    }
+
+    val handle = client.startWorkflow<String>(
+        workflowType = "OrderWorkflow",
+        taskQueue = "orders",
+        options = WorkflowStartOptions(
+            searchAttributes = searchAttributes {
+                CUSTOMER_ID to "cust-123"
+                ORDER_COUNT to 42L
+                IS_PREMIUM to true
+                CREATED_AT to Instant.now()
+                TOTAL_AMOUNT to 199.99
+                TAGS to listOf("urgent", "vip")
+            }
+        )
+    )
+
+    val result = handle.result()
+}
+```
+
+#### Child Workflows with Search Attributes
+
+```kotlin
+@Workflow("ParentWorkflow")
+class ParentWorkflow {
+    @WorkflowRun
+    suspend fun run(customerId: String): String {
+        val childResult = workflow().startChildWorkflow<String, String>(
+            workflowType = "ChildWorkflow",
+            arg = customerId,
+            options = ChildWorkflowOptions(
+                searchAttributes = searchAttributes {
+                    CUSTOMER_ID to customerId
+                    IS_PREMIUM to false
+                }
+            )
+        ).result()
+
+        return "Parent completed: $childResult"
+    }
+}
+```
+
+#### Update Search Attributes During Execution
+
+Use `upsertSearchAttributes` to modify search attributes while a workflow is running. This is useful for tracking workflow progress, updating status, or adding metadata discovered during execution.
+
+```kotlin
+import com.surrealdev.temporal.workflow.upsertSearchAttributes
+
+@Workflow("OrderProcessingWorkflow")
+class OrderProcessingWorkflow {
+    @WorkflowRun
+    suspend fun run(orderId: String): OrderResult {
+        val ctx = workflow()
+
+        // Update status as workflow progresses
+        upsertSearchAttributes {
+            ORDER_STATUS to "validating"
+        }
+
+        val validationResult = ctx.startActivity<ValidationResult, String>(
+            ::validateOrder,
+            arg = orderId,
+            scheduleToCloseTimeout = 30.seconds
+        ).result()
+
+        // Update with validation results
+        upsertSearchAttributes {
+            ORDER_STATUS to "processing"
+            IS_VALID to validationResult.isValid
+            TOTAL_AMOUNT to validationResult.amount
+        }
+
+        // Process the order...
+        val result = processOrder(orderId)
+
+        // Final status update
+        upsertSearchAttributes {
+            ORDER_STATUS to "completed"
+            COMPLETED_AT to ctx.now()
+        }
+
+        return result
+    }
+}
+```
+
+**Notes:**
+- Upserting merges with existing search attributes (doesn't replace all)
+- Changes are visible in Temporal UI and CLI queries after a short visibility delay
+- Use this for tracking long-running workflow progress or updating metadata discovered during execution
+
+#### Query Workflows by Search Attributes
+
+Use the Temporal CLI or client API to query workflows:
+
+```bash
+# Find workflows by customer ID
+temporal workflow list -q "CustomerId = 'cust-123'"
+
+# Find premium customers with high order counts
+temporal workflow list -q "IsPremium = true AND OrderCount > 10"
+
+# Find workflows created in the last hour
+temporal workflow list -q "CreatedAt > '2024-01-15T10:00:00Z'"
+
+# Find workflows with specific tags
+temporal workflow list -q "'urgent' IN Tags"
+
+# Full-text search in description
+temporal workflow list -q "Description LIKE '%important%'"
+```
+
+#### Query Workflows from Client Code
+
+```kotlin
+fun main() = runBlocking {
+    val client = TemporalClient.connect {
+        target = "http://localhost:7233"
+        namespace = "default"
+    }
+
+    // List workflows matching a query
+    val results = client.listWorkflows("CustomerId = 'cust-123' AND IsPremium = true")
+    for (execution in results.executions) {
+        println("Found: ${execution.workflowId} (${execution.status})")
+    }
+
+    // Paginate through results
+    var pageToken = results.nextPageToken
+    while (pageToken != null && !pageToken.isEmpty) {
+        val nextPage = client.listWorkflows(
+            query = "CustomerId = 'cust-123'",
+            pageSize = 100
+        )
+        // Process nextPage.executions...
+        pageToken = nextPage.nextPageToken
+    }
+
+    // Count workflows matching a query
+    val count = client.countWorkflows("IsPremium = true")
+    println("Total premium workflows: $count")
+}
+```

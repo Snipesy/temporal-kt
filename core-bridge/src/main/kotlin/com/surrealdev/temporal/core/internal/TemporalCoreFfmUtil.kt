@@ -26,6 +26,17 @@ internal object TemporalCoreFfmUtil {
     private val EMPTY_BYTES = ByteArray(0)
 
     /**
+     * A valid non-null pointer for empty byte arrays.
+     * Rust's std::slice::from_raw_parts requires a non-null, properly aligned pointer
+     * even when size is 0 (undefined behavior otherwise). This singleton provides
+     * a valid pointer for all empty ByteArrayRef structs.
+     */
+    private val EMPTY_DATA_SEGMENT: MemorySegment =
+        java.lang.foreign.Arena
+            .global()
+            .allocate(1L)
+
+    /**
      * Ensures the native library is loaded.
      * Must be called before using any jextract-generated bindings.
      */
@@ -308,7 +319,7 @@ internal object TemporalCoreFfmUtil {
     ): MemorySegment {
         val ref = TemporalCoreByteArrayRef.allocate(allocator)
         if (value.isNullOrEmpty()) {
-            TemporalCoreByteArrayRef.data(ref, MemorySegment.NULL)
+            TemporalCoreByteArrayRef.data(ref, EMPTY_DATA_SEGMENT)
             TemporalCoreByteArrayRef.size(ref, 0L)
         } else {
             val bytes = value.toByteArray(Charsets.UTF_8)
@@ -333,7 +344,7 @@ internal object TemporalCoreFfmUtil {
     ): MemorySegment {
         val ref = TemporalCoreByteArrayRef.allocate(allocator)
         if (bytes == null || bytes.isEmpty()) {
-            TemporalCoreByteArrayRef.data(ref, MemorySegment.NULL)
+            TemporalCoreByteArrayRef.data(ref, EMPTY_DATA_SEGMENT)
             TemporalCoreByteArrayRef.size(ref, 0L)
         } else {
             val dataSegment = allocator.allocate(bytes.size.toLong())
@@ -365,14 +376,17 @@ internal object TemporalCoreFfmUtil {
     }
 
     /**
-     * Creates an empty TemporalCoreByteArrayRef (null data, zero size).
+     * Creates an empty TemporalCoreByteArrayRef (valid pointer, zero size).
+     *
+     * Uses a valid non-null pointer because Rust's std::slice::from_raw_parts
+     * requires a non-null, properly aligned pointer even when size is 0.
      *
      * @param allocator The allocator to use
      * @return A MemorySegment containing an empty ByteArrayRef struct
      */
     fun createEmptyByteArrayRef(allocator: SegmentAllocator): MemorySegment {
         val ref = TemporalCoreByteArrayRef.allocate(allocator)
-        TemporalCoreByteArrayRef.data(ref, MemorySegment.NULL)
+        TemporalCoreByteArrayRef.data(ref, EMPTY_DATA_SEGMENT)
         TemporalCoreByteArrayRef.size(ref, 0L)
         return ref
     }

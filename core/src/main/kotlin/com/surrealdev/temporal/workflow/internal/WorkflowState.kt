@@ -634,24 +634,42 @@ internal class WorkflowState(
      */
     private fun describeCommand(cmd: WorkflowCommand): String =
         when {
-            cmd.hasStartTimer() -> "StartTimer(seq=${cmd.startTimer.seq})"
-            cmd.hasScheduleActivity() ->
+            cmd.hasStartTimer() -> {
+                "StartTimer(seq=${cmd.startTimer.seq})"
+            }
+
+            cmd.hasScheduleActivity() -> {
                 "ScheduleActivity(type=${cmd.scheduleActivity.activityType}, seq=" +
                     "${cmd.scheduleActivity.seq})"
-            cmd.hasScheduleLocalActivity() ->
+            }
+
+            cmd.hasScheduleLocalActivity() -> {
                 "ScheduleLocalActivity(type=" +
                     "${cmd.scheduleLocalActivity.activityType}, seq=${cmd.scheduleLocalActivity.seq})"
-            cmd.hasStartChildWorkflowExecution() ->
+            }
+
+            cmd.hasStartChildWorkflowExecution() -> {
                 "StartChildWorkflow(type=" +
                     "${cmd.startChildWorkflowExecution.workflowType}, seq=${cmd.startChildWorkflowExecution.seq})"
-            cmd.hasSignalExternalWorkflowExecution() ->
+            }
+
+            cmd.hasSignalExternalWorkflowExecution() -> {
                 "SignalExternalWorkflow(seq=" +
                     "${cmd.signalExternalWorkflowExecution.seq})"
-            cmd.hasRequestCancelExternalWorkflowExecution() ->
+            }
+
+            cmd.hasRequestCancelExternalWorkflowExecution() -> {
                 "CancelExternalWorkflow(seq=" +
                     "${cmd.requestCancelExternalWorkflowExecution.seq})"
-            cmd.hasScheduleNexusOperation() -> "ScheduleNexusOperation(seq=${cmd.scheduleNexusOperation.seq})"
-            else -> cmd.toString().take(100)
+            }
+
+            cmd.hasScheduleNexusOperation() -> {
+                "ScheduleNexusOperation(seq=${cmd.scheduleNexusOperation.seq})"
+            }
+
+            else -> {
+                cmd.toString().take(100)
+            }
         }
 
     /**

@@ -2,6 +2,8 @@ package com.surrealdev.temporal.workflow
 
 import com.surrealdev.temporal.annotation.Activity
 import com.surrealdev.temporal.annotation.Workflow
+import com.surrealdev.temporal.common.SearchAttributesBuilder
+import com.surrealdev.temporal.common.searchAttributes
 import com.surrealdev.temporal.serialization.deserialize
 import com.surrealdev.temporal.serialization.serialize
 import io.temporal.api.common.v1.Payloads
@@ -1605,4 +1607,29 @@ inline fun <reified T1, reified T2, reified T3> WorkflowContext.continueAsNewTo(
             typeOf<T3>() to arg3,
         ),
     )
+}
+
+// =============================================================================
+// Search Attributes Extensions
+// =============================================================================
+
+/**
+ * Updates search attributes for this workflow execution using the DSL builder.
+ *
+ * This merges the provided attributes with existing ones.
+ * To remove an attribute, set its value to null.
+ *
+ * Example:
+ * ```kotlin
+ * upsertSearchAttributes {
+ *     CUSTOMER_STATUS to "premium"
+ *     ORDER_COUNT to currentOrderCount
+ *     OLD_ATTRIBUTE to null  // Removes this attribute
+ * }
+ * ```
+ *
+ * @param block DSL builder block to define search attributes
+ */
+suspend fun WorkflowContext.upsertSearchAttributes(block: SearchAttributesBuilder.() -> Unit) {
+    upsertSearchAttributes(searchAttributes(block))
 }

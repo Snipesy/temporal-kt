@@ -1,6 +1,8 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.common.SearchAttributeEncoder
+import com.surrealdev.temporal.common.TypedSearchAttributes
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.util.AttributeScope
@@ -674,6 +676,14 @@ internal class WorkflowContextImpl(
             commandBuilder.setRetryPolicy(policy.toProto())
         }
 
+        // Set search attributes if provided
+        options.searchAttributes?.let { attrs ->
+            if (attrs.isNotEmpty()) {
+                val encoded = SearchAttributeEncoder.encode(attrs, serializer)
+                commandBuilder.putAllSearchAttributes(encoded)
+            }
+        }
+
         val command =
             WorkflowCommands.WorkflowCommand
                 .newBuilder()
@@ -781,6 +791,31 @@ internal class WorkflowContextImpl(
             } else {
                 null
             }
+    }
+
+    override suspend fun upsertSearchAttributes(attributes: TypedSearchAttributes) {
+        ensureOnWorkflowDispatcher("upsertSearchAttributes")
+
+        if (attributes.isEmpty()) {
+            return // No-op for empty attributes
+        }
+
+        // Encode using existing SearchAttributeEncoder
+        val encoded = SearchAttributeEncoder.encode(attributes, serializer)
+
+        // Build the command
+        val command =
+            WorkflowCommands.WorkflowCommand
+                .newBuilder()
+                .setUpsertWorkflowSearchAttributes(
+                    WorkflowCommands.UpsertWorkflowSearchAttributes
+                        .newBuilder()
+                        .putAllSearchAttributes(encoded),
+                ).build()
+
+        state.addCommand(command)
+
+        logger.info("Upserted ${attributes.size} search attributes")
     }
 
     /**

@@ -1,6 +1,7 @@
 package com.surrealdev.temporal.workflow
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.common.TypedSearchAttributes
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import io.temporal.api.common.v1.Payloads
 import kotlinx.coroutines.CoroutineScope
@@ -448,6 +449,25 @@ interface WorkflowContext :
         )?,
         validator: ((updateName: String, args: List<io.temporal.api.common.v1.Payload>) -> Unit)? = null,
     )
+
+    /**
+     * Updates search attributes for this workflow execution.
+     *
+     * This merges the provided attributes with existing ones.
+     * To remove an attribute, set its value to null.
+     *
+     * Example:
+     * ```kotlin
+     * upsertSearchAttributes(searchAttributes {
+     *     CUSTOMER_STATUS to "premium"
+     *     ORDER_COUNT to currentOrderCount
+     *     OLD_ATTRIBUTE to null  // Removes this attribute
+     * })
+     * ```
+     *
+     * @param attributes Type-safe search attributes to upsert
+     */
+    suspend fun upsertSearchAttributes(attributes: TypedSearchAttributes)
 }
 
 /**
@@ -554,6 +574,8 @@ data class ChildWorkflowOptions(
     val parentClosePolicy: ParentClosePolicy = ParentClosePolicy.TERMINATE,
     /** How to handle cancellation of the child workflow. */
     val cancellationType: ChildWorkflowCancellationType = ChildWorkflowCancellationType.WAIT_CANCELLATION_COMPLETED,
+    /** Typed search attributes for the child workflow. */
+    val searchAttributes: TypedSearchAttributes? = null,
 )
 
 /**

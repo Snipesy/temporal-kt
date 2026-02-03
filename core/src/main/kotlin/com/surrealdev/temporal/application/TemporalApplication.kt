@@ -323,7 +323,7 @@ open class TemporalApplication internal constructor(
      * @return A configured [TemporalClient] instance.
      * @throws IllegalStateException if the application hasn't been started.
      */
-    suspend fun client(configure: TemporalClientConfig.() -> Unit = {}): TemporalClient {
+    fun client(configure: TemporalClientConfig.() -> Unit = {}): TemporalClient {
         val coreClientInstance = coreClient ?: throw IllegalStateException("Application not started")
 
         val clientConfig =

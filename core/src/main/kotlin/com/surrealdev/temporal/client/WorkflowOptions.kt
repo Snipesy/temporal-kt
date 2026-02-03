@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.client
 
+import com.surrealdev.temporal.common.TypedSearchAttributes
 import kotlin.time.Duration
 import io.temporal.api.enums.v1.WorkflowIdConflictPolicy as ProtoWorkflowIdConflictPolicy
 import io.temporal.api.enums.v1.WorkflowIdReusePolicy as ProtoWorkflowIdReusePolicy
@@ -15,7 +16,7 @@ import io.temporal.api.enums.v1.WorkflowIdReusePolicy as ProtoWorkflowIdReusePol
  * @property retryPolicy Retry policy for the workflow execution.
  * @property cronSchedule Cron schedule for recurring workflow executions.
  * @property memo Memo fields attached to the workflow.
- * @property searchAttributes Search attributes for the workflow.
+ * @property searchAttributes Typed search attributes for the workflow.
  */
 data class WorkflowStartOptions(
     val workflowExecutionTimeout: Duration? = null,
@@ -26,7 +27,7 @@ data class WorkflowStartOptions(
     val retryPolicy: RetryPolicy? = null,
     val cronSchedule: String? = null,
     val memo: Map<String, Any?>? = null,
-    val searchAttributes: Map<String, Any?>? = null,
+    val searchAttributes: TypedSearchAttributes? = null,
 )
 
 /**

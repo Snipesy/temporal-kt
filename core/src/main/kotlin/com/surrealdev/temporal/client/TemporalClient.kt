@@ -3,14 +3,18 @@ package com.surrealdev.temporal.client
 import com.google.protobuf.util.Durations
 import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.client.internal.WorkflowServiceClient
+import com.surrealdev.temporal.common.SearchAttributeEncoder
 import com.surrealdev.temporal.core.TemporalCoreClient
 import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
 import com.surrealdev.temporal.serialization.NoOpCodec
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import io.temporal.api.common.v1.Payloads
+import io.temporal.api.common.v1.SearchAttributes
 import io.temporal.api.common.v1.WorkflowType
 import io.temporal.api.taskqueue.v1.TaskQueue
+import io.temporal.api.workflowservice.v1.CountWorkflowExecutionsRequest
+import io.temporal.api.workflowservice.v1.ListWorkflowExecutionsRequest
 import io.temporal.api.workflowservice.v1.StartWorkflowExecutionRequest
 import org.slf4j.LoggerFactory
 import java.util.UUID
@@ -93,6 +97,48 @@ interface TemporalClient {
         runId: String?,
         resultTypeInfo: KType,
     ): WorkflowHandle<R>
+
+    /**
+     * Lists workflow executions matching the given query.
+     *
+     * Uses Temporal's visibility query language for filtering.
+     *
+     * Example:
+     * ```kotlin
+     * // List all running workflows
+     * val running = client.listWorkflows("ExecutionStatus = 'Running'")
+     *
+     * // List workflows with custom search attribute
+     * val premium = client.listWorkflows("CustomKeyword = 'premium'")
+     * ```
+     *
+     * @param query Visibility query string (empty string returns all)
+     * @param pageSize Maximum number of results to return
+     * @return List of workflow executions matching the query
+     */
+    suspend fun listWorkflows(
+        query: String = "",
+        pageSize: Int = 100,
+    ): WorkflowExecutionList
+
+    /**
+     * Counts workflow executions matching the given query.
+     *
+     * Uses Temporal's visibility query language for filtering.
+     *
+     * Example:
+     * ```kotlin
+     * // Count all running workflows
+     * val runningCount = client.countWorkflows("ExecutionStatus = 'Running'")
+     *
+     * // Count workflows with custom search attribute
+     * val premiumCount = client.countWorkflows("CustomKeyword = 'premium'")
+     * ```
+     *
+     * @param query Visibility query string (empty string counts all)
+     * @return Number of workflow executions matching the query
+     */
+    suspend fun countWorkflows(query: String = ""): Long
 
     /**
      * Closes the client connection.
@@ -304,6 +350,18 @@ class TemporalClientImpl internal constructor(
             requestBuilder.setCronSchedule(it)
         }
 
+        // Apply search attributes if specified
+        options.searchAttributes?.let { attrs ->
+            if (attrs.isNotEmpty()) {
+                val encoded = SearchAttributeEncoder.encode(attrs, serializer)
+                requestBuilder.setSearchAttributes(
+                    SearchAttributes
+                        .newBuilder()
+                        .putAllIndexedFields(encoded),
+                )
+            }
+        }
+
         logger.info(
             "[startWorkflow] Starting workflow type=$workflowType, taskQueue=$taskQueue, workflowId=$workflowId",
         )
@@ -335,6 +393,54 @@ class TemporalClientImpl internal constructor(
             serializer = serializer,
             codec = codec,
         )
+
+    override suspend fun listWorkflows(
+        query: String,
+        pageSize: Int,
+    ): WorkflowExecutionList {
+        val request =
+            ListWorkflowExecutionsRequest
+                .newBuilder()
+                .setNamespace(config.namespace)
+                .setQuery(query)
+                .setPageSize(pageSize)
+                .build()
+
+        val response = serviceClient.listWorkflowExecutions(request)
+
+        return WorkflowExecutionList(
+            executions =
+                response.executionsList.map { info ->
+                    WorkflowExecutionInfo(
+                        workflowId = info.execution.workflowId,
+                        runId = info.execution.runId,
+                        workflowType = info.type.name,
+                        status = WorkflowExecutionStatus.fromProto(info.status),
+                        startTime = info.startTime.seconds * 1000 + info.startTime.nanos / 1_000_000,
+                        closeTime =
+                            if (info.hasCloseTime()) {
+                                info.closeTime.seconds * 1000 + info.closeTime.nanos / 1_000_000
+                            } else {
+                                null
+                            },
+                        historyLength = info.historyLength,
+                        taskQueue = info.taskQueue,
+                    )
+                },
+            nextPageToken = response.nextPageToken.takeIf { !it.isEmpty },
+        )
+    }
+
+    override suspend fun countWorkflows(query: String): Long {
+        val request =
+            CountWorkflowExecutionsRequest
+                .newBuilder()
+                .setNamespace(config.namespace)
+                .setQuery(query)
+                .build()
+
+        return serviceClient.countWorkflowExecutions(request).count
+    }
 
     override suspend fun close() {
         // Currently no-op since the core client is managed by the application

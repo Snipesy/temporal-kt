@@ -1,10 +1,14 @@
 package com.surrealdev.temporal.client.internal
 
 import com.surrealdev.temporal.core.TemporalCoreClient
+import io.temporal.api.workflowservice.v1.CountWorkflowExecutionsRequest
+import io.temporal.api.workflowservice.v1.CountWorkflowExecutionsResponse
 import io.temporal.api.workflowservice.v1.DescribeWorkflowExecutionRequest
 import io.temporal.api.workflowservice.v1.DescribeWorkflowExecutionResponse
 import io.temporal.api.workflowservice.v1.GetWorkflowExecutionHistoryRequest
 import io.temporal.api.workflowservice.v1.GetWorkflowExecutionHistoryResponse
+import io.temporal.api.workflowservice.v1.ListWorkflowExecutionsRequest
+import io.temporal.api.workflowservice.v1.ListWorkflowExecutionsResponse
 import io.temporal.api.workflowservice.v1.QueryWorkflowRequest
 import io.temporal.api.workflowservice.v1.QueryWorkflowResponse
 import io.temporal.api.workflowservice.v1.RequestCancelWorkflowExecutionRequest
@@ -108,4 +112,22 @@ internal class WorkflowServiceClient(
             rpc = "QueryWorkflow",
             request = request,
         ) { input -> QueryWorkflowResponse.parseFrom(input) }
+
+    /**
+     * Lists workflow executions matching the given query.
+     */
+    suspend fun listWorkflowExecutions(request: ListWorkflowExecutionsRequest): ListWorkflowExecutionsResponse =
+        coreClient.workflowServiceCall(
+            rpc = "ListWorkflowExecutions",
+            request = request,
+        ) { input -> ListWorkflowExecutionsResponse.parseFrom(input) }
+
+    /**
+     * Counts workflow executions matching the given query.
+     */
+    suspend fun countWorkflowExecutions(request: CountWorkflowExecutionsRequest): CountWorkflowExecutionsResponse =
+        coreClient.workflowServiceCall(
+            rpc = "CountWorkflowExecutions",
+            request = request,
+        ) { input -> CountWorkflowExecutionsResponse.parseFrom(input) }
 }

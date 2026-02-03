@@ -2,6 +2,7 @@ package com.surrealdev.temporal.testing
 
 import com.surrealdev.temporal.client.TemporalClient
 import com.surrealdev.temporal.client.TemporalClientImpl
+import com.surrealdev.temporal.client.WorkflowExecutionList
 import com.surrealdev.temporal.client.WorkflowHandle
 import com.surrealdev.temporal.client.WorkflowStartOptions
 import com.surrealdev.temporal.client.history.WorkflowHistory
@@ -117,6 +118,13 @@ class TemporalTestClient internal constructor(
             )
         return TimeSkippingWorkflowHandle(handle, timeSkippingState)
     }
+
+    override suspend fun listWorkflows(
+        query: String,
+        pageSize: Int,
+    ): WorkflowExecutionList = delegate.listWorkflows(query, pageSize)
+
+    override suspend fun countWorkflows(query: String): Long = delegate.countWorkflows(query)
 
     override suspend fun close() {
         delegate.close()
