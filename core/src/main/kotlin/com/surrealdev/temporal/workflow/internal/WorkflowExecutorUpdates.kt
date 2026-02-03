@@ -99,35 +99,39 @@ private suspend fun WorkflowExecutor.invokeRuntimeUpdateHandler(
     args: List<Payload>,
     runValidator: Boolean,
 ) {
-    try {
-        // Run validator if requested (in read-only mode)
-        if (runValidator && handler.validator != null) {
-            state.isReadOnly = true
-            try {
-                handler.validator.invoke(args)
-            } finally {
-                state.isReadOnly = false
+    val ctx = (context ?: error("WorkflowContext not initialized")) as WorkflowContextImpl
+
+    ctx.launchHandler {
+        try {
+            // Run validator if requested (in read-only mode)
+            if (runValidator && handler.validator != null) {
+                state.isReadOnly = true
+                try {
+                    handler.validator.invoke(args)
+                } finally {
+                    state.isReadOnly = false
+                }
             }
+
+            // Accept the update
+            addUpdateAcceptedCommand(protocolInstanceId)
+
+            // Execute the handler
+            val resultPayload = handler.handler(args)
+
+            // Complete with result
+            addUpdateCompletedCommand(protocolInstanceId, resultPayload)
+        } catch (e: ReadOnlyContextException) {
+            logger.warn("Update validator attempted state mutation: {}", e.message)
+            addUpdateRejectedCommand(protocolInstanceId, "Validator attempted state mutation: ${e.message}")
+        } catch (e: IllegalArgumentException) {
+            // Validation failure
+            logger.warn("Update validation failed: {}", e.message)
+            addUpdateRejectedCommand(protocolInstanceId, e.message ?: "Validation failed")
+        } catch (e: Exception) {
+            logger.warn("Update handler threw exception: {}", e.message, e)
+            addUpdateRejectedCommand(protocolInstanceId, "Update failed: ${e.message ?: e::class.simpleName}")
         }
-
-        // Accept the update
-        addUpdateAcceptedCommand(protocolInstanceId)
-
-        // Execute the handler
-        val resultPayload = handler.handler(args)
-
-        // Complete with result
-        addUpdateCompletedCommand(protocolInstanceId, resultPayload)
-    } catch (e: ReadOnlyContextException) {
-        logger.warn("Update validator attempted state mutation: {}", e.message)
-        addUpdateRejectedCommand(protocolInstanceId, "Validator attempted state mutation: ${e.message}")
-    } catch (e: IllegalArgumentException) {
-        // Validation failure
-        logger.warn("Update validation failed: {}", e.message)
-        addUpdateRejectedCommand(protocolInstanceId, e.message ?: "Validation failed")
-    } catch (e: Exception) {
-        logger.warn("Update handler threw exception: {}", e.message, e)
-        addUpdateRejectedCommand(protocolInstanceId, "Update failed: ${e.message ?: e::class.simpleName}")
     }
 }
 
@@ -141,35 +145,39 @@ private suspend fun WorkflowExecutor.invokeRuntimeDynamicUpdateHandler(
     args: List<Payload>,
     runValidator: Boolean,
 ) {
-    try {
-        // Run validator if requested (in read-only mode)
-        if (runValidator && handler.validator != null) {
-            state.isReadOnly = true
-            try {
-                handler.validator.invoke(updateName, args)
-            } finally {
-                state.isReadOnly = false
+    val ctx = (context ?: error("WorkflowContext not initialized")) as WorkflowContextImpl
+
+    ctx.launchHandler {
+        try {
+            // Run validator if requested (in read-only mode)
+            if (runValidator && handler.validator != null) {
+                state.isReadOnly = true
+                try {
+                    handler.validator.invoke(updateName, args)
+                } finally {
+                    state.isReadOnly = false
+                }
             }
+
+            // Accept the update
+            addUpdateAcceptedCommand(protocolInstanceId)
+
+            // Execute the handler
+            val resultPayload = handler.handler(updateName, args)
+
+            // Complete with result
+            addUpdateCompletedCommand(protocolInstanceId, resultPayload)
+        } catch (e: ReadOnlyContextException) {
+            logger.warn("Update validator attempted state mutation: {}", e.message)
+            addUpdateRejectedCommand(protocolInstanceId, "Validator attempted state mutation: ${e.message}")
+        } catch (e: IllegalArgumentException) {
+            // Validation failure
+            logger.warn("Update validation failed: {}", e.message)
+            addUpdateRejectedCommand(protocolInstanceId, e.message ?: "Validation failed")
+        } catch (e: Exception) {
+            logger.warn("Dynamic update handler threw exception: {}", e.message, e)
+            addUpdateRejectedCommand(protocolInstanceId, "Update failed: ${e.message ?: e::class.simpleName}")
         }
-
-        // Accept the update
-        addUpdateAcceptedCommand(protocolInstanceId)
-
-        // Execute the handler
-        val resultPayload = handler.handler(updateName, args)
-
-        // Complete with result
-        addUpdateCompletedCommand(protocolInstanceId, resultPayload)
-    } catch (e: ReadOnlyContextException) {
-        logger.warn("Update validator attempted state mutation: {}", e.message)
-        addUpdateRejectedCommand(protocolInstanceId, "Validator attempted state mutation: ${e.message}")
-    } catch (e: IllegalArgumentException) {
-        // Validation failure
-        logger.warn("Update validation failed: {}", e.message)
-        addUpdateRejectedCommand(protocolInstanceId, e.message ?: "Validation failed")
-    } catch (e: Exception) {
-        logger.warn("Dynamic update handler threw exception: {}", e.message, e)
-        addUpdateRejectedCommand(protocolInstanceId, "Update failed: ${e.message ?: e::class.simpleName}")
     }
 }
 
@@ -183,83 +191,84 @@ private suspend fun WorkflowExecutor.invokeAnnotationUpdateHandler(
 ) {
     val protocolInstanceId = update.protocolInstanceId
     val runValidator = update.runValidator
+    val ctx = (context ?: error("WorkflowContext not initialized")) as WorkflowContextImpl
+    val method = handler.handlerMethod
 
-    try {
-        val ctx = context ?: error("WorkflowContext not initialized")
-        val method = handler.handlerMethod
-
-        // For dynamic handlers, the first argument is the update name
-        val args =
-            if (isDynamic) {
-                val remainingParamTypes = handler.parameterTypes.drop(1)
-                val deserializedArgs = deserializeArguments(update.inputList, remainingParamTypes)
-                arrayOf(update.name, *deserializedArgs)
-            } else {
-                deserializeArguments(update.inputList, handler.parameterTypes)
-            }
-
-        // Run validator if requested (in read-only mode)
-        if (runValidator && handler.validatorMethod != null) {
-            state.isReadOnly = true
-            try {
-                invokeValidatorMethod(handler.validatorMethod, args, ctx)
-            } finally {
-                state.isReadOnly = false
-            }
-        }
-
-        // Accept the update
-        addUpdateAcceptedCommand(protocolInstanceId)
-
-        // Execute the handler
-        val result =
-            if (handler.hasContextReceiver) {
-                if (handler.isSuspend) {
-                    method.callSuspend(workflowInstance!!, ctx, *args)
-                } else {
-                    method.call(workflowInstance!!, ctx, *args)
-                }
-            } else {
-                if (handler.isSuspend) {
-                    method.callSuspend(workflowInstance!!, *args)
-                } else {
-                    method.call(workflowInstance!!, *args)
-                }
-            }
-
-        // Serialize the result
-        val resultPayload =
-            if (result == Unit || handler.returnType.classifier == Unit::class) {
-                Payload.getDefaultInstance()
-            } else {
-                serializer.serialize(handler.returnType, result)
-            }
-
-        // Complete with result
-        addUpdateCompletedCommand(protocolInstanceId, resultPayload)
-    } catch (e: ReadOnlyContextException) {
-        logger.warn("Update validator attempted state mutation: {}", e.message)
-        addUpdateRejectedCommand(protocolInstanceId, "Validator attempted state mutation: ${e.message}")
-    } catch (e: java.lang.reflect.InvocationTargetException) {
-        val cause = e.targetException ?: e
-        if (cause is IllegalArgumentException) {
-            // Validation failure
-            logger.warn("Update validation failed: {}", cause.message)
-            addUpdateRejectedCommand(protocolInstanceId, cause.message ?: "Validation failed")
+    // Deserialize arguments outside launch (doesn't need workflow dispatcher)
+    val args =
+        if (isDynamic) {
+            val remainingParamTypes = handler.parameterTypes.drop(1)
+            val deserializedArgs = deserializeArguments(update.inputList, remainingParamTypes)
+            arrayOf(update.name, *deserializedArgs)
         } else {
-            logger.warn("Update handler threw exception: {}", cause.message, cause)
-            addUpdateRejectedCommand(
-                protocolInstanceId,
-                "Update failed: ${cause.message ?: cause::class.simpleName}",
-            )
+            deserializeArguments(update.inputList, handler.parameterTypes)
         }
-    } catch (e: IllegalArgumentException) {
-        // Validation failure
-        logger.warn("Update validation failed: {}", e.message)
-        addUpdateRejectedCommand(protocolInstanceId, e.message ?: "Validation failed")
-    } catch (e: Exception) {
-        logger.warn("Update handler threw exception: {}", e.message, e)
-        addUpdateRejectedCommand(protocolInstanceId, "Update failed: ${e.message ?: e::class.simpleName}")
+
+    ctx.launchHandler {
+        try {
+            // Run validator if requested (in read-only mode)
+            if (runValidator && handler.validatorMethod != null) {
+                state.isReadOnly = true
+                try {
+                    invokeValidatorMethod(handler.validatorMethod, args, ctx)
+                } finally {
+                    state.isReadOnly = false
+                }
+            }
+
+            // Accept the update
+            addUpdateAcceptedCommand(protocolInstanceId)
+
+            // Execute the handler
+            val result =
+                if (handler.hasContextReceiver) {
+                    if (handler.isSuspend) {
+                        method.callSuspend(workflowInstance!!, ctx, *args)
+                    } else {
+                        method.call(workflowInstance!!, ctx, *args)
+                    }
+                } else {
+                    if (handler.isSuspend) {
+                        method.callSuspend(workflowInstance!!, *args)
+                    } else {
+                        method.call(workflowInstance!!, *args)
+                    }
+                }
+
+            // Serialize the result
+            val resultPayload =
+                if (result == Unit || handler.returnType.classifier == Unit::class) {
+                    Payload.getDefaultInstance()
+                } else {
+                    serializer.serialize(handler.returnType, result)
+                }
+
+            // Complete with result
+            addUpdateCompletedCommand(protocolInstanceId, resultPayload)
+        } catch (e: ReadOnlyContextException) {
+            logger.warn("Update validator attempted state mutation: {}", e.message)
+            addUpdateRejectedCommand(protocolInstanceId, "Validator attempted state mutation: ${e.message}")
+        } catch (e: java.lang.reflect.InvocationTargetException) {
+            val cause = e.targetException ?: e
+            if (cause is IllegalArgumentException) {
+                // Validation failure
+                logger.warn("Update validation failed: {}", cause.message)
+                addUpdateRejectedCommand(protocolInstanceId, cause.message ?: "Validation failed")
+            } else {
+                logger.warn("Update handler threw exception: {}", cause.message, cause)
+                addUpdateRejectedCommand(
+                    protocolInstanceId,
+                    "Update failed: ${cause.message ?: cause::class.simpleName}",
+                )
+            }
+        } catch (e: IllegalArgumentException) {
+            // Validation failure
+            logger.warn("Update validation failed: {}", e.message)
+            addUpdateRejectedCommand(protocolInstanceId, e.message ?: "Validation failed")
+        } catch (e: Exception) {
+            logger.warn("Update handler threw exception: {}", e.message, e)
+            addUpdateRejectedCommand(protocolInstanceId, "Update failed: ${e.message ?: e::class.simpleName}")
+        }
     }
 }
 

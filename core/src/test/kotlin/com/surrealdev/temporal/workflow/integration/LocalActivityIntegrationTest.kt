@@ -1,6 +1,5 @@
 package com.surrealdev.temporal.workflow.integration
 
-import com.surrealdev.temporal.activity.ActivityContext
 import com.surrealdev.temporal.annotation.Activity
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
@@ -20,7 +19,6 @@ import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 

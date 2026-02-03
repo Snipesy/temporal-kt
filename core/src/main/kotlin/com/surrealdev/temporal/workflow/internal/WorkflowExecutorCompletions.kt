@@ -26,6 +26,8 @@ internal suspend fun WorkflowExecutor.buildTerminalCompletion(
     result: Deferred<Any?>,
     returnType: kotlin.reflect.KType,
 ): WorkflowCompletion.WorkflowActivationCompletion {
+    // Mark workflow as completed so handlers that try to schedule work will warn
+    state.workflowCompleted = true
     terminateWorkflowExecutionJob()
 
     return try {

@@ -132,6 +132,13 @@ internal class WorkflowState(
         private set
 
     /**
+     * Whether the main workflow coroutine has completed (successfully or with failure).
+     * Used to warn when handlers try to schedule new work after completion.
+     */
+    var workflowCompleted: Boolean = false
+        internal set
+
+    /**
      * Pending timer operations (deferred-based), keyed by sequence number.
      * Used by WorkflowContext.sleep().
      */
@@ -602,6 +609,18 @@ internal class WorkflowState(
         if (isReadOnly) {
             throw ReadOnlyContextException("Cannot add command in read-only mode (e.g., during query processing)")
         }
+
+        // Warn if scheduling work after workflow completion (like Python SDK)
+        // This catches handlers that try to start activities/timers after the workflow is done
+        if (workflowCompleted && willCreateFutureActivation(cmd)) {
+            logger.warning(
+                "Command scheduled after workflow completion will be ignored by server. " +
+                    "runId=$runId, command=${describeCommand(cmd)}. " +
+                    "This typically indicates a signal/update handler that schedules work " +
+                    "which cannot complete because the workflow has already finished.",
+            )
+        }
+
         commands.add(cmd)
 
         // Only count commands that will create future activations (not terminal commands)
@@ -609,6 +628,31 @@ internal class WorkflowState(
             commandsAddedThisCycle++
         }
     }
+
+    /**
+     * Returns a human-readable description of a command for logging.
+     */
+    private fun describeCommand(cmd: WorkflowCommand): String =
+        when {
+            cmd.hasStartTimer() -> "StartTimer(seq=${cmd.startTimer.seq})"
+            cmd.hasScheduleActivity() ->
+                "ScheduleActivity(type=${cmd.scheduleActivity.activityType}, seq=" +
+                    "${cmd.scheduleActivity.seq})"
+            cmd.hasScheduleLocalActivity() ->
+                "ScheduleLocalActivity(type=" +
+                    "${cmd.scheduleLocalActivity.activityType}, seq=${cmd.scheduleLocalActivity.seq})"
+            cmd.hasStartChildWorkflowExecution() ->
+                "StartChildWorkflow(type=" +
+                    "${cmd.startChildWorkflowExecution.workflowType}, seq=${cmd.startChildWorkflowExecution.seq})"
+            cmd.hasSignalExternalWorkflowExecution() ->
+                "SignalExternalWorkflow(seq=" +
+                    "${cmd.signalExternalWorkflowExecution.seq})"
+            cmd.hasRequestCancelExternalWorkflowExecution() ->
+                "CancelExternalWorkflow(seq=" +
+                    "${cmd.requestCancelExternalWorkflowExecution.seq})"
+            cmd.hasScheduleNexusOperation() -> "ScheduleNexusOperation(seq=${cmd.scheduleNexusOperation.seq})"
+            else -> cmd.toString().take(100)
+        }
 
     /**
      * Checks if a command will create a future activation.

@@ -68,12 +68,15 @@ private suspend fun WorkflowExecutor.invokeRuntimeSignalHandler(
     handler: suspend (List<Payload>) -> Unit,
     args: List<Payload>,
 ) {
-    try {
-        handler(args)
-    } catch (e: Exception) {
-        // Signal handlers should not fail the workflow
-        // Log the error but continue
-        logger.warn("Signal handler threw exception: {}", e.message, e)
+    val ctx = (context ?: error("WorkflowContext not initialized")) as WorkflowContextImpl
+    ctx.launchHandler {
+        try {
+            handler(args)
+        } catch (e: Exception) {
+            // Signal handlers should not fail the workflow
+            // Log the error but continue
+            logger.warn("Signal handler threw exception: {}", e.message, e)
+        }
     }
 }
 
@@ -85,11 +88,14 @@ private suspend fun WorkflowExecutor.invokeRuntimeDynamicSignalHandler(
     signalName: String,
     args: List<Payload>,
 ) {
-    try {
-        handler(signalName, args)
-    } catch (e: Exception) {
-        // Signal handlers should not fail the workflow
-        logger.warn("Dynamic signal handler threw exception: {}", e.message, e)
+    val ctx = (context ?: error("WorkflowContext not initialized")) as WorkflowContextImpl
+    ctx.launchHandler {
+        try {
+            handler(signalName, args)
+        } catch (e: Exception) {
+            // Signal handlers should not fail the workflow
+            logger.warn("Dynamic signal handler threw exception: {}", e.message, e)
+        }
     }
 }
 
@@ -101,38 +107,40 @@ private suspend fun WorkflowExecutor.invokeAnnotationSignalHandler(
     signal: coresdk.workflow_activation.WorkflowActivationOuterClass.SignalWorkflow,
     isDynamic: Boolean,
 ) {
-    try {
-        val ctx = context ?: error("WorkflowContext not initialized")
-        val method = handler.handlerMethod
+    val ctx = (context ?: error("WorkflowContext not initialized")) as WorkflowContextImpl
+    val method = handler.handlerMethod
 
-        // For dynamic handlers, the first argument is the signal name
-        val args =
-            if (isDynamic) {
-                val remainingParamTypes = handler.parameterTypes.drop(1)
-                val deserializedArgs = deserializeArguments(signal.inputList, remainingParamTypes)
-                arrayOf(signal.signalName, *deserializedArgs)
-            } else {
-                deserializeArguments(signal.inputList, handler.parameterTypes)
-            }
-
-        if (handler.hasContextReceiver) {
-            if (handler.isSuspend) {
-                method.callSuspend(workflowInstance!!, ctx, *args)
-            } else {
-                method.call(workflowInstance!!, ctx, *args)
-            }
+    // Deserialize arguments outside launch (doesn't need workflow dispatcher)
+    val args =
+        if (isDynamic) {
+            val remainingParamTypes = handler.parameterTypes.drop(1)
+            val deserializedArgs = deserializeArguments(signal.inputList, remainingParamTypes)
+            arrayOf(signal.signalName, *deserializedArgs)
         } else {
-            if (handler.isSuspend) {
-                method.callSuspend(workflowInstance!!, *args)
-            } else {
-                method.call(workflowInstance!!, *args)
-            }
+            deserializeArguments(signal.inputList, handler.parameterTypes)
         }
-    } catch (e: java.lang.reflect.InvocationTargetException) {
-        val cause = e.targetException ?: e
-        logger.warn("Signal handler threw exception: {}", cause.message, cause)
-    } catch (e: Exception) {
-        // Signal handlers should not fail the workflow
-        logger.warn("Signal handler threw exception: {}", e.message, e)
+
+    ctx.launchHandler {
+        try {
+            if (handler.hasContextReceiver) {
+                if (handler.isSuspend) {
+                    method.callSuspend(workflowInstance!!, ctx, *args)
+                } else {
+                    method.call(workflowInstance!!, ctx, *args)
+                }
+            } else {
+                if (handler.isSuspend) {
+                    method.callSuspend(workflowInstance!!, *args)
+                } else {
+                    method.call(workflowInstance!!, *args)
+                }
+            }
+        } catch (e: java.lang.reflect.InvocationTargetException) {
+            val cause = e.targetException ?: e
+            logger.warn("Signal handler threw exception: {}", cause.message, cause)
+        } catch (e: Exception) {
+            // Signal handlers should not fail the workflow
+            logger.warn("Signal handler threw exception: {}", e.message, e)
+        }
     }
 }

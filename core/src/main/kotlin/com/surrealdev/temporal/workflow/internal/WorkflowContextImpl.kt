@@ -22,6 +22,7 @@ import coresdk.child_workflow.ChildWorkflow
 import coresdk.workflow_commands.WorkflowCommands
 import io.temporal.api.common.v1.Payload
 import io.temporal.api.common.v1.Payloads
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
@@ -57,6 +58,7 @@ internal class WorkflowContextImpl(
     internal val codec: PayloadCodec,
     internal val workflowDispatcher: WorkflowCoroutineDispatcher,
     parentJob: Job,
+    private val handlerJob: Job,
     override val parentScope: AttributeScope,
     private val mdcContext: MDCContext? = null,
 ) : WorkflowContext,
@@ -167,6 +169,36 @@ internal class WorkflowContextImpl(
     internal fun updateRandomSeed(newSeed: Long) {
         deterministicRandom.updateSeed(newSeed)
         state.randomSeed = newSeed
+    }
+
+    /**
+     * Launches a handler coroutine under the handler job hierarchy.
+     *
+     * This is used for signal and update handlers which need to:
+     * 1. Run on workflowDispatcher (so they can call workflow operations)
+     * 2. NOT be cancelled when the main workflow completes
+     * 3. Have MDC context for proper logging
+     * 4. Be properly managed (not orphan Jobs)
+     *
+     * The handler job is a sibling of the workflow execution job under parentJob,
+     * so handlers continue running after workflow completion but are cancelled
+     * during eviction.
+     *
+     * Note: If the handler job has been cancelled (after terminal completion), the
+     * handler still runs but under a temporary job.
+     */
+    internal fun launchHandler(block: suspend CoroutineScope.() -> Unit): Job {
+        // If handlerJob is cancelled (after terminal completion), use a temporary job.
+        // This handles edge cases where activations come after terminal completion.
+        val effectiveJob = if (handlerJob.isActive) handlerJob else Job()
+
+        val context =
+            if (mdcContext != null) {
+                effectiveJob + workflowDispatcher + mdcContext
+            } else {
+                effectiveJob + workflowDispatcher
+            }
+        return CoroutineScope(context).launch(block = block)
     }
 
     /**

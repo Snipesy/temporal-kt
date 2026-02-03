@@ -109,6 +109,11 @@ internal class WorkflowExecutor(
     // only coroutines complete automatically. We must call complete() or cancel() explicitly.
     private var workflowExecutionJob: kotlinx.coroutines.CompletableJob? = null
 
+    // Sibling job for signal/update handlers - NOT a child of workflowExecutionJob.
+    // This allows handlers to continue running after the main workflow completes.
+    // Both jobs are siblings under parentJob, so eviction cancels everything.
+    private var handlerJob: kotlinx.coroutines.CompletableJob? = null
+
     /**
      * Cancels the workflow execution job when the workflow reaches a terminal state.
      * This is necessary because Job(parent) doesn't automatically complete when children complete,
@@ -118,12 +123,19 @@ internal class WorkflowExecutor(
      * 1. complete() doesn't cancel children - it waits for them
      * 2. cancel() immediately cancels the job and all its children
      * 3. The workflow has already reached a terminal state, so cancellation is appropriate
+     *
+     * The handler job is cancelled AFTER processing remaining work to allow any in-flight
+     * handlers to complete. This is necessary because:
+     * - When a workflow terminates, handlers may have been launched in the same activation
+     * - Those handlers need to finish so their commands are included in the completion
+     * - After processing work, there are no more handlers to run, so we cancel the job
+     *   to allow proper worker shutdown (parent job won't block waiting for this child)
      */
     internal fun terminateWorkflowExecutionJob() {
-        // 1. Cancel first - this queues cancellation tasks to the dispatcher
+        // 1. Cancel the main workflow job - this queues cancellation tasks to the dispatcher
         workflowExecutionJob?.cancel()
 
-        // 2. Process all cancellation tasks so coroutines complete properly
+        // 2. Process all remaining work including any handler coroutines
         try {
             workflowDispatcher.processAllWork()
         } catch (e: Exception) {
@@ -131,10 +143,44 @@ internal class WorkflowExecutor(
             logger.debug("Exception during cleanup: {}", e.message)
         }
 
-        // 3. Clear any remaining work (should be empty, but defensive)
+        // 3. Now cancel the handler job - all handlers have had a chance to run
+        //    This is necessary so the job doesn't block parent job completion during shutdown
+        handlerJob?.cancel()
+
+        // 4. Process any cancellation tasks from the handler job
+        try {
+            workflowDispatcher.processAllWork()
+        } catch (e: Exception) {
+            logger.debug("Exception during handler cleanup: {}", e.message)
+        }
+
+        // 5. Clear any remaining work
         workflowDispatcher.clear()
 
         workflowExecutionJob = null
+        handlerJob = null
+    }
+
+    /**
+     * Cancels ALL jobs (both workflow execution and handler jobs) during eviction.
+     * This ensures complete cleanup when the workflow is removed from the cache.
+     */
+    internal fun terminateAllJobs() {
+        // Cancel both sibling jobs
+        workflowExecutionJob?.cancel()
+        handlerJob?.cancel()
+
+        // Process all cancellation tasks
+        try {
+            workflowDispatcher.processAllWork()
+        } catch (e: Exception) {
+            logger.debug("Exception during eviction cleanup: {}", e.message)
+        }
+
+        workflowDispatcher.clear()
+
+        workflowExecutionJob = null
+        handlerJob = null
     }
 
     /**
@@ -514,8 +560,14 @@ internal class WorkflowExecutor(
         // SupervisorJob ensures one workflow's failure doesn't cancel other workflows
         workflowExecutionJob = SupervisorJob(parentJob)
 
-        // Create workflow context with the execution job as parent
-        // This ensures launch {} calls within the workflow are properly scoped
+        // Create the handler job as a SIBLING of workflowExecutionJob (both under parentJob)
+        // This allows signal/update handlers to continue running after main workflow completes
+        // SupervisorJob ensures one handler's failure doesn't cancel other handlers
+        handlerJob = SupervisorJob(parentJob)
+
+        // Create workflow context with both the execution job and handler job
+        // - parentJob (workflowExecutionJob) for launch {} calls within workflow code
+        // - handlerJob for signal/update handlers that should survive workflow completion
         // The taskQueueScope provides hierarchical attribute lookup (taskQueue -> application)
         context =
             WorkflowContextImpl(
@@ -525,6 +577,7 @@ internal class WorkflowExecutor(
                 codec = codec,
                 workflowDispatcher = workflowDispatcher,
                 parentJob = workflowExecutionJob!!,
+                handlerJob = handlerJob!!,
                 parentScope = taskQueueScope,
                 mdcContext = buildMdcContext(),
             )
@@ -610,17 +663,12 @@ internal class WorkflowExecutor(
 
         state.cancelRequested = true
 
-        // Cancel first, then process, then clear (same rationale as terminateWorkflowExecutionJob)
+        // Cancel the main coroutine explicitly
         mainCoroutine?.cancel(WorkflowCancelledException())
 
-        // Process cancellation tasks
-        try {
-            workflowDispatcher.processAllWork()
-        } catch (e: Exception) {
-            logger.debug("Exception during eviction cleanup: {}", e.message)
-        }
+        // Terminate ALL jobs (both workflow execution and handler jobs)
+        terminateAllJobs()
 
-        workflowDispatcher.clear()
         state.clear()
     }
 

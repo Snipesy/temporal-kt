@@ -13,6 +13,66 @@ TemporalApplication (SupervisorJob)
        └── ActivityPoller → ActivityDispatcher → ActivityVirtualThread (ephemeral)
 ```
 
+### Workflow Execution Job Hierarchy
+
+Each workflow run has a **job hierarchy** for structured concurrency:
+
+```
+parentJob (child of rootExecutorJob)
+    │
+    ├── workflowExecutionJob (SupervisorJob)
+    │       │
+    │       └── job (plain Job - failures propagate up)
+    │               │
+    │               ├── main workflow coroutine (via ctx.async)
+    │               └── ctx.launch {} calls (siblings of main, children of job)
+    │
+    └── handlerJob (SupervisorJob)
+            │
+            ├── signal handlers (via launchHandler)
+            └── update handlers (via launchHandler)
+```
+
+**Note:** This diagram shows the **Job hierarchy** for structured concurrency. The inner `job` is a plain `Job` (not `SupervisorJob`), so failures in `ctx.launch {}` propagate to cancel the main workflow coroutine. Signal/update handlers share the same `WorkflowContext` instance (so they can call `startActivity()`, `sleep()`, etc.) and the same `workflowDispatcher`, but are launched under `handlerJob` instead of the context's `job`.
+
+**Why sibling jobs for handlers?** Signal/update handlers must continue running after the main workflow coroutine completes. In Kotlin's structured concurrency, cancelling a parent Job cancels all children. By making `handlerJob` a sibling of `workflowExecutionJob`:
+
+1. Handlers can produce commands (e.g., `UpdateResponse`) even after the main workflow finishes
+2. Terminal completion cancels `workflowExecutionJob` first, processes remaining handler work, then cancels `handlerJob`
+3. Eviction cancels both jobs together via `terminateAllJobs()`
+
+**Why `ctx.launch {}` creates siblings, not children of main coroutine?** 
+This is a deliberate tradeoff to support the `WorkflowContext.` extension syntax where users don't need to manually
+track coroutine scopes. The downside is that launched coroutines could outlive the main workflow function if not
+properly awaited. Users should ensure all launched coroutines complete before returning from the workflow, or use
+`coroutineScope {}` for stricter structured concurrency when needed.
+
+**Warning behavior:** If handlers try to schedule new work (activities, timers) after `workflowCompleted = true`, a warning is logged since those commands will be ignored by the server.
+
+### Activity Execution Job Hierarchy
+
+Activities have a simpler structure - no handlers, no replay:
+
+```
+rootActivityJob (SupervisorJob, child of worker's Job)
+    │
+    └── activityScope.launch job (per virtual thread)
+            │
+            └── runBlocking's Job (inside ActivityVirtualThread)
+                    │
+                    └── ActivityContext's coroutineContext
+                            │
+                            ├── activity coroutine
+                            └── ctx.launch {} calls from activity code
+```
+
+Each activity execution:
+- Gets a fresh virtual thread (ephemeral, not persistent like workflows)
+- Runs inside `runBlocking` on that virtual thread
+- No sibling jobs needed - activities don't have signal/update handlers
+- `ActivityContext` implements `CoroutineScope`, so `ctx.launch {}` creates children of the activity's job
+- Cancellation propagates from `rootActivityJob` down through the hierarchy
+
 ## Virtual Thread Strategy
 
 ### Workflows: Persistent Threads
