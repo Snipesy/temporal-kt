@@ -1,5 +1,7 @@
 package com.surrealdev.temporal.application
 
+import com.surrealdev.temporal.activity.ActivityContext
+import com.surrealdev.temporal.activity.EncodedPayloads
 import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.annotation.TemporalDsl
 import com.surrealdev.temporal.application.plugin.HookRegistry
@@ -29,6 +31,7 @@ import com.surrealdev.temporal.serialization.NoOpCodec
 import com.surrealdev.temporal.serialization.payloadCodecOrNull
 import com.surrealdev.temporal.serialization.payloadSerializer
 import com.surrealdev.temporal.util.Attributes
+import io.temporal.api.common.v1.Payload
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -39,6 +42,34 @@ import org.slf4j.LoggerFactory
 import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
+
+/**
+ * Handler for dynamic activities - called for activity types not registered statically.
+ *
+ * The handler receives the activity type name and encoded payloads, allowing
+ * runtime dispatch to arbitrary implementations. Returns a [Payload] directly
+ * since type information is not available at compile time.
+ *
+ * ```kotlin
+ * dynamicActivity { activityType, payloads ->
+ *     when (activityType) {
+ *         "httpGet" -> {
+ *             val result = httpClient.get(payloads.decode<String>(0))
+ *             serializer.serialize<String>(result)
+ *         }
+ *         else -> throw IllegalArgumentException("Unknown: $activityType")
+ *     }
+ * }
+ * ```
+ *
+ * Within the handler, `this` is [ActivityContext], providing access to heartbeat,
+ * cancellation checking, activity info, and [ActivityContext.serializer] for
+ * serializing the result.
+ */
+typealias DynamicActivityHandler = suspend ActivityContext.(
+    activityType: String,
+    payloads: EncodedPayloads,
+) -> Payload?
 
 /**
  * A Temporal application that manages workers and client connections.
@@ -448,6 +479,11 @@ internal data class TaskQueueConfig(
      * Default: 60 seconds
      */
     val forceExitTimeout: Duration = 1.minutes,
+    /**
+     * Dynamic activity handler as fallback for unregistered activity types.
+     * If null, unregistered activity types will result in an error.
+     */
+    val dynamicActivityHandler: DynamicActivityHandler? = null,
 )
 
 /**
@@ -491,6 +527,15 @@ sealed class ActivityRegistration {
     data class FunctionRegistration(
         val activityType: String,
         val method: kotlin.reflect.KFunction<*>,
+    ) : ActivityRegistration()
+
+    /**
+     * Register a dynamic activity handler as a fallback for unregistered activity types.
+     *
+     * @property handler The handler function to invoke for unregistered activity types
+     */
+    data class DynamicRegistration(
+        val handler: DynamicActivityHandler,
     ) : ActivityRegistration()
 }
 

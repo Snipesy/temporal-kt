@@ -2,7 +2,9 @@ package com.surrealdev.temporal.activity.internal
 
 import com.google.protobuf.ByteString
 import com.surrealdev.temporal.activity.ActivityCancelledException
+import com.surrealdev.temporal.activity.EncodedPayloads
 import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.application.DynamicActivityHandler
 import com.surrealdev.temporal.internal.ZombieEvictionConfig
 import com.surrealdev.temporal.internal.ZombieEvictionManager
 import com.surrealdev.temporal.serialization.PayloadCodec
@@ -73,6 +75,11 @@ class ActivityDispatcher(
      * This allows the application to gracefully shut down instead of calling System.exit().
      */
     private val onFatalError: (suspend () -> Unit)? = null,
+    /**
+     * Dynamic activity handler as fallback for unregistered activity types.
+     * If null, unregistered activity types will result in an error.
+     */
+    private val dynamicActivityHandler: DynamicActivityHandler? = null,
 ) {
     private val semaphore = Semaphore(maxConcurrent)
     private val runningActivities = ConcurrentHashMap<ByteString, RunningActivity>()
@@ -279,13 +286,18 @@ class ActivityDispatcher(
         val activityType = start.activityType
 
         // Look up the activity method
-        val methodInfo =
-            registry.lookup(activityType)
-                ?: return buildFailureCompletion(
-                    taskToken,
-                    "ACTIVITY_NOT_FOUND",
-                    "Activity type not registered: $activityType",
-                )
+        val methodInfo = registry.lookup(activityType)
+        if (methodInfo == null) {
+            // Check for dynamic activity handler as fallback
+            if (dynamicActivityHandler != null) {
+                return invokeDynamicActivity(task, start, currentJob, virtualThread)
+            }
+            return buildFailureCompletion(
+                taskToken,
+                "ACTIVITY_NOT_FOUND",
+                "Activity type not registered: $activityType. Available: ${registry.registeredTypes()}",
+            )
+        }
 
         // Create the activity context
         // The taskQueueScope provides hierarchical attribute lookup (taskQueue -> application)
@@ -409,6 +421,88 @@ class ActivityDispatcher(
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Invokes the dynamic activity handler for an unregistered activity type.
+     */
+    private suspend fun invokeDynamicActivity(
+        task: ActivityTaskOuterClass.ActivityTask,
+        start: ActivityTaskOuterClass.Start,
+        currentJob: Job,
+        virtualThread: ActivityVirtualThread?,
+    ): CoreInterface.ActivityTaskCompletion {
+        val taskToken = task.taskToken
+        val handler = dynamicActivityHandler!!
+
+        // Decode payloads with codec first
+        val decodedPayloads = codec.decode(start.inputList)
+        val encodedPayloads = EncodedPayloads(decodedPayloads, serializer)
+
+        // Create the activity context
+        val context =
+            ActivityContextImpl(
+                start = start,
+                taskToken = taskToken,
+                taskQueue = taskQueue,
+                serializer = serializer,
+                heartbeatFn = heartbeatFn,
+                parentScope = taskQueueScope,
+                parentCoroutineContext = currentCoroutineContext(),
+            )
+
+        // Track this activity for cancellation
+        val runningActivity = RunningActivity(job = currentJob, context = context, virtualThread = virtualThread)
+        runningActivities[taskToken] = runningActivity
+
+        return try {
+            val result =
+                withContext(context) {
+                    handler.invoke(context, start.activityType, encodedPayloads)
+                }
+            buildDynamicSuccessCompletion(taskToken, result)
+        } catch (e: ActivityCancelledException) {
+            buildCancelledCompletion(taskToken)
+        } catch (e: CancellationException) {
+            // Coroutine was cancelled - treat as activity cancellation
+            buildCancelledCompletion(taskToken)
+        } catch (e: InterruptedException) {
+            // Virtual thread was interrupted - treat as activity cancellation
+            buildCancelledCompletion(taskToken)
+        } catch (e: Exception) {
+            buildFailureCompletion(taskToken, e)
+        } finally {
+            // Always clean up tracking
+            runningActivities.remove(taskToken)
+        }
+    }
+
+    /**
+     * Builds a success completion for dynamic activities.
+     * The handler returns a Payload directly since type info is not available.
+     */
+    private suspend fun buildDynamicSuccessCompletion(
+        taskToken: ByteString,
+        result: Payload?,
+    ): CoreInterface.ActivityTaskCompletion {
+        val resultPayload =
+            if (result == null) {
+                Payload.getDefaultInstance()
+            } else {
+                // Encode with codec for consistency
+                codec.encode(listOf(result)).single()
+            }
+
+        return activityTaskCompletion {
+            this.taskToken = taskToken
+            this.result =
+                activityExecutionResult {
+                    completed =
+                        success {
+                            this.result = resultPayload
+                        }
+                }
         }
     }
 

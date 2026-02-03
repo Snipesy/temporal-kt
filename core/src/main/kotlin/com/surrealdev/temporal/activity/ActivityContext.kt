@@ -264,3 +264,51 @@ suspend fun ActivityContext.heartbeat(
 suspend fun ActivityContext.heartbeat() {
     heartbeatWithPayload(null)
 }
+
+// =============================================================================
+// EncodedPayloads for Dynamic Activity Support
+// =============================================================================
+
+/**
+ * Wrapper for encoded activity payloads with type-safe decoding.
+ *
+ * Used by dynamic activity handlers to decode arguments at runtime:
+ * ```kotlin
+ * dynamicActivity { activityType, payloads ->
+ *     val arg1 = payloads.decode<String>(0)
+ *     val arg2 = payloads.decode<Int>(1)
+ *     // ...
+ * }
+ * ```
+ */
+class EncodedPayloads(
+    @PublishedApi internal val payloads: List<Payload>,
+    @PublishedApi internal val serializer: PayloadSerializer,
+) {
+    /** The number of payloads. */
+    val size: Int get() = payloads.size
+
+    /**
+     * Decodes the payload at the given index to the specified type.
+     *
+     * @param index The zero-based index of the payload to decode
+     * @return The decoded value
+     * @throws IllegalArgumentException if the index is out of bounds
+     */
+    inline fun <reified T> decode(index: Int): T {
+        require(index in payloads.indices) { "Index $index out of bounds (size=$size)" }
+        return serializer.deserialize<T>(payloads[index])
+    }
+
+    /**
+     * Returns the raw payload at the given index without decoding.
+     *
+     * @param index The zero-based index of the payload
+     * @return The raw payload
+     * @throws IllegalArgumentException if the index is out of bounds
+     */
+    fun raw(index: Int): Payload {
+        require(index in payloads.indices) { "Index $index out of bounds (size=$size)" }
+        return payloads[index]
+    }
+}

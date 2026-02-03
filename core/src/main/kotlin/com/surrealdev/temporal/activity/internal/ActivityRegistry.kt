@@ -70,6 +70,10 @@ class ActivityRegistry {
                     activityType = registration.activityType,
                 )
             }
+
+            is ActivityRegistration.DynamicRegistration -> {
+                // Dynamic registrations are handled by ActivityDispatcher, not registry
+            }
         }
     }
 

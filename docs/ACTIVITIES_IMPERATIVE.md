@@ -508,6 +508,28 @@ class RetryExampleWorkflow {
 }
 ```
 
+## Dynamic Activities
+
+Fallback handler for unregistered activity types. `this` is `ActivityContext` (heartbeat, cancellation, info).
+Registered activities take precedence. Must return `Payload?` (use `serializer.serialize()`).
+
+```kotlin
+taskQueue("my-queue") {
+    workflow<MyWorkflow>()
+    activity(MyActivities())
+
+    dynamicActivity { activityType, payloads ->
+        val input = payloads.decode<String>(0)
+
+        when (activityType) {
+            "uppercase" -> serializer.serialize(input.uppercase())
+            "reverse" -> serializer.serialize(input.reversed())
+            else -> throw IllegalArgumentException("Unknown: $activityType")
+        }
+    }
+}
+```
+
 ## Local Activities
 
 Local activities run in the same worker process as the workflow. They're suitable for short operations that don't need server-side scheduling.

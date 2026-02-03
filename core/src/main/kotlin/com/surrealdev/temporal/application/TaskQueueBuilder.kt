@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.application
 
+import com.surrealdev.temporal.activity.ActivityContext
 import com.surrealdev.temporal.annotation.TemporalDsl
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.application.plugin.HookRegistry
@@ -8,6 +9,7 @@ import com.surrealdev.temporal.application.plugin.PluginPipeline
 import com.surrealdev.temporal.internal.ZombieEvictionConfig
 import com.surrealdev.temporal.util.AttributeScope
 import com.surrealdev.temporal.util.Attributes
+import io.temporal.api.common.v1.Payload
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 
@@ -128,6 +130,9 @@ class TaskQueueBuilder internal constructor(
     @PublishedApi
     internal val activities = mutableListOf<ActivityRegistration>()
 
+    @PublishedApi
+    internal var dynamicActivityHandler: DynamicActivityHandler? = null
+
     /**
      * Registers a workflow class.
      *
@@ -238,6 +243,49 @@ class TaskQueueBuilder internal constructor(
         )
     }
 
+    /**
+     * Registers a dynamic activity handler as a fallback for unregistered activity types.
+     *
+     * When an activity task arrives for an unregistered activity type, this handler will be
+     * invoked instead of returning an error. The handler receives the activity type name
+     * and encoded payloads, allowing runtime dispatch to arbitrary implementations.
+     *
+     * The handler must return a [Payload] (or null) since type information is not available
+     * at compile time. Use [ActivityContext.serializer] to serialize the result.
+     *
+     * Only one dynamic activity handler per task queue is allowed.
+     *
+     * Example:
+     * ```kotlin
+     * taskQueue("my-queue") {
+     *     workflow<MyWorkflow>()
+     *     activity(MyActivities())
+     *
+     *     // Dynamic activity fallback - called for unregistered activity types
+     *     dynamicActivity { activityType, payloads ->
+     *         // `this` is ActivityContext - can heartbeat, check cancellation, etc.
+     *         when (activityType) {
+     *             "httpGet" -> {
+     *                 val result = httpClient.get(payloads.decode<String>(0))
+     *                 serializer.serialize<String>(result)
+     *             }
+     *             else -> throw IllegalArgumentException("Unknown: $activityType")
+     *         }
+     *     }
+     * }
+     * ```
+     *
+     * @param handler The handler function to invoke for unregistered activity types.
+     *                Within the handler, `this` is [ActivityContext].
+     * @throws IllegalArgumentException if a dynamic activity handler is already registered
+     */
+    fun dynamicActivity(handler: DynamicActivityHandler) {
+        require(dynamicActivityHandler == null) {
+            "Only one dynamic activity handler per task queue is allowed"
+        }
+        dynamicActivityHandler = handler
+    }
+
     internal fun build(): TaskQueueConfig =
         TaskQueueConfig(
             name = name,
@@ -254,5 +302,6 @@ class TaskQueueBuilder internal constructor(
             workflowDeadlockTimeoutMs = workflowDeadlockTimeoutMs,
             zombieEviction = zombieEviction,
             forceExitTimeout = forceExitTimeout,
+            dynamicActivityHandler = dynamicActivityHandler,
         )
 }

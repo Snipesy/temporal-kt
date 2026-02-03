@@ -211,6 +211,7 @@ internal class ManagedWorker(
                     exitProcess(1)
                 }
             },
+            dynamicActivityHandler = config.dynamicActivityHandler,
         )
 
     /**

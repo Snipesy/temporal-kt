@@ -362,7 +362,8 @@ object ProtoTestHelpers {
      */
     fun resolveLocalActivityJobTimeout(
         seq: Int,
-        timeoutType: io.temporal.api.enums.v1.TimeoutType = io.temporal.api.enums.v1.TimeoutType.TIMEOUT_TYPE_START_TO_CLOSE,
+        timeoutType: io.temporal.api.enums.v1.TimeoutType =
+            io.temporal.api.enums.v1.TimeoutType.TIMEOUT_TYPE_START_TO_CLOSE,
         message: String = "Local activity timed out",
     ): WorkflowActivationJob {
         val timeoutInfo =
