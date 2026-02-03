@@ -560,6 +560,108 @@ class ParentSignalingWorkflow {
 }
 ```
 
+### External Workflows
+
+External workflows allow you to signal or cancel workflows that are NOT children of the current workflow.
+This is useful for coordinating between independent workflow executions.
+
+#### Get an External Workflow Handle
+
+```kotlin
+@Workflow("CoordinatorWorkflow")
+class CoordinatorWorkflow {
+    @WorkflowRun
+    suspend fun run(targetWorkflowId: String): String {
+        val ctx = workflow()
+
+        // Get a handle to an external workflow by ID
+        val externalHandle = ctx.getExternalWorkflowHandle(targetWorkflowId)
+
+        // Signal it
+        externalHandle.signal("processData", "data from coordinator")
+
+        return "Signaled workflow: $targetWorkflowId"
+    }
+}
+```
+
+#### Signal External Workflows
+
+External workflow handles support the same type-safe `signal()` extension functions as child workflow handles:
+
+```kotlin
+@Workflow("NotificationWorkflow")
+class NotificationWorkflow {
+    @WorkflowRun
+    suspend fun run(subscriberWorkflowIds: List<String>): String {
+        val ctx = workflow()
+
+        // Signal multiple external workflows
+        for (workflowId in subscriberWorkflowIds) {
+            val handle = ctx.getExternalWorkflowHandle(workflowId)
+            handle.signal("notify", NotificationData(
+                message = "Update available",
+                timestamp = ctx.now()
+            ))
+        }
+
+        return "Notified ${subscriberWorkflowIds.size} workflows"
+    }
+}
+```
+
+#### Cancel External Workflows
+
+You can request cancellation of external workflows. Unlike child workflow cancellation, this is an asynchronous operation that waits for the server to acknowledge the request:
+
+```kotlin
+@Workflow("CleanupWorkflow")
+class CleanupWorkflow {
+    @WorkflowRun
+    suspend fun run(workflowsToCancel: List<String>): String {
+        val ctx = workflow()
+
+        for (workflowId in workflowsToCancel) {
+            try {
+                val handle = ctx.getExternalWorkflowHandle(workflowId)
+                handle.cancel("Cleanup requested")
+            } catch (e: CancelExternalWorkflowFailedException) {
+                // Workflow may have already completed or doesn't exist
+                ctx.logger().warn("Could not cancel workflow: {}", workflowId)
+            }
+        }
+
+        return "Cleanup complete"
+    }
+}
+```
+
+#### Target Specific Run ID
+
+You can optionally target a specific run of a workflow (instead of the latest run):
+
+```kotlin
+@Workflow("SpecificRunWorkflow")
+class SpecificRunWorkflow {
+    @WorkflowRun
+    suspend fun run(targetWorkflowId: String, targetRunId: String): String {
+        val ctx = workflow()
+
+        // Target a specific run ID (not just the latest run)
+        val handle = ctx.getExternalWorkflowHandle(
+            workflowId = targetWorkflowId,
+            runId = targetRunId
+        )
+
+        handle.signal("ping")
+
+        return "Signaled specific run"
+    }
+}
+```
+
+> **Note:** Cross-namespace external workflow operations are NOT supported from workflow code. The target workflow must be in the same namespace as the calling workflow. For cross-namespace operations, use an activity that calls the Temporal client API.
+
 ### Workflow Info
 
 Access metadata about the current workflow execution via `workflow().info`.

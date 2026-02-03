@@ -468,6 +468,42 @@ interface WorkflowContext :
      * @param attributes Type-safe search attributes to upsert
      */
     suspend fun upsertSearchAttributes(attributes: TypedSearchAttributes)
+
+    /**
+     * Gets a handle to an external workflow for signaling or cancelling.
+     *
+     * Use this to interact with workflows that are NOT children of the current workflow.
+     * For child workflows, use the [ChildWorkflowHandle] returned by [startChildWorkflowWithPayloads] instead.
+     *
+     * External workflow handles support:
+     * - [ExternalWorkflowHandle.signal] - Send signals to the external workflow
+     * - [ExternalWorkflowHandle.cancel] - Request cancellation of the external workflow
+     *
+     * **Note:** The target workflow must be in the same namespace as the calling workflow.
+     *
+     * Example:
+     * ```kotlin
+     * @WorkflowRun
+     * suspend fun WorkflowContext.run() {
+     *     // Get handle to an external workflow
+     *     val handle = getExternalWorkflowHandle("other-workflow-id")
+     *
+     *     // Signal it
+     *     handle.signal("mySignal", MyData("hello"))
+     *
+     *     // Or cancel it
+     *     handle.cancel("No longer needed")
+     * }
+     * ```
+     *
+     * @param workflowId The workflow ID of the external workflow
+     * @param runId Optional run ID to target a specific run (null targets the latest run)
+     * @return A handle to interact with the external workflow
+     */
+    fun getExternalWorkflowHandle(
+        workflowId: String,
+        runId: String? = null,
+    ): ExternalWorkflowHandle
 }
 
 /**

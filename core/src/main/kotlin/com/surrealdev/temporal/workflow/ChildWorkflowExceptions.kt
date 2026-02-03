@@ -159,3 +159,31 @@ class SignalExternalWorkflowFailedException(
             }
     }
 }
+
+/**
+ * Exception thrown when cancelling an external workflow fails.
+ *
+ * This can occur when the external workflow doesn't exist, has already
+ * completed, or when there's a server-side error processing the cancel request.
+ *
+ * @property targetWorkflowId The workflow ID that was being cancelled
+ * @property failure The Temporal failure details, if available
+ */
+class CancelExternalWorkflowFailedException(
+    val targetWorkflowId: String,
+    val failure: Failure?,
+    message: String = buildMessage(targetWorkflowId, failure),
+) : RuntimeException(message) {
+    companion object {
+        private fun buildMessage(
+            targetWorkflowId: String,
+            failure: Failure?,
+        ): String =
+            buildString {
+                append("Failed to cancel external workflow (workflowId=$targetWorkflowId)")
+                if (failure != null && failure.message.isNotEmpty()) {
+                    append(": ${failure.message}")
+                }
+            }
+    }
+}

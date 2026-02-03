@@ -182,6 +182,14 @@ internal class WorkflowState(
         ConcurrentHashMap<Int, CompletableDeferred<io.temporal.api.failure.v1.Failure?>>()
 
     /**
+     * Pending external cancel operations, keyed by sequence number.
+     * Used when cancelling external workflows (non-child).
+     * The deferred completes with the failure (or null on success) when the cancel resolution is received.
+     */
+    private val pendingExternalCancels =
+        ConcurrentHashMap<Int, CompletableDeferred<io.temporal.api.failure.v1.Failure?>>()
+
+    /**
      * Registered conditions waiting to be satisfied.
      * Each entry is a pair of (predicate, deferred) where the deferred completes when the predicate returns true.
      * This enables deterministic condition waiting without busy-wait loops.
@@ -494,6 +502,40 @@ internal class WorkflowState(
     }
 
     /**
+     * Registers a pending external cancel operation.
+     * Returns a deferred that completes with the failure (or null on success)
+     * when the cancel resolution is received.
+     *
+     * @param seq The sequence number for this cancel operation
+     * @return A deferred that completes with the failure or null
+     */
+    fun registerExternalCancel(seq: Int): CompletableDeferred<io.temporal.api.failure.v1.Failure?> {
+        if (isReadOnly) {
+            throw ReadOnlyContextException(
+                "Cannot register external cancel in read-only mode (e.g., during query processing)",
+            )
+        }
+        val deferred = CompletableDeferred<io.temporal.api.failure.v1.Failure?>()
+        pendingExternalCancels[seq] = deferred
+        return deferred
+    }
+
+    /**
+     * Resolves an external cancel by its sequence number.
+     * Called when a ResolveRequestCancelExternalWorkflow job is received.
+     *
+     * @param seq The sequence number of the cancel request
+     * @param failure The failure if the cancel failed, or null on success
+     */
+    fun resolveExternalCancel(
+        seq: Int,
+        failure: io.temporal.api.failure.v1.Failure?,
+    ) {
+        val deferred = pendingExternalCancels.remove(seq) ?: return
+        deferred.complete(failure)
+    }
+
+    /**
      * Registers a condition and returns a deferred that completes when the condition becomes true.
      * The condition will be checked during the event loop after signals/updates and non-query jobs.
      *
@@ -725,6 +767,8 @@ internal class WorkflowState(
             pendingActivities.isNotEmpty() ||
             pendingLocalActivities.isNotEmpty() ||
             pendingChildWorkflows.isNotEmpty() ||
+            pendingExternalSignals.isNotEmpty() ||
+            pendingExternalCancels.isNotEmpty() ||
             conditions.isNotEmpty()
 
     /**
@@ -756,6 +800,14 @@ internal class WorkflowState(
             it.executionDeferred.cancel()
         }
         pendingChildWorkflows.clear()
+
+        // Cancel all pending external signals
+        pendingExternalSignals.values.forEach { it.cancel() }
+        pendingExternalSignals.clear()
+
+        // Cancel all pending external cancels
+        pendingExternalCancels.values.forEach { it.cancel() }
+        pendingExternalCancels.clear()
 
         // Cancel all pending conditions
         conditions.forEach { (_, deferred) -> deferred.cancel() }

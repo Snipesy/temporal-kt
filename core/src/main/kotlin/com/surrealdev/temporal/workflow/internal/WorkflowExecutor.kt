@@ -682,7 +682,8 @@ internal class WorkflowExecutor(
     private fun handleCancelExternalWorkflow(
         cancel: coresdk.workflow_activation.WorkflowActivationOuterClass.ResolveRequestCancelExternalWorkflow,
     ) {
-        // TODO: Implement external workflow cancel resolution when external cancellation is implemented
+        val failure = if (cancel.hasFailure()) cancel.failure else null
+        state.resolveExternalCancel(cancel.seq, failure)
     }
 
     private fun handleNexusOperationStart(

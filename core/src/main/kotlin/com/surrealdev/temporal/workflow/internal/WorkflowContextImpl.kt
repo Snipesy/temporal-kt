@@ -818,6 +818,18 @@ internal class WorkflowContextImpl(
         logger.info("Upserted ${attributes.size} search attributes")
     }
 
+    override fun getExternalWorkflowHandle(
+        workflowId: String,
+        runId: String?,
+    ): com.surrealdev.temporal.workflow.ExternalWorkflowHandle =
+        ExternalWorkflowHandleImpl(
+            workflowId = workflowId,
+            runId = runId,
+            namespace = info.namespace,
+            state = state,
+            serializer = serializer,
+        )
+
     /**
      * Gets the current replaying state.
      */
