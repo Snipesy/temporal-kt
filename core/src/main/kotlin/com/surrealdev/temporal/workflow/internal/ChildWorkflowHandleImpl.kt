@@ -61,6 +61,12 @@ internal class ChildWorkflowHandleImpl<R>(
     override val firstExecutionRunId: String?
         get() = _firstExecutionRunId
 
+    override suspend fun awaitStart(): String {
+        val runId = startDeferred.await()
+        _firstExecutionRunId = runId
+        return runId
+    }
+
     @Suppress("UNCHECKED_CAST")
     override suspend fun result(): R {
         // Wait for start resolution first

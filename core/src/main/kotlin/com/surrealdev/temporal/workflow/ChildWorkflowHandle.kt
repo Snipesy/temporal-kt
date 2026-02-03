@@ -35,6 +35,17 @@ interface ChildWorkflowHandle<R> : WorkflowHandleBase<R> {
     val firstExecutionRunId: String?
 
     /**
+     * Suspends until the child workflow has actually started executing.
+     *
+     * After this method returns, [firstExecutionRunId] is guaranteed to be non-null.
+     *
+     * @return The run ID of the started child workflow
+     * @throws ChildWorkflowStartFailureException if the child workflow failed to start
+     * @throws ChildWorkflowCancelledException if the start was cancelled
+     */
+    suspend fun awaitStart(): String
+
+    /**
      * Waits for the child workflow to complete and returns its result.
      *
      * @return The result of the child workflow
