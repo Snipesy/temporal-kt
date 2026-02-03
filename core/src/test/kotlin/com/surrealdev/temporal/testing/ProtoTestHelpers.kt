@@ -354,6 +354,118 @@ object ProtoTestHelpers {
     }
 
     /**
+     * Creates a ResolveActivity job for a local activity with a timeout failure.
+     *
+     * @param seq The sequence number of the local activity
+     * @param timeoutType The type of timeout (START_TO_CLOSE, SCHEDULE_TO_CLOSE, etc.)
+     * @param message Optional message for the timeout
+     */
+    fun resolveLocalActivityJobTimeout(
+        seq: Int,
+        timeoutType: io.temporal.api.enums.v1.TimeoutType = io.temporal.api.enums.v1.TimeoutType.TIMEOUT_TYPE_START_TO_CLOSE,
+        message: String = "Local activity timed out",
+    ): WorkflowActivationJob {
+        val timeoutInfo =
+            io.temporal.api.failure.v1.TimeoutFailureInfo
+                .newBuilder()
+                .setTimeoutType(timeoutType)
+                .build()
+
+        val failure =
+            Failure
+                .newBuilder()
+                .setMessage(message)
+                .setTimeoutFailureInfo(timeoutInfo)
+                .build()
+
+        val failed =
+            ActivityResult.Failure
+                .newBuilder()
+                .setFailure(failure)
+                .build()
+
+        val resolution =
+            ActivityResult.ActivityResolution
+                .newBuilder()
+                .setFailed(failed)
+                .build()
+
+        val resolveActivity =
+            ResolveActivity
+                .newBuilder()
+                .setSeq(seq)
+                .setResult(resolution)
+                .setIsLocal(true)
+                .build()
+
+        return WorkflowActivationJob
+            .newBuilder()
+            .setResolveActivity(resolveActivity)
+            .build()
+    }
+
+    /**
+     * Creates a ResolveActivity job for a local activity with detailed failure information.
+     *
+     * @param seq The sequence number of the local activity
+     * @param message The failure message
+     * @param errorType The error type (e.g., "RuntimeException")
+     * @param causeMessage Optional message for the cause
+     */
+    fun resolveLocalActivityJobFailedWithDetails(
+        seq: Int,
+        message: String,
+        errorType: String = "ApplicationFailure",
+        causeMessage: String? = null,
+    ): WorkflowActivationJob {
+        val failureBuilder =
+            Failure
+                .newBuilder()
+                .setMessage(message)
+                .setApplicationFailureInfo(
+                    io.temporal.api.failure.v1.ApplicationFailureInfo
+                        .newBuilder()
+                        .setType(errorType)
+                        .setNonRetryable(false)
+                        .build(),
+                )
+
+        if (causeMessage != null) {
+            failureBuilder.setCause(
+                Failure
+                    .newBuilder()
+                    .setMessage(causeMessage)
+                    .build(),
+            )
+        }
+
+        val failed =
+            ActivityResult.Failure
+                .newBuilder()
+                .setFailure(failureBuilder.build())
+                .build()
+
+        val resolution =
+            ActivityResult.ActivityResolution
+                .newBuilder()
+                .setFailed(failed)
+                .build()
+
+        val resolveActivity =
+            ResolveActivity
+                .newBuilder()
+                .setSeq(seq)
+                .setResult(resolution)
+                .setIsLocal(true)
+                .build()
+
+        return WorkflowActivationJob
+            .newBuilder()
+            .setResolveActivity(resolveActivity)
+            .build()
+    }
+
+    /**
      * Creates a QueryWorkflow job.
      */
     fun queryWorkflowJob(

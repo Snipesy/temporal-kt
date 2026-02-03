@@ -1,460 +1,447 @@
 package com.surrealdev.temporal.workflow.integration
 
-import com.google.protobuf.ByteString
+import com.surrealdev.temporal.activity.ActivityContext
+import com.surrealdev.temporal.annotation.Activity
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
-import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
-import com.surrealdev.temporal.testing.ProtoTestHelpers.createActivation
-import com.surrealdev.temporal.testing.ProtoTestHelpers.fireTimerJob
-import com.surrealdev.temporal.testing.ProtoTestHelpers.initializeWorkflowJob
-import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveLocalActivityJobBackoff
-import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveLocalActivityJobCompleted
-import com.surrealdev.temporal.testing.createTestWorkflowExecutor
+import com.surrealdev.temporal.application.taskQueue
+import com.surrealdev.temporal.client.startWorkflow
+import com.surrealdev.temporal.testing.assertHistory
+import com.surrealdev.temporal.testing.runTemporalTest
+import com.surrealdev.temporal.workflow.ActivityCancelledException
+import com.surrealdev.temporal.workflow.ActivityFailureException
+import com.surrealdev.temporal.workflow.RetryPolicy
 import com.surrealdev.temporal.workflow.WorkflowContext
-import com.surrealdev.temporal.workflow.internal.WorkflowExecutor
-import com.surrealdev.temporal.workflow.internal.WorkflowMethodInfo
 import com.surrealdev.temporal.workflow.startLocalActivity
-import coresdk.workflow_commands.WorkflowCommands
-import coresdk.workflow_completion.WorkflowCompletion.WorkflowActivationCompletion
-import io.temporal.api.common.v1.Payload
-import kotlinx.coroutines.test.runTest
-import org.junit.jupiter.api.Test
-import java.util.*
-import kotlin.reflect.KFunction
-import kotlin.reflect.typeOf
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import org.junit.jupiter.api.Tag
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * Integration tests for local activity execution.
+ * Real integration tests for local activity execution.
  *
- * These tests verify end-to-end local activity scenarios including:
+ * These tests run against an actual Temporal test server and verify
+ * end-to-end local activity behavior including:
  * - Basic execution and result handling
- * - Retry with internal backoff
- * - Multiple local activities in sequence
- * - Parallel local activities
- * - Replay determinism
+ * - Argument passing
+ * - Parallel and sequential execution
+ * - Failure handling and retries
+ * - Cancellation
+ *
+ * Unlike unit tests that simulate activations, these tests execute
+ * real activity code through the full worker pipeline.
  */
+@Tag("integration")
 class LocalActivityIntegrationTest {
-    private val serializer = KotlinxJsonSerializer()
+    // ================================================================
+    // Test Activities
+    // ================================================================
+
+    /**
+     * Collection of local activities for testing.
+     * Each method is annotated with @Activity to register it with the worker.
+     */
+    class TestLocalActivities {
+        @Activity("localGreet")
+        fun greet(name: String): String = "Hello, $name!"
+
+        @Activity("localEcho")
+        fun echo(message: String): String = message
+
+        @Activity("localAdd")
+        fun add(
+            a: Int,
+            b: Int,
+        ): Int = a + b
+
+        @Activity("localFailing")
+        fun failing(): String = throw RuntimeException("Intentional local activity failure")
+
+        @Activity("localSlowSuccess")
+        fun slowSuccess(): String {
+            Thread.sleep(50)
+            return "slow done"
+        }
+
+        /**
+         * Activity that fails on first N attempts, then succeeds.
+         * Uses shared state to track attempts.
+         */
+        private val retryCounter = AtomicInteger(0)
+
+        @Activity("localRetryable")
+        fun retryable(): Int {
+            val attempt = retryCounter.incrementAndGet()
+            if (attempt < 3) {
+                throw RuntimeException("Not ready yet, attempt $attempt")
+            }
+            return attempt
+        }
+
+        fun resetRetryCounter() {
+            retryCounter.set(0)
+        }
+    }
 
     // ================================================================
     // Test Workflows
     // ================================================================
 
-    @Workflow("LocalActivityResultWorkflow")
-    class LocalActivityResultWorkflow {
-        var result: String? = null
+    @Workflow("BasicLocalActivityWorkflow")
+    class BasicLocalActivityWorkflow {
+        @WorkflowRun
+        suspend fun WorkflowContext.run(name: String): String =
+            startLocalActivity<String, String>(
+                activityType = "localGreet",
+                arg = name,
+                startToCloseTimeout = 10.seconds,
+            ).result()
+    }
 
+    @Workflow("LocalActivityWithArgsWorkflow")
+    class LocalActivityWithArgsWorkflow {
+        @WorkflowRun
+        suspend fun WorkflowContext.run(
+            a: Int,
+            b: Int,
+        ): Int =
+            startLocalActivity<Int, Int, Int>(
+                activityType = "localAdd",
+                arg1 = a,
+                arg2 = b,
+                startToCloseTimeout = 10.seconds,
+            ).result()
+    }
+
+    @Workflow("ParallelLocalActivitiesWorkflow")
+    class ParallelLocalActivitiesWorkflow {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
-            result =
-                startLocalActivity<String>(
-                    activityType = "localGreet",
-                    startToCloseTimeout = 10.seconds,
-                ).result()
-            return result!!
+            val handles =
+                listOf("Alice", "Bob", "Charlie").map { name ->
+                    async {
+                        startLocalActivity<String, String>(
+                            activityType = "localGreet",
+                            arg = name,
+                            startToCloseTimeout = 10.seconds,
+                        ).result()
+                    }
+                }
+
+            val results = handles.awaitAll()
+            return results.joinToString(", ")
         }
     }
 
     @Workflow("SequentialLocalActivitiesWorkflow")
     class SequentialLocalActivitiesWorkflow {
-        var result1: String? = null
-        var result2: String? = null
-        var result3: String? = null
-
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
-            result1 =
-                startLocalActivity<String>(
-                    activityType = "step1",
+            val r1 =
+                startLocalActivity<String, String>(
+                    activityType = "localEcho",
+                    arg = "step1",
                     startToCloseTimeout = 10.seconds,
                 ).result()
-            result2 =
-                startLocalActivity<String>(
-                    activityType = "step2",
+
+            val r2 =
+                startLocalActivity<String, String>(
+                    activityType = "localEcho",
+                    arg = "$r1->step2",
                     startToCloseTimeout = 10.seconds,
                 ).result()
-            result3 =
-                startLocalActivity<String>(
-                    activityType = "step3",
+
+            val r3 =
+                startLocalActivity<String, String>(
+                    activityType = "localEcho",
+                    arg = "$r2->step3",
                     startToCloseTimeout = 10.seconds,
                 ).result()
-            return "$result1-$result2-$result3"
+
+            return r3
         }
     }
 
-    @Workflow("ParallelLocalActivitiesWorkflow")
-    class ParallelLocalActivitiesWorkflow {
-        var parallelResult: String? = null
+    @Workflow("FailingLocalActivityWorkflow")
+    class FailingLocalActivityWorkflow {
+        var caughtMessage: String? = null
 
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
-            val handle1 =
+            try {
                 startLocalActivity<String>(
-                    activityType = "parallel1",
+                    activityType = "localFailing",
                     startToCloseTimeout = 10.seconds,
-                )
-            val handle2 =
-                startLocalActivity<String>(
-                    activityType = "parallel2",
-                    startToCloseTimeout = 10.seconds,
-                )
-            val handle3 =
-                startLocalActivity<String>(
-                    activityType = "parallel3",
-                    startToCloseTimeout = 10.seconds,
-                )
-
-            // Await all concurrently
-            val r1 = handle1.result()
-            val r2 = handle2.result()
-            val r3 = handle3.result()
-
-            parallelResult = "$r1,$r2,$r3"
-            return parallelResult!!
+                    retryPolicy = RetryPolicy(maximumAttempts = 1),
+                ).result()
+                return "unexpected success"
+            } catch (e: ActivityFailureException) {
+                caughtMessage = e.message
+                return "caught: ${e.message}"
+            }
         }
     }
 
-    @Workflow("LocalActivityWithRetryWorkflow")
-    class LocalActivityWithRetryWorkflow {
-        var finalResult: String? = null
-        var attemptsSeen: Int = 0
+    @Workflow("CancelLocalActivityWorkflow")
+    class CancelLocalActivityWorkflow {
+        var wasCancelled = false
 
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
-            finalResult =
+            val handle =
                 startLocalActivity<String>(
-                    activityType = "flakyActivity",
-                    startToCloseTimeout = 30.seconds,
-                ).result()
-            return finalResult!!
+                    activityType = "localSlowSuccess",
+                    startToCloseTimeout = 60.seconds,
+                )
+
+            // Cancel immediately
+            handle.cancel("Test cancellation")
+
+            return try {
+                handle.result()
+                "unexpected success"
+            } catch (e: ActivityCancelledException) {
+                wasCancelled = true
+                "cancelled"
+            }
         }
     }
 
     // ================================================================
-    // Helper Methods
-    // ================================================================
-
-    private data class ExecutorResult(
-        val executor: WorkflowExecutor,
-        val runId: String,
-        val workflow: Any,
-        val completion: WorkflowActivationCompletion,
-    )
-
-    private suspend inline fun <reified T : Any> createExecutorWithWorkflow(workflowType: String): ExecutorResult {
-        val workflow = T::class.constructors.first().call()
-        val runMethod =
-            T::class
-                .members
-                .first { it.name == "run" } as KFunction<*>
-
-        val workflowMethodInfo =
-            WorkflowMethodInfo(
-                workflowType = workflowType,
-                runMethod = runMethod,
-                workflowClass = T::class,
-                instanceFactory = { workflow },
-                parameterTypes = emptyList(),
-                returnType = typeOf<String>(),
-                hasContextReceiver = true,
-                isSuspend = true,
-            )
-
-        val runId = "test-run-${UUID.randomUUID()}"
-        val executor =
-            createTestWorkflowExecutor(
-                runId = runId,
-                methodInfo = workflowMethodInfo,
-                serializer = serializer,
-            )
-
-        // Initialize the workflow
-        val initActivation =
-            createActivation(
-                runId = runId,
-                jobs = listOf(initializeWorkflowJob(workflowType = workflowType)),
-                isReplaying = false,
-            )
-        val completion = executor.activate(initActivation)
-
-        return ExecutorResult(executor, runId, workflow, completion)
-    }
-
-    private fun createPayload(data: String): Payload =
-        Payload
-            .newBuilder()
-            .putMetadata("encoding", ByteString.copyFromUtf8("json/plain"))
-            .setData(ByteString.copyFromUtf8(data))
-            .build()
-
-    private fun getCommandsFromCompletion(
-        completion: WorkflowActivationCompletion,
-    ): List<WorkflowCommands.WorkflowCommand> =
-        if (completion.hasSuccessful()) {
-            completion.successful.commandsList
-        } else {
-            emptyList()
-        }
-
-    // ================================================================
-    // Tests
+    // Integration Tests
     // ================================================================
 
     /**
-     * Tests that a local activity executes and returns its result correctly.
+     * Tests basic local activity execution with a single argument.
      */
     @Test
     fun `local activity executes and returns result`() =
-        runTest {
-            val (executor, runId, workflow, initCompletion) =
-                createExecutorWithWorkflow<LocalActivityResultWorkflow>("LocalActivityResultWorkflow")
+        runTemporalTest {
+            val taskQueue = "test-la-basic-${UUID.randomUUID()}"
 
-            // Verify ScheduleLocalActivity command
-            val commands = getCommandsFromCompletion(initCompletion)
-            assertTrue(commands.any { it.hasScheduleLocalActivity() })
+            application {
+                taskQueue(taskQueue) {
+                    workflow<BasicLocalActivityWorkflow>()
+                    activity(TestLocalActivities())
+                }
+            }
 
-            val scheduleCmd = commands.first { it.hasScheduleLocalActivity() }.scheduleLocalActivity
-            assertEquals("localGreet", scheduleCmd.activityType)
-
-            // Resolve with result
-            val resultPayload = createPayload("\"Hello, Local World!\"")
-            val resolveActivation =
-                createActivation(
-                    runId = runId,
-                    jobs = listOf(resolveLocalActivityJobCompleted(seq = 1, result = resultPayload)),
+            val client = client()
+            val handle =
+                client.startWorkflow<String, String>(
+                    workflowType = "BasicLocalActivityWorkflow",
+                    taskQueue = taskQueue,
+                    arg = "World",
                 )
-            val resolveCompletion = executor.activate(resolveActivation)
 
-            // Verify workflow completed
-            assertTrue(resolveCompletion.hasSuccessful())
+            val result = handle.result(timeout = 30.seconds)
+            assertEquals("Hello, World!", result)
 
-            assertEquals("Hello, Local World!", (workflow as LocalActivityResultWorkflow).result)
+            handle.assertHistory {
+                completed()
+            }
         }
 
     /**
-     * Tests that sequential local activities execute in order.
+     * Tests local activity with multiple arguments.
      */
     @Test
-    fun `sequential local activities execute in order`() =
-        runTest {
-            val (executor, runId, workflow, initCompletion) =
-                createExecutorWithWorkflow<SequentialLocalActivitiesWorkflow>("SequentialLocalActivitiesWorkflow")
+    fun `local activity with multiple arguments works correctly`() =
+        runTemporalTest {
+            val taskQueue = "test-la-args-${UUID.randomUUID()}"
 
-            // First activity (step1)
-            var commands = getCommandsFromCompletion(initCompletion)
-            assertTrue(commands.any { it.hasScheduleLocalActivity() })
-            assertEquals(
-                "step1",
-                commands.first { it.hasScheduleLocalActivity() }.scheduleLocalActivity.activityType,
-            )
+            application {
+                taskQueue(taskQueue) {
+                    workflow<LocalActivityWithArgsWorkflow>()
+                    activity(TestLocalActivities())
+                }
+            }
 
-            // Resolve first
-            var resolveCompletion =
-                executor.activate(
-                    createActivation(
-                        runId = runId,
-                        jobs = listOf(resolveLocalActivityJobCompleted(seq = 1, result = createPayload("\"A\""))),
-                    ),
+            val client = client()
+            val handle =
+                client.startWorkflow<Int, Int, Int>(
+                    workflowType = "LocalActivityWithArgsWorkflow",
+                    taskQueue = taskQueue,
+                    arg1 = 10,
+                    arg2 = 32,
                 )
 
-            // Second activity (step2)
-            commands = getCommandsFromCompletion(resolveCompletion)
-            assertTrue(commands.any { it.hasScheduleLocalActivity() })
-            assertEquals(
-                "step2",
-                commands.first { it.hasScheduleLocalActivity() }.scheduleLocalActivity.activityType,
-            )
+            val result = handle.result(timeout = 30.seconds)
+            assertEquals(42, result)
 
-            // Resolve second
-            resolveCompletion =
-                executor.activate(
-                    createActivation(
-                        runId = runId,
-                        jobs = listOf(resolveLocalActivityJobCompleted(seq = 2, result = createPayload("\"B\""))),
-                    ),
-                )
-
-            // Third activity (step3)
-            commands = getCommandsFromCompletion(resolveCompletion)
-            assertTrue(commands.any { it.hasScheduleLocalActivity() })
-            assertEquals(
-                "step3",
-                commands.first { it.hasScheduleLocalActivity() }.scheduleLocalActivity.activityType,
-            )
-
-            // Resolve third
-            resolveCompletion =
-                executor.activate(
-                    createActivation(
-                        runId = runId,
-                        jobs = listOf(resolveLocalActivityJobCompleted(seq = 3, result = createPayload("\"C\""))),
-                    ),
-                )
-
-            // Workflow should complete
-            assertTrue(resolveCompletion.hasSuccessful())
-
-            val workflowResult = workflow as SequentialLocalActivitiesWorkflow
-            assertEquals("A", workflowResult.result1)
-            assertEquals("B", workflowResult.result2)
-            assertEquals("C", workflowResult.result3)
+            handle.assertHistory {
+                completed()
+            }
         }
 
     /**
-     * Tests that parallel local activities can be started concurrently.
+     * Tests parallel local activity execution.
+     * Multiple activities should be scheduled concurrently.
      */
     @Test
     fun `parallel local activities execute concurrently`() =
-        runTest {
-            val (executor, runId, workflow, initCompletion) =
-                createExecutorWithWorkflow<ParallelLocalActivitiesWorkflow>("ParallelLocalActivitiesWorkflow")
+        runTemporalTest {
+            val taskQueue = "test-la-parallel-${UUID.randomUUID()}"
 
-            // All three activities should be scheduled immediately
-            val commands = getCommandsFromCompletion(initCompletion)
-            val localActivityCommands = commands.filter { it.hasScheduleLocalActivity() }
-            assertEquals(3, localActivityCommands.size)
-
-            val activityTypes = localActivityCommands.map { it.scheduleLocalActivity.activityType }.toSet()
-            assertTrue(activityTypes.contains("parallel1"))
-            assertTrue(activityTypes.contains("parallel2"))
-            assertTrue(activityTypes.contains("parallel3"))
-
-            // Resolve all three (in any order)
-            val resolveActivation =
-                createActivation(
-                    runId = runId,
-                    jobs =
-                        listOf(
-                            resolveLocalActivityJobCompleted(seq = 1, result = createPayload("\"P1\"")),
-                            resolveLocalActivityJobCompleted(seq = 2, result = createPayload("\"P2\"")),
-                            resolveLocalActivityJobCompleted(seq = 3, result = createPayload("\"P3\"")),
-                        ),
-                )
-            val resolveCompletion = executor.activate(resolveActivation)
-
-            // Workflow should complete
-            assertTrue(resolveCompletion.hasSuccessful())
-            assertEquals("P1,P2,P3", (workflow as ParallelLocalActivitiesWorkflow).parallelResult)
-        }
-
-    /**
-     * Tests that local activity retry with backoff properly schedules timer and retries.
-     */
-    @Test
-    fun `local activity with backoff retries after timer`() =
-        runTest {
-            val (executor, runId, workflow, initCompletion) =
-                createExecutorWithWorkflow<LocalActivityWithRetryWorkflow>("LocalActivityWithRetryWorkflow")
-
-            // Initial activity scheduled
-            var commands = getCommandsFromCompletion(initCompletion)
-            assertTrue(commands.any { it.hasScheduleLocalActivity() })
-            val initialCmd = commands.first { it.hasScheduleLocalActivity() }.scheduleLocalActivity
-            assertEquals(1, initialCmd.seq)
-            assertEquals(1, initialCmd.attempt)
-
-            // Core SDK sends backoff (simulate activity failed, needs retry after 5s)
-            val originalScheduleTime =
-                com.google.protobuf.Timestamp
-                    .newBuilder()
-                    .setSeconds(1000)
-                    .build()
-            val backoffCompletion =
-                executor.activate(
-                    createActivation(
-                        runId = runId,
-                        jobs =
-                            listOf(
-                                resolveLocalActivityJobBackoff(
-                                    seq = 1,
-                                    attempt = 2,
-                                    backoffSeconds = 5,
-                                    originalScheduleTime = originalScheduleTime,
-                                ),
-                            ),
-                    ),
-                )
-
-            // Should have timer for backoff
-            commands = getCommandsFromCompletion(backoffCompletion)
-            assertTrue(commands.any { it.hasStartTimer() }, "Expected timer for backoff")
-            val timerCmd = commands.first { it.hasStartTimer() }
-            assertEquals(5, timerCmd.startTimer.startToFireTimeout.seconds)
-
-            // Fire the timer
-            val fireTimerCompletion =
-                executor.activate(
-                    createActivation(
-                        runId = runId,
-                        jobs = listOf(fireTimerJob(seq = timerCmd.startTimer.seq)),
-                    ),
-                )
-
-            // Should have new ScheduleLocalActivity with new seq and attempt=2
-            commands = getCommandsFromCompletion(fireTimerCompletion)
-            assertTrue(commands.any { it.hasScheduleLocalActivity() }, "Expected reschedule after timer")
-
-            val retryCmd = commands.first { it.hasScheduleLocalActivity() }.scheduleLocalActivity
-            assertTrue(retryCmd.seq > 1, "New schedule should have new seq")
-            assertEquals(2, retryCmd.attempt)
-            assertTrue(retryCmd.hasOriginalScheduleTime())
-
-            // Resolve the retry successfully
-            val finalCompletion =
-                executor.activate(
-                    createActivation(
-                        runId = runId,
-                        jobs =
-                            listOf(
-                                resolveLocalActivityJobCompleted(
-                                    seq = retryCmd.seq,
-                                    result = createPayload("\"Success after retry!\""),
-                                ),
-                            ),
-                    ),
-                )
-
-            // Workflow should complete
-            assertTrue(finalCompletion.hasSuccessful())
-            assertEquals("Success after retry!", (workflow as LocalActivityWithRetryWorkflow).finalResult)
-        }
-
-    /**
-     * Tests replay determinism: running the same workflow twice should produce same commands.
-     */
-    @Test
-    fun `replay with local activity markers is deterministic`() =
-        runTest {
-            // First execution
-            val (executor1, runId1, _, completion1) =
-                createExecutorWithWorkflow<LocalActivityResultWorkflow>("LocalActivityResultWorkflow")
-
-            val commands1 = getCommandsFromCompletion(completion1)
-
-            // Second execution with same workflow
-            val (_, _, _, completion2) =
-                createExecutorWithWorkflow<LocalActivityResultWorkflow>("LocalActivityResultWorkflow")
-
-            val commands2 = getCommandsFromCompletion(completion2)
-
-            // Both should generate the same commands
-            assertEquals(commands1.size, commands2.size)
-            assertEquals(
-                commands1.map { it.variantCase },
-                commands2.map { it.variantCase },
-            )
-
-            // Specifically check the ScheduleLocalActivity commands match
-            if (commands1.any { it.hasScheduleLocalActivity() }) {
-                val la1 = commands1.first { it.hasScheduleLocalActivity() }.scheduleLocalActivity
-                val la2 = commands2.first { it.hasScheduleLocalActivity() }.scheduleLocalActivity
-
-                assertEquals(la1.activityType, la2.activityType)
-                assertEquals(la1.seq, la2.seq)
-                assertEquals(la1.attempt, la2.attempt)
+            application {
+                taskQueue(taskQueue) {
+                    workflow<ParallelLocalActivitiesWorkflow>()
+                    activity(TestLocalActivities())
+                }
             }
+
+            val client = client()
+            val handle =
+                client.startWorkflow<String>(
+                    workflowType = "ParallelLocalActivitiesWorkflow",
+                    taskQueue = taskQueue,
+                )
+
+            val result = handle.result(timeout = 30.seconds)
+
+            // Should have all three greetings
+            assertTrue(result.contains("Hello, Alice!"), "Should greet Alice")
+            assertTrue(result.contains("Hello, Bob!"), "Should greet Bob")
+            assertTrue(result.contains("Hello, Charlie!"), "Should greet Charlie")
+
+            handle.assertHistory {
+                completed()
+            }
+        }
+
+    /**
+     * Tests sequential local activity execution.
+     * Activities should chain their results correctly.
+     */
+    @Test
+    fun `sequential local activities execute in order`() =
+        runTemporalTest {
+            val taskQueue = "test-la-sequential-${UUID.randomUUID()}"
+
+            application {
+                taskQueue(taskQueue) {
+                    workflow<SequentialLocalActivitiesWorkflow>()
+                    activity(TestLocalActivities())
+                }
+            }
+
+            val client = client()
+            val handle =
+                client.startWorkflow<String>(
+                    workflowType = "SequentialLocalActivitiesWorkflow",
+                    taskQueue = taskQueue,
+                )
+
+            val result = handle.result(timeout = 30.seconds)
+            assertEquals("step1->step2->step3", result)
+
+            handle.assertHistory {
+                completed()
+            }
+        }
+
+    /**
+     * Tests local activity failure handling.
+     * Workflow should catch ActivityFailureException.
+     */
+    @Test
+    fun `local activity failure is caught by workflow`() =
+        runTemporalTest {
+            val taskQueue = "test-la-failure-${UUID.randomUUID()}"
+
+            application {
+                taskQueue(taskQueue) {
+                    workflow<FailingLocalActivityWorkflow>()
+                    activity(TestLocalActivities())
+                }
+            }
+
+            val client = client()
+            val handle =
+                client.startWorkflow<String>(
+                    workflowType = "FailingLocalActivityWorkflow",
+                    taskQueue = taskQueue,
+                )
+
+            val result = handle.result(timeout = 30.seconds)
+            assertTrue(result.startsWith("caught:"), "Should catch failure: $result")
+
+            handle.assertHistory {
+                completed()
+            }
+        }
+
+    /**
+     * Tests local activity cancellation.
+     * Cancelling before completion should throw ActivityCancelledException.
+     */
+    @Test
+    fun `local activity cancellation throws ActivityCancelledException`() =
+        runTemporalTest {
+            val taskQueue = "test-la-cancel-${UUID.randomUUID()}"
+
+            application {
+                taskQueue(taskQueue) {
+                    workflow<CancelLocalActivityWorkflow>()
+                    activity(TestLocalActivities())
+                }
+            }
+
+            val client = client()
+            val handle =
+                client.startWorkflow<String>(
+                    workflowType = "CancelLocalActivityWorkflow",
+                    taskQueue = taskQueue,
+                )
+
+            val result = handle.result(timeout = 30.seconds)
+            assertEquals("cancelled", result)
+
+            handle.assertHistory {
+                completed()
+            }
+        }
+
+    /**
+     * Tests that different workflow runs get isolated local activity results.
+     */
+    @Test
+    fun `multiple workflow runs have isolated local activity state`() =
+        runTemporalTest {
+            val taskQueue = "test-la-isolation-${UUID.randomUUID()}"
+
+            application {
+                taskQueue(taskQueue) {
+                    workflow<BasicLocalActivityWorkflow>()
+                    activity(TestLocalActivities())
+                }
+            }
+
+            val client = client()
+
+            // Start multiple workflows concurrently
+            val handles =
+                listOf("Alice", "Bob", "Charlie").map { name ->
+                    client.startWorkflow<String, String>(
+                        workflowType = "BasicLocalActivityWorkflow",
+                        taskQueue = taskQueue,
+                        arg = name,
+                    )
+                }
+
+            // Collect results
+            val results = handles.map { it.result(timeout = 30.seconds) }
+
+            // Each should have the correct greeting
+            assertEquals("Hello, Alice!", results[0])
+            assertEquals("Hello, Bob!", results[1])
+            assertEquals("Hello, Charlie!", results[2])
         }
 }

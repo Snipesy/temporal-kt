@@ -11,15 +11,21 @@ import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveLocalActivityJobB
 import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveLocalActivityJobCancelled
 import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveLocalActivityJobCompleted
 import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveLocalActivityJobFailed
+import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveLocalActivityJobFailedWithDetails
+import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveLocalActivityJobTimeout
 import com.surrealdev.temporal.testing.createTestWorkflowExecutor
 import com.surrealdev.temporal.workflow.ActivityCancelledException
+import com.surrealdev.temporal.workflow.ActivityFailureException
+import com.surrealdev.temporal.workflow.ActivityTimeoutException
 import com.surrealdev.temporal.workflow.LocalActivityOptions
 import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.startLocalActivity
 import coresdk.workflow_commands.WorkflowCommands
 import coresdk.workflow_completion.WorkflowCompletion.WorkflowActivationCompletion
 import io.temporal.api.common.v1.Payload
+import io.temporal.api.enums.v1.TimeoutType
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.Serializable
 import org.junit.jupiter.api.Test
 import java.util.UUID
 import kotlin.reflect.KFunction
@@ -161,6 +167,109 @@ class LocalActivityActivationTest {
                 handle.result()
             } catch (_: Exception) {
             }
+            return "done"
+        }
+    }
+
+    @Workflow("MultipleBackoffWorkflow")
+    class MultipleBackoffWorkflow {
+        var handleResult: String? = null
+        var attemptsObserved = mutableListOf<Int>()
+
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            handleResult =
+                startLocalActivity<String>(
+                    activityType = "flakyActivity",
+                    startToCloseTimeout = 60.seconds,
+                ).result()
+            return "done"
+        }
+    }
+
+    @Workflow("TimeoutLocalActivityWorkflow")
+    class TimeoutLocalActivityWorkflow {
+        var caughtException: Exception? = null
+        var timeoutType: String? = null
+
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            try {
+                startLocalActivity<String>(
+                    activityType = "slowActivity",
+                    startToCloseTimeout = 1.seconds,
+                ).result()
+            } catch (e: ActivityTimeoutException) {
+                caughtException = e
+                timeoutType = e.timeoutType.name
+            } catch (e: Exception) {
+                caughtException = e
+            }
+            return "done"
+        }
+    }
+
+    @Workflow("FailureDetailsWorkflow")
+    class FailureDetailsWorkflow {
+        var caughtException: Exception? = null
+        var failureMessage: String? = null
+        var failureType: String? = null
+        var applicationErrorType: String? = null
+        var hasCause: Boolean = false
+
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            try {
+                startLocalActivity<String>(
+                    activityType = "detailedFailingActivity",
+                    startToCloseTimeout = 10.seconds,
+                ).result()
+            } catch (e: ActivityFailureException) {
+                caughtException = e
+                failureMessage = e.message
+                failureType = e.failureType
+                applicationErrorType = e.applicationFailure?.type
+                hasCause = e.cause != null
+            } catch (e: Exception) {
+                caughtException = e
+            }
+            return "done"
+        }
+    }
+
+    @Workflow("UnitReturnWorkflow")
+    class UnitReturnWorkflow {
+        var completed = false
+
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            startLocalActivity<Unit>(
+                activityType = "voidActivity",
+                startToCloseTimeout = 10.seconds,
+            ).result()
+            completed = true
+            return "done"
+        }
+    }
+
+    @Serializable
+    data class ComplexResult(
+        val id: Int,
+        val name: String,
+        val tags: List<String>,
+    )
+
+    @Workflow("ComplexReturnWorkflow")
+    class ComplexReturnWorkflow {
+        var result: ComplexResult? = null
+
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            result =
+                startLocalActivity<ComplexResult>(
+                    activityType = "complexActivity",
+                    startToCloseTimeout = 10.seconds,
+                ).result()
             return "done"
         }
     }
@@ -368,7 +477,7 @@ class LocalActivityActivationTest {
     @Test
     fun `local activity backoff preserves arguments on reschedule`() =
         runTest {
-            val (executor, runId, workflow, initCompletion) =
+            val (executor, runId, _, initCompletion) =
                 createExecutorWithWorkflow<LocalActivityWithArgsWorkflow>("LocalActivityWithArgsWorkflow")
 
             // Verify initial command has the argument
@@ -473,5 +582,380 @@ class LocalActivityActivationTest {
 
             val cancelCmd = commands.first { it.hasRequestCancelLocalActivity() }
             assertEquals(1, cancelCmd.requestCancelLocalActivity.seq)
+        }
+
+    // ================================================================
+    // New Unit Tests
+    // ================================================================
+
+    /**
+     * Tests multiple consecutive backoffs (attempt 2 → 3 → 4).
+     * Verifies that each reschedule gets a new sequence number and
+     * the attempt number increments correctly.
+     */
+    @Test
+    fun `multiple consecutive backoffs use new sequence numbers`() =
+        runTest {
+            val (executor, runId, _, initCompletion) =
+                createExecutorWithWorkflow<MultipleBackoffWorkflow>("MultipleBackoffWorkflow")
+
+            // Initial ScheduleLocalActivity with seq=1, attempt=1
+            var commands = getCommandsFromCompletion(initCompletion)
+            assertEquals(1, commands.size)
+            assertTrue(commands[0].hasScheduleLocalActivity())
+            assertEquals(1, commands[0].scheduleLocalActivity.seq)
+            assertEquals(1, commands[0].scheduleLocalActivity.attempt)
+
+            val originalScheduleTime =
+                com.google.protobuf.Timestamp
+                    .newBuilder()
+                    .setSeconds(1000)
+                    .build()
+
+            // First backoff: attempt 2
+            val backoff1Completion =
+                executor.activate(
+                    createActivation(
+                        runId = runId,
+                        jobs =
+                            listOf(
+                                resolveLocalActivityJobBackoff(
+                                    seq = 1,
+                                    attempt = 2,
+                                    backoffSeconds = 1,
+                                    originalScheduleTime = originalScheduleTime,
+                                ),
+                            ),
+                    ),
+                )
+
+            commands = getCommandsFromCompletion(backoff1Completion)
+            val timer1Seq = commands.first { it.hasStartTimer() }.startTimer.seq
+
+            // Fire timer 1
+            val fireTimer1Completion =
+                executor.activate(
+                    createActivation(
+                        runId = runId,
+                        jobs = listOf(fireTimerJob(seq = timer1Seq)),
+                    ),
+                )
+
+            commands = getCommandsFromCompletion(fireTimer1Completion)
+            val schedule2 = commands.first { it.hasScheduleLocalActivity() }.scheduleLocalActivity
+            assertTrue(schedule2.seq > 1, "Second schedule should have seq > 1")
+            assertEquals(2, schedule2.attempt, "Second schedule should have attempt=2")
+            assertTrue(schedule2.hasOriginalScheduleTime(), "Should preserve originalScheduleTime")
+
+            // Second backoff: attempt 3
+            val backoff2Completion =
+                executor.activate(
+                    createActivation(
+                        runId = runId,
+                        jobs =
+                            listOf(
+                                resolveLocalActivityJobBackoff(
+                                    seq = schedule2.seq,
+                                    attempt = 3,
+                                    backoffSeconds = 2,
+                                    originalScheduleTime = originalScheduleTime,
+                                ),
+                            ),
+                    ),
+                )
+
+            commands = getCommandsFromCompletion(backoff2Completion)
+            val timer2Seq = commands.first { it.hasStartTimer() }.startTimer.seq
+
+            // Fire timer 2
+            val fireTimer2Completion =
+                executor.activate(
+                    createActivation(
+                        runId = runId,
+                        jobs = listOf(fireTimerJob(seq = timer2Seq)),
+                    ),
+                )
+
+            commands = getCommandsFromCompletion(fireTimer2Completion)
+            val schedule3 = commands.first { it.hasScheduleLocalActivity() }.scheduleLocalActivity
+            assertTrue(schedule3.seq > schedule2.seq, "Third schedule should have seq > second")
+            assertEquals(3, schedule3.attempt, "Third schedule should have attempt=3")
+
+            // Third backoff: attempt 4
+            val backoff3Completion =
+                executor.activate(
+                    createActivation(
+                        runId = runId,
+                        jobs =
+                            listOf(
+                                resolveLocalActivityJobBackoff(
+                                    seq = schedule3.seq,
+                                    attempt = 4,
+                                    backoffSeconds = 3,
+                                    originalScheduleTime = originalScheduleTime,
+                                ),
+                            ),
+                    ),
+                )
+
+            commands = getCommandsFromCompletion(backoff3Completion)
+            val timer3Seq = commands.first { it.hasStartTimer() }.startTimer.seq
+
+            // Fire timer 3
+            val fireTimer3Completion =
+                executor.activate(
+                    createActivation(
+                        runId = runId,
+                        jobs = listOf(fireTimerJob(seq = timer3Seq)),
+                    ),
+                )
+
+            commands = getCommandsFromCompletion(fireTimer3Completion)
+            val schedule4 = commands.first { it.hasScheduleLocalActivity() }.scheduleLocalActivity
+            assertTrue(schedule4.seq > schedule3.seq, "Fourth schedule should have seq > third")
+            assertEquals(4, schedule4.attempt, "Fourth schedule should have attempt=4")
+
+            // Finally complete
+            val resultPayload = createPayload("\"Success after 4 attempts\"")
+            executor.activate(
+                createActivation(
+                    runId = runId,
+                    jobs = listOf(resolveLocalActivityJobCompleted(seq = schedule4.seq, result = resultPayload)),
+                ),
+            )
+        }
+
+    /**
+     * Tests that timeout resolution produces ActivityTimeoutException.
+     */
+    @Test
+    fun `local activity timeout resolution throws ActivityTimeoutException`() =
+        runTest {
+            val (executor, runId, workflow, _) =
+                createExecutorWithWorkflow<TimeoutLocalActivityWorkflow>("TimeoutLocalActivityWorkflow")
+
+            // Resolve with timeout
+            val resolveActivation =
+                createActivation(
+                    runId = runId,
+                    jobs =
+                        listOf(
+                            resolveLocalActivityJobTimeout(
+                                seq = 1,
+                                timeoutType = TimeoutType.TIMEOUT_TYPE_START_TO_CLOSE,
+                                message = "Activity timed out after 1s",
+                            ),
+                        ),
+                )
+            executor.activate(resolveActivation)
+
+            val wf = workflow as TimeoutLocalActivityWorkflow
+            assertNotNull(wf.caughtException, "Should have caught exception")
+            assertTrue(wf.caughtException is ActivityTimeoutException, "Should be ActivityTimeoutException")
+            assertEquals("START_TO_CLOSE", wf.timeoutType, "Should capture timeout type")
+        }
+
+    /**
+     * Tests that failure details (message, type, cause) are properly propagated.
+     */
+    @Test
+    fun `local activity failure preserves error details`() =
+        runTest {
+            val (executor, runId, workflow, _) =
+                createExecutorWithWorkflow<FailureDetailsWorkflow>("FailureDetailsWorkflow")
+
+            // Resolve with detailed failure
+            val resolveActivation =
+                createActivation(
+                    runId = runId,
+                    jobs =
+                        listOf(
+                            resolveLocalActivityJobFailedWithDetails(
+                                seq = 1,
+                                message = "Database connection failed",
+                                errorType = "DatabaseException",
+                                causeMessage = "Connection refused on port 5432",
+                            ),
+                        ),
+                )
+            executor.activate(resolveActivation)
+
+            val wf = workflow as FailureDetailsWorkflow
+            assertNotNull(wf.caughtException, "Should have caught exception")
+            assertTrue(wf.caughtException is ActivityFailureException, "Should be ActivityFailureException")
+            assertNotNull(wf.failureMessage, "Should have failure message")
+            assertTrue(
+                wf.failureMessage!!.contains("Database connection failed"),
+                "Should preserve error message",
+            )
+            assertEquals("ApplicationFailure", wf.failureType, "Should identify as ApplicationFailure")
+            assertEquals("DatabaseException", wf.applicationErrorType, "Should preserve application error type")
+            assertTrue(wf.hasCause, "Should have cause")
+        }
+
+    /**
+     * Tests that Unit return type works correctly.
+     */
+    @Test
+    fun `local activity with Unit return type completes successfully`() =
+        runTest {
+            val (executor, runId, workflow, initCompletion) =
+                createExecutorWithWorkflow<UnitReturnWorkflow>("UnitReturnWorkflow")
+
+            // Verify command generated
+            val commands = getCommandsFromCompletion(initCompletion)
+            assertTrue(commands.any { it.hasScheduleLocalActivity() })
+
+            // Resolve with empty payload (Unit)
+            val resolveActivation =
+                createActivation(
+                    runId = runId,
+                    jobs = listOf(resolveLocalActivityJobCompleted(seq = 1)),
+                )
+            executor.activate(resolveActivation)
+
+            assertTrue((workflow as UnitReturnWorkflow).completed, "Workflow should complete with Unit result")
+        }
+
+    /**
+     * Tests that complex return types are properly deserialized.
+     */
+    @Test
+    fun `local activity with complex return type deserializes correctly`() =
+        runTest {
+            val (executor, runId, workflow, _) =
+                createExecutorWithWorkflow<ComplexReturnWorkflow>("ComplexReturnWorkflow")
+
+            // Create a complex result payload
+            val complexJson = """{"id":42,"name":"test-item","tags":["tag1","tag2","tag3"]}"""
+            val resultPayload = createPayload(complexJson)
+
+            val resolveActivation =
+                createActivation(
+                    runId = runId,
+                    jobs = listOf(resolveLocalActivityJobCompleted(seq = 1, result = resultPayload)),
+                )
+            executor.activate(resolveActivation)
+
+            val wf = workflow as ComplexReturnWorkflow
+            assertNotNull(wf.result, "Should have result")
+            assertEquals(42, wf.result?.id)
+            assertEquals("test-item", wf.result?.name)
+            assertEquals(listOf("tag1", "tag2", "tag3"), wf.result?.tags)
+        }
+
+    /**
+     * Tests that backoff + replay produces deterministic commands.
+     * Run the same activation sequence twice and verify same commands.
+     */
+    @Test
+    fun `local activity backoff is deterministic on replay`() =
+        runTest {
+            // First execution
+            val (executor1, runId1, _, initCompletion1) =
+                createExecutorWithWorkflow<RetryableLocalActivityWorkflow>("RetryableLocalActivityWorkflow")
+
+            val commands1 = getCommandsFromCompletion(initCompletion1)
+
+            // Second execution (simulating replay)
+            val (executor2, runId2, _, initCompletion2) =
+                createExecutorWithWorkflow<RetryableLocalActivityWorkflow>("RetryableLocalActivityWorkflow")
+
+            val commands2 = getCommandsFromCompletion(initCompletion2)
+
+            // Both should generate same initial commands
+            assertEquals(commands1.size, commands2.size, "Should have same number of commands")
+            assertEquals(
+                commands1.map { it.variantCase },
+                commands2.map { it.variantCase },
+                "Command types should match",
+            )
+
+            // Now simulate backoff on both
+            val originalScheduleTime =
+                com.google.protobuf.Timestamp
+                    .newBuilder()
+                    .setSeconds(1000)
+                    .build()
+
+            val backoffCompletion1 =
+                executor1.activate(
+                    createActivation(
+                        runId = runId1,
+                        jobs =
+                            listOf(
+                                resolveLocalActivityJobBackoff(
+                                    seq = 1,
+                                    attempt = 2,
+                                    backoffSeconds = 5,
+                                    originalScheduleTime = originalScheduleTime,
+                                ),
+                            ),
+                    ),
+                )
+
+            val backoffCompletion2 =
+                executor2.activate(
+                    createActivation(
+                        runId = runId2,
+                        jobs =
+                            listOf(
+                                resolveLocalActivityJobBackoff(
+                                    seq = 1,
+                                    attempt = 2,
+                                    backoffSeconds = 5,
+                                    originalScheduleTime = originalScheduleTime,
+                                ),
+                            ),
+                    ),
+                )
+
+            val backoffCmds1 = getCommandsFromCompletion(backoffCompletion1)
+            val backoffCmds2 = getCommandsFromCompletion(backoffCompletion2)
+
+            assertEquals(
+                backoffCmds1.map { it.variantCase },
+                backoffCmds2.map { it.variantCase },
+                "Backoff commands should be deterministic",
+            )
+
+            // Both should have StartTimer with same duration
+            val timer1 = backoffCmds1.first { it.hasStartTimer() }.startTimer
+            val timer2 = backoffCmds2.first { it.hasStartTimer() }.startTimer
+            assertEquals(
+                timer1.startToFireTimeout.seconds,
+                timer2.startToFireTimeout.seconds,
+                "Timer durations should match",
+            )
+        }
+
+    /**
+     * Tests scheduleToClose timeout resolution.
+     */
+    @Test
+    fun `local activity scheduleToClose timeout throws correct exception`() =
+        runTest {
+            val (executor, runId, workflow, _) =
+                createExecutorWithWorkflow<TimeoutLocalActivityWorkflow>("TimeoutLocalActivityWorkflow")
+
+            // Resolve with scheduleToClose timeout
+            val resolveActivation =
+                createActivation(
+                    runId = runId,
+                    jobs =
+                        listOf(
+                            resolveLocalActivityJobTimeout(
+                                seq = 1,
+                                timeoutType = TimeoutType.TIMEOUT_TYPE_SCHEDULE_TO_CLOSE,
+                                message = "Schedule to close timeout exceeded",
+                            ),
+                        ),
+                )
+            executor.activate(resolveActivation)
+
+            val wf = workflow as TimeoutLocalActivityWorkflow
+            assertNotNull(wf.caughtException, "Should have caught exception")
+            assertTrue(wf.caughtException is ActivityTimeoutException)
+            assertEquals("SCHEDULE_TO_CLOSE", wf.timeoutType)
         }
 }
