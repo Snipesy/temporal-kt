@@ -196,9 +196,9 @@ internal class WorkflowContextImpl(
 
         val context =
             if (mdcContext != null) {
-                effectiveJob + workflowDispatcher + mdcContext
+                effectiveJob + workflowDispatcher + mdcContext + this
             } else {
-                effectiveJob + workflowDispatcher
+                effectiveJob + workflowDispatcher + this
             }
         return CoroutineScope(context).launch(block = block)
     }
