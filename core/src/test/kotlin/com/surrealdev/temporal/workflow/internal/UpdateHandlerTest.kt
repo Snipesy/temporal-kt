@@ -11,8 +11,11 @@ import com.surrealdev.temporal.serialization.serialize
 import com.surrealdev.temporal.testing.ProtoTestHelpers.createActivation
 import com.surrealdev.temporal.testing.ProtoTestHelpers.doUpdateJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.initializeWorkflowJob
+import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveActivityJobCompleted
 import com.surrealdev.temporal.testing.createTestWorkflowExecutor
+import com.surrealdev.temporal.workflow.ActivityOptions
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.startActivity
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
 import java.util.UUID
@@ -22,6 +25,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Comprehensive tests for update handler functionality.
@@ -916,6 +920,115 @@ class UpdateHandlerTest {
                 }
             assertEquals(3, completedResponses.size)
             assertEquals(3, workflow.counter)
+        }
+
+    // ================================================================
+    // Update Handler with Activity Tests
+    // ================================================================
+
+    /**
+     * Workflow where the Update handler calls an activity.
+     * This is the minimal repro for the wrong dispatcher issue.
+     */
+    @Workflow("UpdateWithActivityWorkflow")
+    class UpdateWithActivityWorkflow {
+        private var done = false
+        private var activityResult = ""
+
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            awaitCondition { done }
+            return activityResult
+        }
+
+        /**
+         * Update handler that schedules an activity and waits for its result.
+         */
+        @Update("doWork")
+        suspend fun WorkflowContext.doWork(input: String): String {
+            // This should schedule an activity and return its result
+            val result =
+                startActivity<String, String>(
+                    activityType = "echo",
+                    arg = input,
+                    options = ActivityOptions(startToCloseTimeout = 60.seconds),
+                ).result()
+            activityResult = result
+            return result
+        }
+    }
+
+    /**
+     * Tests that an Update handler can successfully schedule an activity.
+     *
+     * This test verifies:
+     * 1. Update handler is invoked
+     * 2. Activity is scheduled (ScheduleActivity command generated)
+     * 3. After activity resolves, Update completes with the activity result
+     */
+    @Test
+    fun `update handler can call startActivity and schedule activity`() =
+        runTest {
+            val workflow = UpdateWithActivityWorkflow()
+            val (executor, runId) = createInitializedExecutor(workflow)
+
+            val inputArg = serializer.serialize<String>("test-input")
+            val protocolId = "update-with-activity-protocol"
+
+            // First activation: Send the update
+            val updateActivation =
+                createActivation(
+                    runId = runId,
+                    jobs =
+                        listOf(
+                            doUpdateJob(
+                                name = "doWork",
+                                protocolInstanceId = protocolId,
+                                input = listOf(inputArg),
+                                runValidator = false,
+                            ),
+                        ),
+                )
+            val completion1 = executor.activate(updateActivation)
+
+            assertTrue(completion1.hasSuccessful(), "Activation should succeed")
+            val commands1 = completion1.successful.commandsList
+
+            // Should have:
+            // 1. Update accepted command
+            // 2. ScheduleActivity command (from the startActivity call in handler)
+            val updateAccepted = commands1.find { it.hasUpdateResponse() && it.updateResponse.hasAccepted() }
+            assertNotNull(updateAccepted, "Update should be accepted")
+
+            val scheduleActivity = commands1.find { it.hasScheduleActivity() }
+            assertNotNull(scheduleActivity, "Should have ScheduleActivity command from update handler")
+            assertEquals("echo", scheduleActivity.scheduleActivity.activityType)
+
+            // Second activation: Resolve the activity
+            val activitySeq = scheduleActivity.scheduleActivity.seq
+            val activityResult = serializer.serialize<String>("Echo: test-input")
+            val resolveActivation =
+                createActivation(
+                    runId = runId,
+                    jobs =
+                        listOf(
+                            resolveActivityJobCompleted(
+                                seq = activitySeq,
+                                result = activityResult,
+                            ),
+                        ),
+                )
+            val completion2 = executor.activate(resolveActivation)
+
+            assertTrue(completion2.hasSuccessful(), "Second activation should succeed")
+            val commands2 = completion2.successful.commandsList
+
+            // Now the Update should complete with the activity result
+            val updateCompleted = commands2.find { it.hasUpdateResponse() && it.updateResponse.hasCompleted() }
+            assertNotNull(updateCompleted, "Update should complete after activity resolves")
+
+            val updateResult = serializer.deserialize<String>(updateCompleted.updateResponse.completed)
+            assertEquals("Echo: test-input", updateResult)
         }
 
     // ================================================================

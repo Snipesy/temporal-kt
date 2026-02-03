@@ -9,9 +9,12 @@ import com.surrealdev.temporal.serialization.deserialize
 import com.surrealdev.temporal.serialization.serialize
 import com.surrealdev.temporal.testing.ProtoTestHelpers.createActivation
 import com.surrealdev.temporal.testing.ProtoTestHelpers.initializeWorkflowJob
+import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveActivityJobCompleted
 import com.surrealdev.temporal.testing.ProtoTestHelpers.signalWorkflowJob
 import com.surrealdev.temporal.testing.createTestWorkflowExecutor
+import com.surrealdev.temporal.workflow.ActivityOptions
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.startActivity
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
 import java.util.UUID
@@ -21,6 +24,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Comprehensive tests for signal handler functionality.
@@ -836,6 +840,101 @@ class SignalHandlerTest {
 
             // All buffered signals should be replayed in FIFO order
             assertEquals(listOf("first", "second", "third"), workflow.receivedValues)
+        }
+
+    // ================================================================
+    // Signal Handler with Activity Tests
+    // ================================================================
+
+    /**
+     * Workflow where the Signal handler calls an activity.
+     */
+    @Workflow("SignalWithActivityWorkflow")
+    class SignalWithActivityWorkflow {
+        private var done = false
+        var activityResult = ""
+
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            awaitCondition { done }
+            return activityResult
+        }
+
+        /**
+         * Signal handler that schedules an activity and waits for its result.
+         */
+        @Signal("processData")
+        suspend fun WorkflowContext.processData(input: String) {
+            // This should schedule an activity and wait for result
+            val result =
+                startActivity<String, String>(
+                    activityType = "echo",
+                    arg = input,
+                    options = ActivityOptions(startToCloseTimeout = 60.seconds),
+                ).result()
+            activityResult = result
+            done = true
+        }
+    }
+
+    /**
+     * Tests that a Signal handler can successfully schedule an activity.
+     *
+     * This test verifies:
+     * 1. Signal handler is invoked
+     * 2. Activity is scheduled (ScheduleActivity command generated)
+     * 3. After activity resolves, workflow can proceed with the result
+     */
+    @Test
+    fun `signal handler can call startActivity and schedule activity`() =
+        runTest {
+            val workflow = SignalWithActivityWorkflow()
+            val (executor, runId) = createInitializedExecutor(workflow)
+
+            val inputArg = serializer.serialize<String>("test-input")
+
+            // First activation: Send the signal
+            val signalActivation =
+                createActivation(
+                    runId = runId,
+                    jobs =
+                        listOf(
+                            signalWorkflowJob(
+                                signalName = "processData",
+                                input = listOf(inputArg),
+                            ),
+                        ),
+                )
+            val completion1 = executor.activate(signalActivation)
+
+            assertTrue(completion1.hasSuccessful(), "Activation should succeed")
+            val commands1 = completion1.successful.commandsList
+
+            // Should have ScheduleActivity command (from the startActivity call in handler)
+            val scheduleActivity = commands1.find { it.hasScheduleActivity() }
+            assertNotNull(scheduleActivity, "Should have ScheduleActivity command from signal handler")
+            assertEquals("echo", scheduleActivity.scheduleActivity.activityType)
+
+            // Second activation: Resolve the activity
+            val activitySeq = scheduleActivity.scheduleActivity.seq
+            val activityResult = serializer.serialize<String>("Echo: test-input")
+            val resolveActivation =
+                createActivation(
+                    runId = runId,
+                    jobs =
+                        listOf(
+                            resolveActivityJobCompleted(
+                                seq = activitySeq,
+                                result = activityResult,
+                            ),
+                        ),
+                )
+            val completion2 = executor.activate(resolveActivation)
+
+            assertTrue(completion2.hasSuccessful(), "Second activation should succeed")
+
+            // Verify the activity result was stored
+            assertEquals("Echo: test-input", workflow.activityResult)
         }
 
     // ================================================================
