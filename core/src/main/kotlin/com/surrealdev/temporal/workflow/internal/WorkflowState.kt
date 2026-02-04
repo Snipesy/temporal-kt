@@ -819,7 +819,74 @@ internal class WorkflowState(
 
         commands.clear()
     }
+
+    /**
+     * Returns debug information about pending operations for the __stack_trace query.
+     * This is safe to call in read-only mode.
+     */
+    fun getDebugInfo(): PendingOperationsDebugInfo =
+        PendingOperationsDebugInfo(
+            pendingTimers = pendingTimers.keys.toList().sorted(),
+            pendingTimerContinuations = pendingTimerContinuations.keys.toList().sorted(),
+            pendingActivities =
+                pendingActivities
+                    .map { (seq, handle) ->
+                        PendingActivityInfo(seq, handle.activityType)
+                    }.sortedBy { it.seq },
+            pendingLocalActivities =
+                pendingLocalActivities
+                    .map { (seq, handle) ->
+                        PendingActivityInfo(seq, handle.activityType)
+                    }.sortedBy { it.seq },
+            pendingChildWorkflows =
+                pendingChildWorkflows
+                    .map { (seq, handle) ->
+                        PendingChildWorkflowInfo(
+                            seq = seq,
+                            workflowType = handle.workflowType,
+                            workflowId = handle.workflowId,
+                            started = handle.startDeferred.isCompleted,
+                        )
+                    }.sortedBy { it.seq },
+            pendingExternalSignals = pendingExternalSignals.keys.toList().sorted(),
+            pendingExternalCancels = pendingExternalCancels.keys.toList().sorted(),
+            pendingConditions = conditions.size,
+            isReplaying = isReplaying,
+            currentTime = currentTime,
+            historyLength = historyLength,
+            cancelRequested = cancelRequested,
+        )
 }
+
+/**
+ * Debug information about pending operations in a workflow.
+ */
+internal data class PendingOperationsDebugInfo(
+    val pendingTimers: List<Int>,
+    val pendingTimerContinuations: List<Int>,
+    val pendingActivities: List<PendingActivityInfo>,
+    val pendingLocalActivities: List<PendingActivityInfo>,
+    val pendingChildWorkflows: List<PendingChildWorkflowInfo>,
+    val pendingExternalSignals: List<Int>,
+    val pendingExternalCancels: List<Int>,
+    val pendingConditions: Int,
+    val isReplaying: Boolean,
+    val currentTime: Instant?,
+    val historyLength: Int,
+    val cancelRequested: Boolean,
+)
+
+internal data class PendingActivityInfo(
+    val seq: Int,
+    val activityType: String,
+)
+
+internal data class PendingChildWorkflowInfo(
+    val seq: Int,
+    val workflowType: String,
+    val workflowId: String?,
+    val started: Boolean,
+)
 
 /**
  * Exception thrown when an activity fails.

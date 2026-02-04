@@ -32,7 +32,7 @@ import kotlin.reflect.KType
 internal class RemoteActivityHandleImpl<R>(
     override val activityId: String,
     internal val seq: Int,
-    private val activityType: String,
+    internal val activityType: String,
     private val state: WorkflowState,
     private val serializer: PayloadSerializer,
     private val returnType: KType,

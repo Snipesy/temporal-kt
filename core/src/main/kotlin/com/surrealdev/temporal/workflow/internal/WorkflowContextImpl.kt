@@ -103,7 +103,7 @@ internal class WorkflowContextImpl(
     override fun isContinueAsNewSuggested(): Boolean = state.continueAsNewSuggested
 
     // Create a child job for this workflow - failures propagate to parent
-    private val job = Job(parentJob)
+    internal val job = Job(parentJob)
     private val deterministicRandom = DeterministicRandom(state.randomSeed)
 
     /**

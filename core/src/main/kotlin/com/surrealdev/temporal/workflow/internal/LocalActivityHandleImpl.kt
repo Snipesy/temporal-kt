@@ -44,7 +44,7 @@ import kotlin.time.toKotlinDuration
 internal class LocalActivityHandleImpl<R>(
     override val activityId: String,
     initialSeq: Int,
-    private val activityType: String,
+    internal val activityType: String,
     private val state: WorkflowState,
     private val context: WorkflowContextImpl,
     private val serializer: PayloadSerializer,

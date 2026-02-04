@@ -38,7 +38,7 @@ import kotlin.reflect.KType
 internal class ChildWorkflowHandleImpl<R>(
     override val workflowId: String,
     internal val seq: Int,
-    private val workflowType: String,
+    internal val workflowType: String,
     private val state: WorkflowState,
     override val serializer: PayloadSerializer,
     private val returnType: KType,

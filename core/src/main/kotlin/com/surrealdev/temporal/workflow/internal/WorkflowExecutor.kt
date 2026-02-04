@@ -107,12 +107,14 @@ internal class WorkflowExecutor(
     // This is a CompletableJob so we can explicitly complete it when the workflow terminates.
     // Note: Job(parent) creates a child of the parent but doesn't complete automatically -
     // only coroutines complete automatically. We must call complete() or cancel() explicitly.
-    private var workflowExecutionJob: kotlinx.coroutines.CompletableJob? = null
+    internal var workflowExecutionJob: kotlinx.coroutines.CompletableJob? = null
+        private set
 
     // Sibling job for signal/update handlers - NOT a child of workflowExecutionJob.
     // This allows handlers to continue running after the main workflow completes.
     // Both jobs are siblings under parentJob, so eviction cancels everything.
-    private var handlerJob: kotlinx.coroutines.CompletableJob? = null
+    internal var handlerJob: kotlinx.coroutines.CompletableJob? = null
+        private set
 
     /**
      * Cancels the workflow execution job when the workflow reaches a terminal state.

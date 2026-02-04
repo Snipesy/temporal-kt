@@ -16,6 +16,24 @@ import kotlin.reflect.full.callSuspend
  */
 private const val QUERY_TYPE_WORKFLOW_METADATA = "__temporal_workflow_metadata"
 
+/**
+ * Built-in query type for workflow stack trace.
+ * This query is used by Temporal CLI (`temporal workflow stack`) and UI to inspect
+ * the current execution state of a workflow.
+ *
+ * Returns detailed debugging information including:
+ * - Job hierarchy with all coroutines (main, children, handlers)
+ * - Workflow state (time, history length, replaying status)
+ * - All pending operations (timers, activities, child workflows, etc.)
+ * - Dispatcher state
+ */
+private const val QUERY_TYPE_STACK_TRACE = "__stack_trace"
+
+/**
+ * Alias for __stack_trace. Both return the same detailed output.
+ */
+private const val QUERY_TYPE_ENHANCED_STACK_TRACE = "__enhanced_stack_trace"
+
 /*
  * Extension functions for handling workflow queries in WorkflowExecutor.
  */
@@ -40,6 +58,10 @@ internal suspend fun WorkflowExecutor.handleQuery(
     // Handle built-in queries first
     if (queryType == QUERY_TYPE_WORKFLOW_METADATA) {
         handleWorkflowMetadataQuery(queryId)
+        return
+    }
+    if (queryType == QUERY_TYPE_STACK_TRACE || queryType == QUERY_TYPE_ENHANCED_STACK_TRACE) {
+        handleStackTraceQuery(queryId)
         return
     }
 
@@ -260,6 +282,8 @@ private fun WorkflowExecutor.handleWorkflowMetadataQuery(queryId: String) {
     // Collect query definitions (use Set to deduplicate)
     val queryDefs = mutableSetOf<String>()
     queryDefs.add(QUERY_TYPE_WORKFLOW_METADATA) // Include the built-in query itself
+    queryDefs.add(QUERY_TYPE_STACK_TRACE) // Include the stack trace query
+    queryDefs.add(QUERY_TYPE_ENHANCED_STACK_TRACE) // Include the enhanced stack trace query
     methodInfo.queryHandlers.keys
         .filterNotNull()
         .forEach { queryDefs.add(it) }
@@ -331,12 +355,25 @@ private fun WorkflowExecutor.handleWorkflowMetadataQuery(queryId: String) {
 /**
  * Gets the description for a query handler by name.
  */
-private fun WorkflowExecutor.getQueryDescription(name: String): String {
-    if (name == QUERY_TYPE_WORKFLOW_METADATA) {
-        return "Returns metadata about the workflow including registered handlers."
+private fun WorkflowExecutor.getQueryDescription(name: String): String =
+    when (name) {
+        QUERY_TYPE_WORKFLOW_METADATA -> {
+            "Returns metadata about the workflow including registered handlers."
+        }
+
+        QUERY_TYPE_STACK_TRACE -> {
+            "Returns the workflow's coroutine stack trace."
+        }
+
+        QUERY_TYPE_ENHANCED_STACK_TRACE -> {
+            "Returns detailed debugging information including all pending " +
+                "operations and workflow state."
+        }
+
+        else -> {
+            methodInfo.queryHandlers[name]?.description ?: ""
+        }
     }
-    return methodInfo.queryHandlers[name]?.description ?: ""
-}
 
 /**
  * Gets the description for a signal handler by name.
@@ -354,4 +391,190 @@ private fun WorkflowExecutor.getSignalDescription(name: String): String {
 private fun WorkflowExecutor.getUpdateDescription(name: String): String {
     // UpdateHandlerInfo doesn't have description field - return empty for now
     return ""
+}
+
+/**
+ * Gets the status string for a Job.
+ */
+private fun getJobStatus(job: kotlinx.coroutines.Job): String =
+    when {
+        job.isCancelled -> "CANCELLED"
+        job.isCompleted -> "COMPLETED"
+        job.isActive -> "ACTIVE"
+        else -> "UNKNOWN"
+    }
+
+/**
+ * Handles the built-in __stack_trace query.
+ * This query returns detailed debugging information about the workflow's current execution state,
+ * including job hierarchy, pending operations, coroutine status, workflow state, and dispatcher info.
+ *
+ * Used by `temporal workflow stack` CLI command and Temporal UI.
+ */
+private fun WorkflowExecutor.handleStackTraceQuery(queryId: String) {
+    val sb = StringBuilder()
+
+    // Header with workflow identification
+    sb.appendLine("Workflow Stack Trace")
+    sb.appendLine("====================")
+    sb.appendLine("Workflow Type: ${methodInfo.workflowType}")
+    sb.appendLine("Run ID: $runId")
+    sb.appendLine()
+
+    // Job hierarchy status
+    sb.appendLine("Job Hierarchy")
+    sb.appendLine("-------------")
+
+    // Main coroutine
+    val main = mainCoroutine
+    val mainStatus =
+        when {
+            main == null -> "NOT STARTED"
+            main.isCompleted && main.isCancelled -> "CANCELLED"
+            main.isCompleted -> "COMPLETED"
+            main.isActive -> "ACTIVE (suspended)"
+            else -> "UNKNOWN"
+        }
+    sb.appendLine("Main workflow coroutine: $mainStatus")
+
+    // Workflow execution job and its children
+    val execJob = workflowExecutionJob
+    if (execJob != null) {
+        sb.appendLine("workflowExecutionJob: ${getJobStatus(execJob)}")
+        val ctx = context
+        if (ctx != null) {
+            sb.appendLine("  └── context.job: ${getJobStatus(ctx.job)}")
+            var childIndex = 0
+            ctx.job.children.forEach { childJob ->
+                childIndex++
+                val isMain = childJob === main
+                val label = if (isMain) "main" else "child-$childIndex"
+                sb.appendLine("        └── $label: ${getJobStatus(childJob)}")
+            }
+            if (childIndex == 0) {
+                sb.appendLine("        └── (no children)")
+            }
+        }
+    }
+
+    // Handler job and its children (signal/update handlers)
+    val hJob = handlerJob
+    if (hJob != null) {
+        sb.appendLine("handlerJob: ${getJobStatus(hJob)}")
+        var handlerIndex = 0
+        hJob.children.forEach { childJob ->
+            handlerIndex++
+            sb.appendLine("  └── handler-$handlerIndex: ${getJobStatus(childJob)}")
+        }
+        if (handlerIndex == 0) {
+            sb.appendLine("  └── (no handlers)")
+        }
+    }
+    sb.appendLine()
+
+    // Pending operations from state
+    val debugInfo = state.getDebugInfo()
+
+    sb.appendLine("Workflow State")
+    sb.appendLine("--------------")
+    sb.appendLine("Current time: ${debugInfo.currentTime ?: "unknown"}")
+    sb.appendLine("History length: ${debugInfo.historyLength}")
+    sb.appendLine("Is replaying: ${debugInfo.isReplaying}")
+    sb.appendLine("Cancel requested: ${debugInfo.cancelRequested}")
+    sb.appendLine()
+
+    sb.appendLine("Pending Operations")
+    sb.appendLine("------------------")
+
+    // Timers
+    val totalTimers = debugInfo.pendingTimers.size + debugInfo.pendingTimerContinuations.size
+    if (totalTimers > 0) {
+        sb.appendLine("Timers ($totalTimers pending):")
+        debugInfo.pendingTimers.forEach { seq ->
+            sb.appendLine("  - Timer(seq=$seq) [deferred-based]")
+        }
+        debugInfo.pendingTimerContinuations.forEach { seq ->
+            sb.appendLine("  - Timer(seq=$seq) [continuation-based]")
+        }
+    } else {
+        sb.appendLine("Timers: none")
+    }
+
+    // Activities
+    if (debugInfo.pendingActivities.isNotEmpty()) {
+        sb.appendLine("Activities (${debugInfo.pendingActivities.size} pending):")
+        debugInfo.pendingActivities.forEach { activity ->
+            sb.appendLine("  - Activity(seq=${activity.seq}, type=\"${activity.activityType}\")")
+        }
+    } else {
+        sb.appendLine("Activities: none")
+    }
+
+    // Local activities
+    if (debugInfo.pendingLocalActivities.isNotEmpty()) {
+        sb.appendLine("Local Activities (${debugInfo.pendingLocalActivities.size} pending):")
+        debugInfo.pendingLocalActivities.forEach { activity ->
+            sb.appendLine("  - LocalActivity(seq=${activity.seq}, type=\"${activity.activityType}\")")
+        }
+    } else {
+        sb.appendLine("Local Activities: none")
+    }
+
+    // Child workflows
+    if (debugInfo.pendingChildWorkflows.isNotEmpty()) {
+        sb.appendLine("Child Workflows (${debugInfo.pendingChildWorkflows.size} pending):")
+        debugInfo.pendingChildWorkflows.forEach { child ->
+            val startedStatus = if (child.started) "started" else "starting"
+            sb.appendLine(
+                "  - ChildWorkflow(seq=${child.seq}, type=\"${child.workflowType}\", id=\"${child.workflowId}\", status=$startedStatus)",
+            )
+        }
+    } else {
+        sb.appendLine("Child Workflows: none")
+    }
+
+    // External signals
+    if (debugInfo.pendingExternalSignals.isNotEmpty()) {
+        sb.appendLine("External Signals (${debugInfo.pendingExternalSignals.size} pending):")
+        debugInfo.pendingExternalSignals.forEach { seq ->
+            sb.appendLine("  - ExternalSignal(seq=$seq)")
+        }
+    } else {
+        sb.appendLine("External Signals: none")
+    }
+
+    // External cancels
+    if (debugInfo.pendingExternalCancels.isNotEmpty()) {
+        sb.appendLine("External Cancels (${debugInfo.pendingExternalCancels.size} pending):")
+        debugInfo.pendingExternalCancels.forEach { seq ->
+            sb.appendLine("  - ExternalCancel(seq=$seq)")
+        }
+    } else {
+        sb.appendLine("External Cancels: none")
+    }
+
+    // Conditions
+    if (debugInfo.pendingConditions > 0) {
+        sb.appendLine("Await Conditions: ${debugInfo.pendingConditions} pending")
+    } else {
+        sb.appendLine("Await Conditions: none")
+    }
+
+    sb.appendLine()
+
+    // Dispatcher state
+    sb.appendLine("Dispatcher State")
+    sb.appendLine("----------------")
+    sb.appendLine("Has pending work: ${workflowDispatcher.hasPendingWork()}")
+    sb.appendLine()
+
+    // Return as plain text payload
+    val payload =
+        Payload
+            .newBuilder()
+            .putMetadata("encoding", ByteString.copyFromUtf8("plain/plain"))
+            .setData(ByteString.copyFromUtf8(sb.toString()))
+            .build()
+
+    addSuccessQueryResult(queryId, payload)
 }
