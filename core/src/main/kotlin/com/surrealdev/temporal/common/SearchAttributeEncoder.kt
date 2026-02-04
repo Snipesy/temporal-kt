@@ -78,13 +78,26 @@ object SearchAttributeEncoder {
         value: Any,
     ): String =
         when (key) {
-            is SearchAttributeKey.Text -> Json.encodeToString(JsonPrimitive(value as String))
-            is SearchAttributeKey.Keyword -> Json.encodeToString(JsonPrimitive(value as String))
-            is SearchAttributeKey.Int -> Json.encodeToString(JsonUnquotedLiteral((value as Long).toString()))
+            is SearchAttributeKey.Text -> {
+                Json.encodeToString(JsonPrimitive(value as String))
+            }
+
+            is SearchAttributeKey.Keyword -> {
+                Json.encodeToString(JsonPrimitive(value as String))
+            }
+
+            is SearchAttributeKey.Int -> {
+                Json.encodeToString(JsonUnquotedLiteral((value as Long).toString()))
+            }
+
             is SearchAttributeKey.Double -> {
                 Json.encodeToString(JsonUnquotedLiteral((value as kotlin.Double).toString()))
             }
-            is SearchAttributeKey.Bool -> Json.encodeToString(JsonUnquotedLiteral((value as Boolean).toString()))
+
+            is SearchAttributeKey.Bool -> {
+                Json.encodeToString(JsonUnquotedLiteral((value as Boolean).toString()))
+            }
+
             is SearchAttributeKey.Datetime -> {
                 val instant =
                     when (value) {
@@ -95,6 +108,7 @@ object SearchAttributeEncoder {
                     }
                 Json.encodeToString(JsonPrimitive(instant.toString()))
             }
+
             is SearchAttributeKey.KeywordList -> {
                 @Suppress("UNCHECKED_CAST")
                 val list = value as List<String>
