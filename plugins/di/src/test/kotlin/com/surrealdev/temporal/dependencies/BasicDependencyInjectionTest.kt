@@ -1,12 +1,30 @@
 package com.surrealdev.temporal.dependencies
 
+import com.surrealdev.temporal.activity.ActivityContext
+import com.surrealdev.temporal.activity.ActivityInfo
+import com.surrealdev.temporal.activity.ActivityWorkflowInfo
 import com.surrealdev.temporal.application.TemporalApplication
 import com.surrealdev.temporal.application.taskQueue
+import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
+import com.surrealdev.temporal.serialization.PayloadSerializer
+import com.surrealdev.temporal.util.AttributeScope
+import com.surrealdev.temporal.util.Attributes
+import com.surrealdev.temporal.util.ExecutionScope
+import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.WorkflowInfo
+import io.temporal.api.common.v1.Payload
+import io.temporal.api.common.v1.Payloads
+import kotlinx.coroutines.Dispatchers
+import kotlin.coroutines.CoroutineContext
+import kotlin.reflect.KType
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNotSame
 import kotlin.test.assertSame
+import kotlin.time.Duration
+import kotlin.time.Instant
 
 /**
  * Basic integration test for dependency injection.
@@ -602,5 +620,396 @@ class BasicDependencyInjectionTest {
         // Both should come from app
         assertEquals("From app", context.get(testServiceKey).getMessage())
         assertEquals("app-config", context.get(configServiceKey).getConfig())
+    }
+
+    // ===========================================
+    // Property Delegate Tests (Ktor-style)
+    // ===========================================
+
+    // Helper extension functions that use the Ktor-style delegates
+    private fun MockWorkflowContext.getWorkflowService(): TestService {
+        val service: TestService by workflowDependencies
+        return service
+    }
+
+    private fun MockWorkflowContext.getWorkflowConfig(): ConfigService {
+        val config: ConfigService by workflowDependencies
+        return config
+    }
+
+    private fun MockActivityContext.getActivityService(): TestService {
+        val service: TestService by activityDependencies
+        return service
+    }
+
+    private fun MockActivityContext.getWorkflowSafeService(): TestService {
+        val service: TestService by workflowDependencies
+        return service
+    }
+
+    private fun MockActivityContext.getWorkflowSafeConfig(): ConfigService {
+        val config: ConfigService by workflowDependencies
+        return config
+    }
+
+    @Test
+    fun `workflowDependencies delegate resolves in workflow context`() {
+        val app =
+            TemporalApplication {
+                connection {
+                    target = "http://localhost:7233"
+                    namespace = "test"
+                }
+            }
+
+        app.dependencies {
+            workflowSafe<TestService> { TestServiceImpl("From workflow") }
+        }
+
+        // Create mock workflow context with the app as parent
+        val mockContext = MockWorkflowContext(parentScope = app)
+
+        // Use the delegate via extension function (how it's used in production)
+        assertEquals("From workflow", mockContext.getWorkflowService().getMessage())
+    }
+
+    @Test
+    fun `activityDependencies delegate resolves ACTIVITY_ONLY in activity context`() {
+        val app =
+            TemporalApplication {
+                connection {
+                    target = "http://localhost:7233"
+                    namespace = "test"
+                }
+            }
+
+        app.dependencies {
+            activityOnly<TestService> { TestServiceImpl("From activity") }
+        }
+
+        // Create mock activity context with the app as parent
+        val mockContext = MockActivityContext(parentScope = app)
+
+        // Use the delegate via extension function
+        assertEquals("From activity", mockContext.getActivityService().getMessage())
+    }
+
+    @Test
+    fun `workflowDependencies delegate works in activity context for WORKFLOW_SAFE dependencies`() {
+        val app =
+            TemporalApplication {
+                connection {
+                    target = "http://localhost:7233"
+                    namespace = "test"
+                }
+            }
+
+        app.dependencies {
+            workflowSafe<TestService> { TestServiceImpl("Workflow-safe in activity") }
+            workflowSafe<ConfigService> { ConfigServiceImpl("config-in-activity") }
+        }
+
+        // Create mock activity context with the app as parent
+        val mockContext = MockActivityContext(parentScope = app)
+
+        // Use the workflowDependencies delegate in an activity context
+        // This should work because WORKFLOW_SAFE dependencies are allowed in activities
+        assertEquals("Workflow-safe in activity", mockContext.getWorkflowSafeService().getMessage())
+        assertEquals("config-in-activity", mockContext.getWorkflowSafeConfig().getConfig())
+    }
+
+    @Test
+    fun `activity can use both activityDependencies and workflowDependencies`() {
+        val app =
+            TemporalApplication {
+                connection {
+                    target = "http://localhost:7233"
+                    namespace = "test"
+                }
+            }
+
+        app.dependencies {
+            activityOnly<TestService> { TestServiceImpl("Activity-only service") }
+            workflowSafe<ConfigService> { ConfigServiceImpl("Workflow-safe config") }
+        }
+
+        // Create mock activity context
+        val mockContext = MockActivityContext(parentScope = app)
+
+        // Activity can use activityDependencies for activity-only deps
+        assertEquals("Activity-only service", mockContext.getActivityService().getMessage())
+        // And workflowDependencies for workflow-safe deps
+        assertEquals("Workflow-safe config", mockContext.getWorkflowSafeConfig().getConfig())
+    }
+
+    @Test
+    fun `workflowDependencies fails for missing WORKFLOW_SAFE dependency`() {
+        val app =
+            TemporalApplication {
+                connection {
+                    target = "http://localhost:7233"
+                    namespace = "test"
+                }
+            }
+
+        // Only register activity-only dependency
+        app.dependencies {
+            activityOnly<TestService> { TestServiceImpl("Should not be accessible") }
+        }
+
+        val mockContext = MockWorkflowContext(parentScope = app)
+
+        // This should fail because workflowDependencies looks for WORKFLOW_SAFE scope,
+        // but we only registered ACTIVITY_ONLY scope
+        assertFailsWith<MissingDependencyException> {
+            mockContext.getWorkflowService()
+        }
+    }
+
+    @Test
+    fun `delegates work with task queue overrides`() {
+        var taskQueueScope: AttributeScope? = null
+
+        val app =
+            TemporalApplication {
+                connection {
+                    target = "http://localhost:7233"
+                    namespace = "test"
+                }
+            }
+
+        // App-level dependency
+        app.dependencies {
+            workflowSafe<TestService> { TestServiceImpl("From app") }
+            workflowSafe<ConfigService> { ConfigServiceImpl("app-config") }
+        }
+
+        // Task queue overrides TestService but not ConfigService
+        app.taskQueue("test-queue") {
+            dependencies {
+                workflowSafe<TestService> { TestServiceImpl("From task queue") }
+            }
+            taskQueueScope = this
+        }
+
+        // Create mock context with task queue as parent (which has app as its parent)
+        val mockContext = MockWorkflowContext(parentScope = taskQueueScope!!)
+
+        // TestService should come from task queue (overridden)
+        assertEquals("From task queue", mockContext.getWorkflowService().getMessage())
+        // ConfigService should come from app (not overridden)
+        assertEquals("app-config", mockContext.getWorkflowConfig().getConfig())
+    }
+
+    @Test
+    fun `workflowDependency with qualifier resolves correctly`() {
+        val app =
+            TemporalApplication {
+                connection {
+                    target = "http://localhost:7233"
+                    namespace = "test"
+                }
+            }
+
+        app.dependencies {
+            workflowSafe<TestService>(qualifier = "primary") { TestServiceImpl("Primary service") }
+            workflowSafe<TestService>(qualifier = "secondary") { TestServiceImpl("Secondary service") }
+        }
+
+        val mockContext = MockWorkflowContext(parentScope = app)
+
+        // Helper functions for qualified access
+        fun MockWorkflowContext.getPrimaryService(): TestService {
+            val service: TestService by workflowDependency("primary")
+            return service
+        }
+
+        fun MockWorkflowContext.getSecondaryService(): TestService {
+            val service: TestService by workflowDependency("secondary")
+            return service
+        }
+
+        assertEquals("Primary service", mockContext.getPrimaryService().getMessage())
+        assertEquals("Secondary service", mockContext.getSecondaryService().getMessage())
+    }
+
+    @Test
+    fun `activityDependency with qualifier resolves correctly`() {
+        val app =
+            TemporalApplication {
+                connection {
+                    target = "http://localhost:7233"
+                    namespace = "test"
+                }
+            }
+
+        app.dependencies {
+            activityOnly<TestService>(qualifier = "http") { TestServiceImpl("HTTP client") }
+            activityOnly<TestService>(qualifier = "grpc") { TestServiceImpl("GRPC client") }
+        }
+
+        val mockContext = MockActivityContext(parentScope = app)
+
+        // Helper functions for qualified access
+        fun MockActivityContext.getHttpService(): TestService {
+            val service: TestService by activityDependency("http")
+            return service
+        }
+
+        fun MockActivityContext.getGrpcService(): TestService {
+            val service: TestService by activityDependency("grpc")
+            return service
+        }
+
+        assertEquals("HTTP client", mockContext.getHttpService().getMessage())
+        assertEquals("GRPC client", mockContext.getGrpcService().getMessage())
+    }
+
+    // ===========================================
+    // Mock Context Implementations for Testing
+    // ===========================================
+
+    /**
+     * Mock WorkflowContext that implements ExecutionScope for testing property delegates.
+     */
+    private class MockWorkflowContext(
+        override val parentScope: AttributeScope?,
+    ) : WorkflowContext,
+        ExecutionScope {
+        override val attributes: Attributes = Attributes(concurrent = false)
+        override val isWorkflowContext: Boolean = true
+
+        // Required WorkflowContext properties
+        override val serializer: PayloadSerializer = KotlinxJsonSerializer()
+        override val info: WorkflowInfo =
+            WorkflowInfo(
+                workflowId = "test-workflow-id",
+                runId = "test-run-id",
+                workflowType = "TestWorkflow",
+                taskQueue = "test-queue",
+                namespace = "test",
+                attempt = 1,
+                startTime = Instant.fromEpochMilliseconds(0),
+            )
+        override val historyLength: Int = 0
+        override val historySizeBytes: Long = 0
+
+        override val coroutineContext: CoroutineContext = Dispatchers.Unconfined
+
+        // Stubs for required methods
+        override suspend fun <R> startActivityWithPayloads(
+            activityType: String,
+            args: Payloads,
+            options: com.surrealdev.temporal.workflow.ActivityOptions,
+            returnType: KType?,
+        ): com.surrealdev.temporal.workflow.RemoteActivityHandle<R> = TODO("Not needed for DI tests")
+
+        override suspend fun <R> startLocalActivityWithPayloads(
+            activityType: String,
+            args: Payloads,
+            options: com.surrealdev.temporal.workflow.LocalActivityOptions,
+            returnType: KType?,
+        ): com.surrealdev.temporal.workflow.LocalActivityHandle<R> = TODO("Not needed for DI tests")
+
+        override suspend fun sleep(duration: Duration) = TODO("Not needed for DI tests")
+
+        override suspend fun awaitCondition(condition: () -> Boolean) = TODO("Not needed for DI tests")
+
+        override suspend fun awaitCondition(
+            timeout: Duration,
+            timeoutSummary: String?,
+            condition: () -> Boolean,
+        ) = TODO("Not needed for DI tests")
+
+        override fun now(): Instant = Instant.fromEpochMilliseconds(0)
+
+        override fun randomUuid(): String = "mock-uuid"
+
+        override fun patched(patchId: String): Boolean = true
+
+        override fun isContinueAsNewSuggested(): Boolean = false
+
+        override suspend fun <R> startChildWorkflowWithPayloads(
+            workflowType: String,
+            args: Payloads,
+            options: com.surrealdev.temporal.workflow.ChildWorkflowOptions,
+            returnType: KType?,
+        ): com.surrealdev.temporal.workflow.ChildWorkflowHandle<R> = TODO("Not needed for DI tests")
+
+        override fun setQueryHandlerWithPayloads(
+            name: String,
+            handler: (suspend (List<Payload>) -> Payload)?,
+        ) = TODO("Not needed for DI tests")
+
+        override fun setDynamicQueryHandlerWithPayloads(
+            handler: (suspend (queryType: String, args: List<Payload>) -> Payload)?,
+        ) = TODO("Not needed for DI tests")
+
+        override fun setSignalHandlerWithPayloads(
+            name: String,
+            handler: (suspend (List<Payload>) -> Unit)?,
+        ) = TODO("Not needed for DI tests")
+
+        override fun setDynamicSignalHandlerWithPayloads(
+            handler: (suspend (signalName: String, args: List<Payload>) -> Unit)?,
+        ) = TODO("Not needed for DI tests")
+
+        override fun setUpdateHandlerWithPayloads(
+            name: String,
+            handler: (suspend (List<Payload>) -> Payload)?,
+            validator: ((List<Payload>) -> Unit)?,
+        ) = TODO("Not needed for DI tests")
+
+        override fun setDynamicUpdateHandlerWithPayloads(
+            handler: (suspend (updateName: String, args: List<Payload>) -> Payload)?,
+            validator: ((updateName: String, args: List<Payload>) -> Unit)?,
+        ) = TODO("Not needed for DI tests")
+
+        override suspend fun upsertSearchAttributes(attributes: com.surrealdev.temporal.common.TypedSearchAttributes) =
+            TODO("Not needed for DI tests")
+
+        override fun getExternalWorkflowHandle(
+            workflowId: String,
+            runId: String?,
+        ): com.surrealdev.temporal.workflow.ExternalWorkflowHandle = TODO("Not needed for DI tests")
+    }
+
+    /**
+     * Mock ActivityContext that implements ExecutionScope for testing property delegates.
+     */
+    private class MockActivityContext(
+        override val parentScope: AttributeScope?,
+    ) : ActivityContext,
+        ExecutionScope {
+        override val attributes: Attributes = Attributes(concurrent = false)
+        override val isWorkflowContext: Boolean = false
+
+        // Required ActivityContext properties
+        override val serializer: PayloadSerializer = KotlinxJsonSerializer()
+        override val info: ActivityInfo =
+            ActivityInfo(
+                activityId = "test-activity-id",
+                activityType = "TestActivity",
+                taskQueue = "test-queue",
+                attempt = 1,
+                startTime = Instant.fromEpochMilliseconds(0),
+                deadline = null,
+                heartbeatDetails = null,
+                workflowInfo =
+                    ActivityWorkflowInfo(
+                        workflowId = "test-workflow-id",
+                        runId = "test-run-id",
+                        workflowType = "TestWorkflow",
+                        namespace = "test",
+                    ),
+            )
+        override val isCancellationRequested: Boolean = false
+
+        override val coroutineContext: CoroutineContext = Dispatchers.Unconfined
+
+        // Stubs for required methods
+        override suspend fun heartbeatWithPayload(details: Payload?) {}
+
+        override fun ensureNotCancelled() {}
     }
 }

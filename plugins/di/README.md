@@ -42,8 +42,8 @@ app.start(wait = true)
 class OrderWorkflow {
     @WorkflowRun
     suspend fun WorkflowContext.run(orderId: String): OrderResult {
-        // Get your dependency
-        val config: AppConfig by workflowDependencies()
+        // Get your dependency using property delegation
+        val config: AppConfig by workflowDependencies
 
         // Use it
         val maxRetries = config.orderMaxRetries
@@ -60,10 +60,10 @@ class PaymentActivity {
     @Activity
     suspend fun ActivityContext.processPayment(amount: Double): PaymentResult {
         // Activity-only dependencies work here
-        val httpClient: HttpClient by activityDependencies()
+        val httpClient: HttpClient by activityDependencies
 
         // Workflow-safe dependencies also work in activities
-        val config: AppConfig by workflowDependencies()
+        val config: AppConfig by workflowDependencies
 
         return httpClient.post(config.paymentUrl, amount)
     }
@@ -109,6 +109,6 @@ dependencies {
 }
 
 // In your workflow
-val usersDb: Database by workflowDependencies(qualifier = "users")
-val ordersDb: Database by workflowDependencies(qualifier = "orders")
+val usersDb: Database by workflowDependency("users")
+val ordersDb: Database by workflowDependency("orders")
 ```

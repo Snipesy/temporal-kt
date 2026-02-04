@@ -4,181 +4,203 @@ import com.surrealdev.temporal.activity.ActivityContext
 import com.surrealdev.temporal.util.AttributeScope
 import com.surrealdev.temporal.util.ExecutionScope
 import com.surrealdev.temporal.workflow.WorkflowContext
-import kotlin.properties.ReadOnlyProperty
+import kotlin.reflect.KClass
 import kotlin.reflect.KProperty
 import kotlin.reflect.jvm.jvmErasure
 
+// =============================================================================
+// Ktor-style Property Delegate Access (Recommended API)
+// =============================================================================
+
 /**
- * Property delegate for accessing workflow-safe dependencies in workflows.
+ * Property delegate provider for accessing activity-only dependencies.
  *
- * Usage:
+ * Usage in activities:
  * ```kotlin
- * @Workflow("MyWorkflow")
- * class MyWorkflow {
- *     @WorkflowRun
- *     suspend fun WorkflowContext.run(): String {
- *         val config: MyConfig by workflowDependencies()
- *         return config.value
- *     }
+ * suspend fun ActivityContext.processPayment(amount: Double): PaymentResult {
+ *     val httpClient: HttpClient by activityDependencies
+ *     return httpClient.post(config.paymentUrl, amount)
  * }
  * ```
  *
- * @param qualifier Optional qualifier to distinguish multiple instances of the same type
- */
-fun <T : Any> workflowDependencies(qualifier: String? = null): ReadOnlyProperty<WorkflowContext, T> =
-    WorkflowDependencyDelegate(DependencyScope.WORKFLOW_SAFE, qualifier)
-
-/**
- * Property delegate for accessing activity dependencies.
- *
- * Usage:
+ * Or with `activity()`:
  * ```kotlin
- * class MyActivity {
- *     @Activity
- *     suspend fun ActivityContext.doWork(): String {
- *         val httpClient: HttpClient by activityDependencies()
- *         return httpClient.get("https://api.example.com")
- *     }
+ * suspend fun processPayment(amount: Double): PaymentResult {
+ *     val httpClient: HttpClient by activity().activityDependencies
+ *     return httpClient.post(...)
  * }
  * ```
- *
- * @param qualifier Optional qualifier to distinguish multiple instances of the same type
  */
-fun <T : Any> activityDependencies(qualifier: String? = null): ReadOnlyProperty<ActivityContext, T> =
-    ActivityDependencyDelegate(DependencyScope.ACTIVITY_ONLY, qualifier)
+val ActivityContext.activityDependencies: ActivityDependencyProvider
+    get() = ActivityDependencyProvider(this, DependencyScope.ACTIVITY_ONLY)
 
 /**
- * Generic property delegate for accessing any dependency from either context.
+ * Property delegate provider for accessing workflow-safe dependencies in activities.
  *
- * This delegate works with both WorkflowContext and ActivityContext.
- * For workflow contexts, only WORKFLOW_SAFE dependencies can be accessed.
+ * WORKFLOW_SAFE dependencies can be used in both workflows and activities since they
+ * are deterministic and side-effect free.
  *
- * Usage:
+ * Usage in activities:
  * ```kotlin
- * val service: MyService by dependencies()
+ * suspend fun ActivityContext.processPayment(amount: Double): PaymentResult {
+ *     val config: AppConfig by workflowDependencies
+ *     return httpClient.post(config.paymentUrl, amount)
+ * }
  * ```
- *
- * @param scope The dependency scope (WORKFLOW_SAFE or ACTIVITY_ONLY)
- * @param qualifier Optional qualifier to distinguish multiple instances of the same type
  */
-fun <T : Any> dependencies(
-    scope: DependencyScope = DependencyScope.WORKFLOW_SAFE,
-    qualifier: String? = null,
-): ReadOnlyProperty<Any, T> = GenericDependencyDelegate(scope, qualifier)
+val ActivityContext.workflowDependencies: ActivityDependencyProvider
+    get() = ActivityDependencyProvider(this, DependencyScope.WORKFLOW_SAFE)
 
 /**
- * Internal delegate for workflow dependencies.
+ * Property delegate provider for accessing workflow-safe dependencies in workflows.
  *
- * Lazily resolves dependency context from application/task queue attributes.
+ * Usage in workflows:
+ * ```kotlin
+ * suspend fun WorkflowContext.run(orderId: String): OrderResult {
+ *     val config: AppConfig by workflowDependencies
+ *     val maxRetries = config.orderMaxRetries
+ *     // ...
+ * }
+ * ```
  */
-private class WorkflowDependencyDelegate<T : Any>(
-    private val scope: DependencyScope,
-    private val qualifier: String?,
-) : ReadOnlyProperty<WorkflowContext, T> {
-    // Cache the resolved dependency context per workflow execution
-    private var cachedContext: DependencyContext? = null
+val WorkflowContext.workflowDependencies: WorkflowDependencyProvider
+    get() = WorkflowDependencyProvider(this)
 
-    @Suppress("UNCHECKED_CAST")
-    override fun getValue(
-        thisRef: WorkflowContext,
-        property: KProperty<*>,
-    ): T {
-        val depContext = cachedContext ?: resolveDependencyContext(thisRef).also { cachedContext = it }
-
-        val key =
-            DependencyKey(
-                type = property.returnType.jvmErasure as kotlin.reflect.KClass<T>,
-                scope = scope,
-                qualifier = qualifier,
-            )
-
-        return depContext.get(key)
-    }
-
-    private fun resolveDependencyContext(context: WorkflowContext): DependencyContext {
-        val scope =
-            context as? ExecutionScope
-                ?: throw IllegalStateException("WorkflowContext does not support dependency injection")
-
-        return createDependencyContextFromScope(scope)
-    }
-}
+// =============================================================================
+// Dependency Provider Classes
+// =============================================================================
 
 /**
- * Internal delegate for activity dependencies.
- *
- * Lazily resolves dependency context from application/task queue attributes.
+ * Property delegate provider for activity dependencies.
+ * Resolves dependencies based on the property's return type.
  */
-private class ActivityDependencyDelegate<T : Any>(
+class ActivityDependencyProvider(
+    private val context: ActivityContext,
     private val scope: DependencyScope,
-    private val qualifier: String?,
-) : ReadOnlyProperty<ActivityContext, T> {
-    // Cache the resolved dependency context per activity execution
-    private var cachedContext: DependencyContext? = null
-
+) {
+    /**
+     * Provides a delegate that resolves the dependency based on property type.
+     */
     @Suppress("UNCHECKED_CAST")
-    override fun getValue(
-        thisRef: ActivityContext,
+    operator fun <T : Any> getValue(
+        thisRef: Any?,
         property: KProperty<*>,
     ): T {
-        val depContext = cachedContext ?: resolveDependencyContext(thisRef).also { cachedContext = it }
-
-        val key =
-            DependencyKey(
-                type = property.returnType.jvmErasure as kotlin.reflect.KClass<T>,
-                scope = scope,
-                qualifier = qualifier,
-            )
-
-        return depContext.get(key)
-    }
-
-    private fun resolveDependencyContext(context: ActivityContext): DependencyContext {
-        val scope =
+        val executionScope =
             context as? ExecutionScope
                 ?: throw IllegalStateException("ActivityContext does not support dependency injection")
 
-        return createDependencyContextFromScope(scope)
+        val type = property.returnType.jvmErasure as KClass<T>
+        val depContext = createDependencyContextFromScope(executionScope)
+        val key = DependencyKey(type = type, scope = scope, qualifier = null)
+        return depContext.get(key)
     }
 }
 
 /**
- * Generic delegate that works with both contexts.
- *
- * Lazily resolves dependency context from application/task queue attributes.
+ * Property delegate provider for workflow dependencies.
+ * Resolves WORKFLOW_SAFE dependencies based on the property's return type.
  */
-private class GenericDependencyDelegate<T : Any>(
-    private val scope: DependencyScope,
-    private val qualifier: String?,
-) : ReadOnlyProperty<Any, T> {
-    // Cache the resolved dependency context
-    private var cachedContext: DependencyContext? = null
-
+class WorkflowDependencyProvider(
+    private val context: WorkflowContext,
+) {
+    /**
+     * Provides a delegate that resolves the dependency based on property type.
+     */
     @Suppress("UNCHECKED_CAST")
-    override fun getValue(
-        thisRef: Any,
+    operator fun <T : Any> getValue(
+        thisRef: Any?,
         property: KProperty<*>,
     ): T {
-        val depContext = cachedContext ?: resolveDependencyContext(thisRef).also { cachedContext = it }
+        val executionScope =
+            context as? ExecutionScope
+                ?: throw IllegalStateException("WorkflowContext does not support dependency injection")
 
-        val key =
-            DependencyKey(
-                type = property.returnType.jvmErasure as kotlin.reflect.KClass<T>,
-                scope = scope,
-                qualifier = qualifier,
-            )
-
+        val type = property.returnType.jvmErasure as KClass<T>
+        val depContext = createDependencyContextFromScope(executionScope)
+        val key = DependencyKey(type = type, scope = DependencyScope.WORKFLOW_SAFE, qualifier = null)
         return depContext.get(key)
     }
+}
 
-    private fun resolveDependencyContext(context: Any): DependencyContext {
-        val scope =
+// =============================================================================
+// Qualified Dependency Access (for multiple instances of same type)
+// =============================================================================
+
+/**
+ * Gets an activity-only dependency with a qualifier.
+ *
+ * Usage:
+ * ```kotlin
+ * val primaryDb: Database by activity().activityDependency("primary")
+ * val secondaryDb: Database by activity().activityDependency("secondary")
+ * ```
+ */
+fun ActivityContext.activityDependency(qualifier: String): QualifiedActivityDependencyProvider =
+    QualifiedActivityDependencyProvider(this, DependencyScope.ACTIVITY_ONLY, qualifier)
+
+/**
+ * Gets a workflow-safe dependency with a qualifier from an activity.
+ */
+fun ActivityContext.workflowDependency(qualifier: String): QualifiedActivityDependencyProvider =
+    QualifiedActivityDependencyProvider(this, DependencyScope.WORKFLOW_SAFE, qualifier)
+
+/**
+ * Gets a workflow-safe dependency with a qualifier.
+ *
+ * Usage:
+ * ```kotlin
+ * val usersDb: Database by workflow().workflowDependency("users")
+ * val ordersDb: Database by workflow().workflowDependency("orders")
+ * ```
+ */
+fun WorkflowContext.workflowDependency(qualifier: String): QualifiedWorkflowDependencyProvider =
+    QualifiedWorkflowDependencyProvider(this, qualifier)
+
+/**
+ * Property delegate provider for qualified activity dependencies.
+ */
+class QualifiedActivityDependencyProvider(
+    private val context: ActivityContext,
+    private val scope: DependencyScope,
+    private val qualifier: String,
+) {
+    @Suppress("UNCHECKED_CAST")
+    operator fun <T : Any> getValue(
+        thisRef: Any?,
+        property: KProperty<*>,
+    ): T {
+        val executionScope =
             context as? ExecutionScope
-                ?: throw IllegalStateException(
-                    "dependencies() can only be used with WorkflowContext or ActivityContext receiver",
-                )
+                ?: throw IllegalStateException("ActivityContext does not support dependency injection")
 
-        return createDependencyContextFromScope(scope)
+        val type = property.returnType.jvmErasure as KClass<T>
+        val depContext = createDependencyContextFromScope(executionScope)
+        val key = DependencyKey(type = type, scope = scope, qualifier = qualifier)
+        return depContext.get(key)
+    }
+}
+
+/**
+ * Property delegate provider for qualified workflow dependencies.
+ */
+class QualifiedWorkflowDependencyProvider(
+    private val context: WorkflowContext,
+    private val qualifier: String,
+) {
+    @Suppress("UNCHECKED_CAST")
+    operator fun <T : Any> getValue(
+        thisRef: Any?,
+        property: KProperty<*>,
+    ): T {
+        val executionScope =
+            context as? ExecutionScope
+                ?: throw IllegalStateException("WorkflowContext does not support dependency injection")
+
+        val type = property.returnType.jvmErasure as KClass<T>
+        val depContext = createDependencyContextFromScope(executionScope)
+        val key = DependencyKey(type = type, scope = DependencyScope.WORKFLOW_SAFE, qualifier = qualifier)
+        return depContext.get(key)
     }
 }
 
