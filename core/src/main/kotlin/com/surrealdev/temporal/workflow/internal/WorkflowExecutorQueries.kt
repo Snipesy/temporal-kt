@@ -1,9 +1,20 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.google.protobuf.ByteString
+import com.google.protobuf.util.JsonFormat
 import coresdk.workflow_commands.WorkflowCommands
 import io.temporal.api.common.v1.Payload
 import io.temporal.api.failure.v1.Failure
+import io.temporal.api.sdk.v1.workflowDefinition
+import io.temporal.api.sdk.v1.workflowInteractionDefinition
+import io.temporal.api.sdk.v1.workflowMetadata
 import kotlin.reflect.full.callSuspend
+
+/**
+ * Built-in query type for workflow metadata introspection.
+ * This query is used by Temporal UI and CLI to discover registered handlers.
+ */
+private const val QUERY_TYPE_WORKFLOW_METADATA = "__temporal_workflow_metadata"
 
 /*
  * Extension functions for handling workflow queries in WorkflowExecutor.
@@ -25,6 +36,12 @@ internal suspend fun WorkflowExecutor.handleQuery(
     val queryType = query.queryType
 
     logger.debug("Processing query: id={}, type={}", queryId, queryType)
+
+    // Handle built-in queries first
+    if (queryType == QUERY_TYPE_WORKFLOW_METADATA) {
+        handleWorkflowMetadataQuery(queryId)
+        return
+    }
 
     val ctx = context
 
@@ -230,4 +247,111 @@ internal fun WorkflowExecutor.addFailedQueryResult(
             .build()
 
     pendingQueryResults.add(command)
+}
+
+/**
+ * Handles the built-in __temporal_workflow_metadata query.
+ * This query returns information about all registered handlers (queries, signals, updates)
+ * for use by Temporal UI and CLI.
+ */
+private fun WorkflowExecutor.handleWorkflowMetadataQuery(queryId: String) {
+    val ctx = context
+
+    // Collect query definitions (use Set to deduplicate)
+    val queryDefs = mutableSetOf<String>()
+    queryDefs.add(QUERY_TYPE_WORKFLOW_METADATA) // Include the built-in query itself
+    methodInfo.queryHandlers.keys
+        .filterNotNull()
+        .forEach { queryDefs.add(it) }
+    ctx?.runtimeQueryHandlers?.keys?.forEach { queryDefs.add(it) }
+
+    // Collect signal definitions
+    val signalDefs = mutableSetOf<String>()
+    methodInfo.signalHandlers.keys
+        .filterNotNull()
+        .forEach { signalDefs.add(it) }
+    ctx?.runtimeSignalHandlers?.keys?.forEach { signalDefs.add(it) }
+
+    // Collect update definitions
+    val updateDefs = mutableSetOf<String>()
+    methodInfo.updateHandlers.keys
+        .filterNotNull()
+        .forEach { updateDefs.add(it) }
+    ctx?.runtimeUpdateHandlers?.keys?.forEach { updateDefs.add(it) }
+
+    // Build the metadata response using proto DSL
+    val metadata =
+        workflowMetadata {
+            definition =
+                workflowDefinition {
+                    type = methodInfo.workflowType
+
+                    // Add query definitions sorted alphabetically
+                    queryDefs.sorted().forEach { name ->
+                        queryDefinitions +=
+                            workflowInteractionDefinition {
+                                this.name = name
+                                this.description = getQueryDescription(name)
+                            }
+                    }
+
+                    // Add signal definitions sorted alphabetically
+                    signalDefs.sorted().forEach { name ->
+                        signalDefinitions +=
+                            workflowInteractionDefinition {
+                                this.name = name
+                                this.description = getSignalDescription(name)
+                            }
+                    }
+
+                    // Add update definitions sorted alphabetically
+                    updateDefs.sorted().forEach { name ->
+                        updateDefinitions +=
+                            workflowInteractionDefinition {
+                                this.name = name
+                                this.description = getUpdateDescription(name)
+                            }
+                    }
+                }
+            // currentDetails could be added here if WorkflowContext exposes it
+        }
+
+    // Serialize as JSON payload (required for Temporal UI compatibility)
+    val jsonString = JsonFormat.printer().print(metadata)
+    val payload =
+        Payload
+            .newBuilder()
+            .putMetadata("encoding", ByteString.copyFromUtf8("json/plain"))
+            .setData(ByteString.copyFromUtf8(jsonString))
+            .build()
+
+    addSuccessQueryResult(queryId, payload)
+}
+
+/**
+ * Gets the description for a query handler by name.
+ */
+private fun WorkflowExecutor.getQueryDescription(name: String): String {
+    if (name == QUERY_TYPE_WORKFLOW_METADATA) {
+        return "Returns metadata about the workflow including registered handlers."
+    }
+    return methodInfo.queryHandlers[name]?.description ?: ""
+}
+
+/**
+ * Gets the description for a signal handler by name.
+ * TODO: SignalHandlerInfo doesn't have a description field yet, so we return empty string.
+ */
+private fun WorkflowExecutor.getSignalDescription(name: String): String {
+    // SignalHandlerInfo doesn't have description field - return empty for now
+    return ""
+}
+
+/**
+ * Gets the description for an update handler by name.
+ * TODO: UpdateHandlerInfo doesn't have a description field yet, so we return empty string.
+ */
+private fun WorkflowExecutor.getUpdateDescription(name: String): String {
+    // UpdateHandlerInfo doesn't have description field - return empty for now
+    return ""
 }
