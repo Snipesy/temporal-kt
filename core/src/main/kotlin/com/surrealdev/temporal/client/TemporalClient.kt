@@ -353,7 +353,7 @@ class TemporalClientImpl internal constructor(
         // Apply search attributes if specified
         options.searchAttributes?.let { attrs ->
             if (attrs.isNotEmpty()) {
-                val encoded = SearchAttributeEncoder.encode(attrs, serializer)
+                val encoded = SearchAttributeEncoder.encode(attrs)
                 requestBuilder.setSearchAttributes(
                     SearchAttributes
                         .newBuilder()

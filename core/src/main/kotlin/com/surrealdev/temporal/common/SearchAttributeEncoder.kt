@@ -1,13 +1,15 @@
 package com.surrealdev.temporal.common
 
 import com.google.protobuf.ByteString
-import com.surrealdev.temporal.serialization.PayloadSerializer
 import io.temporal.api.common.v1.Payload
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonUnquotedLiteral
+import kotlinx.serialization.json.buildJsonArray
 import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZonedDateTime
-import kotlin.reflect.KType
-import kotlin.reflect.typeOf
 
 /**
  * Encodes [TypedSearchAttributes] to Temporal Payloads with proper type metadata.
@@ -25,84 +27,82 @@ import kotlin.reflect.typeOf
  * Without this metadata, the Temporal server cannot properly index search attributes.
  */
 object SearchAttributeEncoder {
-    // Pre-computed type information for each search attribute type
-    private val stringType: KType = typeOf<String>()
-    private val longType: KType = typeOf<Long>()
-    private val doubleType: KType = typeOf<Double>()
-    private val booleanType: KType = typeOf<Boolean>()
-    private val stringListType: KType = typeOf<List<String>>()
+    private const val ENCODING_JSON = "json/plain"
+    private const val ENCODING_NULL = "binary/null"
 
     /**
      * Encodes typed search attributes to a map of Payloads.
      *
      * @param attributes The typed search attributes to encode
-     * @param serializer The payload serializer for value serialization
      * @return Map of attribute names to encoded Payloads with type metadata
      */
-    fun encode(
-        attributes: TypedSearchAttributes,
-        serializer: PayloadSerializer,
-    ): Map<String, Payload> =
+    fun encode(attributes: TypedSearchAttributes): Map<String, Payload> =
         attributes.pairs.associate { pair ->
-            pair.key.name to encodeValue(pair.key, pair.value, serializer)
+            pair.key.name to encodeValue(pair.key, pair.value)
         }
 
     /**
      * Encodes a single search attribute value with proper type metadata.
+     * Uses kotlinx.serialization JSON primitives for correct formatting.
      */
     private fun encodeValue(
         key: SearchAttributeKey<*>,
         value: Any?,
-        serializer: PayloadSerializer,
     ): Payload {
         // Null values: binary/null encoding with NO type metadata
         if (value == null) {
             return Payload
                 .newBuilder()
-                .putMetadata("encoding", ByteString.copyFromUtf8("binary/null"))
+                .putMetadata("encoding", ByteString.copyFromUtf8(ENCODING_NULL))
                 .build()
         }
 
-        // Datetime: convert to ISO 8601 string BEFORE serialization
-        val encodableValue =
-            when (value) {
-                is Instant -> value.toString()
-                is OffsetDateTime -> value.toInstant().toString()
-                is ZonedDateTime -> value.toInstant().toString()
-                else -> value
-            }
+        // Encode value as JSON using kotlinx.serialization
+        val jsonValue = encodeToJson(key, value)
 
-        // Get the KType for serialization based on the key type
-        val valueType = getTypeForKey(key)
-
-        // Serialize the value using the configured serializer
-        val payload = serializer.serialize(valueType, encodableValue)
-
-        // Add the critical type metadata for Temporal indexing
-        return payload
-            .toBuilder()
+        return Payload
+            .newBuilder()
+            .putMetadata("encoding", ByteString.copyFromUtf8(ENCODING_JSON))
             .putMetadata("type", ByteString.copyFromUtf8(key.metadataType))
+            .setData(ByteString.copyFromUtf8(jsonValue))
             .build()
     }
 
     /**
-     * Returns the appropriate KType for a given SearchAttributeKey type.
+     * Encodes a value to raw JSON based on the search attribute key type.
+     * Uses kotlinx.serialization's JsonUnquotedLiteral for raw numeric/boolean values.
      */
-    private fun getTypeForKey(key: SearchAttributeKey<*>): KType =
+    @OptIn(ExperimentalSerializationApi::class)
+    private fun encodeToJson(
+        key: SearchAttributeKey<*>,
+        value: Any,
+    ): String =
         when (key) {
-            is SearchAttributeKey.Text -> stringType
-
-            is SearchAttributeKey.Keyword -> stringType
-
-            is SearchAttributeKey.Int -> longType
-
-            is SearchAttributeKey.Double -> doubleType
-
-            is SearchAttributeKey.Bool -> booleanType
-
-            is SearchAttributeKey.Datetime -> stringType
-
-            // Already converted to ISO 8601 string
-            is SearchAttributeKey.KeywordList -> stringListType
+            is SearchAttributeKey.Text -> Json.encodeToString(JsonPrimitive(value as String))
+            is SearchAttributeKey.Keyword -> Json.encodeToString(JsonPrimitive(value as String))
+            is SearchAttributeKey.Int -> Json.encodeToString(JsonUnquotedLiteral((value as Long).toString()))
+            is SearchAttributeKey.Double -> {
+                Json.encodeToString(JsonUnquotedLiteral((value as kotlin.Double).toString()))
+            }
+            is SearchAttributeKey.Bool -> Json.encodeToString(JsonUnquotedLiteral((value as Boolean).toString()))
+            is SearchAttributeKey.Datetime -> {
+                val instant =
+                    when (value) {
+                        is Instant -> value
+                        is OffsetDateTime -> value.toInstant()
+                        is ZonedDateTime -> value.toInstant()
+                        else -> throw IllegalArgumentException("Unsupported datetime type: ${value::class}")
+                    }
+                Json.encodeToString(JsonPrimitive(instant.toString()))
+            }
+            is SearchAttributeKey.KeywordList -> {
+                @Suppress("UNCHECKED_CAST")
+                val list = value as List<String>
+                Json.encodeToString(
+                    buildJsonArray {
+                        list.forEach { add(JsonPrimitive(it)) }
+                    },
+                )
+            }
         }
 }

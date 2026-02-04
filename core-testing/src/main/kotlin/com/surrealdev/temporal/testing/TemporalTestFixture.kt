@@ -10,6 +10,7 @@ import com.surrealdev.temporal.application.WorkerDeploymentOptions
 import com.surrealdev.temporal.application.WorkerDeploymentVersion
 import com.surrealdev.temporal.client.TemporalClient
 import com.surrealdev.temporal.client.TemporalClientImpl
+import com.surrealdev.temporal.common.SearchAttributeKey
 import com.surrealdev.temporal.core.EphemeralServer
 import com.surrealdev.temporal.core.TemporalDevServer
 import com.surrealdev.temporal.core.TemporalRuntime
@@ -307,14 +308,29 @@ class TemporalTestApplicationBuilder internal constructor(
  * }
  * ```
  *
+ * For tests with custom search attributes:
+ * ```kotlin
+ * @Test
+ * fun `workflow with custom search attributes`() = runTemporalTest(
+ *     searchAttributes = listOf(
+ *         SearchAttributeKey.forInt("CustomIntField"),
+ *         SearchAttributeKey.forKeyword("CustomKeyword"),
+ *     )
+ * ) {
+ *     // CustomIntField and CustomKeyword are now available
+ * }
+ * ```
+ *
  * @param timeSkipping If true, starts a test server that automatically skips time
  *                     when workflows are waiting on timers. This allows tests with
  *                     long timers (hours/days) to complete in milliseconds.
+ * @param searchAttributes Custom search attributes to register with the server.
  */
 fun runTemporalTest(
     timeSkipping: Boolean = true,
+    searchAttributes: List<SearchAttributeKey<*>> = emptyList(),
     block: suspend TemporalTestApplicationBuilder.() -> Unit,
-): TestResult = runTemporalTest(EmptyCoroutineContext, timeSkipping, block)
+): TestResult = runTemporalTest(EmptyCoroutineContext, timeSkipping, searchAttributes, block)
 
 /**
  * Runs a test with an ephemeral Temporal dev server.
@@ -324,11 +340,13 @@ fun runTemporalTest(
  *
  * @param parentCoroutineContext Additional coroutine context elements
  * @param timeSkipping If true, starts a test server that automatically skips time
+ * @param searchAttributes Custom search attributes to register with the server.
  * @param block The test block with application configuration and test code
  */
 fun runTemporalTest(
     parentCoroutineContext: CoroutineContext,
     timeSkipping: Boolean = true,
+    searchAttributes: List<SearchAttributeKey<*>> = emptyList(),
     block: suspend TemporalTestApplicationBuilder.() -> Unit,
 ): TestResult =
     runTest(timeout = 60.seconds) {
@@ -336,7 +354,7 @@ fun runTemporalTest(
         // (similar to Ktor's runTestWithRealTime)
         // if we don't do this then we can run info FFM issues
         withContext(Dispatchers.Default.limitedParallelism(1)) {
-            runTestApplication(this.coroutineContext + parentCoroutineContext, timeSkipping, block)
+            runTestApplication(this.coroutineContext + parentCoroutineContext, timeSkipping, searchAttributes, block)
         }
     }
 
@@ -348,13 +366,18 @@ fun runTemporalTest(
  *
  * @param parentCoroutineContext Additional coroutine context elements
  * @param timeSkipping If true, starts a test server that automatically skips time
+ * @param searchAttributes Custom search attributes to register with the server.
  * @param block The test block with application configuration and test code
  */
 suspend fun TestScope.runTestApplication(
     parentCoroutineContext: CoroutineContext = EmptyCoroutineContext,
     timeSkipping: Boolean = true,
+    searchAttributes: List<SearchAttributeKey<*>> = emptyList(),
     block: suspend TemporalTestApplicationBuilder.() -> Unit,
 ) {
+    // Convert SearchAttributeKey to CLI args format: name=type
+    val searchAttributePairs = searchAttributes.map { it.name to it.typeName }
+
     TemporalRuntime.create().use { runtime ->
         val effectiveContext =
             if (parentCoroutineContext != EmptyCoroutineContext) {
@@ -364,35 +387,43 @@ suspend fun TestScope.runTestApplication(
             }
 
         if (timeSkipping) {
-            TemporalTestServer.start(runtime).use { testServer ->
-                // Time skipping starts LOCKED (Python SDK behavior)
-                // It will be automatically unlocked when awaiting workflow results
-                // via TemporalTestClient/TimeSkippingWorkflowHandle
+            TemporalTestServer
+                .start(
+                    runtime = runtime,
+                    searchAttributes = searchAttributePairs,
+                ).use { testServer ->
+                    // Time skipping starts LOCKED (Python SDK behavior)
+                    // It will be automatically unlocked when awaiting workflow results
+                    // via TemporalTestClient/TimeSkippingWorkflowHandle
 
-                val builder =
-                    TemporalTestApplicationBuilder(
-                        server = testServer,
-                        parentCoroutineContext = effectiveContext,
-                    )
-                try {
-                    builder.block()
-                } finally {
-                    builder.cleanup()
+                    val builder =
+                        TemporalTestApplicationBuilder(
+                            server = testServer,
+                            parentCoroutineContext = effectiveContext,
+                        )
+                    try {
+                        builder.block()
+                    } finally {
+                        builder.cleanup()
+                    }
                 }
-            }
         } else {
-            TemporalDevServer.start(runtime).use { devServer ->
-                val builder =
-                    TemporalTestApplicationBuilder(
-                        server = devServer,
-                        parentCoroutineContext = effectiveContext,
-                    )
-                try {
-                    builder.block()
-                } finally {
-                    builder.cleanup()
+            TemporalDevServer
+                .start(
+                    runtime = runtime,
+                    searchAttributes = searchAttributePairs,
+                ).use { devServer ->
+                    val builder =
+                        TemporalTestApplicationBuilder(
+                            server = devServer,
+                            parentCoroutineContext = effectiveContext,
+                        )
+                    try {
+                        builder.block()
+                    } finally {
+                        builder.cleanup()
+                    }
                 }
-            }
         }
     }
 }

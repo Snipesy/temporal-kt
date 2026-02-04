@@ -1,6 +1,5 @@
 package com.surrealdev.temporal.common
 
-import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -13,8 +12,6 @@ import kotlin.test.assertTrue
  * proper type metadata for Temporal indexing.
  */
 class SearchAttributeEncoderTest {
-    private val serializer = KotlinxJsonSerializer.default()
-
     @Test
     fun `encodes keyword attribute with correct type metadata`() {
         val attrs =
@@ -22,7 +19,7 @@ class SearchAttributeEncoderTest {
                 SearchAttributeKey.forKeyword("CustomerId") to "cust-123"
             }
 
-        val encoded = SearchAttributeEncoder.encode(attrs, serializer)
+        val encoded = SearchAttributeEncoder.encode(attrs)
 
         assertEquals(1, encoded.size)
         assertTrue(encoded.containsKey("CustomerId"))
@@ -38,7 +35,7 @@ class SearchAttributeEncoderTest {
                 SearchAttributeKey.forInt("OrderCount") to 42L
             }
 
-        val encoded = SearchAttributeEncoder.encode(attrs, serializer)
+        val encoded = SearchAttributeEncoder.encode(attrs)
 
         assertEquals(1, encoded.size)
         assertTrue(encoded.containsKey("OrderCount"))
@@ -54,7 +51,7 @@ class SearchAttributeEncoderTest {
                 SearchAttributeKey.forDouble("Score") to 98.5
             }
 
-        val encoded = SearchAttributeEncoder.encode(attrs, serializer)
+        val encoded = SearchAttributeEncoder.encode(attrs)
 
         assertEquals(1, encoded.size)
         assertTrue(encoded.containsKey("Score"))
@@ -70,7 +67,7 @@ class SearchAttributeEncoderTest {
                 SearchAttributeKey.forBool("IsPremium") to true
             }
 
-        val encoded = SearchAttributeEncoder.encode(attrs, serializer)
+        val encoded = SearchAttributeEncoder.encode(attrs)
 
         assertEquals(1, encoded.size)
         assertTrue(encoded.containsKey("IsPremium"))
@@ -87,7 +84,7 @@ class SearchAttributeEncoderTest {
                 SearchAttributeKey.forDatetime("CreatedAt") to timestamp
             }
 
-        val encoded = SearchAttributeEncoder.encode(attrs, serializer)
+        val encoded = SearchAttributeEncoder.encode(attrs)
 
         assertEquals(1, encoded.size)
         assertTrue(encoded.containsKey("CreatedAt"))
@@ -106,7 +103,7 @@ class SearchAttributeEncoderTest {
                 SearchAttributeKey.forText("Description") to "Full text searchable"
             }
 
-        val encoded = SearchAttributeEncoder.encode(attrs, serializer)
+        val encoded = SearchAttributeEncoder.encode(attrs)
 
         assertEquals(1, encoded.size)
         assertTrue(encoded.containsKey("Description"))
@@ -122,7 +119,7 @@ class SearchAttributeEncoderTest {
                 SearchAttributeKey.forKeywordList("Tags") to listOf("urgent", "vip")
             }
 
-        val encoded = SearchAttributeEncoder.encode(attrs, serializer)
+        val encoded = SearchAttributeEncoder.encode(attrs)
 
         assertEquals(1, encoded.size)
         assertTrue(encoded.containsKey("Tags"))
@@ -138,7 +135,7 @@ class SearchAttributeEncoderTest {
                 SearchAttributeKey.forKeyword("CustomerId") to null
             }
 
-        val encoded = SearchAttributeEncoder.encode(attrs, serializer)
+        val encoded = SearchAttributeEncoder.encode(attrs)
 
         assertEquals(1, encoded.size)
         assertTrue(encoded.containsKey("CustomerId"))
@@ -160,7 +157,7 @@ class SearchAttributeEncoderTest {
                 SearchAttributeKey.forDatetime("CreatedAt") to timestamp
             }
 
-        val encoded = SearchAttributeEncoder.encode(attrs, serializer)
+        val encoded = SearchAttributeEncoder.encode(attrs)
 
         assertEquals(4, encoded.size)
         assertEquals("Keyword", encoded["CustomerId"]!!.metadataMap["type"]?.toStringUtf8())
@@ -173,7 +170,7 @@ class SearchAttributeEncoderTest {
     fun `encodes empty attributes returns empty map`() {
         val attrs = TypedSearchAttributes.EMPTY
 
-        val encoded = SearchAttributeEncoder.encode(attrs, serializer)
+        val encoded = SearchAttributeEncoder.encode(attrs)
 
         assertTrue(encoded.isEmpty())
     }
@@ -213,5 +210,26 @@ class SearchAttributeEncoderTest {
     fun `SearchAttributeKey toString returns readable format`() {
         val key = SearchAttributeKey.forKeyword("CustomerId")
         assertEquals("SearchAttributeKey.Keyword(\"CustomerId\")", key.toString())
+    }
+
+    @Test
+    fun `verify int payload data is raw number`() {
+        val attrs =
+            searchAttributes {
+                SearchAttributeKey.forInt("Count") to 200L
+            }
+
+        val encoded = SearchAttributeEncoder.encode(attrs)
+        val payload = encoded["Count"]!!
+        val data = payload.data.toStringUtf8()
+
+        println("Int payload data: '$data'")
+        println("Int payload bytes: ${payload.data.toByteArray().map { it.toInt() and 0xFF }}")
+        println("Int encoding: ${payload.metadataMap["encoding"]?.toStringUtf8()}")
+        println("Int type: ${payload.metadataMap["type"]?.toStringUtf8()}")
+
+        assertEquals("200", data)
+        assertEquals("json/plain", payload.metadataMap["encoding"]?.toStringUtf8())
+        assertEquals("Int", payload.metadataMap["type"]?.toStringUtf8())
     }
 }

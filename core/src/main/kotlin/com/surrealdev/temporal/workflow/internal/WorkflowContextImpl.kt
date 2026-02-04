@@ -679,7 +679,7 @@ internal class WorkflowContextImpl(
         // Set search attributes if provided
         options.searchAttributes?.let { attrs ->
             if (attrs.isNotEmpty()) {
-                val encoded = SearchAttributeEncoder.encode(attrs, serializer)
+                val encoded = SearchAttributeEncoder.encode(attrs)
                 commandBuilder.putAllSearchAttributes(encoded)
             }
         }
@@ -801,7 +801,7 @@ internal class WorkflowContextImpl(
         }
 
         // Encode using existing SearchAttributeEncoder
-        val encoded = SearchAttributeEncoder.encode(attributes, serializer)
+        val encoded = SearchAttributeEncoder.encode(attributes)
 
         // Build the command
         val command =

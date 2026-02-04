@@ -39,6 +39,12 @@ sealed class SearchAttributeKey<T>(
     val name: String,
     internal val metadataType: String,
 ) {
+    /**
+     * The type name used for CLI registration and payload metadata.
+     * One of: "Keyword", "Text", "Int", "Double", "Bool", "Datetime", "KeywordList"
+     */
+    val typeName: String get() = metadataType
+
     /** Full-text searchable string. Use for fields that need fuzzy search. */
     class Text(
         name: String,

@@ -59,6 +59,7 @@ internal object TemporalCoreEphemeralServer {
         existingPath: String?,
         downloadVersion: String?,
         downloadTtlSeconds: Long,
+        extraArgs: List<String> = emptyList(),
     ): MemorySegment {
         val opts = TemporalCoreTestServerOptions.allocate(arena)
 
@@ -71,7 +72,9 @@ internal object TemporalCoreEphemeralServer {
         )
         TemporalCoreTestServerOptions.download_dest_dir(opts, TemporalCoreFfmUtil.createEmptyByteArrayRef(arena))
         TemporalCoreTestServerOptions.port(opts, 0.toShort())
-        TemporalCoreTestServerOptions.extra_args(opts, TemporalCoreFfmUtil.createEmptyByteArrayRef(arena))
+        // extra_args is newline-delimited in the C bridge
+        val extraArgsString = extraArgs.joinToString("\n").ifEmpty { null }
+        TemporalCoreTestServerOptions.extra_args(opts, TemporalCoreFfmUtil.createByteArrayRef(arena, extraArgsString))
         TemporalCoreTestServerOptions.download_ttl_seconds(opts, downloadTtlSeconds)
 
         return opts
@@ -120,6 +123,7 @@ internal object TemporalCoreEphemeralServer {
      * @param existingPath Path to existing Temporal CLI (skips download if set)
      * @param downloadVersion Version to download
      * @param downloadTtlSeconds Cache duration for downloads
+     * @param extraArgs Additional CLI arguments to pass to the server
      * @param callback Callback invoked when server starts or fails
      * @return The context pointer for cancellation
      */
@@ -132,9 +136,11 @@ internal object TemporalCoreEphemeralServer {
         existingPath: String? = null,
         downloadVersion: String? = "default",
         downloadTtlSeconds: Long = 0,
+        extraArgs: List<String> = emptyList(),
         callback: StartCallback,
     ): MemorySegment {
-        val testServerOptions = buildTestServerOptions(arena, existingPath, downloadVersion, downloadTtlSeconds)
+        val testServerOptions =
+            buildTestServerOptions(arena, existingPath, downloadVersion, downloadTtlSeconds, extraArgs)
         val devServerOptions =
             buildDevServerOptions(
                 arena = arena,
@@ -167,6 +173,7 @@ internal object TemporalCoreEphemeralServer {
      * @param existingPath Path to existing test server binary
      * @param downloadVersion Version to download
      * @param downloadTtlSeconds Cache duration for downloads
+     * @param extraArgs Additional CLI arguments to pass to the server
      * @param callback Callback invoked when server starts or fails
      * @return The context pointer for cancellation
      */
@@ -177,9 +184,11 @@ internal object TemporalCoreEphemeralServer {
         existingPath: String? = null,
         downloadVersion: String? = "default",
         downloadTtlSeconds: Long = 0,
+        extraArgs: List<String> = emptyList(),
         callback: StartCallback,
     ): MemorySegment {
-        val testServerOptions = buildTestServerOptions(arena, existingPath, downloadVersion, downloadTtlSeconds)
+        val testServerOptions =
+            buildTestServerOptions(arena, existingPath, downloadVersion, downloadTtlSeconds, extraArgs)
         val contextPtr = dispatcher.registerStart(callback)
         CoreBridge.temporal_core_ephemeral_server_start_test_server(
             runtimePtr,

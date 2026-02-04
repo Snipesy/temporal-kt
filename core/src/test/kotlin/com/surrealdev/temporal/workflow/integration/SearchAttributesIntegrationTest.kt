@@ -39,6 +39,7 @@ class SearchAttributesIntegrationTest {
         val CREATED_AT = SearchAttributeKey.forDatetime("CustomDatetimeField")
         val SCORE = SearchAttributeKey.forDouble("CustomDoubleField")
         val DESCRIPTION = SearchAttributeKey.forText("CustomTextField")
+        val COUNT = SearchAttributeKey.forInt("CustomIntField")
     }
 
     // ================================================================
@@ -91,6 +92,21 @@ class SearchAttributesIntegrationTest {
                 DESCRIPTION to initialValue
             }
             return "Upserted: $initialValue"
+        }
+    }
+
+    /**
+     * Workflow that upserts an Int search attribute during execution.
+     */
+    @Workflow("UpsertIntSearchAttrWorkflow")
+    class UpsertIntSearchAttrWorkflow {
+        @WorkflowRun
+        suspend fun WorkflowContext.run(count: Long): String {
+            // Upsert Int search attribute
+            upsertSearchAttributes {
+                COUNT to count
+            }
+            return "Upserted count: $count"
         }
     }
 
@@ -252,6 +268,78 @@ class SearchAttributesIntegrationTest {
             assertEquals("Upserted: $customerId", result)
 
             // Verify via history that the upsert command was recorded
+            handle.assertHistory {
+                completed()
+            }
+        }
+
+    @Test
+    fun `workflow can upsert Int search attribute`() =
+        runTemporalTest(
+            timeSkipping = false,
+            searchAttributes = listOf(COUNT),
+        ) {
+            val taskQueue = "test-upsert-int-${UUID.randomUUID()}"
+            val count = 144L
+
+            application {
+                taskQueue(taskQueue) {
+                    workflow<UpsertIntSearchAttrWorkflow>()
+                }
+            }
+
+            val client = client()
+
+            // Start workflow that upserts Int search attribute
+            val handle =
+                client.startWorkflow<String, Long>(
+                    workflowType = "UpsertIntSearchAttrWorkflow",
+                    taskQueue = taskQueue,
+                    arg = count,
+                )
+
+            val result = handle.result(timeout = 30.seconds)
+            assertEquals("Upserted count: $count", result)
+
+            // Verify via history that the upsert command was recorded
+            handle.assertHistory {
+                completed()
+            }
+        }
+
+    @Test
+    fun `workflow starts with Int search attribute on dev server`() =
+        runTemporalTest(
+            timeSkipping = false,
+            searchAttributes = listOf(COUNT),
+        ) {
+            val taskQueue = "test-start-int-${UUID.randomUUID()}"
+
+            application {
+                taskQueue(taskQueue) {
+                    workflow<SearchAttrTestWorkflow>()
+                }
+            }
+
+            val client = client()
+
+            // Start workflow with Int search attribute on dev server (timeSkipping=false)
+            val handle =
+                client.startWorkflow<String>(
+                    workflowType = "SearchAttrTestWorkflow",
+                    taskQueue = taskQueue,
+                    options =
+                        WorkflowStartOptions(
+                            searchAttributes =
+                                searchAttributes {
+                                    COUNT to 42L
+                                },
+                        ),
+                )
+
+            val result = handle.result(timeout = 30.seconds)
+            assertTrue(result.startsWith("Completed workflow:"))
+
             handle.assertHistory {
                 completed()
             }

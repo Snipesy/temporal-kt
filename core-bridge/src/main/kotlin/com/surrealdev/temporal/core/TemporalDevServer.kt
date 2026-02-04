@@ -53,6 +53,9 @@ class TemporalDevServer private constructor(
          * @param existingPath Path to existing Temporal CLI binary (optional, will download if not set)
          * @param downloadVersion Version to download (semver like "1.3.0", "latest", or "default"). Ignored if existingPath is set. Defaults to version from BuildConfig.
          * @param downloadTtlSeconds Cache duration for downloads in seconds (0 = no TTL, indefinite cache)
+         * @param searchAttributes Custom search attributes to register with the server. Each pair is (name, type).
+         *                         Type must be one of: "Keyword", "Text", "Int", "Double", "Bool", "Datetime", "KeywordList"
+         * @param extraArgs Additional CLI arguments to pass to the server
          * @return A running dev server instance
          * @throws TemporalCoreException if the server fails to start
          */
@@ -63,8 +66,20 @@ class TemporalDevServer private constructor(
             existingPath: String? = null,
             downloadVersion: String? = BuildConfig.TEMPORAL_CLI_VERSION,
             downloadTtlSeconds: Long = 0,
+            searchAttributes: List<Pair<String, String>> = emptyList(),
+            extraArgs: List<String> = emptyList(),
         ): TemporalDevServer {
             runtime.ensureOpen()
+
+            // Build CLI args for search attributes: --search-attribute Name=Type
+            val allArgs =
+                buildList {
+                    for ((name, type) in searchAttributes) {
+                        add("--search-attribute")
+                        add("$name=$type")
+                    }
+                    addAll(extraArgs)
+                }
 
             return FactoryArenaScope.create(runtime.handle, ::EphemeralServerCallbackDispatcher).createResource {
                 val (serverPtr, targetUrl) =
@@ -78,6 +93,7 @@ class TemporalDevServer private constructor(
                             existingPath = existingPath,
                             downloadVersion = downloadVersion,
                             downloadTtlSeconds = downloadTtlSeconds,
+                            extraArgs = allArgs,
                         ) { serverPtr, targetUrl, error ->
                             try {
                                 if (error != null) {
@@ -119,6 +135,9 @@ class TemporalDevServer private constructor(
          * @param existingPath Path to existing Temporal CLI binary (optional, will download if not set)
          * @param downloadVersion Version to download (semver like "1.3.0", "latest", or "default"). Ignored if existingPath is set. Defaults to version from BuildConfig.
          * @param downloadTtlSeconds Cache duration for downloads in seconds (0 = no TTL, indefinite cache)
+         * @param searchAttributes Custom search attributes to register with the server. Each pair is (name, type).
+         *                         Type must be one of: "Keyword", "Text", "Int", "Double", "Bool", "Datetime", "KeywordList"
+         * @param extraArgs Additional CLI arguments to pass to the server
          * @return A CompletableFuture that completes with the running server
          */
         fun startAsync(
@@ -128,8 +147,20 @@ class TemporalDevServer private constructor(
             existingPath: String? = null,
             downloadVersion: String? = BuildConfig.TEMPORAL_CLI_VERSION,
             downloadTtlSeconds: Long = 0,
+            searchAttributes: List<Pair<String, String>> = emptyList(),
+            extraArgs: List<String> = emptyList(),
         ): CompletableFuture<TemporalDevServer> {
             runtime.ensureOpen()
+
+            // Build CLI args for search attributes: --search-attribute Name=Type
+            val allArgs =
+                buildList {
+                    for ((name, type) in searchAttributes) {
+                        add("--search-attribute")
+                        add("$name=$type")
+                    }
+                    addAll(extraArgs)
+                }
 
             val scope = FactoryArenaScope.create(runtime.handle, ::EphemeralServerCallbackDispatcher)
             val future = CompletableFuture<TemporalDevServer>()
@@ -144,6 +175,7 @@ class TemporalDevServer private constructor(
                 existingPath = existingPath,
                 downloadVersion = downloadVersion,
                 downloadTtlSeconds = downloadTtlSeconds,
+                extraArgs = allArgs,
             ) { serverPtr, targetUrl, error ->
                 try {
                     if (error != null) {
