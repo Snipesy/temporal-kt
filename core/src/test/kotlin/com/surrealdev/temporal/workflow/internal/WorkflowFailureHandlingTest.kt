@@ -114,17 +114,18 @@ class WorkflowFailureHandlingTest {
         suspend fun WorkflowContext.run(): String {
             val deferred1 =
                 async {
-                    sleep(30.milliseconds)
+                    sleep(10.milliseconds) // Fires first - separate activation
                     "A"
                 }
             val deferred2 =
                 async {
-                    sleep(30.milliseconds)
+                    sleep(50.milliseconds) // Fires later - deterministic order
                     throw IllegalStateException("One async failed")
                 }
 
-            // This should propagate the exception
+            // deferred1 completes successfully first
             val result1 = deferred1.await()
+            // deferred2 throws directly when its timer fires
             val result2 = deferred2.await()
             return "$result1$result2"
         }
@@ -351,11 +352,11 @@ class WorkflowFailureHandlingTest {
                     handle.result(timeout = 10.seconds)
                 }
 
-            // Structured concurrency: when one async fails, it cancels the workflow
+            // With staggered timers, deferred1 completes first, then deferred2 throws.
+            // The exception propagates directly as the original exception.
             assertTrue(
-                exception.message?.contains("Cancelling") == true ||
-                    exception.message?.contains("One async failed") == true,
-                "Expected cancellation or failure message, got: ${exception.message}",
+                exception.message?.contains("One async failed") == true,
+                "Expected 'One async failed', got: ${exception.message}",
             )
 
             handle.assertHistory {
