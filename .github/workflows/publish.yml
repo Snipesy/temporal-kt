@@ -132,14 +132,15 @@ jobs:
             platform: macos-aarch64
             artifact-name: native-libs-macos-aarch64
             artifact-path: core-bridge/build/native-libs/native/macos-aarch64
-          - os: macos-15-intel
-            platform: macos-x86_64
-            artifact-name: native-libs-macos-x86_64
-            artifact-path: core-bridge/build/native-libs/native/macos-x86_64
-          - os: windows-latest
-            platform: windows
-            artifact-name: native-libs-windows
-            artifact-path: core-bridge/build/native-libs/native/windows-x86_64
+          # These machines are really jank with github, revisit in future when microsoft fixes it maybe.
+          #- os: macos-15-intel
+          #  platform: macos-x86_64
+          #  artifact-name: native-libs-macos-x86_64
+          #  artifact-path: core-bridge/build/native-libs/native/macos-x86_64
+          #- os: windows-latest
+          #  platform: windows
+          #  artifact-name: native-libs-windows
+          #  artifact-path: core-bridge/build/native-libs/native/windows-x86_64
 
     runs-on: ${{ matrix.os }}
     steps:
