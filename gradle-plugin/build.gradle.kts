@@ -22,6 +22,7 @@ buildConfig {
     buildConfigField("VERSION", project.version.toString())
     buildConfigField("GROUP_ID", project.group.toString())
     buildConfigField("COMPILER_PLUGIN_ARTIFACT_ID", "compiler-plugin")
+    buildConfigField("CORE_BRIDGE_ARTIFACT_ID", "core-bridge")
 }
 
 gradlePlugin {
