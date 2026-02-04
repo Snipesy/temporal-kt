@@ -889,15 +889,6 @@ internal data class PendingChildWorkflowInfo(
 )
 
 /**
- * Exception thrown when an activity fails.
- */
-class ActivityFailureException(
-    message: String?,
-    val activityType: String = "",
-    cause: Throwable? = null,
-) : RuntimeException(message, cause)
-
-/**
  * Exception thrown when attempting to mutate workflow state in read-only mode.
  * This typically occurs during query processing, where modifications to workflow
  * state would violate deterministic replay guarantees.

@@ -1,13 +1,13 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.google.protobuf.ByteString
+import com.surrealdev.temporal.common.ActivityRetryState
+import com.surrealdev.temporal.common.ActivityTimeoutType
 import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
 import com.surrealdev.temporal.workflow.ActivityCancellationType
 import com.surrealdev.temporal.workflow.ActivityCancelledException
 import com.surrealdev.temporal.workflow.ActivityFailureException
-import com.surrealdev.temporal.workflow.ActivityRetryState
 import com.surrealdev.temporal.workflow.ActivityTimeoutException
-import com.surrealdev.temporal.workflow.ActivityTimeoutType
 import coresdk.activity_result.ActivityResult
 import io.temporal.api.common.v1.Payload
 import io.temporal.api.enums.v1.RetryState

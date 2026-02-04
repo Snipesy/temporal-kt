@@ -1,8 +1,9 @@
 package com.surrealdev.temporal.workflow.internal
 
-import com.surrealdev.temporal.workflow.ActivityRetryState
-import com.surrealdev.temporal.workflow.ActivityTimeoutType
-import com.surrealdev.temporal.workflow.ApplicationFailure
+import com.surrealdev.temporal.common.ActivityRetryState
+import com.surrealdev.temporal.common.ActivityTimeoutType
+import com.surrealdev.temporal.common.ApplicationErrorCategory
+import com.surrealdev.temporal.common.ApplicationFailure
 import io.temporal.api.failure.v1.Failure
 
 /*
@@ -87,11 +88,22 @@ internal fun extractApplicationFailure(
     // Check this level
     if (failure.hasApplicationFailureInfo()) {
         val appInfo = failure.applicationFailureInfo
+        val category =
+            when (appInfo.category) {
+                io.temporal.api.enums.v1.ApplicationErrorCategory.APPLICATION_ERROR_CATEGORY_BENIGN -> {
+                    ApplicationErrorCategory.BENIGN
+                }
+
+                else -> {
+                    ApplicationErrorCategory.UNSPECIFIED
+                }
+            }
         return ApplicationFailure(
             type = appInfo.type ?: "UnknownApplicationFailure",
             message = failure.message,
             nonRetryable = appInfo.nonRetryable,
-            details = appInfo.details?.toByteArray(),
+            details = if (appInfo.hasDetails()) appInfo.details.toByteArray() else null,
+            category = category,
         )
     }
 
