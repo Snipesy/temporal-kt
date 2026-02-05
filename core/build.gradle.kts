@@ -10,7 +10,7 @@ dependencies {
     api(project(":core-bridge"))
     api(libs.bundles.kotlinxEcosystem)
     api(libs.protobufJava)
-    implementation(libs.protobufJavaUtil)
+    api(libs.protobufJavaUtil)
     implementation(libs.protobufKotlin)
     implementation(libs.bundles.hoplite)
     implementation(libs.kotlinReflect)

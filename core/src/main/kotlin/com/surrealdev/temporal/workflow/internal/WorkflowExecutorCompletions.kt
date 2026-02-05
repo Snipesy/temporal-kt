@@ -78,7 +78,7 @@ internal suspend fun WorkflowExecutor.buildTerminalCompletion(
             logger.debug("Workflow cancelled")
             buildWorkflowCancellationCompletion()
         } else {
-            logger.debug("Workflow failed with exception: {}", e.message, e)
+            logger.info("Workflow failed with exception: {}", e.message, e)
             buildWorkflowFailureCompletion(e)
         }
     }
