@@ -42,11 +42,59 @@ import org.jetbrains.kotlin.gradle.plugin.SubpluginOption
 class TemporalGradlePlugin : KotlinCompilerPluginSupportPlugin {
     override fun apply(target: Project) {
         // Register the temporal extension for user configuration
-        target.extensions.create(
-            EXTENSION_NAME,
-            TemporalExtension::class.java,
-            target,
-        )
+        val extension =
+            target.extensions.create(
+                EXTENSION_NAME,
+                TemporalExtension::class.java,
+                target,
+            )
+
+        // Create configurations with lazy default dependencies.
+        // defaultDependencies is only evaluated during resolution, avoiding afterEvaluate.
+        configureDependencies(target, extension)
+    }
+
+    private fun configureDependencies(
+        project: Project,
+        extension: TemporalExtension,
+    ) {
+        // Create a configuration for the core library
+        val temporalApi =
+            project.configurations.create(CONFIGURATION_API) { config ->
+                config.isCanBeConsumed = false
+                config.isCanBeResolved = false
+                config.defaultDependencies { deps ->
+                    val coordinates = "${BuildConfig.GROUP_ID}:core:${BuildConfig.VERSION}"
+                    deps.add(project.dependencies.create(coordinates))
+                }
+            }
+
+        // Create a configuration for the native library
+        val temporalNative =
+            project.configurations.create(CONFIGURATION_NATIVE) { config ->
+                config.isCanBeConsumed = false
+                config.isCanBeResolved = false
+                config.defaultDependencies { deps ->
+                    // Read extension values lazily during resolution
+                    val nativeEnabled = extension.native.enabled.get()
+                    if (nativeEnabled) {
+                        val classifier = extension.native.classifier.orNull ?: detectPlatformClassifier()
+                        val coordinates =
+                            "${BuildConfig.GROUP_ID}:${BuildConfig.CORE_BRIDGE_ARTIFACT_ID}:${BuildConfig.VERSION}:$classifier"
+                        deps.add(project.dependencies.create(coordinates))
+                    }
+                }
+            }
+
+        // Wire up configurations when Kotlin plugin is applied
+        project.pluginManager.withPlugin("org.jetbrains.kotlin.jvm") {
+            project.configurations.getByName("implementation").extendsFrom(temporalApi)
+            project.configurations.getByName("runtimeOnly").extendsFrom(temporalNative)
+        }
+        project.pluginManager.withPlugin("org.jetbrains.kotlin.multiplatform") {
+            project.configurations.getByName("implementation").extendsFrom(temporalApi)
+            project.configurations.getByName("runtimeOnly").extendsFrom(temporalNative)
+        }
     }
 
     /**
@@ -88,23 +136,6 @@ class TemporalGradlePlugin : KotlinCompilerPluginSupportPlugin {
         val project = kotlinCompilation.target.project
         val extension = project.extensions.findByType(TemporalExtension::class.java)
 
-        // Automatically add core library dependency so compiler plugin can access annotations
-        val temporalKtCoordinates = "${BuildConfig.GROUP_ID}:core:${BuildConfig.VERSION}"
-        kotlinCompilation.defaultSourceSet.dependencies {
-            implementation(temporalKtCoordinates)
-        }
-
-        // Add native library dependency if enabled
-        val nativeEnabled = extension?.native?.enabled?.get() ?: true
-        if (nativeEnabled) {
-            val classifier = extension?.native?.classifier?.orNull ?: detectPlatformClassifier()
-            val nativeCoordinates =
-                "${BuildConfig.GROUP_ID}:${BuildConfig.CORE_BRIDGE_ARTIFACT_ID}:${BuildConfig.VERSION}:$classifier"
-            kotlinCompilation.defaultSourceSet.dependencies {
-                runtimeOnly(nativeCoordinates)
-            }
-        }
-
         return project.provider {
             buildList {
                 // Pass enabled flag from compiler block
@@ -121,6 +152,8 @@ class TemporalGradlePlugin : KotlinCompilerPluginSupportPlugin {
 
     companion object {
         const val EXTENSION_NAME = "temporal"
+        const val CONFIGURATION_API = "temporalApi"
+        const val CONFIGURATION_NATIVE = "temporalNative"
 
         /**
          * Detects the native library classifier based on current OS and architecture.
