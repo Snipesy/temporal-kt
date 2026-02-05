@@ -209,14 +209,26 @@ internal class RemoteActivityHandleImpl(
             )
         }
 
+        // Build the cause chain. When the root failure has ApplicationFailureInfo,
+        // create an ApplicationFailure exception as the cause (with any nested causes).
+        // This ensures applicationFailure is always findable in the cause chain.
+        val cause: Throwable? =
+            if (failure.hasApplicationFailureInfo()) {
+                val nestedCause = if (failure.hasCause()) buildCause(failure.cause) else null
+                buildApplicationFailureFromProto(failure, cause = nestedCause)
+            } else if (failure.hasCause()) {
+                buildCause(failure.cause)
+            } else {
+                null
+            }
+
         return ActivityFailureException(
             activityType = activityType,
             activityId = activityId,
             failureType = determineFailureType(failure),
             retryState = extractRetryState(failure),
-            applicationFailure = extractApplicationFailure(failure),
             message = failure.message ?: "Activity failed",
-            cause = if (failure.hasCause()) buildCause(failure.cause) else null,
+            cause = cause,
         )
     }
 }

@@ -1,6 +1,8 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.common.ApplicationErrorCategory
+import com.surrealdev.temporal.common.ApplicationFailure
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.workflow.ContinueAsNewException
@@ -8,8 +10,11 @@ import com.surrealdev.temporal.workflow.VersioningIntent
 import coresdk.workflow_commands.WorkflowCommands
 import coresdk.workflow_completion.WorkflowCompletion
 import io.temporal.api.common.v1.Payload
+import io.temporal.api.common.v1.Payloads
+import io.temporal.api.failure.v1.ApplicationFailureInfo
 import io.temporal.api.failure.v1.Failure
 import kotlinx.coroutines.Deferred
+import kotlin.reflect.typeOf
 import kotlin.time.Duration
 import kotlin.time.toJavaDuration
 
@@ -134,18 +139,75 @@ internal fun WorkflowExecutor.buildFailureCompletion(
 /**
  * Builds a workflow failure completion when the workflow code throws an exception.
  * This creates a FailWorkflowExecution command indicating the workflow failed.
+ *
+ * When the exception is an [ApplicationFailure], the proto Failure is populated
+ * with [ApplicationFailureInfo] so that the failure type, retry policy, details,
+ * and category are properly propagated to the Temporal server.
  */
+@OptIn(InternalTemporalApi::class)
 internal fun WorkflowExecutor.buildWorkflowFailureCompletion(
     exception: Exception,
 ): WorkflowCompletion.WorkflowActivationCompletion {
-    // Build a workflow failure command
-    val failure =
+    val failureBuilder =
         Failure
             .newBuilder()
             .setMessage(exception.message ?: exception::class.simpleName ?: "Unknown error")
             .setStackTrace(exception.stackTraceToString())
             .setSource("Kotlin")
-            .build()
+
+    // Populate ApplicationFailureInfo if this is an ApplicationFailure
+    if (exception is ApplicationFailure) {
+        val appInfoBuilder =
+            ApplicationFailureInfo
+                .newBuilder()
+                .setType(exception.type)
+                .setNonRetryable(exception.isNonRetryable)
+
+        // Serialize string details if present
+        if (exception.details.isNotEmpty()) {
+            val detailsPayloads =
+                exception.details.map { detail ->
+                    serializer.serialize(typeOf<String>(), detail).toProto()
+                }
+            val payloads =
+                Payloads
+                    .newBuilder()
+                    .addAllPayloads(detailsPayloads)
+                    .build()
+            appInfoBuilder.setDetails(payloads)
+        }
+
+        // Set next retry delay if specified
+        exception.nextRetryDelay?.let { delay ->
+            val javaDuration = delay.toJavaDuration()
+            val protoDuration =
+                com.google.protobuf.Duration
+                    .newBuilder()
+                    .setSeconds(javaDuration.seconds)
+                    .setNanos(javaDuration.nano)
+                    .build()
+            appInfoBuilder.setNextRetryDelay(protoDuration)
+        }
+
+        // Set error category if not default
+        if (exception.category != ApplicationErrorCategory.UNSPECIFIED) {
+            val protoCategory =
+                when (exception.category) {
+                    ApplicationErrorCategory.UNSPECIFIED -> {
+                        io.temporal.api.enums.v1.ApplicationErrorCategory.APPLICATION_ERROR_CATEGORY_UNSPECIFIED
+                    }
+
+                    ApplicationErrorCategory.BENIGN -> {
+                        io.temporal.api.enums.v1.ApplicationErrorCategory.APPLICATION_ERROR_CATEGORY_BENIGN
+                    }
+                }
+            appInfoBuilder.setCategory(protoCategory)
+        }
+
+        failureBuilder.setApplicationFailureInfo(appInfoBuilder)
+    }
+
+    val failure = failureBuilder.build()
 
     val failCommand =
         WorkflowCommands.WorkflowCommand

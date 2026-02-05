@@ -3,6 +3,7 @@ package com.surrealdev.temporal.workflow.internal
 import com.google.protobuf.ByteString
 import com.surrealdev.temporal.common.ActivityRetryState
 import com.surrealdev.temporal.common.ActivityTimeoutType
+import com.surrealdev.temporal.common.ApplicationFailure
 import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
 import com.surrealdev.temporal.workflow.ActivityCancellationType
 import com.surrealdev.temporal.workflow.ActivityCancelledException
@@ -245,7 +246,7 @@ class RemoteActivityHandleImplTest {
             // ApplicationFailure should be extracted from the failure itself or its cause
             assertNotNull(exception.applicationFailure)
             assertEquals("TestError", exception.applicationFailure?.type)
-            assertTrue(exception.applicationFailure?.nonRetryable ?: false)
+            assertTrue(exception.applicationFailure?.isNonRetryable ?: false)
         }
 
     @Test
@@ -485,8 +486,12 @@ class RemoteActivityHandleImplTest {
                 }
 
             assertEquals("Primary failure", exception.message)
+            // The cause is now an ApplicationFailure wrapping the nested cause
             assertNotNull(exception.cause)
-            assertEquals("Root cause", exception.cause?.message)
+            assertTrue(exception.cause is ApplicationFailure)
+            assertEquals("Primary failure", exception.cause?.message)
+            assertNotNull(exception.cause?.cause)
+            assertEquals("Root cause", exception.cause?.cause?.message)
         }
 
     @Test

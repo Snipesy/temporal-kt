@@ -18,6 +18,8 @@ sealed class ActivityException(
  * Thrown when an activity fails due to an application error.
  *
  * Contains the full Temporal failure hierarchy for debugging.
+ * The [applicationFailure] is extracted from the [cause] chain when
+ * the activity failed with an [ApplicationFailure].
  */
 class ActivityFailureException(
     message: String?,
@@ -27,10 +29,15 @@ class ActivityFailureException(
     val failureType: String,
     /** Retry state indicating why retries stopped. */
     val retryState: ActivityRetryState,
-    /** The original failure from the activity, if available. */
-    val applicationFailure: ApplicationFailure? = null,
     cause: Throwable? = null,
-) : ActivityException(message, activityType, activityId, cause)
+) : ActivityException(message, activityType, activityId, cause) {
+    /** The application failure details, if the activity failed with an [ApplicationFailure]. */
+    val applicationFailure: ApplicationFailure?
+        get() =
+            generateSequence(cause) { it.cause }
+                .filterIsInstance<ApplicationFailure>()
+                .firstOrNull()
+}
 
 /**
  * Thrown when an activity times out.

@@ -5,8 +5,8 @@ import com.surrealdev.temporal.activity.ActivityCancelledException
 import com.surrealdev.temporal.activity.EncodedPayloads
 import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.application.DynamicActivityHandler
-import com.surrealdev.temporal.common.ApplicationError
 import com.surrealdev.temporal.common.ApplicationErrorCategory
+import com.surrealdev.temporal.common.ApplicationFailure
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.toProto
@@ -566,8 +566,8 @@ class ActivityDispatcher(
                 .setStackTrace(actualException.stackTraceToString())
                 .setSource("Kotlin")
 
-        // Populate ApplicationFailureInfo if this is an ApplicationError
-        if (actualException is ApplicationError) {
+        // Populate ApplicationFailureInfo if this is an ApplicationFailure
+        if (actualException is ApplicationFailure) {
             val appInfoBuilder =
                 ApplicationFailureInfo
                     .newBuilder()

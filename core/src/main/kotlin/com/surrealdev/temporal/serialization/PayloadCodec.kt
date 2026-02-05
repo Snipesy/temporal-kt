@@ -5,46 +5,46 @@ import com.surrealdev.temporal.common.TemporalPayloads
 /**
  * Interface for encoding and decoding payloads after serialization/before deserialization.
  *
- * Codecs operate on already-serialized Payloads, applying transformations like
- * compression or encryption. They are applied after PayloadSerializer.serialize()
- * and before PayloadSerializer.deserialize().
+ * Codecs operate on already-serialized [TemporalPayloads], applying transformations like
+ * compression or encryption. They are applied after [PayloadSerializer.serialize]
+ * and before [PayloadSerializer.deserialize].
  *
  * Pipeline:
  * ```
- * OUTBOUND: Object -> [PayloadSerializer] -> Payload -> [PayloadCodec.encode] -> Encoded Payload
- * INBOUND: Encoded Payload -> [PayloadCodec.decode] -> Payload -> [PayloadSerializer] -> Object
+ * OUTBOUND: Object -> [PayloadSerializer] -> TemporalPayload -> [PayloadCodec.encode] -> Encoded Payload
+ * INBOUND:  Encoded Payload -> [PayloadCodec.decode] -> TemporalPayload -> [PayloadSerializer] -> Object
  * ```
  *
  * Implementations should:
  * - Return the same number of payloads as input (1:1 mapping)
- * - Set appropriate metadata to identify encoded payloads (e.g., "encoding": "binary/gzip")
- * - Pass through payloads they don't handle (check metadata before decoding)
+ * - Set appropriate metadata to identify encoded payloads (e.g., `"encoding": "binary/gzip"`)
+ * - Pass through payloads they don't handle (check [TemporalPayload.encoding] before decoding)
  * - Be thread-safe for concurrent use
  *
  * Example compression codec:
  * ```kotlin
  * class CompressionCodec : PayloadCodec {
+ *     private val GZIP_BYTES = TemporalByteString.fromUtf8("binary/gzip")
+ *
  *     override suspend fun encode(payloads: TemporalPayloads): TemporalPayloads {
- *         return payloads.map { payload ->
+ *         return TemporalPayloads.of(payloads.payloads.map { payload ->
  *             val compressed = gzip(payload.data)
- *             if (compressed.size < payload.data.size()) {
- *                 payload.toBuilder()
- *                     .putMetadata("encoding", "binary/gzip".toByteString())
- *                     .setData(compressed)
- *                     .build()
+ *             if (compressed.size < payload.dataSize) {
+ *                 val meta = payload.metadataByteStrings.toMutableMap()
+ *                 meta[TemporalPayload.METADATA_ENCODING] = GZIP_BYTES
+ *                 TemporalPayload.create(compressed, meta)
  *             } else payload
- *         }
+ *         })
  *     }
  *
  *     override suspend fun decode(payloads: TemporalPayloads): TemporalPayloads {
- *         return payloads.map { payload ->
- *             if (payload.metadata["encoding"] == "binary/gzip") {
- *                 payload.toBuilder()
- *                     .removeMetadata("encoding")
- *                     .setData(gunzip(payload.data))
- *                     .build()
+ *         return TemporalPayloads.of(payloads.payloads.map { payload ->
+ *             if (payload.encoding == "binary/gzip") {
+ *                 val meta = payload.metadataByteStrings.toMutableMap()
+ *                 meta.remove(TemporalPayload.METADATA_ENCODING)
+ *                 TemporalPayload.create(gunzip(payload.data), meta)
  *             } else payload
- *         }
+ *         })
  *     }
  * }
  * ```

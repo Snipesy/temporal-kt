@@ -7,8 +7,8 @@ compression, or custom encoding schemes.
 
 ```kotlin
 interface PayloadCodec {
-    suspend fun encode(payloads: List<Payload>): List<Payload>
-    suspend fun decode(payloads: List<Payload>): List<Payload>
+    suspend fun encode(payloads: TemporalPayloads): TemporalPayloads
+    suspend fun decode(payloads: TemporalPayloads): TemporalPayloads
 }
 ```
 
@@ -19,99 +19,73 @@ class EncryptionCodec(
     private val keyId: String,
     private val keyProvider: suspend () -> SecretKey
 ) : PayloadCodec {
+    companion object {
+        private const val ENCODING_ENCRYPTED = "binary/encrypted"
+        private val ENCODING_ENCRYPTED_BYTES = TemporalByteString.fromUtf8(ENCODING_ENCRYPTED)
+        private val CIPHER_BYTES = TemporalByteString.fromUtf8("AES/GCM/NoPadding")
+        private val KEY_ID_KEY = "encryption-key-id"
+    }
 
-    override suspend fun encode(payloads: List<Payload>): List<Payload> {
+    override suspend fun encode(payloads: TemporalPayloads): TemporalPayloads {
         val key = keyProvider()
-        return payloads.map { payload ->
+        return TemporalPayloads.of(payloads.payloads.map { payload ->
             val nonce = generateNonce()
             val encrypted = encrypt(payload.data, key, nonce)
 
-            Payload(
-                data = encrypted,
-                metadata = payload.metadata + mapOf(
-                    "encoding" to "binary/encrypted",
-                    "encryption-cipher" to "AES/GCM/NoPadding",
-                    "encryption-key-id" to keyId
-                )
-            )
-        }
+            val meta = payload.metadataByteStrings.toMutableMap()
+            meta[TemporalPayload.METADATA_ENCODING] = ENCODING_ENCRYPTED_BYTES
+            meta["encryption-cipher"] = CIPHER_BYTES
+            meta[KEY_ID_KEY] = TemporalByteString.fromUtf8(keyId)
+            TemporalPayload.create(encrypted, meta)
+        })
     }
 
-    override suspend fun decode(payloads: List<Payload>): List<Payload> {
+    override suspend fun decode(payloads: TemporalPayloads): TemporalPayloads {
         val key = keyProvider()
-        return payloads.map { payload ->
-            if (payload.metadata["encoding"] != "binary/encrypted") {
+        return TemporalPayloads.of(payloads.payloads.map { payload ->
+            if (payload.encoding != ENCODING_ENCRYPTED) {
                 return@map payload  // Pass through non-encrypted
             }
 
             val decrypted = decrypt(payload.data, key)
-            Payload(
-                data = decrypted,
-                metadata = payload.metadata - setOf("encoding", "encryption-cipher", "encryption-key-id")
-            )
-        }
+            val meta = payload.metadataByteStrings.toMutableMap()
+            meta.remove(TemporalPayload.METADATA_ENCODING)
+            meta.remove("encryption-cipher")
+            meta.remove(KEY_ID_KEY)
+            TemporalPayload.create(decrypted, meta)
+        })
     }
 }
 ```
 
 ## Compression Codec
 
+Built-in `CompressionCodec` with configurable threshold:
+
 ```kotlin
 class CompressionCodec(
-    private val algorithm: CompressionAlgorithm = CompressionAlgorithm.ZSTD
+    private val threshold: Int = 256
 ) : PayloadCodec {
-
-    override suspend fun encode(payloads: List<Payload>): List<Payload> {
-        return payloads.map { payload ->
-            val compressed = algorithm.compress(payload.data)
-
-            // Only use compression if it actually reduces size
-            if (compressed.size < payload.data.size) {
-                Payload(
-                    data = compressed,
-                    metadata = payload.metadata + mapOf(
-                        "encoding" to "binary/compressed",
-                        "compression-algorithm" to algorithm.name
-                    )
-                )
-            } else {
-                payload
-            }
-        }
-    }
-
-    override suspend fun decode(payloads: List<Payload>): List<Payload> {
-        return payloads.map { payload ->
-            if (payload.metadata["encoding"] != "binary/compressed") {
-                return@map payload
-            }
-
-            val algorithm = CompressionAlgorithm.valueOf(
-                payload.metadata["compression-algorithm"] ?: error("Missing algorithm")
-            )
-            Payload(
-                data = algorithm.decompress(payload.data),
-                metadata = payload.metadata - setOf("encoding", "compression-algorithm")
-            )
-        }
-    }
+    // Payloads smaller than threshold are passed through.
+    // Compression is only applied if it actually reduces size.
+    // See codec/CompressionCodec.kt for full implementation.
 }
 ```
 
 ## Chaining Codecs
 
-Codecs can be chained (compression → encryption):
+Codecs can be chained (compression -> encryption):
 
 ```kotlin
 class ChainedCodec(
     private val codecs: List<PayloadCodec>
 ) : PayloadCodec {
 
-    override suspend fun encode(payloads: List<Payload>): List<Payload> {
+    override suspend fun encode(payloads: TemporalPayloads): TemporalPayloads {
         return codecs.fold(payloads) { p, codec -> codec.encode(p) }
     }
 
-    override suspend fun decode(payloads: List<Payload>): List<Payload> {
+    override suspend fun decode(payloads: TemporalPayloads): TemporalPayloads {
         return codecs.reversed().fold(payloads) { p, codec -> codec.decode(p) }
     }
 }
@@ -127,7 +101,7 @@ val codec = ChainedCodec(listOf(
 
 ```kotlin
 fun TemporalApplication.module() {
-    install(PayloadCodec) {
+    install(PayloadCodecPlugin) {
         codec = EncryptionCodec(
             keyId = "production-key",
             keyProvider = { kmsClient.getKey("production-key") }
@@ -135,11 +109,10 @@ fun TemporalApplication.module() {
     }
 
     // Or with chaining
-    install(PayloadCodec) {
-        compression(CompressionAlgorithm.ZSTD)
-        encryption {
-            keyId = "production-key"
-            keyProvider = { kmsClient.getKey(it) }
+    install(PayloadCodecPlugin) {
+        chained {
+            compression(threshold = 512)
+            codec(EncryptionCodec(keyId = "production-key") { kmsClient.getKey(it) })
         }
     }
 
@@ -149,55 +122,21 @@ fun TemporalApplication.module() {
 }
 ```
 
-## Key Management
+## Key Types
 
-Production systems should use a KMS (Key Management Service):
-
-```kotlin
-class KmsEncryptionCodec(
-    private val kmsClient: KmsClient,
-    private val keyId: String
-) : PayloadCodec {
-
-    override suspend fun encode(payloads: List<Payload>): List<Payload> {
-        val dataKey = kmsClient.generateDataKey(keyId)
-        return payloads.map { payload ->
-            Payload(
-                data = encrypt(payload.data, dataKey.plaintext),
-                metadata = payload.metadata + mapOf(
-                    "encoding" to "binary/encrypted",
-                    "encryption-key-id" to keyId,
-                    "encrypted-data-key" to dataKey.ciphertext.base64()
-                )
-            )
-        }
-    }
-
-    override suspend fun decode(payloads: List<Payload>): List<Payload> {
-        return payloads.map { payload ->
-            val encryptedDataKey = payload.metadata["encrypted-data-key"]
-                ?: return@map payload
-
-            val dataKey = kmsClient.decrypt(encryptedDataKey.decodeBase64())
-            Payload(
-                data = decrypt(payload.data, dataKey),
-                metadata = payload.metadata - setOf("encoding", "encryption-key-id", "encrypted-data-key")
-            )
-        }
-    }
-}
-```
+- `TemporalPayload` - Value class wrapping a single serialized payload. Use `TemporalPayload.create()`
+  factories and `payload.encoding`, `payload.data`, `payload.dataSize`, `payload.metadataByteStrings`
+  for zero-copy construction and inspection.
+- `TemporalPayloads` - Value class wrapping a list of payloads.
+- `TemporalByteString` - Zero-cost wrapper around binary data, used for metadata values.
 
 ## Testing with Codecs
 
 ```kotlin
 @Test
 fun `test workflow with encryption`() = testTemporalApplication {
-    install(PayloadCodec) {
-        encryption {
-            keyId = "test-key"
-            keyProvider = { testKey }
-        }
+    install(PayloadCodecPlugin) {
+        codec = EncryptionCodec(keyId = "test-key") { testKey }
     }
 
     application {

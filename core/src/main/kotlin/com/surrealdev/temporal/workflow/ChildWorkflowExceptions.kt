@@ -1,5 +1,7 @@
 package com.surrealdev.temporal.workflow
 
+import com.surrealdev.temporal.common.ApplicationFailure
+import com.surrealdev.temporal.workflow.internal.extractApplicationFailure
 import io.temporal.api.failure.v1.Failure
 
 /**
@@ -30,6 +32,16 @@ class ChildWorkflowFailureException(
     message: String = buildMessage(childWorkflowId, childWorkflowType, failure),
     cause: Throwable? = null,
 ) : ChildWorkflowException(message, cause) {
+    /** The application failure details, if the child workflow failed with an [ApplicationFailure]. */
+    val applicationFailure: ApplicationFailure?
+        get() =
+            // First check the cause chain (populated when buildCause creates ApplicationFailure)
+            generateSequence(cause) { it.cause }
+                .filterIsInstance<ApplicationFailure>()
+                .firstOrNull()
+                // Fallback: extract from proto failure if cause chain doesn't contain it
+                ?: failure?.let { extractApplicationFailure(it) }
+
     companion object {
         private fun buildMessage(
             childWorkflowId: String,

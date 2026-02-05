@@ -87,6 +87,23 @@ value class TemporalPayload(
         }
 
         /**
+         * Creates a TemporalPayload from a byte array and typed metadata.
+         */
+        @JvmName("createFromByteStrings")
+        fun create(
+            data: ByteArray,
+            metadata: Map<String, TemporalByteString>,
+        ): TemporalPayload {
+            val proto =
+                io.temporal.api.common.v1.Payload
+                    .newBuilder()
+                    .setData(ByteString.copyFrom(data))
+                    .putAllMetadata(metadata.mapValues { it.value.inner })
+                    .build()
+            return TemporalPayload(proto)
+        }
+
+        /**
          * Creates a TemporalPayload with only metadata and no data.
          *
          * Useful for null-encoding payloads or other metadata-only markers.
@@ -117,6 +134,10 @@ value class TemporalPayload(
     /** Metadata describing how to interpret the data (encoding, type, etc.). */
     val metadata: Map<String, ByteArray>
         get() = proto.metadataMap.mapValues { it.value.toByteArray() }
+
+    /** Metadata as [TemporalByteString] values, avoiding byte array copies. */
+    val metadataByteStrings: Map<String, TemporalByteString>
+        get() = proto.metadataMap.mapValues { TemporalByteString(it.value) }
 
     /** Get metadata value as UTF-8 string. */
     fun getMetadataString(key: String): String? = proto.metadataMap[key]?.toStringUtf8()

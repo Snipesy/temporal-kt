@@ -1,15 +1,18 @@
 # TKT-0012: Payload Serializer
 
-Custom payload serialization via `PayloadSerializer` interface, similar to Ktor's `ContentConverter`.
+Custom payload serialization via `PayloadSerializer` interface.
 
 ## PayloadSerializer Interface
 
 ```kotlin
 interface PayloadSerializer {
-    suspend fun serialize(typeInfo: TypeInfo, value: Any?): ByteArray
-    suspend fun deserialize(typeInfo: TypeInfo, bytes: ByteArray): Any?
+    fun serialize(typeInfo: KType, value: Any?): TemporalPayload
+    fun deserialize(typeInfo: KType, payload: TemporalPayload): Any?
 }
 ```
+
+Serializers use `KType` (not `TypeInfo`) to preserve full generic type information end-to-end,
+avoiding type erasure issues.
 
 ## Installation
 
@@ -35,60 +38,37 @@ install(PayloadSerialization) {
 }
 ```
 
-### Protocol Buffers
+## Custom Serializer
 
-```kotlin
-install(PayloadSerialization) {
-    protobuf {
-        encodeDefaults = true
-    }
-}
-```
-
-### CBOR
-
-```kotlin
-install(PayloadSerialization) {
-    cbor {
-        ignoreUnknownKeys = true
-    }
-}
-```
-
-## Custom Serializer (Non Kotlinx)
-
-Implement `PayloadSerializer` for custom formats specific to one class:
+Implement `PayloadSerializer` for custom formats. Use `TemporalPayload.create()` factories
+and `TemporalByteString` to avoid touching protobuf types:
 
 ```kotlin
 class MessagePackSerializer : PayloadSerializer {
     private val msgpack = MessagePack.newDefaultPacker()
+    private val MSGPACK_META = mapOf(
+        TemporalPayload.METADATA_ENCODING to TemporalByteString.fromUtf8("binary/msgpack")
+    )
+    private val NULL_META = mapOf(
+        TemporalPayload.METADATA_ENCODING to TemporalByteString.fromUtf8(TemporalPayload.ENCODING_NULL)
+    )
 
-    override suspend fun serialize(typeInfo: TypeInfo, value: Any?): ByteArray {
-        return msgpack.pack(value)
+    override fun serialize(typeInfo: KType, value: Any?): TemporalPayload {
+        if (value == null) return TemporalPayload.create(NULL_META)
+        return TemporalPayload.create(MSGPACK_META) { stream ->
+            msgpack.pack(value, stream)
+        }
     }
 
-    override suspend fun deserialize(typeInfo: TypeInfo, bytes: ByteArray): Any? {
-        return msgpack.unpack(bytes, typeInfo.type.java)
+    override fun deserialize(typeInfo: KType, payload: TemporalPayload): Any? {
+        if (payload.encoding == TemporalPayload.ENCODING_NULL) return null
+        return msgpack.unpack(payload.dataInputStream(), typeInfo.javaType)
     }
 }
 
 // Usage
 install(PayloadSerialization) {
-    register(MessagePackSerializer())
-}
-```
-
-## Multiple Serializers
-
-Register multiple serializers with content type routing:
-
-```kotlin
-install(PayloadSerialization) {
-    json()  // application/json
-    protobuf()  // application/x-protobuf
-
-    // Custom with explicit content type
-    register(ContentType.Application.Xml, XmlSerializer())
+    custom(MessagePackSerializer())
 }
 ```
 
@@ -136,8 +116,8 @@ object InstantAsLongSerializer : KSerializer<Instant> {
 ## Relationship with PayloadCodec (TKT-0011)
 
 ```
-Object → [PayloadSerializer] → bytes → [PayloadCodec] → transformed bytes → Temporal
+Object → [PayloadSerializer] → TemporalPayload → [PayloadCodec] → Encoded Payload → Temporal
 ```
 
-- **PayloadSerializer**: Object ↔ bytes (serialization format)
-- **PayloadCodec**: bytes ↔ bytes (encryption, compression)
+- **PayloadSerializer**: Object <-> TemporalPayload (serialization format)
+- **PayloadCodec**: TemporalPayload <-> TemporalPayload (encryption, compression)

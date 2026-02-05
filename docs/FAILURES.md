@@ -7,14 +7,14 @@ This document describes how to throw and handle failures in Temporal-KT activiti
 ### Throwing from an Activity
 
 ```kotlin
-import com.surrealdev.temporal.common.ApplicationError
+import com.surrealdev.temporal.common.ApplicationFailure
 
 class PaymentActivity {
     @Activity("processPayment")
     fun processPayment(cardNumber: String, amount: Double): Receipt {
         // Non-retryable: invalid input, no point retrying
         if (!isValidCard(cardNumber)) {
-            throw ApplicationError.nonRetryable(
+            throw ApplicationFailure.nonRetryable(
                 message = "Invalid card number format",
                 type = "ValidationError",
             )
@@ -22,7 +22,7 @@ class PaymentActivity {
 
         // Retryable: temporary issue, worth retrying
         if (isGatewayUnavailable()) {
-            throw ApplicationError.failure(
+            throw ApplicationFailure.failure(
                 message = "Payment gateway temporarily unavailable",
                 type = "GatewayError",
             )
@@ -63,14 +63,14 @@ class PaymentWorkflow {
 }
 ```
 
-## ApplicationError
+## ApplicationFailure
 
-`ApplicationError` is the exception you throw from activities (or workflows) to signal application-level failures. It extends `TemporalFailure` and provides control over retry behavior.
+`ApplicationFailure` is the exception you throw from activities (or workflows) to signal application-level failures. It extends `TemporalFailure` and provides control over retry behavior. The same type is also used on the receive side when inspecting failures from activities or child workflows.
 
 ### Import
 
 ```kotlin
-import com.surrealdev.temporal.common.ApplicationError
+import com.surrealdev.temporal.common.ApplicationFailure
 import com.surrealdev.temporal.common.ApplicationErrorCategory
 ```
 
@@ -81,7 +81,7 @@ import com.surrealdev.temporal.common.ApplicationErrorCategory
 Creates a failure that will be retried according to the retry policy.
 
 ```kotlin
-throw ApplicationError.failure(
+throw ApplicationFailure.failure(
     message = "Temporary error occurred",
     type = "TemporaryError",
 )
@@ -92,7 +92,7 @@ throw ApplicationError.failure(
 Creates a failure that stops retries immediately, regardless of retry policy.
 
 ```kotlin
-throw ApplicationError.nonRetryable(
+throw ApplicationFailure.nonRetryable(
     message = "Invalid input provided",
     type = "ValidationError",
 )
@@ -103,7 +103,7 @@ throw ApplicationError.nonRetryable(
 Creates a retryable failure with an explicit delay before the next attempt, overriding the calculated backoff.
 
 ```kotlin
-throw ApplicationError.failureWithDelay(
+throw ApplicationFailure.failureWithDelay(
     message = "Rate limited, retry after delay",
     nextRetryDelay = 30.seconds,
     type = "RateLimitError",
@@ -115,7 +115,7 @@ throw ApplicationError.failureWithDelay(
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `message` | `String` | The error message |
-| `type` | `String` | Error type/category (default: "ApplicationError") |
+| `type` | `String` | Error type/category (default: "ApplicationFailure") |
 | `details` | `List<String>` | Additional string details for debugging |
 | `category` | `ApplicationErrorCategory` | Affects logging/metrics behavior |
 | `cause` | `Throwable?` | Optional underlying cause |
@@ -129,7 +129,7 @@ The `type` parameter categorizes your error. It's used for:
 
 ```kotlin
 // Activity throws typed error
-throw ApplicationError.nonRetryable(
+throw ApplicationFailure.nonRetryable(
     message = "User not found",
     type = "NotFoundError",
 )
@@ -170,7 +170,7 @@ startActivity(
 Include additional context as string details:
 
 ```kotlin
-throw ApplicationError.nonRetryable(
+throw ApplicationFailure.nonRetryable(
     message = "Validation failed",
     type = "ValidationError",
     details = listOf(
@@ -181,7 +181,7 @@ throw ApplicationError.nonRetryable(
 )
 
 // Or using vararg syntax
-throw ApplicationError.nonRetryable(
+throw ApplicationFailure.nonRetryable(
     message = "Multiple validation errors",
     type = "ValidationError",
     "field=email", "field=phone", "field=address",
@@ -203,14 +203,14 @@ Use `BENIGN` for expected business outcomes that aren't operational errors:
 
 ```kotlin
 // "User not found" is a valid business case, not an error
-throw ApplicationError.nonRetryable(
+throw ApplicationFailure.nonRetryable(
     message = "User not found",
     type = "NotFoundError",
     category = ApplicationErrorCategory.BENIGN,
 )
 
 // "Insufficient balance" is expected, not an operational failure
-throw ApplicationError.nonRetryable(
+throw ApplicationFailure.nonRetryable(
     message = "Insufficient balance for transfer",
     type = "InsufficientFundsError",
     category = ApplicationErrorCategory.BENIGN,
@@ -250,7 +250,7 @@ Indicates why retries stopped:
 enum class ActivityRetryState {
     UNSPECIFIED,
     IN_PROGRESS,
-    NON_RETRYABLE_FAILURE,      // ApplicationError.nonRetryable() or matching type
+    NON_RETRYABLE_FAILURE,      // ApplicationFailure.nonRetryable() or matching type
     TIMEOUT,
     MAXIMUM_ATTEMPTS_REACHED,   // Hit maximumAttempts limit
     RETRY_POLICY_NOT_SET,
@@ -319,35 +319,24 @@ class RobustWorkflow {
 
 ### Inspecting ApplicationFailure
 
-The `ApplicationFailure` data class contains details about the failure:
-
-```kotlin
-data class ApplicationFailure(
-    val type: String,                          // Error type
-    val message: String?,                      // Error message
-    val nonRetryable: Boolean,                 // Was marked non-retryable
-    val details: ByteArray?,                   // Serialized details
-    val category: ApplicationErrorCategory,   // UNSPECIFIED or BENIGN
-)
-```
-
-Example:
+On the receive side, `ApplicationFailure` is extracted from the cause chain of `ActivityFailureException`:
 
 ```kotlin
 catch (e: ActivityFailureException) {
-    val failure = e.applicationFailure
+    val failure = e.applicationFailure  // ApplicationFailure? (from cause chain)
     if (failure != null) {
         println("Type: ${failure.type}")
         println("Message: ${failure.message}")
-        println("Non-retryable: ${failure.nonRetryable}")
+        println("Non-retryable: ${failure.isNonRetryable}")
         println("Category: ${failure.category}")
+        println("Has details: ${failure.encodedDetails != null}")
     }
 }
 ```
 
 ## Throwing from Workflows
 
-`ApplicationError` can also be thrown from workflows to fail the workflow execution:
+`ApplicationFailure` can also be thrown from workflows to fail the workflow execution:
 
 ```kotlin
 @Workflow("ValidationWorkflow")
@@ -355,7 +344,7 @@ class ValidationWorkflow {
     @WorkflowRun
     suspend fun WorkflowContext.run(input: String): String {
         if (input.isBlank()) {
-            throw ApplicationError.nonRetryable(
+            throw ApplicationFailure.nonRetryable(
                 message = "Input cannot be blank",
                 type = "ValidationError",
             )
@@ -384,7 +373,7 @@ fun validateOrder(order: Order): ValidationResult {
     }
 
     if (errors.isNotEmpty()) {
-        throw ApplicationError.nonRetryable(
+        throw ApplicationFailure.nonRetryable(
             message = "Order validation failed",
             type = "ValidationError",
             details = errors,
@@ -404,7 +393,7 @@ suspend fun callExternalApi(request: ApiRequest): ApiResponse {
         httpClient.post(request)
     } catch (e: IOException) {
         // Network error - should retry
-        throw ApplicationError.failure(
+        throw ApplicationFailure.failure(
             message = "Failed to reach external API: ${e.message}",
             type = "NetworkError",
             cause = e,
@@ -414,7 +403,7 @@ suspend fun callExternalApi(request: ApiRequest): ApiResponse {
             429 -> {
                 // Rate limited - retry with delay
                 val retryAfter = e.headers["Retry-After"]?.toLongOrNull() ?: 30
-                throw ApplicationError.failureWithDelay(
+                throw ApplicationFailure.failureWithDelay(
                     message = "Rate limited by external API",
                     nextRetryDelay = retryAfter.seconds,
                     type = "RateLimitError",
@@ -422,14 +411,14 @@ suspend fun callExternalApi(request: ApiRequest): ApiResponse {
             }
             in 500..599 -> {
                 // Server error - should retry
-                throw ApplicationError.failure(
+                throw ApplicationFailure.failure(
                     message = "External API server error: ${e.statusCode}",
                     type = "ServerError",
                 )
             }
             in 400..499 -> {
                 // Client error - don't retry
-                throw ApplicationError.nonRetryable(
+                throw ApplicationFailure.nonRetryable(
                     message = "External API client error: ${e.statusCode}",
                     type = "ClientError",
                 )
@@ -449,7 +438,7 @@ fun transferFunds(from: String, to: String, amount: Double): TransferResult {
 
     if (balance < amount) {
         // This is an expected business case, not an error
-        throw ApplicationError.nonRetryable(
+        throw ApplicationFailure.nonRetryable(
             message = "Insufficient funds: balance=$balance, requested=$amount",
             type = "InsufficientFundsError",
             category = ApplicationErrorCategory.BENIGN,
@@ -475,7 +464,7 @@ suspend fun processBatch(items: List<Item>): BatchResult {
             ctx.heartbeat(index)
         } catch (e: Exception) {
             // Include progress in error for debugging
-            throw ApplicationError.failure(
+            throw ApplicationFailure.failure(
                 message = "Failed processing item ${item.id}: ${e.message}",
                 type = "ProcessingError",
                 details = listOf(
@@ -496,7 +485,7 @@ suspend fun processBatch(items: List<Item>): BatchResult {
 
 ```
 TemporalFailure (sealed)
-└── ApplicationError           ← Throw from activities/workflows
+└── ApplicationFailure         ← Throw from activities/workflows (also on receive side)
 
 ActivityException (sealed)     ← Catch in workflows
 ├── ActivityFailureException   ← Activity failed with error

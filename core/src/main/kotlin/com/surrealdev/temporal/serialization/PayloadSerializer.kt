@@ -21,21 +21,32 @@ internal inline fun <reified T> typeOf(): KType = kotlinTypeOf<T>()
  * - Data classes (with proper serialization annotations)
  * - Collections (List, Set, Map)
  *
- * Example implementation using kotlinx.serialization:
+ * Example implementation:
  * ```kotlin
- * class KotlinxJsonSerializer(private val json: Json) : PayloadSerializer {
- *     override fun serialize(typeInfo: TypeInfo, value: Any?): TemporalPayload { ... }
- *     override fun deserialize(typeInfo: TypeInfo, payload: TemporalPayload): Any? { ... }
+ * class MySerializer(private val json: Json) : PayloadSerializer {
+ *     private val JSON_META = mapOf(
+ *         TemporalPayload.METADATA_ENCODING to TemporalByteString.fromUtf8(TemporalPayload.ENCODING_JSON)
+ *     )
+ *
+ *     override fun serialize(typeInfo: KType, value: Any?): TemporalPayload {
+ *         return TemporalPayload.create(JSON_META) { stream ->
+ *             json.encodeToStream(json.serializersModule.serializer(typeInfo), value, stream)
+ *         }
+ *     }
+ *
+ *     override fun deserialize(typeInfo: KType, payload: TemporalPayload): Any? {
+ *         return json.decodeFromStream(json.serializersModule.serializer(typeInfo), payload.dataInputStream())
+ *     }
  * }
  * ```
  */
 interface PayloadSerializer {
     /**
-     * Serializes a value to a Temporal [Payload].
+     * Serializes a value to a [TemporalPayload].
      *
      * @param typeInfo Type information for the value
      * @param value The value to serialize (may be null)
-     * @return A Payload containing the serialized data and metadata
+     * @return A [TemporalPayload] containing the serialized data and metadata
      * @throws SerializationException if serialization fails
      */
     fun serialize(
@@ -44,7 +55,7 @@ interface PayloadSerializer {
     ): TemporalPayload
 
     /**
-     * Deserializes a Temporal [Payload] to a value.
+     * Deserializes a [TemporalPayload] to a value.
      *
      * @param typeInfo Type information for the expected return type
      * @param payload The payload to deserialize

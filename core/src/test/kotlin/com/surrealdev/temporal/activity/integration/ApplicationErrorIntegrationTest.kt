@@ -6,8 +6,8 @@ import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.taskQueue
 import com.surrealdev.temporal.client.startWorkflow
 import com.surrealdev.temporal.common.ActivityRetryState
-import com.surrealdev.temporal.common.ApplicationError
 import com.surrealdev.temporal.common.ApplicationErrorCategory
+import com.surrealdev.temporal.common.ApplicationFailure
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.ActivityFailureException
@@ -28,31 +28,31 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * Integration tests for [ApplicationError] exception handling.
+ * Integration tests for [ApplicationFailure] exception handling.
  *
  * These tests verify that:
- * - Non-retryable ApplicationError stops retries immediately
- * - Retryable ApplicationError allows retries per retry policy
+ * - Non-retryable ApplicationFailure stops retries immediately
+ * - Retryable ApplicationFailure allows retries per retry policy
  * - Error type and message are correctly propagated to workflow
  * - Workflow can catch and inspect ApplicationFailureException
  */
 @Tag("integration")
-class ApplicationErrorIntegrationTest {
+class ApplicationFailureIntegrationTest {
     // ================================================================
     // Test Activities
     // ================================================================
 
     /**
-     * Activities that throw ApplicationError for testing.
+     * Activities that throw ApplicationFailure for testing.
      */
-    class ApplicationErrorActivities {
+    class ApplicationFailureActivities {
         private val nonRetryableAttempts = AtomicInteger(0)
         private val retryableAttempts = AtomicInteger(0)
 
         @Activity("throwNonRetryable")
         fun throwNonRetryable(): String {
             nonRetryableAttempts.incrementAndGet()
-            throw ApplicationError.nonRetryable(
+            throw ApplicationFailure.nonRetryable(
                 message = "This error should not be retried",
                 type = "ValidationError",
             )
@@ -61,7 +61,7 @@ class ApplicationErrorIntegrationTest {
         @Activity("throwRetryable")
         fun throwRetryable(): String {
             val attempt = retryableAttempts.incrementAndGet()
-            throw ApplicationError.failure(
+            throw ApplicationFailure.failure(
                 message = "Temporary error on attempt $attempt",
                 type = "TemporaryError",
             )
@@ -71,7 +71,7 @@ class ApplicationErrorIntegrationTest {
         fun throwRetryableThenSucceed(): String {
             val attempt = retryableAttempts.incrementAndGet()
             if (attempt < 3) {
-                throw ApplicationError.failure(
+                throw ApplicationFailure.failure(
                     message = "Not ready yet, attempt $attempt",
                     type = "NotReadyError",
                 )
@@ -81,7 +81,7 @@ class ApplicationErrorIntegrationTest {
 
         @Activity("throwWithCustomType")
         fun throwWithCustomType(errorType: String): String =
-            throw ApplicationError.nonRetryable(
+            throw ApplicationFailure.nonRetryable(
                 message = "Custom error",
                 type = errorType,
             )
@@ -91,7 +91,7 @@ class ApplicationErrorIntegrationTest {
             code: Int,
             field: String,
         ): String =
-            throw ApplicationError.nonRetryable(
+            throw ApplicationFailure.nonRetryable(
                 message = "Validation failed",
                 type = "ValidationError",
                 details = listOf("code=$code", "field=$field"),
@@ -99,7 +99,7 @@ class ApplicationErrorIntegrationTest {
 
         @Activity("throwBenignError")
         fun throwBenignError(): String =
-            throw ApplicationError.nonRetryable(
+            throw ApplicationFailure.nonRetryable(
                 message = "User not found - expected business case",
                 type = "NotFoundError",
                 category = ApplicationErrorCategory.BENIGN,
@@ -107,7 +107,7 @@ class ApplicationErrorIntegrationTest {
 
         @Activity("throwWithVarargDetails")
         fun throwWithVarargDetails(): String =
-            throw ApplicationError.nonRetryable(
+            throw ApplicationFailure.nonRetryable(
                 message = "Multiple details",
                 type = "DetailedError",
                 "field1",
@@ -145,7 +145,7 @@ class ApplicationErrorIntegrationTest {
             } catch (e: ActivityFailureException) {
                 "caught: type=${e.applicationFailure?.type}, " +
                     "message=${e.applicationFailure?.message}, " +
-                    "nonRetryable=${e.applicationFailure?.nonRetryable}, " +
+                    "isNonRetryable=${e.applicationFailure?.isNonRetryable}, " +
                     "retryState=${e.retryState}"
             }
     }
@@ -214,7 +214,7 @@ class ApplicationErrorIntegrationTest {
                 ).result()
             } catch (e: ActivityFailureException) {
                 "caught: type=${e.applicationFailure?.type}, " +
-                    "nonRetryable=${e.applicationFailure?.nonRetryable}, " +
+                    "isNonRetryable=${e.applicationFailure?.isNonRetryable}, " +
                     "retryState=${e.retryState}"
             }
     }
@@ -224,10 +224,10 @@ class ApplicationErrorIntegrationTest {
     // ================================================================
 
     @Test
-    fun `non-retryable ApplicationError stops retries immediately`() =
+    fun `non-retryable ApplicationFailure stops retries immediately`() =
         runTemporalTest(timeSkipping = false) {
             val taskQueue = "test-non-retryable-${UUID.randomUUID()}"
-            val activities = ApplicationErrorActivities()
+            val activities = ApplicationFailureActivities()
 
             application {
                 taskQueue(taskQueue) {
@@ -250,7 +250,7 @@ class ApplicationErrorIntegrationTest {
 
             // Verify the error info is correctly propagated
             assertTrue(result.contains("type=ValidationError"), "Should have correct error type: $result")
-            assertTrue(result.contains("nonRetryable=true"), "Should be marked as non-retryable: $result")
+            assertTrue(result.contains("isNonRetryable=true"), "Should be marked as non-retryable: $result")
             assertTrue(result.contains("retryState=NON_RETRYABLE_FAILURE"), "Should have correct retry state: $result")
 
             handle.assertHistory {
@@ -259,10 +259,10 @@ class ApplicationErrorIntegrationTest {
         }
 
     @Test
-    fun `retryable ApplicationError allows retries until max attempts`() =
+    fun `retryable ApplicationFailure allows retries until max attempts`() =
         runTemporalTest(timeSkipping = false) {
             val taskQueue = "test-retryable-${UUID.randomUUID()}"
-            val activities = ApplicationErrorActivities()
+            val activities = ApplicationFailureActivities()
 
             application {
                 taskQueue(taskQueue) {
@@ -296,10 +296,10 @@ class ApplicationErrorIntegrationTest {
         }
 
     @Test
-    fun `retryable ApplicationError succeeds after retries`() =
+    fun `retryable ApplicationFailure succeeds after retries`() =
         runTemporalTest(timeSkipping = false) {
             val taskQueue = "test-retry-succeed-${UUID.randomUUID()}"
-            val activities = ApplicationErrorActivities()
+            val activities = ApplicationFailureActivities()
 
             application {
                 taskQueue(taskQueue) {
@@ -330,7 +330,7 @@ class ApplicationErrorIntegrationTest {
     fun `custom error type is correctly propagated`() =
         runTemporalTest(timeSkipping = true) {
             val taskQueue = "test-custom-type-${UUID.randomUUID()}"
-            val activities = ApplicationErrorActivities()
+            val activities = ApplicationFailureActivities()
 
             application {
                 taskQueue(taskQueue) {
@@ -358,10 +358,10 @@ class ApplicationErrorIntegrationTest {
         }
 
     @Test
-    fun `local activity non-retryable ApplicationError stops retries`() =
+    fun `local activity non-retryable ApplicationFailure stops retries`() =
         runTemporalTest(timeSkipping = false) {
             val taskQueue = "test-la-non-retryable-${UUID.randomUUID()}"
-            val activities = ApplicationErrorActivities()
+            val activities = ApplicationFailureActivities()
 
             application {
                 taskQueue(taskQueue) {
@@ -384,7 +384,7 @@ class ApplicationErrorIntegrationTest {
 
             // Verify the error info is correctly propagated
             assertTrue(result.contains("type=ValidationError"), "Should have correct error type: $result")
-            assertTrue(result.contains("nonRetryable=true"), "Should be marked as non-retryable: $result")
+            assertTrue(result.contains("isNonRetryable=true"), "Should be marked as non-retryable: $result")
 
             handle.assertHistory {
                 completed()
@@ -412,14 +412,14 @@ class ApplicationErrorIntegrationTest {
                         assertNotNull(failure)
                         assertEquals("ValidationError", failure.type)
                         assertEquals("This error should not be retried", failure.message)
-                        assertTrue(failure.nonRetryable)
+                        assertTrue(failure.isNonRetryable)
                         assertEquals(ActivityRetryState.NON_RETRYABLE_FAILURE, e.retryState)
                         "verified"
                     }
             }
 
             val taskQueue = "test-inspect-failure-${UUID.randomUUID()}"
-            val activities = ApplicationErrorActivities()
+            val activities = ApplicationFailureActivities()
 
             application {
                 taskQueue(taskQueue) {
@@ -444,7 +444,7 @@ class ApplicationErrorIntegrationTest {
         }
 
     @Test
-    fun `ApplicationError with BENIGN category is propagated`() =
+    fun `ApplicationFailure with BENIGN category is propagated`() =
         runTemporalTest(timeSkipping = true) {
             @Workflow("BenignErrorWorkflow")
             class BenignErrorWorkflow {
@@ -468,7 +468,7 @@ class ApplicationErrorIntegrationTest {
             }
 
             val taskQueue = "test-benign-${UUID.randomUUID()}"
-            val activities = ApplicationErrorActivities()
+            val activities = ApplicationFailureActivities()
 
             application {
                 taskQueue(taskQueue) {
@@ -495,7 +495,7 @@ class ApplicationErrorIntegrationTest {
         }
 
     @Test
-    fun `ApplicationError with details is serialized`() =
+    fun `ApplicationFailure with details is serialized`() =
         runTemporalTest(timeSkipping = true) {
             @Workflow("DetailsErrorWorkflow")
             class DetailsErrorWorkflow {
@@ -514,13 +514,13 @@ class ApplicationErrorIntegrationTest {
                         ).result()
                     } catch (e: ActivityFailureException) {
                         val failure = e.applicationFailure
-                        // Details are present (as bytes) - verify they exist
-                        "type=${failure?.type}, hasDetails=${failure?.details != null}"
+                        // Details are present (as encoded bytes) - verify they exist
+                        "type=${failure?.type}, hasDetails=${failure?.encodedDetails != null}"
                     }
             }
 
             val taskQueue = "test-details-${UUID.randomUUID()}"
-            val activities = ApplicationErrorActivities()
+            val activities = ApplicationFailureActivities()
 
             application {
                 taskQueue(taskQueue) {

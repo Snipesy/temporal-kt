@@ -420,7 +420,13 @@ class TemporalClientImpl internal constructor(
                         taskQueue = info.taskQueue,
                     )
                 },
-            nextPageToken = response.nextPageToken.takeIf { !it.isEmpty },
+            nextPageToken =
+                response.nextPageToken
+                    .takeIf { !it.isEmpty }
+                    ?.let {
+                        com.surrealdev.temporal.common
+                            .TemporalByteString(it)
+                    },
         )
     }
 

@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.common.ActivityRetryState
 import com.surrealdev.temporal.common.ActivityTimeoutType
 import com.surrealdev.temporal.common.ApplicationErrorCategory
@@ -87,24 +88,7 @@ internal fun extractApplicationFailure(
 
     // Check this level
     if (failure.hasApplicationFailureInfo()) {
-        val appInfo = failure.applicationFailureInfo
-        val category =
-            when (appInfo.category) {
-                io.temporal.api.enums.v1.ApplicationErrorCategory.APPLICATION_ERROR_CATEGORY_BENIGN -> {
-                    ApplicationErrorCategory.BENIGN
-                }
-
-                else -> {
-                    ApplicationErrorCategory.UNSPECIFIED
-                }
-            }
-        return ApplicationFailure(
-            type = appInfo.type ?: "UnknownApplicationFailure",
-            message = failure.message,
-            nonRetryable = appInfo.nonRetryable,
-            details = if (appInfo.hasDetails()) appInfo.details.toByteArray() else null,
-            category = category,
-        )
+        return buildApplicationFailureFromProto(failure)
     }
 
     // Check nested cause
@@ -116,9 +100,40 @@ internal fun extractApplicationFailure(
 }
 
 /**
+ * Builds an [ApplicationFailure] exception from a proto Failure that has ApplicationFailureInfo.
+ */
+@OptIn(InternalTemporalApi::class)
+internal fun buildApplicationFailureFromProto(
+    failure: Failure,
+    cause: Throwable? = null,
+): ApplicationFailure {
+    val appInfo = failure.applicationFailureInfo
+    val category =
+        when (appInfo.category) {
+            io.temporal.api.enums.v1.ApplicationErrorCategory.APPLICATION_ERROR_CATEGORY_BENIGN -> {
+                ApplicationErrorCategory.BENIGN
+            }
+
+            else -> {
+                ApplicationErrorCategory.UNSPECIFIED
+            }
+        }
+    return ApplicationFailure.fromProto(
+        type = appInfo.type ?: "UnknownApplicationFailure",
+        message = failure.message,
+        isNonRetryable = appInfo.nonRetryable,
+        encodedDetails = if (appInfo.hasDetails()) appInfo.details.toByteArray() else null,
+        category = category,
+        cause = cause,
+    )
+}
+
+/**
  * Recursively builds cause exceptions from proto Failure.
  *
  * Converts the proto Failure cause chain into a Kotlin exception chain.
+ * When a node in the chain has [ApplicationFailureInfo], an [ApplicationFailure]
+ * exception is returned instead of a generic [RuntimeException].
  * Limits recursion depth to prevent stack overflow.
  *
  * @param failure The proto Failure to convert
@@ -141,6 +156,11 @@ internal fun buildCause(
         } else {
             null
         }
+
+    // If this failure node has ApplicationFailureInfo, create an ApplicationFailure exception
+    if (failure.hasApplicationFailureInfo()) {
+        return buildApplicationFailureFromProto(failure, cause = nestedCause)
+    }
 
     return RuntimeException(failure.message ?: "Cause failure", nestedCause)
 }

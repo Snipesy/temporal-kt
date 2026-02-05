@@ -1,6 +1,6 @@
 package com.surrealdev.temporal.client
 
-import com.google.protobuf.ByteString
+import com.surrealdev.temporal.common.TemporalByteString
 
 /**
  * Result of listing workflow executions.
@@ -9,7 +9,7 @@ import com.google.protobuf.ByteString
  */
 data class WorkflowExecutionList(
     val executions: List<WorkflowExecutionInfo>,
-    val nextPageToken: ByteString?,
+    val nextPageToken: TemporalByteString?,
 ) {
     /**
      * Returns true if there are more results available.
