@@ -1,12 +1,19 @@
 package com.surrealdev.temporal.dependencies
 
 import com.surrealdev.temporal.activity.ActivityContext
+import com.surrealdev.temporal.util.AttributeKey
 import com.surrealdev.temporal.util.AttributeScope
 import com.surrealdev.temporal.util.ExecutionScope
 import com.surrealdev.temporal.workflow.WorkflowContext
 import kotlin.reflect.KClass
 import kotlin.reflect.KProperty
 import kotlin.reflect.jvm.jvmErasure
+
+/**
+ * Key for caching the DependencyContext on an ExecutionScope.
+ * This ensures that dependencies are cached within a single execution context.
+ */
+private val DependencyContextKey = AttributeKey<DependencyContext>("DependencyContext")
 
 // =============================================================================
 // Ktor-style Property Delegate Access (Recommended API)
@@ -205,12 +212,18 @@ class QualifiedWorkflowDependencyProvider(
 }
 
 /**
- * Creates a DependencyContext by walking the scope hierarchy to find registries.
+ * Creates or retrieves a cached DependencyContext for the given execution scope.
+ *
+ * The DependencyContext is cached on the execution scope's attributes to ensure
+ * dependencies are resolved consistently and cached within a single execution.
  *
  * Collects all DependencyRegistry instances from the scope chain (execution -> taskQueue -> application)
  * and creates a DependencyContext with proper fallback chain.
  */
 private fun createDependencyContextFromScope(scope: ExecutionScope): DependencyContext {
+    // Return cached context if available
+    scope.attributes.getOrNull(DependencyContextKey)?.let { return it }
+
     // Collect all registries from the scope hierarchy
     val registries = collectRegistriesFromScope(scope)
 
@@ -225,11 +238,17 @@ private fun createDependencyContextFromScope(scope: ExecutionScope): DependencyC
     val primaryRegistry = registries.first()
     val fallbackRegistry = if (registries.size > 1) registries[1] else null
 
-    return if (scope.isWorkflowContext) {
-        primaryRegistry.createWorkflowContext(fallbackRegistry)
-    } else {
-        primaryRegistry.createActivityContext(fallbackRegistry)
-    }
+    val context =
+        if (scope.isWorkflowContext) {
+            primaryRegistry.createWorkflowContext(fallbackRegistry)
+        } else {
+            primaryRegistry.createActivityContext(fallbackRegistry)
+        }
+
+    // Cache the context for subsequent lookups
+    scope.attributes.put(DependencyContextKey, context)
+
+    return context
 }
 
 /**

@@ -5,9 +5,14 @@ import com.surrealdev.temporal.activity.ActivityContext
 import com.surrealdev.temporal.activity.ActivityInfo
 import com.surrealdev.temporal.activity.ActivityWorkflowInfo
 import com.surrealdev.temporal.annotation.TemporalDsl
+import com.surrealdev.temporal.application.plugin.PluginPipeline
 import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.serialization.deserialize
+import com.surrealdev.temporal.util.AttributeScope
+import com.surrealdev.temporal.util.Attributes
+import com.surrealdev.temporal.util.ExecutionScope
+import com.surrealdev.temporal.util.SimpleAttributeScope
 import io.temporal.api.common.v1.Payload
 import kotlinx.coroutines.test.TestResult
 import kotlinx.coroutines.test.runTest
@@ -88,10 +93,51 @@ class ActivityTestHarness(
      * Defaults to [KotlinxJsonSerializer].
      */
     val serializer: PayloadSerializer = KotlinxJsonSerializer(),
-) {
+) : PluginPipeline {
     private val heartbeatsList = mutableListOf<Any?>()
     private var cancellationRequested = false
     private var currentActivityInfo: ActivityInfo = createDefaultActivityInfo()
+    private var currentParentScope: AttributeScope? = null
+
+    /**
+     * The harness's own attributes for storing plugin data.
+     * Plugins (like DI) can store configuration here via [install].
+     */
+    override val attributes: Attributes = Attributes(concurrent = false)
+
+    /**
+     * The parent scope for hierarchical plugin lookup.
+     * Set this to a [com.surrealdev.temporal.application.TemporalApplication]
+     * or [com.surrealdev.temporal.application.TaskQueueBuilder] to enable
+     * hierarchical dependency resolution and plugin inheritance.
+     *
+     * Example with DI plugin:
+     * ```kotlin
+     * val app = TemporalApplication { ... }
+     * app.dependencies {
+     *     workflowSafe<ConfigService> { ProductionConfig() }
+     * }
+     *
+     * runActivityTest {
+     *     parentScope = app  // Inherit app dependencies
+     *
+     *     // Override or add test-specific dependencies
+     *     dependencies {
+     *         activityOnly<HttpClient> { MockHttpClient() }
+     *     }
+     *
+     *     withActivityContext {
+     *         val httpClient: HttpClient by activityDependencies  // From harness
+     *         val config: ConfigService by workflowDependencies   // From app
+     *     }
+     * }
+     * ```
+     */
+    override var parentScope: AttributeScope?
+        get() = currentParentScope
+        set(value) {
+            currentParentScope = value
+        }
 
     /**
      * All heartbeats recorded during activity execution (as Payload objects or nulls).
@@ -154,12 +200,16 @@ class ActivityTestHarness(
      * @throws ActivityCancelledException if the activity calls heartbeat() after cancellation
      */
     suspend fun <R> withActivityContext(block: suspend ActivityContext.() -> R): R {
+        // Create a scope chain: TestActivityContext -> Harness -> parentScope
+        // This allows per-context caching while inheriting dependencies from harness/app
+        val harnessScope = SimpleAttributeScope(attributes, currentParentScope)
         val context =
             TestActivityContext(
                 info = currentActivityInfo,
                 serializer = serializer,
                 onHeartbeat = { details -> heartbeatsList.add(details) },
                 isCancelled = { cancellationRequested },
+                parentScope = harnessScope,
             )
         return context.block()
     }
@@ -276,7 +326,8 @@ class ActivityTestHarness(
 }
 
 /**
- * Test implementation of [ActivityContext].
+ * Test implementation of [ActivityContext] that also implements [ExecutionScope]
+ * to support plugins like dependency injection.
  *
  * This provides a minimal, functional implementation for unit testing activities.
  */
@@ -285,8 +336,21 @@ private class TestActivityContext(
     override val serializer: PayloadSerializer,
     private val onHeartbeat: (Any?) -> Unit,
     private val isCancelled: () -> Boolean,
+    override val parentScope: AttributeScope?,
     override val coroutineContext: CoroutineContext = EmptyCoroutineContext,
-) : ActivityContext {
+) : ActivityContext,
+    ExecutionScope {
+    /**
+     * This context's own attributes for per-execution plugin state.
+     * Dependencies are resolved through hierarchical lookup via [parentScope].
+     */
+    override val attributes: Attributes = Attributes(concurrent = false)
+
+    /**
+     * Activity execution contexts are not workflow contexts.
+     */
+    override val isWorkflowContext: Boolean = false
+
     override val isCancellationRequested: Boolean
         get() = isCancelled()
 
