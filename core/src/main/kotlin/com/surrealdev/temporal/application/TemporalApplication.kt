@@ -329,8 +329,10 @@ open class TemporalApplication internal constructor(
         val clientConfig =
             TemporalClientConfig().apply {
                 // Inherit connection settings from application
-                target = config.connection.target
-                namespace = config.connection.namespace
+                target = this@TemporalApplication.config.connection.target
+                namespace = this@TemporalApplication.config.connection.namespace
+                tls = this@TemporalApplication.config.connection.tls
+                apiKey = this@TemporalApplication.config.connection.apiKey
                 configure()
             }
 

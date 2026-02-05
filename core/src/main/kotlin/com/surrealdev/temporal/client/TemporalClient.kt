@@ -2,6 +2,7 @@ package com.surrealdev.temporal.client
 
 import com.google.protobuf.util.Durations
 import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.annotation.TemporalDsl
 import com.surrealdev.temporal.client.internal.WorkflowServiceClient
 import com.surrealdev.temporal.common.SearchAttributeEncoder
 import com.surrealdev.temporal.core.TemporalCoreClient
@@ -193,11 +194,13 @@ interface TemporalClient {
          * ```
          *
          * @param serializer The payload serializer. Defaults to JSON serializer.
+         * @param codec The payload codec for encryption/compression. Defaults to no-op codec.
          * @param configure Configuration block for connection settings.
          * @return A connected TemporalClient.
          */
         suspend fun connect(
             serializer: PayloadSerializer = KotlinxJsonSerializer.default(),
+            codec: PayloadCodec = NoOpCodec,
             configure: TemporalClientConfig.() -> Unit,
         ): TemporalClient {
             val config = TemporalClientConfig().apply(configure)
@@ -225,7 +228,7 @@ interface TemporalClient {
                     apiKey = config.apiKey,
                 )
 
-            return ConnectedTemporalClient(coreClient, config, serializer, NoOpCodec, runtime)
+            return ConnectedTemporalClient(coreClient, config, serializer, codec, runtime)
         }
     }
 }
@@ -449,6 +452,7 @@ class TemporalClientImpl internal constructor(
  * }
  * ```
  */
+@TemporalDsl
 class TemporalClientConfig {
     /** Target address of the Temporal service (e.g., "localhost:7233" or "https://myns.tmprl.cloud:7233"). */
     var target: String = "http://localhost:7233"
