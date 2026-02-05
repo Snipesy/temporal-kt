@@ -546,6 +546,8 @@ class ActivityDispatcher(
         // Unwrap InvocationTargetException from Kotlin/Java reflection
         val actualException = unwrapReflectionException(exception)
 
+        logger.debug("Activity failed with exception: {}", actualException.message, actualException)
+
         val failureBuilder =
             Failure
                 .newBuilder()
