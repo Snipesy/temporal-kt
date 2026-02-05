@@ -2,11 +2,14 @@ package com.surrealdev.temporal.workflow.integration
 
 import com.surrealdev.temporal.activity.ActivityContext
 import com.surrealdev.temporal.annotation.Activity
+import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.plugin.install
 import com.surrealdev.temporal.application.taskQueue
 import com.surrealdev.temporal.client.startWorkflow
+import com.surrealdev.temporal.common.TemporalPayload
+import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadCodecPlugin
 import com.surrealdev.temporal.serialization.codec.CompressionCodec
@@ -16,7 +19,6 @@ import com.surrealdev.temporal.workflow.ActivityOptions
 import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.result
 import com.surrealdev.temporal.workflow.startActivity
-import io.temporal.api.common.v1.Payload
 import kotlinx.serialization.Serializable
 import org.junit.jupiter.api.Tag
 import java.util.UUID
@@ -129,23 +131,24 @@ class PayloadCodecIntegrationTest {
      * A test codec that wraps another codec and records encode/decode calls.
      * Used to verify that the codec is actually being invoked.
      */
+    @OptIn(InternalTemporalApi::class)
     class RecordingCodec(
         private val inner: PayloadCodec,
     ) : PayloadCodec {
         val encodeWasCalled = AtomicBoolean(false)
         val decodeWasCalled = AtomicBoolean(false)
-        val lastEncodedPayloads = AtomicReference<List<Payload>>(emptyList())
-        val lastDecodedPayloads = AtomicReference<List<Payload>>(emptyList())
+        val lastEncodedPayloads = AtomicReference<List<TemporalPayload>>(emptyList())
+        val lastDecodedPayloads = AtomicReference<List<TemporalPayload>>(emptyList())
 
-        override suspend fun encode(payloads: List<Payload>): List<Payload> {
+        override suspend fun encode(payloads: TemporalPayloads): TemporalPayloads {
             encodeWasCalled.set(true)
-            lastEncodedPayloads.set(payloads)
+            lastEncodedPayloads.set(payloads.payloads)
             return inner.encode(payloads)
         }
 
-        override suspend fun decode(payloads: List<Payload>): List<Payload> {
+        override suspend fun decode(payloads: TemporalPayloads): TemporalPayloads {
             decodeWasCalled.set(true)
-            lastDecodedPayloads.set(payloads)
+            lastDecodedPayloads.set(payloads.payloads)
             return inner.decode(payloads)
         }
 

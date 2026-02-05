@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
 import com.surrealdev.temporal.testing.runWorkflowUnitTest
 import com.surrealdev.temporal.util.Attributes
@@ -724,19 +725,23 @@ class WorkflowContextImplStartActivityTest {
             val headers =
                 mapOf(
                     "key1" to
-                        io.temporal.api.common.v1.Payload
-                            .newBuilder()
-                            .setData(
-                                com.google.protobuf.ByteString
-                                    .copyFromUtf8("value1"),
-                            ).build(),
+                        TemporalPayload(
+                            io.temporal.api.common.v1.Payload
+                                .newBuilder()
+                                .setData(
+                                    com.google.protobuf.ByteString
+                                        .copyFromUtf8("value1"),
+                                ).build(),
+                        ),
                     "key2" to
-                        io.temporal.api.common.v1.Payload
-                            .newBuilder()
-                            .setData(
-                                com.google.protobuf.ByteString
-                                    .copyFromUtf8("value2"),
-                            ).build(),
+                        TemporalPayload(
+                            io.temporal.api.common.v1.Payload
+                                .newBuilder()
+                                .setData(
+                                    com.google.protobuf.ByteString
+                                        .copyFromUtf8("value2"),
+                                ).build(),
+                        ),
                 )
             val options =
                 ActivityOptions(

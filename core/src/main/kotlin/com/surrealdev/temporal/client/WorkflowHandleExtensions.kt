@@ -1,8 +1,8 @@
 package com.surrealdev.temporal.client
 
+import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.serialization.deserialize
 import com.surrealdev.temporal.serialization.serialize
-import io.temporal.api.common.v1.Payloads
 
 // Note: Signal extensions are now in WorkflowHandleBaseExtensions.kt
 // and work for both WorkflowHandle and ChildWorkflowHandle.
@@ -14,17 +14,16 @@ import io.temporal.api.common.v1.Payloads
  * @return The result of the query.
  */
 suspend inline fun <reified T> WorkflowHandle.query(queryType: String): T {
-    val emptyPayloads = Payloads.newBuilder().build()
-    val outputPayloads = this.queryWithPayloads(queryType, emptyPayloads)
+    val outputPayloads = this.queryWithPayloads(queryType, TemporalPayloads.EMPTY)
     if (T::class == Unit::class) {
         return Unit as T
     }
-    // assert only 1 payload couunt
-    require(outputPayloads.payloadsCount == 1) {
-        "Expected exactly one payload in query result, but got ${outputPayloads.payloadsCount}"
+    // assert only 1 payload count
+    require(outputPayloads.size == 1) {
+        "Expected exactly one payload in query result, but got ${outputPayloads.size}"
     }
 
-    return this.serializer.deserialize<T>(outputPayloads.getPayloads(0))
+    return this.serializer.deserialize<T>(outputPayloads[0])
 }
 
 /**
@@ -38,17 +37,16 @@ suspend inline fun <reified A, reified T> WorkflowHandle.query(
     queryType: String,
     arg: A,
 ): T {
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg))
-    val outputPayloads = this.queryWithPayloads(queryType, payloadsBuilder.build())
+    val payload = this.serializer.serialize(arg)
+    val outputPayloads = this.queryWithPayloads(queryType, TemporalPayloads.of(listOf(payload)))
     if (T::class == Unit::class) {
         return Unit as T
     }
-    // assert only 1 payload couunt
-    require(outputPayloads.payloadsCount == 1) {
-        "Expected exactly one payload in query result, but got ${outputPayloads.payloadsCount}"
+    // assert only 1 payload count
+    require(outputPayloads.size == 1) {
+        "Expected exactly one payload in query result, but got ${outputPayloads.size}"
     }
-    return this.serializer.deserialize<T>(outputPayloads.getPayloads(0))
+    return this.serializer.deserialize<T>(outputPayloads[0])
 }
 
 /**
@@ -65,17 +63,16 @@ suspend inline fun <reified A, reified T> WorkflowHandle.update(
     updateName: String,
     arg: A,
 ): T {
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg))
-    val outputPayloads = this.updateWithPayloads(updateName, payloadsBuilder.build())
+    val payload = this.serializer.serialize(arg)
+    val outputPayloads = this.updateWithPayloads(updateName, TemporalPayloads.of(listOf(payload)))
     if (T::class == Unit::class) {
         return Unit as T
     }
     // assert only 1 payload count
-    require(outputPayloads.payloadsCount == 1) {
-        "Expected exactly one payload in update result, but got ${outputPayloads.payloadsCount}"
+    require(outputPayloads.size == 1) {
+        "Expected exactly one payload in update result, but got ${outputPayloads.size}"
     }
-    return this.serializer.deserialize<T>(outputPayloads.getPayloads(0))
+    return this.serializer.deserialize<T>(outputPayloads[0])
 }
 
 /**
@@ -94,18 +91,17 @@ suspend inline fun <reified A1, reified A2, reified T> WorkflowHandle.update(
     arg1: A1,
     arg2: A2,
 ): T {
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg1))
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
-    val outputPayloads = this.updateWithPayloads(updateName, payloadsBuilder.build())
+    val payload1 = this.serializer.serialize(arg1)
+    val payload2 = this.serializer.serialize(arg2)
+    val outputPayloads = this.updateWithPayloads(updateName, TemporalPayloads.of(listOf(payload1, payload2)))
     if (T::class == Unit::class) {
         return Unit as T
     }
     // assert only 1 payload count
-    require(outputPayloads.payloadsCount == 1) {
-        "Expected exactly one payload in update result, but got ${outputPayloads.payloadsCount}"
+    require(outputPayloads.size == 1) {
+        "Expected exactly one payload in update result, but got ${outputPayloads.size}"
     }
-    return this.serializer.deserialize<T>(outputPayloads.getPayloads(0))
+    return this.serializer.deserialize<T>(outputPayloads[0])
 }
 
 /**
@@ -126,19 +122,18 @@ suspend inline fun <reified A1, reified A2, reified A3, reified T> WorkflowHandl
     arg2: A2,
     arg3: A3,
 ): T {
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg1))
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg3))
-    val outputPayloads = this.updateWithPayloads(updateName, payloadsBuilder.build())
+    val payload1 = this.serializer.serialize(arg1)
+    val payload2 = this.serializer.serialize(arg2)
+    val payload3 = this.serializer.serialize(arg3)
+    val outputPayloads = this.updateWithPayloads(updateName, TemporalPayloads.of(listOf(payload1, payload2, payload3)))
     if (T::class == Unit::class) {
         return Unit as T
     }
     // assert only 1 payload count
-    require(outputPayloads.payloadsCount == 1) {
-        "Expected exactly one payload in update result, but got ${outputPayloads.payloadsCount}"
+    require(outputPayloads.size == 1) {
+        "Expected exactly one payload in update result, but got ${outputPayloads.size}"
     }
-    return this.serializer.deserialize<T>(outputPayloads.getPayloads(0))
+    return this.serializer.deserialize<T>(outputPayloads[0])
 }
 
 /**
@@ -161,20 +156,23 @@ suspend inline fun <reified A1, reified A2, reified A3, reified A4, reified T> W
     arg3: A3,
     arg4: A4,
 ): T {
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg1))
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg3))
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg4))
-    val outputPayloads = this.updateWithPayloads(updateName, payloadsBuilder.build())
+    val payload1 = this.serializer.serialize(arg1)
+    val payload2 = this.serializer.serialize(arg2)
+    val payload3 = this.serializer.serialize(arg3)
+    val payload4 = this.serializer.serialize(arg4)
+    val outputPayloads =
+        this.updateWithPayloads(
+            updateName,
+            TemporalPayloads.of(listOf(payload1, payload2, payload3, payload4)),
+        )
     if (T::class == Unit::class) {
         return Unit as T
     }
     // assert only 1 payload count
-    require(outputPayloads.payloadsCount == 1) {
-        "Expected exactly one payload in update result, but got ${outputPayloads.payloadsCount}"
+    require(outputPayloads.size == 1) {
+        "Expected exactly one payload in update result, but got ${outputPayloads.size}"
     }
-    return this.serializer.deserialize<T>(outputPayloads.getPayloads(0))
+    return this.serializer.deserialize<T>(outputPayloads[0])
 }
 
 /**
@@ -187,14 +185,13 @@ suspend inline fun <reified A1, reified A2, reified A3, reified A4, reified T> W
  * @return The update result.
  */
 suspend inline fun <reified T> WorkflowHandle.update(updateName: String): T {
-    val emptyPayloads = Payloads.newBuilder().build()
-    val outputPayloads = this.updateWithPayloads(updateName, emptyPayloads)
+    val outputPayloads = this.updateWithPayloads(updateName, TemporalPayloads.EMPTY)
     if (T::class == Unit::class) {
         return Unit as T
     }
-    // assert only 1 payload couunt
-    require(outputPayloads.payloadsCount == 1) {
-        "Expected exactly one payload in update result, but got ${outputPayloads.payloadsCount}"
+    // assert only 1 payload count
+    require(outputPayloads.size == 1) {
+        "Expected exactly one payload in update result, but got ${outputPayloads.size}"
     }
-    return this.serializer.deserialize<T>(outputPayloads.getPayloads(0))
+    return this.serializer.deserialize<T>(outputPayloads[0])
 }

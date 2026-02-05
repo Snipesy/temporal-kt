@@ -7,6 +7,10 @@ import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.application.DynamicActivityHandler
 import com.surrealdev.temporal.common.ApplicationError
 import com.surrealdev.temporal.common.ApplicationErrorCategory
+import com.surrealdev.temporal.common.TemporalPayload
+import com.surrealdev.temporal.common.TemporalPayloads
+import com.surrealdev.temporal.common.toProto
+import com.surrealdev.temporal.common.toTemporal
 import com.surrealdev.temporal.internal.ZombieEvictionConfig
 import com.surrealdev.temporal.internal.ZombieEvictionManager
 import com.surrealdev.temporal.serialization.PayloadCodec
@@ -19,7 +23,6 @@ import coresdk.activity_result.activityExecutionResult
 import coresdk.activity_result.failure
 import coresdk.activity_result.success
 import coresdk.activity_task.ActivityTaskOuterClass
-import io.temporal.api.common.v1.Payload
 import io.temporal.api.common.v1.Payloads
 import io.temporal.api.failure.v1.ApplicationFailureInfo
 import io.temporal.api.failure.v1.Failure
@@ -66,7 +69,7 @@ class ActivityDispatcher(
     private val codec: PayloadCodec,
     private val taskQueue: String,
     maxConcurrent: Int,
-    private val heartbeatFn: suspend (ByteString, Payload?) -> Unit = { _, _ -> },
+    private val heartbeatFn: suspend (ByteString, io.temporal.api.common.v1.Payload?) -> Unit = { _, _ -> },
     /**
      * The task queue scope for hierarchical attribute lookup.
      * Its parentScope should be the application.
@@ -356,8 +359,9 @@ class ActivityDispatcher(
         }
     }
 
+    @OptIn(InternalTemporalApi::class)
     private suspend fun deserializeArguments(
-        payloads: List<Payload>,
+        payloads: List<io.temporal.api.common.v1.Payload>,
         parameterTypes: List<kotlin.reflect.KType>,
     ): Array<Any?> {
         if (payloads.size != parameterTypes.size) {
@@ -366,9 +370,10 @@ class ActivityDispatcher(
             )
         }
 
-        // Decode payloads with codec first, then deserialize
-        val decodedPayloads = codec.decode(payloads)
-        return decodedPayloads
+        // Convert proto payloads to TemporalPayload, decode with codec, then deserialize
+        val temporalPayloads = TemporalPayloads.of(payloads.map { it.toTemporal() })
+        val decodedPayloads = codec.decode(temporalPayloads)
+        return decodedPayloads.payloads
             .zip(parameterTypes)
             .map { (payload, type) ->
                 serializer.deserialize(type, payload)
@@ -433,6 +438,7 @@ class ActivityDispatcher(
     /**
      * Invokes the dynamic activity handler for an unregistered activity type.
      */
+    @OptIn(InternalTemporalApi::class)
     private suspend fun invokeDynamicActivity(
         task: ActivityTaskOuterClass.ActivityTask,
         start: ActivityTaskOuterClass.Start,
@@ -442,8 +448,9 @@ class ActivityDispatcher(
         val taskToken = task.taskToken
         val handler = dynamicActivityHandler!!
 
-        // Decode payloads with codec first
-        val decodedPayloads = codec.decode(start.inputList)
+        // Convert proto payloads to TemporalPayload, then decode with codec
+        val temporalPayloads = TemporalPayloads.of(start.inputList.map { it.toTemporal() })
+        val decodedPayloads = codec.decode(temporalPayloads)
         val encodedPayloads = EncodedPayloads(decodedPayloads, serializer)
 
         // Create the activity context
@@ -486,18 +493,20 @@ class ActivityDispatcher(
 
     /**
      * Builds a success completion for dynamic activities.
-     * The handler returns a Payload directly since type info is not available.
+     * The handler returns a TemporalPayload directly since type info is not available.
      */
+    @OptIn(InternalTemporalApi::class)
     private suspend fun buildDynamicSuccessCompletion(
         taskToken: ByteString,
-        result: Payload?,
+        result: TemporalPayload?,
     ): CoreInterface.ActivityTaskCompletion {
         val resultPayload =
             if (result == null) {
-                Payload.getDefaultInstance()
+                io.temporal.api.common.v1.Payload
+                    .getDefaultInstance()
             } else {
-                // Encode with codec for consistency
-                codec.encode(listOf(result)).single()
+                // Encode with codec for consistency, then convert back to proto
+                codec.encode(TemporalPayloads.of(listOf(result)))[0].toProto()
             }
 
         return activityTaskCompletion {
@@ -512,6 +521,7 @@ class ActivityDispatcher(
         }
     }
 
+    @OptIn(InternalTemporalApi::class)
     private suspend fun buildSuccessCompletion(
         taskToken: ByteString,
         result: Any?,
@@ -520,11 +530,12 @@ class ActivityDispatcher(
         val resultPayload =
             if (result == Unit || returnType.classifier == Unit::class) {
                 // For Unit return type, we don't serialize the result
-                Payload.getDefaultInstance()
+                io.temporal.api.common.v1.Payload
+                    .getDefaultInstance()
             } else {
-                // Serialize first, then encode with codec
+                // Serialize first, then encode with codec, then convert to proto
                 val serialized = serializer.serialize(returnType, result)
-                codec.encode(listOf(serialized)).single()
+                codec.encode(TemporalPayloads.of(listOf(serialized)))[0].toProto()
             }
 
         return activityTaskCompletion {
@@ -567,7 +578,7 @@ class ActivityDispatcher(
             if (actualException.details.isNotEmpty()) {
                 val detailsPayloads =
                     actualException.details.map { detail ->
-                        serializer.serialize(typeOf<String>(), detail)
+                        serializer.serialize(typeOf<String>(), detail).toProto()
                     }
                 val payloads =
                     Payloads

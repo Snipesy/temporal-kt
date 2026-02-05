@@ -2,7 +2,10 @@ package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.common.SearchAttributeEncoder
+import com.surrealdev.temporal.common.TemporalPayload
+import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.TypedSearchAttributes
+import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.util.AttributeScope
@@ -22,7 +25,6 @@ import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.WorkflowInfo
 import coresdk.child_workflow.ChildWorkflow
 import coresdk.workflow_commands.WorkflowCommands
-import io.temporal.api.common.v1.Payload
 import io.temporal.api.common.v1.Payloads
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -109,7 +111,7 @@ internal class WorkflowContextImpl(
      * Keys are query names.
      */
     internal val runtimeQueryHandlers =
-        mutableMapOf<String, (suspend (List<Payload>) -> Payload)>()
+        mutableMapOf<String, (suspend (TemporalPayloads) -> TemporalPayload)>()
 
     /**
      * Runtime-registered dynamic query handler (catches all unhandled queries).
@@ -118,8 +120,8 @@ internal class WorkflowContextImpl(
         (
             suspend (
                 queryType: String,
-                args: List<Payload>,
-            ) -> Payload
+                args: TemporalPayloads,
+            ) -> TemporalPayload
         )? = null
 
     /**
@@ -127,13 +129,13 @@ internal class WorkflowContextImpl(
      * Keys are signal names.
      */
     internal val runtimeSignalHandlers =
-        mutableMapOf<String, suspend (List<Payload>) -> Unit>()
+        mutableMapOf<String, suspend (TemporalPayloads) -> Unit>()
 
     /**
      * Runtime-registered dynamic signal handler (catches all unhandled signals).
      */
     internal var runtimeDynamicSignalHandler:
-        (suspend (signalName: String, args: List<Payload>) -> Unit)? = null
+        (suspend (signalName: String, args: TemporalPayloads) -> Unit)? = null
 
     /**
      * Buffered signals waiting for handlers to be registered.
@@ -209,7 +211,7 @@ internal class WorkflowContextImpl(
      */
     override suspend fun startActivityWithPayloads(
         activityType: String,
-        args: Payloads,
+        args: TemporalPayloads,
         options: ActivityOptions,
     ): RemoteActivityHandle {
         ensureOnWorkflowDispatcher("startActivity")
@@ -334,7 +336,7 @@ internal class WorkflowContextImpl(
                 .setActivityId(activityId)
                 .setActivityType(activityType)
                 .setTaskQueue(options.taskQueue ?: info.taskQueue)
-                .addAllArguments(args.payloadsList)
+                .addAllArguments(args.toProto().payloadsList)
 
         // Set optional timeouts
         options.startToCloseTimeout?.let {
@@ -361,7 +363,7 @@ internal class WorkflowContextImpl(
 
         // Set headers if provided
         options.headers?.let {
-            scheduleActivityBuilder.putAllHeaders(it)
+            scheduleActivityBuilder.putAllHeaders(it.mapValues { (_, v) -> v.toProto() })
         }
 
         // Set eager execution flag
@@ -424,7 +426,7 @@ internal class WorkflowContextImpl(
      */
     override suspend fun startLocalActivityWithPayloads(
         activityType: String,
-        args: Payloads,
+        args: TemporalPayloads,
         options: LocalActivityOptions,
     ): LocalActivityHandle {
         ensureOnWorkflowDispatcher("startLocalActivity")
@@ -459,7 +461,7 @@ internal class WorkflowContextImpl(
                 .setActivityId(activityId)
                 .setActivityType(activityType)
                 .setAttempt(1) // Initial attempt is 1
-                .addAllArguments(args.payloadsList)
+                .addAllArguments(args.toProto().payloadsList)
 
         // Set optional timeouts
         options.startToCloseTimeout?.let {
@@ -507,7 +509,7 @@ internal class WorkflowContextImpl(
                 serializer = serializer,
                 options = options,
                 cancellationType = options.cancellationType,
-                arguments = args.payloadsList,
+                arguments = args.toProto().payloadsList,
             )
 
         state.registerLocalActivity(seq, handle)
@@ -631,7 +633,7 @@ internal class WorkflowContextImpl(
 
     override suspend fun startChildWorkflowWithPayloads(
         workflowType: String,
-        args: Payloads,
+        args: TemporalPayloads,
         options: ChildWorkflowOptions,
     ): ChildWorkflowHandle {
         ensureOnWorkflowDispatcher("startChildWorkflow")
@@ -647,7 +649,7 @@ internal class WorkflowContextImpl(
                 .setWorkflowId(childWorkflowId)
                 .setWorkflowType(workflowType)
                 .setTaskQueue(options.taskQueue ?: info.taskQueue)
-                .addAllInput(args.payloadsList)
+                .addAllInput(args.toProto().payloadsList)
                 .setParentClosePolicy(options.parentClosePolicy.toProto())
                 .setCancellationType(options.cancellationType.toProto())
 
@@ -698,7 +700,7 @@ internal class WorkflowContextImpl(
 
     override fun setQueryHandlerWithPayloads(
         name: String,
-        handler: (suspend (List<Payload>) -> Payload)?,
+        handler: (suspend (TemporalPayloads) -> TemporalPayload)?,
     ) {
         if (handler == null) {
             runtimeQueryHandlers.remove(name)
@@ -711,8 +713,8 @@ internal class WorkflowContextImpl(
         handler: (
             suspend (
                 queryType: String,
-                args: List<Payload>,
-            ) -> Payload
+                args: TemporalPayloads,
+            ) -> TemporalPayload
         )?,
     ) {
         runtimeDynamicQueryHandler = handler
@@ -720,7 +722,7 @@ internal class WorkflowContextImpl(
 
     override fun setSignalHandlerWithPayloads(
         name: String,
-        handler: (suspend (List<Payload>) -> Unit)?,
+        handler: (suspend (TemporalPayloads) -> Unit)?,
     ) {
         if (handler == null) {
             runtimeSignalHandlers.remove(name)
@@ -731,7 +733,14 @@ internal class WorkflowContextImpl(
             // execute during the next processAllWork() call, matching Python SDK behavior
             bufferedSignals.remove(name)?.let { signals ->
                 for (signal in signals) {
-                    launch { handler(signal.inputList) }
+                    val payloads =
+                        TemporalPayloads(
+                            io.temporal.api.common.v1.Payloads
+                                .newBuilder()
+                                .addAllPayloads(signal.inputList)
+                                .build(),
+                        )
+                    launch { handler(payloads) }
                 }
             }
         }
@@ -739,7 +748,7 @@ internal class WorkflowContextImpl(
 
     override fun setDynamicSignalHandlerWithPayloads(
         handler: (
-            suspend (signalName: String, args: List<Payload>) -> Unit
+            suspend (signalName: String, args: TemporalPayloads) -> Unit
         )?,
     ) {
         runtimeDynamicSignalHandler = handler
@@ -749,7 +758,14 @@ internal class WorkflowContextImpl(
             // execute during the next processAllWork() call, matching Python SDK behavior
             for ((signalName, signals) in bufferedSignals) {
                 for (signal in signals) {
-                    launch { handler(signalName, signal.inputList) }
+                    val payloads =
+                        TemporalPayloads(
+                            io.temporal.api.common.v1.Payloads
+                                .newBuilder()
+                                .addAllPayloads(signal.inputList)
+                                .build(),
+                        )
+                    launch { handler(signalName, payloads) }
                 }
             }
             bufferedSignals.clear()
@@ -758,8 +774,8 @@ internal class WorkflowContextImpl(
 
     override fun setUpdateHandlerWithPayloads(
         name: String,
-        handler: (suspend (List<Payload>) -> Payload)?,
-        validator: ((List<Payload>) -> Unit)?,
+        handler: (suspend (TemporalPayloads) -> TemporalPayload)?,
+        validator: ((TemporalPayloads) -> Unit)?,
     ) {
         if (handler == null) {
             runtimeUpdateHandlers.remove(name)
@@ -769,8 +785,8 @@ internal class WorkflowContextImpl(
     }
 
     override fun setDynamicUpdateHandlerWithPayloads(
-        handler: (suspend (updateName: String, args: List<Payload>) -> Payload)?,
-        validator: ((updateName: String, args: List<Payload>) -> Unit)?,
+        handler: (suspend (updateName: String, args: TemporalPayloads) -> TemporalPayload)?,
+        validator: ((updateName: String, args: TemporalPayloads) -> Unit)?,
     ) {
         runtimeDynamicUpdateHandler =
             if (handler != null) {
@@ -828,16 +844,16 @@ internal class WorkflowContextImpl(
  * Entry for a runtime-registered update handler.
  */
 internal data class UpdateHandlerEntry(
-    val handler: suspend (List<Payload>) -> Payload,
-    val validator: ((List<Payload>) -> Unit)?,
+    val handler: suspend (TemporalPayloads) -> TemporalPayload,
+    val validator: ((TemporalPayloads) -> Unit)?,
 )
 
 /**
  * Entry for a runtime-registered dynamic update handler.
  */
 internal data class DynamicUpdateHandlerEntry(
-    val handler: suspend (updateName: String, args: List<Payload>) -> Payload,
-    val validator: ((updateName: String, args: List<Payload>) -> Unit)?,
+    val handler: suspend (updateName: String, args: TemporalPayloads) -> TemporalPayload,
+    val validator: ((updateName: String, args: TemporalPayloads) -> Unit)?,
 )
 
 /**

@@ -1,6 +1,6 @@
 package com.surrealdev.temporal.serialization
 
-import io.temporal.api.common.v1.Payload
+import com.surrealdev.temporal.common.TemporalPayloads
 
 /**
  * Interface for encoding and decoding payloads after serialization/before deserialization.
@@ -24,7 +24,7 @@ import io.temporal.api.common.v1.Payload
  * Example compression codec:
  * ```kotlin
  * class CompressionCodec : PayloadCodec {
- *     override suspend fun encode(payloads: List<Payload>): List<Payload> {
+ *     override suspend fun encode(payloads: TemporalPayloads): TemporalPayloads {
  *         return payloads.map { payload ->
  *             val compressed = gzip(payload.data)
  *             if (compressed.size < payload.data.size()) {
@@ -36,7 +36,7 @@ import io.temporal.api.common.v1.Payload
  *         }
  *     }
  *
- *     override suspend fun decode(payloads: List<Payload>): List<Payload> {
+ *     override suspend fun decode(payloads: TemporalPayloads): TemporalPayloads {
  *         return payloads.map { payload ->
  *             if (payload.metadata["encoding"] == "binary/gzip") {
  *                 payload.toBuilder()
@@ -58,7 +58,7 @@ interface PayloadCodec {
      * @param payloads The payloads to encode
      * @return The encoded payloads (same count and order as input)
      */
-    suspend fun encode(payloads: List<Payload>): List<Payload>
+    suspend fun encode(payloads: TemporalPayloads): TemporalPayloads
 
     /**
      * Decodes a list of payloads (e.g., decompress, decrypt).
@@ -68,7 +68,7 @@ interface PayloadCodec {
      * @param payloads The payloads to decode
      * @return The decoded payloads (same count and order as input)
      */
-    suspend fun decode(payloads: List<Payload>): List<Payload>
+    suspend fun decode(payloads: TemporalPayloads): TemporalPayloads
 }
 
 /**
@@ -76,7 +76,7 @@ interface PayloadCodec {
  * Used as a default when no codec is configured.
  */
 object NoOpCodec : PayloadCodec {
-    override suspend fun encode(payloads: List<Payload>): List<Payload> = payloads
+    override suspend fun encode(payloads: TemporalPayloads): TemporalPayloads = payloads
 
-    override suspend fun decode(payloads: List<Payload>): List<Payload> = payloads
+    override suspend fun decode(payloads: TemporalPayloads): TemporalPayloads = payloads
 }

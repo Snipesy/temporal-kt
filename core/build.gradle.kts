@@ -7,10 +7,10 @@ plugins {
 }
 
 dependencies {
-    api(project(":core-bridge"))
+    implementation(project(":core-bridge"))
     api(libs.bundles.kotlinxEcosystem)
-    api(libs.protobufJava)
-    api(libs.protobufJavaUtil)
+    implementation(libs.protobufJava)
+    implementation(libs.protobufJavaUtil)
     implementation(libs.protobufKotlin)
     implementation(libs.bundles.hoplite)
     implementation(libs.kotlinReflect)

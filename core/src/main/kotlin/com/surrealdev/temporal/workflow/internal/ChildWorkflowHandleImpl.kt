@@ -1,6 +1,10 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.common.TemporalPayload
+import com.surrealdev.temporal.common.TemporalPayloads
+import com.surrealdev.temporal.common.toProto
+import com.surrealdev.temporal.common.toTemporal
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.workflow.ChildWorkflowCancellationType
 import com.surrealdev.temporal.workflow.ChildWorkflowCancelledException
@@ -12,8 +16,6 @@ import com.surrealdev.temporal.workflow.StartChildWorkflowFailureCause
 import coresdk.child_workflow.ChildWorkflow
 import coresdk.workflow_activation.WorkflowActivationOuterClass.ResolveChildWorkflowExecutionStart
 import coresdk.workflow_commands.WorkflowCommands
-import io.temporal.api.common.v1.Payload
-import io.temporal.api.common.v1.Payloads
 import kotlinx.coroutines.CompletableDeferred
 
 /**
@@ -63,7 +65,8 @@ internal class ChildWorkflowHandleImpl(
         return runId
     }
 
-    override suspend fun resultPayload(): Payload? {
+    @OptIn(InternalTemporalApi::class)
+    override suspend fun resultPayload(): TemporalPayload? {
         // Wait for start resolution first
         val runId = startDeferred.await()
         _firstExecutionRunId = runId
@@ -75,10 +78,10 @@ internal class ChildWorkflowHandleImpl(
             result.hasCompleted() -> {
                 val payload = result.completed.result
                 // Return raw payload (deserialization happens via extension function)
-                if (payload == Payload.getDefaultInstance() || payload.data.isEmpty) {
+                if (payload.data.isEmpty) {
                     null
                 } else {
-                    payload
+                    payload.toTemporal()
                 }
             }
 
@@ -121,9 +124,10 @@ internal class ChildWorkflowHandleImpl(
     }
 
     @InternalTemporalApi
+    @OptIn(InternalTemporalApi::class)
     override suspend fun signalWithPayloads(
         signalName: String,
-        args: Payloads,
+        args: TemporalPayloads,
     ) {
         // Wait for child workflow to start before signaling
         // This ensures the child exists on the server before we try to signal it
@@ -141,7 +145,7 @@ internal class ChildWorkflowHandleImpl(
                         .setSeq(signalSeq)
                         .setChildWorkflowId(workflowId)
                         .setSignalName(signalName)
-                        .addAllArgs(args.payloadsList),
+                        .addAllArgs(args.toProto().payloadsList),
                 ).build()
 
         state.addCommand(command)

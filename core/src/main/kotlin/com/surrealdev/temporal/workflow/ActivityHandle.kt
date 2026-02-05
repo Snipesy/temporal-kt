@@ -48,7 +48,7 @@ interface ActivityHandle {
      * @throws ActivityCancelledException if the activity was cancelled
      * @throws ActivityTimeoutException if the activity timed out
      */
-    suspend fun resultPayload(): io.temporal.api.common.v1.Payload?
+    suspend fun resultPayload(): com.surrealdev.temporal.common.TemporalPayload?
 
     /**
      * Returns the exception if the activity completed exceptionally, or null if

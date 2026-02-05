@@ -2,6 +2,11 @@ package com.surrealdev.temporal.workflow.internal
 
 import com.google.protobuf.ByteString
 import com.google.protobuf.util.JsonFormat
+import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.common.TemporalPayload
+import com.surrealdev.temporal.common.TemporalPayloads
+import com.surrealdev.temporal.common.toProto
+import com.surrealdev.temporal.common.toTemporal
 import coresdk.workflow_commands.WorkflowCommands
 import io.temporal.api.common.v1.Payload
 import io.temporal.api.failure.v1.Failure
@@ -104,16 +109,18 @@ internal suspend fun WorkflowExecutor.handleQuery(
  * Handles a runtime-registered query handler (specific query type).
  * Runtime handlers receive raw Payloads and return a Payload directly.
  */
+@OptIn(InternalTemporalApi::class)
 private suspend fun WorkflowExecutor.handleRuntimeQuery(
     queryId: String,
     queryType: String,
-    handler: suspend (List<Payload>) -> Payload,
+    handler: suspend (TemporalPayloads) -> TemporalPayload,
     args: List<Payload>,
     isDynamic: Boolean,
 ) {
     try {
-        val resultPayload = handler(args)
-        addSuccessQueryResult(queryId, resultPayload)
+        val temporalArgs = TemporalPayloads.of(args.map { it.toTemporal() })
+        val resultPayload = handler(temporalArgs)
+        addSuccessQueryResult(queryId, resultPayload.toProto())
     } catch (e: ReadOnlyContextException) {
         logger.warn("Query handler attempted state mutation: {}", e.message)
         addFailedQueryResult(queryId, "Query attempted state mutation: ${e.message}")
@@ -127,15 +134,17 @@ private suspend fun WorkflowExecutor.handleRuntimeQuery(
  * Handles a runtime-registered dynamic query handler.
  * Dynamic handlers receive the query type name and raw Payloads, and return a Payload.
  */
+@OptIn(InternalTemporalApi::class)
 private suspend fun WorkflowExecutor.handleRuntimeDynamicQuery(
     queryId: String,
     queryType: String,
-    handler: suspend (queryType: String, args: List<Payload>) -> Payload,
+    handler: suspend (queryType: String, args: TemporalPayloads) -> TemporalPayload,
     args: List<Payload>,
 ) {
     try {
-        val resultPayload = handler(queryType, args)
-        addSuccessQueryResult(queryId, resultPayload)
+        val temporalArgs = TemporalPayloads.of(args.map { it.toTemporal() })
+        val resultPayload = handler(queryType, temporalArgs)
+        addSuccessQueryResult(queryId, resultPayload.toProto())
     } catch (e: ReadOnlyContextException) {
         logger.warn("Query handler attempted state mutation: {}", e.message)
         addFailedQueryResult(queryId, "Query attempted state mutation: ${e.message}")
@@ -173,7 +182,7 @@ private suspend fun WorkflowExecutor.handleAnnotationQuery(
             if (result == Unit || handler.returnType.classifier == Unit::class) {
                 Payload.getDefaultInstance()
             } else {
-                serializer.serialize(handler.returnType, result)
+                serializer.serialize(handler.returnType, result).toProto()
             }
 
         addSuccessQueryResult(queryId, payload)

@@ -1,10 +1,12 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.annotation.Update
 import com.surrealdev.temporal.annotation.UpdateValidator
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.WorkflowRegistration
+import com.surrealdev.temporal.common.toTemporal
 import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
 import com.surrealdev.temporal.serialization.deserialize
 import com.surrealdev.temporal.serialization.serialize
@@ -436,7 +438,7 @@ class UpdateHandlerTest {
             // Deserialize the result
             val result =
                 serializer.deserialize<Int>(
-                    completed.updateResponse.completed,
+                    completed.updateResponse.completed.toTemporal(),
                 )
             assertEquals(1, result)
         }
@@ -525,7 +527,7 @@ class UpdateHandlerTest {
 
             val result =
                 serializer.deserialize<UpdateResult>(
-                    completed.updateResponse.completed,
+                    completed.updateResponse.completed.toTemporal(),
                 ) as UpdateResult
             assertEquals("hello", result.message)
             assertEquals(1, result.count)
@@ -762,6 +764,7 @@ class UpdateHandlerTest {
 
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
+            @OptIn(InternalTemporalApi::class)
             setUpdateHandlerWithPayloads(
                 name = "runtimeUpdate",
                 handler = { payloads ->
@@ -784,11 +787,14 @@ class UpdateHandlerTest {
             setUpdateHandlerWithPayloads(
                 "setValue",
                 handler = { payloads ->
+                    @OptIn(InternalTemporalApi::class)
                     val newValue = serializer.deserialize<Int>(payloads[0])
                     value = newValue
+                    @OptIn(InternalTemporalApi::class)
                     serializer.serialize<Int>(value)
                 },
                 validator = { payloads ->
+                    @OptIn(InternalTemporalApi::class)
                     val newValue = serializer.deserialize<Int>(payloads[0])
                     require(newValue >= 0) { "Value must be non-negative" }
                 },
@@ -1028,7 +1034,7 @@ class UpdateHandlerTest {
             val updateCompleted = commands2.find { it.hasUpdateResponse() && it.updateResponse.hasCompleted() }
             assertNotNull(updateCompleted, "Update should complete after activity resolves")
 
-            val updateResult = serializer.deserialize<String>(updateCompleted.updateResponse.completed)
+            val updateResult = serializer.deserialize<String>(updateCompleted.updateResponse.completed.toTemporal())
             assertEquals("Echo: test-input", updateResult)
         }
 

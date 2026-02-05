@@ -1,13 +1,14 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.common.TemporalPayloads
+import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.workflow.CancelExternalWorkflowFailedException
 import com.surrealdev.temporal.workflow.ExternalWorkflowHandle
 import com.surrealdev.temporal.workflow.SignalExternalWorkflowFailedException
 import coresdk.common.Common.NamespacedWorkflowExecution
 import coresdk.workflow_commands.WorkflowCommands
-import io.temporal.api.common.v1.Payloads
 
 /**
  * Internal implementation of [ExternalWorkflowHandle].
@@ -46,7 +47,7 @@ internal class ExternalWorkflowHandleImpl(
     @InternalTemporalApi
     override suspend fun signalWithPayloads(
         signalName: String,
-        args: Payloads,
+        args: TemporalPayloads,
     ) {
         val signalSeq = state.nextSeq()
 
@@ -60,7 +61,7 @@ internal class ExternalWorkflowHandleImpl(
                         .setSeq(signalSeq)
                         .setWorkflowExecution(buildWorkflowExecution())
                         .setSignalName(signalName)
-                        .addAllArgs(args.payloadsList),
+                        .addAllArgs(args.toProto().payloadsList),
                 ).build()
 
         state.addCommand(command)

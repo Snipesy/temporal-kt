@@ -4,8 +4,10 @@ import com.surrealdev.temporal.activity.ActivityCancelledException
 import com.surrealdev.temporal.activity.ActivityContext
 import com.surrealdev.temporal.activity.ActivityInfo
 import com.surrealdev.temporal.activity.ActivityWorkflowInfo
+import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.annotation.TemporalDsl
 import com.surrealdev.temporal.application.plugin.PluginPipeline
+import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.serialization.deserialize
@@ -13,7 +15,6 @@ import com.surrealdev.temporal.util.AttributeScope
 import com.surrealdev.temporal.util.Attributes
 import com.surrealdev.temporal.util.ExecutionScope
 import com.surrealdev.temporal.util.SimpleAttributeScope
-import io.temporal.api.common.v1.Payload
 import kotlinx.coroutines.test.TestResult
 import kotlinx.coroutines.test.runTest
 import kotlin.coroutines.CoroutineContext
@@ -140,7 +141,7 @@ class ActivityTestHarness(
         }
 
     /**
-     * All heartbeats recorded during activity execution (as Payload objects or nulls).
+     * All heartbeats recorded during activity execution (as TemporalPayload objects or nulls).
      *
      * Use [deserializeHeartbeats] to get typed values.
      */
@@ -156,11 +157,12 @@ class ActivityTestHarness(
      * assertEquals(listOf(1, 2, 3), progress)
      * ```
      */
+    @OptIn(InternalTemporalApi::class)
     inline fun <reified T> deserializeHeartbeats(): List<T?> =
         heartbeats.map { payload ->
             when (payload) {
                 null -> null
-                is Payload -> serializer.deserialize<T>(payload)
+                is TemporalPayload -> serializer.deserialize<T>(payload)
                 else -> payload as? T
             }
         }
@@ -354,7 +356,7 @@ private class TestActivityContext(
     override val isCancellationRequested: Boolean
         get() = isCancelled()
 
-    override suspend fun heartbeatWithPayload(details: Payload?) {
+    override suspend fun heartbeatWithPayload(details: TemporalPayload?) {
         if (isCancellationRequested) {
             throw ActivityCancelledException.Cancelled("Activity cancelled by test harness")
         }

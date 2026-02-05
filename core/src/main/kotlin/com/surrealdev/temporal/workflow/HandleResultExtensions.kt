@@ -2,7 +2,6 @@ package com.surrealdev.temporal.workflow
 
 import com.surrealdev.temporal.client.WorkflowHandle
 import com.surrealdev.temporal.serialization.deserialize
-import io.temporal.api.common.v1.Payload
 import kotlin.reflect.typeOf
 import kotlin.time.Duration
 
@@ -53,12 +52,12 @@ suspend inline fun <reified R> WorkflowHandle.result(timeout: Duration = Duratio
  */
 @PublishedApi
 internal inline fun <reified R> deserializePayload(
-    payload: Payload?,
+    payload: com.surrealdev.temporal.common.TemporalPayload?,
     serializer: com.surrealdev.temporal.serialization.PayloadSerializer,
 ): R {
     val returnType = typeOf<R>()
 
-    return if (payload == null || payload == Payload.getDefaultInstance() || payload.data.isEmpty) {
+    return if (payload == null || payload.data.isEmpty()) {
         // Empty payload
         if (returnType.classifier == Unit::class) {
             Unit as R

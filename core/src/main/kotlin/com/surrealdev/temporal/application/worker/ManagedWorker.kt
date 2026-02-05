@@ -655,6 +655,9 @@ internal class ManagedWorker(
                                     ActivityTaskCompletedContext(
                                         task = task,
                                         activityType = start.activityType,
+                                        activityId = start.activityId,
+                                        workflowId = start.workflowExecution.workflowId,
+                                        runId = start.workflowExecution.runId,
                                         duration = duration,
                                     )
                                 applicationHooks.call(ActivityTaskCompleted, completedContext)
@@ -671,6 +674,9 @@ internal class ManagedWorker(
                                     ActivityTaskFailedContext(
                                         task = task,
                                         activityType = start.activityType,
+                                        activityId = start.activityId,
+                                        workflowId = start.workflowExecution.workflowId,
+                                        runId = start.workflowExecution.runId,
                                         error = e,
                                     )
                                 applicationHooks.call(ActivityTaskFailed, failedContext)

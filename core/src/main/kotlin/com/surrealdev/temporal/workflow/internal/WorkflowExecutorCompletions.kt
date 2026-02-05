@@ -1,5 +1,8 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.common.TemporalPayloads
+import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.workflow.ContinueAsNewException
 import com.surrealdev.temporal.workflow.VersioningIntent
 import coresdk.workflow_commands.WorkflowCommands
@@ -22,6 +25,7 @@ import kotlin.time.toJavaDuration
  * 2. Workflow failure due to an exception
  * 3. Workflow cancellation
  */
+@OptIn(InternalTemporalApi::class)
 internal suspend fun WorkflowExecutor.buildTerminalCompletion(
     result: Deferred<Any?>,
     returnType: kotlin.reflect.KType,
@@ -43,7 +47,7 @@ internal suspend fun WorkflowExecutor.buildTerminalCompletion(
                 Payload.getDefaultInstance()
             } else {
                 val serialized = serializer.serialize(returnType, value)
-                codec.encode(listOf(serialized)).single()
+                codec.encode(TemporalPayloads.of(listOf(serialized)))[0].toProto()
             }
 
         // Build completion command
@@ -195,6 +199,7 @@ internal fun WorkflowExecutor.buildWorkflowCancellationCompletion(): WorkflowCom
  * Builds a continue-as-new completion when the workflow calls continueAsNew().
  * This creates a ContinueAsNewWorkflowExecution command.
  */
+@OptIn(InternalTemporalApi::class)
 internal suspend fun WorkflowExecutor.buildContinueAsNewCompletion(
     exception: ContinueAsNewException,
 ): WorkflowCompletion.WorkflowActivationCompletion {
@@ -210,7 +215,7 @@ internal suspend fun WorkflowExecutor.buildContinueAsNewCompletion(
     // Serialize and add arguments with their type information, then encode with codec
     exception.typedArgs.forEach { (type, value) ->
         val serialized = serializer.serialize(type, value)
-        val encoded = codec.encode(listOf(serialized)).single()
+        val encoded = codec.encode(TemporalPayloads.of(listOf(serialized)))[0].toProto()
         commandBuilder.addArguments(encoded)
     }
 
@@ -222,16 +227,16 @@ internal suspend fun WorkflowExecutor.buildContinueAsNewCompletion(
         commandBuilder.setWorkflowTaskTimeout(it.toProtoDuration())
     }
     options.memo?.let { memo ->
-        commandBuilder.putAllMemo(memo)
+        commandBuilder.putAllMemo(memo.mapValues { (_, v) -> v.toProto() })
     }
     options.searchAttributes?.let { attrs ->
-        commandBuilder.putAllSearchAttributes(attrs)
+        commandBuilder.putAllSearchAttributes(attrs.mapValues { (_, v) -> v.toProto() })
     }
     options.retryPolicy?.let { policy ->
         commandBuilder.setRetryPolicy(policy.toProtoRetryPolicy())
     }
     options.headers?.let { headers ->
-        commandBuilder.putAllHeaders(headers)
+        commandBuilder.putAllHeaders(headers.mapValues { (_, v) -> v.toProto() })
     }
     commandBuilder.setVersioningIntent(options.versioningIntent.toProtoVersioningIntent())
 

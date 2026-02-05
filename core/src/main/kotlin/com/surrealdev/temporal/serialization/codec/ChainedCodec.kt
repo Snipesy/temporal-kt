@@ -1,7 +1,7 @@
 package com.surrealdev.temporal.serialization.codec
 
+import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.serialization.PayloadCodec
-import io.temporal.api.common.v1.Payload
 
 /**
  * Chains multiple codecs together.
@@ -21,7 +21,7 @@ import io.temporal.api.common.v1.Payload
 class ChainedCodec(
     internal val codecs: List<PayloadCodec>,
 ) : PayloadCodec {
-    override suspend fun encode(payloads: List<Payload>): List<Payload> {
+    override suspend fun encode(payloads: TemporalPayloads): TemporalPayloads {
         var result = payloads
         for (codec in codecs) {
             result = codec.encode(result)
@@ -29,7 +29,7 @@ class ChainedCodec(
         return result
     }
 
-    override suspend fun decode(payloads: List<Payload>): List<Payload> {
+    override suspend fun decode(payloads: TemporalPayloads): TemporalPayloads {
         var result = payloads
         for (codec in codecs.reversed()) {
             result = codec.decode(result)

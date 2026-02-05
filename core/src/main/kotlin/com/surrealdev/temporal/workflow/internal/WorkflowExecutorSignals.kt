@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.surrealdev.temporal.common.TemporalPayloads
 import io.temporal.api.common.v1.Payload
 import kotlin.reflect.full.callSuspend
 
@@ -65,13 +66,20 @@ internal suspend fun WorkflowExecutor.handleSignal(
  * Invokes a runtime-registered signal handler.
  */
 private suspend fun WorkflowExecutor.invokeRuntimeSignalHandler(
-    handler: suspend (List<Payload>) -> Unit,
+    handler: suspend (TemporalPayloads) -> Unit,
     args: List<Payload>,
 ) {
     val ctx = (context ?: error("WorkflowContext not initialized")) as WorkflowContextImpl
     ctx.launchHandler {
         try {
-            handler(args)
+            val payloads =
+                TemporalPayloads(
+                    io.temporal.api.common.v1.Payloads
+                        .newBuilder()
+                        .addAllPayloads(args)
+                        .build(),
+                )
+            handler(payloads)
         } catch (e: Exception) {
             // Signal handlers should not fail the workflow
             // Log the error but continue
@@ -84,14 +92,21 @@ private suspend fun WorkflowExecutor.invokeRuntimeSignalHandler(
  * Invokes a runtime-registered dynamic signal handler.
  */
 private suspend fun WorkflowExecutor.invokeRuntimeDynamicSignalHandler(
-    handler: suspend (signalName: String, args: List<Payload>) -> Unit,
+    handler: suspend (signalName: String, args: TemporalPayloads) -> Unit,
     signalName: String,
     args: List<Payload>,
 ) {
     val ctx = (context ?: error("WorkflowContext not initialized")) as WorkflowContextImpl
     ctx.launchHandler {
         try {
-            handler(signalName, args)
+            val payloads =
+                TemporalPayloads(
+                    io.temporal.api.common.v1.Payloads
+                        .newBuilder()
+                        .addAllPayloads(args)
+                        .build(),
+                )
+            handler(signalName, payloads)
         } catch (e: Exception) {
             // Signal handlers should not fail the workflow
             logger.warn("Dynamic signal handler threw exception: {}", e.message, e)

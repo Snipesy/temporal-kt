@@ -1,6 +1,6 @@
 package com.surrealdev.temporal.serialization
 
-import io.temporal.api.common.v1.Payload
+import com.surrealdev.temporal.common.TemporalPayload
 import kotlin.reflect.KType
 import kotlin.reflect.typeOf as kotlinTypeOf
 
@@ -24,8 +24,8 @@ internal inline fun <reified T> typeOf(): KType = kotlinTypeOf<T>()
  * Example implementation using kotlinx.serialization:
  * ```kotlin
  * class KotlinxJsonSerializer(private val json: Json) : PayloadSerializer {
- *     override fun serialize(typeInfo: TypeInfo, value: Any?): Payload { ... }
- *     override fun deserialize(typeInfo: TypeInfo, payload: Payload): Any? { ... }
+ *     override fun serialize(typeInfo: TypeInfo, value: Any?): TemporalPayload { ... }
+ *     override fun deserialize(typeInfo: TypeInfo, payload: TemporalPayload): Any? { ... }
  * }
  * ```
  */
@@ -41,7 +41,7 @@ interface PayloadSerializer {
     fun serialize(
         typeInfo: KType,
         value: Any?,
-    ): Payload
+    ): TemporalPayload
 
     /**
      * Deserializes a Temporal [Payload] to a value.
@@ -53,19 +53,20 @@ interface PayloadSerializer {
      */
     fun deserialize(
         typeInfo: KType,
-        payload: Payload,
+        payload: TemporalPayload,
     ): Any?
 }
 
 /**
  * Convenience extension to serialize with reified type parameter.
  */
-inline fun <reified T> PayloadSerializer.serialize(value: T): Payload = serialize(typeOf<T>(), value)
+inline fun <reified T> PayloadSerializer.serialize(value: T): TemporalPayload = serialize(typeOf<T>(), value)
 
 /**
  * Convenience extension to deserialize with reified type parameter.
  */
-inline fun <reified T> PayloadSerializer.deserialize(payload: Payload): T = deserialize(typeOf<T>(), payload) as T
+inline fun <reified T> PayloadSerializer.deserialize(payload: TemporalPayload): T =
+    deserialize(typeOf<T>(), payload) as T
 
 /**
  * Exception thrown when serialization or deserialization fails.

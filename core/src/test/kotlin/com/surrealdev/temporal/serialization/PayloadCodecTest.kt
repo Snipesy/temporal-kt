@@ -1,6 +1,10 @@
 package com.surrealdev.temporal.serialization
 
 import com.google.protobuf.ByteString
+import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.common.TemporalPayload
+import com.surrealdev.temporal.common.TemporalPayloads
+import com.surrealdev.temporal.common.toTemporal
 import com.surrealdev.temporal.serialization.codec.ChainedCodec
 import com.surrealdev.temporal.serialization.codec.CompressionCodec
 import io.temporal.api.common.v1.Payload
@@ -10,27 +14,28 @@ import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
+@OptIn(InternalTemporalApi::class)
 class PayloadCodecTest {
     private fun createPayload(
         data: String,
         metadata: Map<String, String> = emptyMap(),
-    ): Payload {
+    ): TemporalPayload {
         val builder = Payload.newBuilder().setData(ByteString.copyFromUtf8(data))
         metadata.forEach { (k, v) ->
             builder.putMetadata(k, ByteString.copyFromUtf8(v))
         }
-        return builder.build()
+        return builder.build().toTemporal()
     }
 
     @Test
     fun `NoOpCodec passes payloads through unchanged`() =
         runTest {
             val payload = createPayload("test data")
-            val encoded = NoOpCodec.encode(listOf(payload))
-            assertEquals(listOf(payload), encoded)
+            val encoded = NoOpCodec.encode(TemporalPayloads.of(listOf(payload)))
+            assertEquals(payload, encoded[0])
 
             val decoded = NoOpCodec.decode(encoded)
-            assertEquals(listOf(payload), decoded)
+            assertEquals(payload, decoded[0])
         }
 
     @Test
@@ -40,19 +45,19 @@ class PayloadCodecTest {
             val largeData = "x".repeat(1000)
             val payload = createPayload(largeData)
 
-            val encoded = codec.encode(listOf(payload))
-            val encodedPayload = encoded.single()
+            val encoded = codec.encode(TemporalPayloads.of(listOf(payload)))
+            val encodedPayload = encoded[0]
 
             // Should be compressed (smaller)
-            assertTrue(encodedPayload.data.size() < payload.data.size())
+            assertTrue(encodedPayload.data.size < payload.data.size)
             // Should have encoding metadata
-            assertEquals("binary/gzip", encodedPayload.metadataMap["encoding"]?.toStringUtf8())
+            assertEquals("binary/gzip", encodedPayload.getMetadataString("encoding"))
 
             // Decode should restore original
             val decoded = codec.decode(encoded)
-            assertEquals(largeData, decoded.single().data.toStringUtf8())
+            assertEquals(largeData, String(decoded[0].data))
             // Should remove encoding metadata
-            assertTrue(decoded.single().metadataMap["encoding"] == null)
+            assertTrue(decoded[0].getMetadataString("encoding") == null)
         }
 
     @Test
@@ -62,9 +67,9 @@ class PayloadCodecTest {
             val smallData = "small"
             val payload = createPayload(smallData)
 
-            val encoded = codec.encode(listOf(payload))
+            val encoded = codec.encode(TemporalPayloads.of(listOf(payload)))
             // Should be unchanged
-            assertEquals(payload, encoded.single())
+            assertEquals(payload, encoded[0])
         }
 
     @Test
@@ -74,9 +79,9 @@ class PayloadCodecTest {
             // Small incompressible data
             val payload = createPayload("abc")
 
-            val encoded = codec.encode(listOf(payload))
+            val encoded = codec.encode(TemporalPayloads.of(listOf(payload)))
             // Should be unchanged (compression would increase size)
-            assertEquals(payload, encoded.single())
+            assertEquals(payload, encoded[0])
         }
 
     @Test
@@ -86,18 +91,18 @@ class PayloadCodecTest {
             val largeData = "y".repeat(500)
             val payload = createPayload(largeData, mapOf("custom-key" to "custom-value"))
 
-            val encoded = codec.encode(listOf(payload))
-            val encodedPayload = encoded.single()
+            val encoded = codec.encode(TemporalPayloads.of(listOf(payload)))
+            val encodedPayload = encoded[0]
 
             // Should preserve custom metadata
-            assertEquals("custom-value", encodedPayload.metadataMap["custom-key"]?.toStringUtf8())
+            assertEquals("custom-value", encodedPayload.getMetadataString("custom-key"))
             // Should add encoding metadata
-            assertEquals("binary/gzip", encodedPayload.metadataMap["encoding"]?.toStringUtf8())
+            assertEquals("binary/gzip", encodedPayload.getMetadataString("encoding"))
 
             // After decode, custom metadata should remain, encoding should be removed
             val decoded = codec.decode(encoded)
-            assertEquals("custom-value", decoded.single().metadataMap["custom-key"]?.toStringUtf8())
-            assertTrue(decoded.single().metadataMap["encoding"] == null)
+            assertEquals("custom-value", decoded[0].getMetadataString("custom-key"))
+            assertTrue(decoded[0].getMetadataString("encoding") == null)
         }
 
     @Test
@@ -106,9 +111,9 @@ class PayloadCodecTest {
             val codec = CompressionCodec()
             val payload = createPayload("test", mapOf("encoding" to "binary/other"))
 
-            val decoded = codec.decode(listOf(payload))
+            val decoded = codec.decode(TemporalPayloads.of(listOf(payload)))
             // Should pass through unchanged
-            assertEquals(payload, decoded.single())
+            assertEquals(payload, decoded[0])
         }
 
     @Test
@@ -118,12 +123,12 @@ class PayloadCodecTest {
 
             val codec1 =
                 object : PayloadCodec {
-                    override suspend fun encode(payloads: List<Payload>): List<Payload> {
+                    override suspend fun encode(payloads: TemporalPayloads): TemporalPayloads {
                         order.add("encode-A")
                         return payloads
                     }
 
-                    override suspend fun decode(payloads: List<Payload>): List<Payload> {
+                    override suspend fun decode(payloads: TemporalPayloads): TemporalPayloads {
                         order.add("decode-A")
                         return payloads
                     }
@@ -131,12 +136,12 @@ class PayloadCodecTest {
 
             val codec2 =
                 object : PayloadCodec {
-                    override suspend fun encode(payloads: List<Payload>): List<Payload> {
+                    override suspend fun encode(payloads: TemporalPayloads): TemporalPayloads {
                         order.add("encode-B")
                         return payloads
                     }
 
-                    override suspend fun decode(payloads: List<Payload>): List<Payload> {
+                    override suspend fun decode(payloads: TemporalPayloads): TemporalPayloads {
                         order.add("decode-B")
                         return payloads
                     }
@@ -145,11 +150,11 @@ class PayloadCodecTest {
             val chained = ChainedCodec(listOf(codec1, codec2))
             val payload = createPayload("test")
 
-            chained.encode(listOf(payload))
+            chained.encode(TemporalPayloads.of(listOf(payload)))
             assertEquals(listOf("encode-A", "encode-B"), order)
 
             order.clear()
-            chained.decode(listOf(payload))
+            chained.decode(TemporalPayloads.of(listOf(payload)))
             assertEquals(listOf("decode-B", "decode-A"), order)
         }
 
@@ -163,11 +168,11 @@ class PayloadCodecTest {
             val largeData = "z".repeat(500)
             val payload = createPayload(largeData)
 
-            val encoded = chained.encode(listOf(payload))
-            assertNotEquals(payload, encoded.single()) // Should be modified (compressed)
+            val encoded = chained.encode(TemporalPayloads.of(listOf(payload)))
+            assertNotEquals(payload, encoded[0]) // Should be modified (compressed)
 
             val decoded = chained.decode(encoded)
-            assertEquals(largeData, decoded.single().data.toStringUtf8())
+            assertEquals(largeData, String(decoded[0].data))
         }
 
     @Test
@@ -176,10 +181,10 @@ class PayloadCodecTest {
             val chained = ChainedCodec(emptyList())
             val payload = createPayload("test")
 
-            val encoded = chained.encode(listOf(payload))
-            assertEquals(listOf(payload), encoded)
+            val encoded = chained.encode(TemporalPayloads.of(listOf(payload)))
+            assertEquals(payload, encoded[0])
 
             val decoded = chained.decode(encoded)
-            assertEquals(listOf(payload), decoded)
+            assertEquals(payload, decoded[0])
         }
 }

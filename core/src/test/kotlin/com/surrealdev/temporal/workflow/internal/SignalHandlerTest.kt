@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.annotation.Signal
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
@@ -558,6 +559,7 @@ class SignalHandlerTest {
         suspend fun WorkflowContext.run(): String {
             // Register a runtime signal handler
             setSignalHandlerWithPayloads("runtimeSignal") { payloads ->
+                @OptIn(InternalTemporalApi::class)
                 val value = serializer.deserialize<String>(payloads[0])
                 runtimeValue = value
             }
@@ -672,6 +674,7 @@ class SignalHandlerTest {
 
             // Now register the handler - buffered signals should be replayed
             setSignalHandlerWithPayloads("bufferedSignal") { payloads ->
+                @OptIn(InternalTemporalApi::class)
                 val value = serializer.deserialize<String>(payloads[0])
                 receivedSignals.add(value)
             }
@@ -786,6 +789,7 @@ class SignalHandlerTest {
             awaitCondition { handlerRegistered }
 
             setSignalHandlerWithPayloads("dataSignal") { payloads ->
+                @OptIn(InternalTemporalApi::class)
                 val value = serializer.deserialize(payloads[0]) as String
                 receivedValues.add(value)
             }

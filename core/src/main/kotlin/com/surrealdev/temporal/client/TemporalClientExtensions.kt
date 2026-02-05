@@ -1,8 +1,10 @@
 package com.surrealdev.temporal.client
 
+import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.common.TemporalPayloads
+import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.serialization.serialize
 import com.surrealdev.temporal.workflow.getWorkflowType
-import io.temporal.api.common.v1.Payloads
 import java.util.UUID
 import kotlin.reflect.KClass
 
@@ -15,6 +17,7 @@ import kotlin.reflect.KClass
  * @param options Additional workflow options.
  * @return A handle to the started workflow execution.
  */
+@OptIn(InternalTemporalApi::class)
 suspend fun TemporalClient.startWorkflow(
     workflowType: String,
     taskQueue: String,
@@ -25,7 +28,7 @@ suspend fun TemporalClient.startWorkflow(
         workflowType = workflowType,
         taskQueue = taskQueue,
         workflowId = workflowId,
-        args = Payloads.getDefaultInstance(),
+        args = TemporalPayloads.EMPTY.toProto(),
         options = options,
     )
 
@@ -40,6 +43,7 @@ suspend fun TemporalClient.startWorkflow(
  * @param options Additional workflow options.
  * @return A handle to the started workflow execution.
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T> TemporalClient.startWorkflow(
     workflowType: String,
     taskQueue: String,
@@ -47,17 +51,14 @@ suspend inline fun <reified T> TemporalClient.startWorkflow(
     arg: T,
     options: WorkflowStartOptions = WorkflowStartOptions(),
 ): WorkflowHandle {
-    val payloads =
-        Payloads
-            .newBuilder()
-            .addPayloads(serializer.serialize(arg))
-            .build()
+    val payload = serializer.serialize(arg)
+    val payloads = TemporalPayloads.of(listOf(payload))
 
     return this.startWorkflowWithPayloads(
         workflowType = workflowType,
         taskQueue = taskQueue,
         workflowId = workflowId,
-        args = payloads,
+        args = payloads.toProto(),
         options = options,
     )
 }
@@ -75,6 +76,7 @@ suspend inline fun <reified T> TemporalClient.startWorkflow(
  * @param options Additional workflow options.
  * @return A handle to the started workflow execution.
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T1, reified T2> TemporalClient.startWorkflow(
     workflowType: String,
     taskQueue: String,
@@ -83,18 +85,15 @@ suspend inline fun <reified T1, reified T2> TemporalClient.startWorkflow(
     arg2: T2,
     options: WorkflowStartOptions = WorkflowStartOptions(),
 ): WorkflowHandle {
-    val payloads =
-        Payloads
-            .newBuilder()
-            .addPayloads(serializer.serialize(arg1))
-            .addPayloads(serializer.serialize(arg2))
-            .build()
+    val payload1 = serializer.serialize(arg1)
+    val payload2 = serializer.serialize(arg2)
+    val payloads = TemporalPayloads.of(listOf(payload1, payload2))
 
     return this.startWorkflowWithPayloads(
         workflowType = workflowType,
         taskQueue = taskQueue,
         workflowId = workflowId,
-        args = payloads,
+        args = payloads.toProto(),
         options = options,
     )
 }
@@ -114,6 +113,7 @@ suspend inline fun <reified T1, reified T2> TemporalClient.startWorkflow(
  * @param options Additional workflow options.
  * @return A handle to the started workflow execution.
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T1, reified T2, reified T3> TemporalClient.startWorkflow(
     workflowType: String,
     taskQueue: String,
@@ -123,19 +123,16 @@ suspend inline fun <reified T1, reified T2, reified T3> TemporalClient.startWork
     arg3: T3,
     options: WorkflowStartOptions = WorkflowStartOptions(),
 ): WorkflowHandle {
-    val payloads =
-        Payloads
-            .newBuilder()
-            .addPayloads(serializer.serialize(arg1))
-            .addPayloads(serializer.serialize(arg2))
-            .addPayloads(serializer.serialize(arg3))
-            .build()
+    val payload1 = serializer.serialize(arg1)
+    val payload2 = serializer.serialize(arg2)
+    val payload3 = serializer.serialize(arg3)
+    val payloads = TemporalPayloads.of(listOf(payload1, payload2, payload3))
 
     return this.startWorkflowWithPayloads(
         workflowType = workflowType,
         taskQueue = taskQueue,
         workflowId = workflowId,
-        args = payloads,
+        args = payloads.toProto(),
         options = options,
     )
 }
@@ -157,6 +154,7 @@ suspend inline fun <reified T1, reified T2, reified T3> TemporalClient.startWork
  * @param options Additional workflow options.
  * @return A handle to the started workflow execution.
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T1, reified T2, reified T3, reified T4> TemporalClient.startWorkflow(
     workflowType: String,
     taskQueue: String,
@@ -167,20 +165,17 @@ suspend inline fun <reified T1, reified T2, reified T3, reified T4> TemporalClie
     arg4: T4,
     options: WorkflowStartOptions = WorkflowStartOptions(),
 ): WorkflowHandle {
-    val payloads =
-        Payloads
-            .newBuilder()
-            .addPayloads(serializer.serialize(arg1))
-            .addPayloads(serializer.serialize(arg2))
-            .addPayloads(serializer.serialize(arg3))
-            .addPayloads(serializer.serialize(arg4))
-            .build()
+    val payload1 = serializer.serialize(arg1)
+    val payload2 = serializer.serialize(arg2)
+    val payload3 = serializer.serialize(arg3)
+    val payload4 = serializer.serialize(arg4)
+    val payloads = TemporalPayloads.of(listOf(payload1, payload2, payload3, payload4))
 
     return this.startWorkflowWithPayloads(
         workflowType = workflowType,
         taskQueue = taskQueue,
         workflowId = workflowId,
-        args = payloads,
+        args = payloads.toProto(),
         options = options,
     )
 }
@@ -201,6 +196,7 @@ suspend inline fun <reified T1, reified T2, reified T3, reified T4> TemporalClie
  * @param options Additional workflow options.
  * @return A handle to the started workflow execution.
  */
+@OptIn(InternalTemporalApi::class)
 suspend fun TemporalClient.startWorkflow(
     workflowClass: KClass<*>,
     taskQueue: String,
@@ -211,7 +207,7 @@ suspend fun TemporalClient.startWorkflow(
         workflowType = workflowClass.getWorkflowType(),
         taskQueue = taskQueue,
         workflowId = workflowId,
-        args = Payloads.getDefaultInstance(),
+        args = TemporalPayloads.EMPTY.toProto(),
         options = options,
     )
 
@@ -226,6 +222,7 @@ suspend fun TemporalClient.startWorkflow(
  * @param options Additional workflow options.
  * @return A handle to the started workflow execution.
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T> TemporalClient.startWorkflow(
     workflowClass: KClass<*>,
     taskQueue: String,
@@ -233,17 +230,14 @@ suspend inline fun <reified T> TemporalClient.startWorkflow(
     arg: T,
     options: WorkflowStartOptions = WorkflowStartOptions(),
 ): WorkflowHandle {
-    val payloads =
-        Payloads
-            .newBuilder()
-            .addPayloads(serializer.serialize(arg))
-            .build()
+    val payload = serializer.serialize(arg)
+    val payloads = TemporalPayloads.of(listOf(payload))
 
     return this.startWorkflowWithPayloads(
         workflowType = workflowClass.getWorkflowType(),
         taskQueue = taskQueue,
         workflowId = workflowId,
-        args = payloads,
+        args = payloads.toProto(),
         options = options,
     )
 }
@@ -261,6 +255,7 @@ suspend inline fun <reified T> TemporalClient.startWorkflow(
  * @param options Additional workflow options.
  * @return A handle to the started workflow execution.
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T1, reified T2> TemporalClient.startWorkflow(
     workflowClass: KClass<*>,
     taskQueue: String,
@@ -269,18 +264,15 @@ suspend inline fun <reified T1, reified T2> TemporalClient.startWorkflow(
     arg2: T2,
     options: WorkflowStartOptions = WorkflowStartOptions(),
 ): WorkflowHandle {
-    val payloads =
-        Payloads
-            .newBuilder()
-            .addPayloads(serializer.serialize(arg1))
-            .addPayloads(serializer.serialize(arg2))
-            .build()
+    val payload1 = serializer.serialize(arg1)
+    val payload2 = serializer.serialize(arg2)
+    val payloads = TemporalPayloads.of(listOf(payload1, payload2))
 
     return this.startWorkflowWithPayloads(
         workflowType = workflowClass.getWorkflowType(),
         taskQueue = taskQueue,
         workflowId = workflowId,
-        args = payloads,
+        args = payloads.toProto(),
         options = options,
     )
 }
@@ -300,6 +292,7 @@ suspend inline fun <reified T1, reified T2> TemporalClient.startWorkflow(
  * @param options Additional workflow options.
  * @return A handle to the started workflow execution.
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T1, reified T2, reified T3> TemporalClient.startWorkflow(
     workflowClass: KClass<*>,
     taskQueue: String,
@@ -309,19 +302,16 @@ suspend inline fun <reified T1, reified T2, reified T3> TemporalClient.startWork
     arg3: T3,
     options: WorkflowStartOptions = WorkflowStartOptions(),
 ): WorkflowHandle {
-    val payloads =
-        Payloads
-            .newBuilder()
-            .addPayloads(serializer.serialize(arg1))
-            .addPayloads(serializer.serialize(arg2))
-            .addPayloads(serializer.serialize(arg3))
-            .build()
+    val payload1 = serializer.serialize(arg1)
+    val payload2 = serializer.serialize(arg2)
+    val payload3 = serializer.serialize(arg3)
+    val payloads = TemporalPayloads.of(listOf(payload1, payload2, payload3))
 
     return this.startWorkflowWithPayloads(
         workflowType = workflowClass.getWorkflowType(),
         taskQueue = taskQueue,
         workflowId = workflowId,
-        args = payloads,
+        args = payloads.toProto(),
         options = options,
     )
 }
@@ -343,6 +333,7 @@ suspend inline fun <reified T1, reified T2, reified T3> TemporalClient.startWork
  * @param options Additional workflow options.
  * @return A handle to the started workflow execution.
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T1, reified T2, reified T3, reified T4> TemporalClient.startWorkflow(
     workflowClass: KClass<*>,
     taskQueue: String,
@@ -353,20 +344,17 @@ suspend inline fun <reified T1, reified T2, reified T3, reified T4> TemporalClie
     arg4: T4,
     options: WorkflowStartOptions = WorkflowStartOptions(),
 ): WorkflowHandle {
-    val payloads =
-        Payloads
-            .newBuilder()
-            .addPayloads(serializer.serialize(arg1))
-            .addPayloads(serializer.serialize(arg2))
-            .addPayloads(serializer.serialize(arg3))
-            .addPayloads(serializer.serialize(arg4))
-            .build()
+    val payload1 = serializer.serialize(arg1)
+    val payload2 = serializer.serialize(arg2)
+    val payload3 = serializer.serialize(arg3)
+    val payload4 = serializer.serialize(arg4)
+    val payloads = TemporalPayloads.of(listOf(payload1, payload2, payload3, payload4))
 
     return this.startWorkflowWithPayloads(
         workflowType = workflowClass.getWorkflowType(),
         taskQueue = taskQueue,
         workflowId = workflowId,
-        args = payloads,
+        args = payloads.toProto(),
         options = options,
     )
 }

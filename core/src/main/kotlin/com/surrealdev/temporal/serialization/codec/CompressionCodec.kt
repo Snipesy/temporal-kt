@@ -1,8 +1,10 @@
 package com.surrealdev.temporal.serialization.codec
 
 import com.google.protobuf.ByteString
+import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.common.TemporalPayload
+import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.serialization.PayloadCodec
-import io.temporal.api.common.v1.Payload
 import java.io.ByteArrayOutputStream
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
@@ -36,57 +38,66 @@ private const val ENCODING_GZIP = "binary/gzip"
 class CompressionCodec(
     private val threshold: Int = 256,
 ) : PayloadCodec {
-    override suspend fun encode(payloads: List<Payload>): List<Payload> = payloads.map { encodePayload(it) }
+    @OptIn(InternalTemporalApi::class)
+    override suspend fun encode(payloads: TemporalPayloads): TemporalPayloads =
+        TemporalPayloads.of(payloads.payloads.map { encodePayload(it) })
 
-    override suspend fun decode(payloads: List<Payload>): List<Payload> = payloads.map { decodePayload(it) }
+    @OptIn(InternalTemporalApi::class)
+    override suspend fun decode(payloads: TemporalPayloads): TemporalPayloads =
+        TemporalPayloads.of(payloads.payloads.map { decodePayload(it) })
 
-    private fun encodePayload(payload: Payload): Payload {
+    @OptIn(InternalTemporalApi::class)
+    private fun encodePayload(payload: TemporalPayload): TemporalPayload {
         // Check if already encoded by this codec (pass through)
-        if (payload.metadataMap[METADATA_ENCODING]?.toStringUtf8() == ENCODING_GZIP) {
+        if (payload.proto.metadataMap[METADATA_ENCODING]?.toStringUtf8() == ENCODING_GZIP) {
             return payload
         }
 
         // Check threshold - don't compress small payloads
-        if (payload.data.size() < threshold) {
+        if (payload.proto.data.size() < threshold) {
             return payload
         }
 
         // Compress the data
-        val compressed = compress(payload.data.toByteArray())
+        val compressed = compress(payload.proto.data.toByteArray())
 
         // Only use compression if it actually reduces size
-        if (compressed.size >= payload.data.size()) {
+        if (compressed.size >= payload.proto.data.size()) {
             return payload
         }
 
         // Build new payload preserving existing metadata and adding encoding marker
-        return Payload
-            .newBuilder()
-            .putAllMetadata(payload.metadataMap)
-            .putMetadata(METADATA_ENCODING, ByteString.copyFromUtf8(ENCODING_GZIP))
-            .setData(ByteString.copyFrom(compressed))
-            .build()
+        val proto =
+            io.temporal.api.common.v1.Payload
+                .newBuilder()
+                .putAllMetadata(payload.proto.metadataMap)
+                .putMetadata(METADATA_ENCODING, ByteString.copyFromUtf8(ENCODING_GZIP))
+                .setData(ByteString.copyFrom(compressed))
+                .build()
+        return TemporalPayload(proto)
     }
 
-    private fun decodePayload(payload: Payload): Payload {
+    private fun decodePayload(payload: TemporalPayload): TemporalPayload {
         // Check if this payload was compressed by this codec
-        val encoding = payload.metadataMap[METADATA_ENCODING]?.toStringUtf8()
+        val encoding = payload.proto.metadataMap[METADATA_ENCODING]?.toStringUtf8()
         if (encoding != ENCODING_GZIP) {
             return payload // Pass through non-compressed payloads
         }
 
         // Decompress the data
-        val decompressed = decompress(payload.data.toByteArray())
+        val decompressed = decompress(payload.proto.data.toByteArray())
 
         // Build new payload, removing the gzip encoding marker
-        val newMetadata = payload.metadataMap.toMutableMap()
+        val newMetadata = payload.proto.metadataMap.toMutableMap()
         newMetadata.remove(METADATA_ENCODING)
 
-        return Payload
-            .newBuilder()
-            .putAllMetadata(newMetadata)
-            .setData(ByteString.copyFrom(decompressed))
-            .build()
+        val proto =
+            io.temporal.api.common.v1.Payload
+                .newBuilder()
+                .putAllMetadata(newMetadata)
+                .setData(ByteString.copyFrom(decompressed))
+                .build()
+        return TemporalPayload(proto)
     }
 
     private fun compress(data: ByteArray): ByteArray {

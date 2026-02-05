@@ -3,6 +3,7 @@ package com.surrealdev.temporal.workflow.internal
 import com.google.protobuf.ByteString
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
+import com.surrealdev.temporal.common.toTemporal
 import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
 import com.surrealdev.temporal.testing.ProtoTestHelpers.createActivation
 import com.surrealdev.temporal.testing.ProtoTestHelpers.fireTimerJob
@@ -369,7 +370,7 @@ class LocalActivityActivationTest {
             val resolveActivation =
                 createActivation(
                     runId = runId,
-                    jobs = listOf(resolveLocalActivityJobCompleted(seq = 1, result = resultPayload)),
+                    jobs = listOf(resolveLocalActivityJobCompleted(seq = 1, result = resultPayload.toTemporal())),
                 )
             executor.activate(resolveActivation)
 
@@ -464,7 +465,13 @@ class LocalActivityActivationTest {
             val resolveActivation =
                 createActivation(
                     runId = runId,
-                    jobs = listOf(resolveLocalActivityJobCompleted(seq = newScheduleCmd.seq, result = resultPayload)),
+                    jobs =
+                        listOf(
+                            resolveLocalActivityJobCompleted(
+                                seq = newScheduleCmd.seq,
+                                result = resultPayload.toTemporal(),
+                            ),
+                        ),
                 )
             executor.activate(resolveActivation)
 
@@ -721,7 +728,10 @@ class LocalActivityActivationTest {
             executor.activate(
                 createActivation(
                     runId = runId,
-                    jobs = listOf(resolveLocalActivityJobCompleted(seq = schedule4.seq, result = resultPayload)),
+                    jobs =
+                        listOf(
+                            resolveLocalActivityJobCompleted(seq = schedule4.seq, result = resultPayload.toTemporal()),
+                        ),
                 ),
             )
         }
@@ -834,7 +844,7 @@ class LocalActivityActivationTest {
             val resolveActivation =
                 createActivation(
                     runId = runId,
-                    jobs = listOf(resolveLocalActivityJobCompleted(seq = 1, result = resultPayload)),
+                    jobs = listOf(resolveLocalActivityJobCompleted(seq = 1, result = resultPayload.toTemporal())),
                 )
             executor.activate(resolveActivation)
 

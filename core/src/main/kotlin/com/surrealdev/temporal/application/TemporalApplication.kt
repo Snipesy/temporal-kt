@@ -69,7 +69,7 @@ import kotlin.time.Duration.Companion.minutes
 typealias DynamicActivityHandler = suspend ActivityContext.(
     activityType: String,
     payloads: EncodedPayloads,
-) -> Payload?
+) -> com.surrealdev.temporal.common.TemporalPayload?
 
 /**
  * A Temporal application that manages workers and client connections.

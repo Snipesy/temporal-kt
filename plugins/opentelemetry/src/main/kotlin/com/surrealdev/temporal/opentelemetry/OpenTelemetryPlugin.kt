@@ -197,11 +197,10 @@ val OpenTelemetryPlugin =
             on(
                 com.surrealdev.temporal.application.plugin.hooks.ActivityTaskCompleted,
             ) { ctx: ActivityTaskCompletedContext ->
-                // Extract activity info from the task
-                val start = ctx.task.start
-                val workflowId = start.workflowExecution.workflowId
-                val runId = start.workflowExecution.runId
-                val activityId = start.activityId
+                // Extract activity info from the context
+                val workflowId = ctx.workflowId
+                val runId = ctx.runId
+                val activityId = ctx.activityId
 
                 val spanWithContext = spanHolder.removeActivitySpan(workflowId, runId, activityId)
                 if (spanWithContext != null) {
@@ -233,11 +232,10 @@ val OpenTelemetryPlugin =
             }
 
             on(com.surrealdev.temporal.application.plugin.hooks.ActivityTaskFailed) { ctx: ActivityTaskFailedContext ->
-                // Extract activity info from the task
-                val start = ctx.task.start
-                val workflowId = start.workflowExecution.workflowId
-                val runId = start.workflowExecution.runId
-                val activityId = start.activityId
+                // Extract activity info from the context
+                val workflowId = ctx.workflowId
+                val runId = ctx.runId
+                val activityId = ctx.activityId
 
                 val spanWithContext = spanHolder.removeActivitySpan(workflowId, runId, activityId)
                 if (spanWithContext != null) {

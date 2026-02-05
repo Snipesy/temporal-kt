@@ -1,9 +1,10 @@
 package com.surrealdev.temporal.workflow
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.common.TemporalPayload
+import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.TypedSearchAttributes
 import com.surrealdev.temporal.serialization.PayloadSerializer
-import io.temporal.api.common.v1.Payloads
 import kotlinx.coroutines.CoroutineScope
 import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration
@@ -79,7 +80,7 @@ interface WorkflowContext :
     @InternalTemporalApi
     suspend fun startActivityWithPayloads(
         activityType: String,
-        args: Payloads,
+        args: TemporalPayloads,
         options: ActivityOptions = ActivityOptions(),
     ): RemoteActivityHandle
 
@@ -107,7 +108,7 @@ interface WorkflowContext :
     @InternalTemporalApi
     suspend fun startLocalActivityWithPayloads(
         activityType: String,
-        args: Payloads,
+        args: TemporalPayloads,
         options: LocalActivityOptions = LocalActivityOptions(startToCloseTimeout = Duration.parse("10s")),
     ): LocalActivityHandle
 
@@ -265,7 +266,7 @@ interface WorkflowContext :
     @InternalTemporalApi
     suspend fun startChildWorkflowWithPayloads(
         workflowType: String,
-        args: Payloads,
+        args: TemporalPayloads,
         options: ChildWorkflowOptions = ChildWorkflowOptions(),
     ): ChildWorkflowHandle
 
@@ -296,7 +297,7 @@ interface WorkflowContext :
     @InternalTemporalApi
     fun setQueryHandlerWithPayloads(
         name: String,
-        handler: (suspend (List<io.temporal.api.common.v1.Payload>) -> io.temporal.api.common.v1.Payload)?,
+        handler: (suspend (TemporalPayloads) -> TemporalPayload)?,
     )
 
     /**
@@ -321,8 +322,8 @@ interface WorkflowContext :
         handler: (
             suspend (
                 queryType: String,
-                args: List<io.temporal.api.common.v1.Payload>,
-            ) -> io.temporal.api.common.v1.Payload
+                args: TemporalPayloads,
+            ) -> TemporalPayload
         )?,
     )
 
@@ -352,7 +353,7 @@ interface WorkflowContext :
     @InternalTemporalApi
     fun setSignalHandlerWithPayloads(
         name: String,
-        handler: (suspend (List<io.temporal.api.common.v1.Payload>) -> Unit)?,
+        handler: (suspend (TemporalPayloads) -> Unit)?,
     )
 
     /**
@@ -374,7 +375,12 @@ interface WorkflowContext :
      * @param handler The handler function, or null to unregister
      */
     fun setDynamicSignalHandlerWithPayloads(
-        handler: (suspend (signalName: String, args: List<io.temporal.api.common.v1.Payload>) -> Unit)?,
+        handler: (
+            suspend (
+                signalName: String,
+                args: TemporalPayloads,
+            ) -> Unit
+        )?,
     )
 
     /**
@@ -405,8 +411,8 @@ interface WorkflowContext :
     @InternalTemporalApi
     fun setUpdateHandlerWithPayloads(
         name: String,
-        handler: (suspend (List<io.temporal.api.common.v1.Payload>) -> io.temporal.api.common.v1.Payload)?,
-        validator: ((List<io.temporal.api.common.v1.Payload>) -> Unit)? = null,
+        handler: (suspend (TemporalPayloads) -> TemporalPayload)?,
+        validator: ((TemporalPayloads) -> Unit)? = null,
     )
 
     /**
@@ -437,10 +443,10 @@ interface WorkflowContext :
         handler: (
             suspend (
                 updateName: String,
-                args: List<io.temporal.api.common.v1.Payload>,
-            ) -> io.temporal.api.common.v1.Payload
+                args: TemporalPayloads,
+            ) -> TemporalPayload
         )?,
-        validator: ((updateName: String, args: List<io.temporal.api.common.v1.Payload>) -> Unit)? = null,
+        validator: ((updateName: String, args: TemporalPayloads) -> Unit)? = null,
     )
 
     /**
@@ -563,7 +569,7 @@ data class ActivityOptions(
     /** Whether this activity should run on a versioned worker. */
     val versioningIntent: VersioningIntent = VersioningIntent.UNSPECIFIED,
     /** Headers for context propagation, tracing, and auth. Payloads allow typed serialization. */
-    val headers: Map<String, io.temporal.api.common.v1.Payload>? = null,
+    val headers: Map<String, TemporalPayload>? = null,
     /**
      * Priority for this activity task. Higher priority tasks are scheduled first.
      * Note: Server support for priority is not yet available. This is a placeholder.
@@ -746,14 +752,14 @@ data class ContinueAsNewOptions(
      * - empty map: clear memo
      * - non-empty map: use specified memo
      */
-    val memo: Map<String, io.temporal.api.common.v1.Payload>? = null,
+    val memo: Map<String, TemporalPayload>? = null,
     /**
      * Search attributes for the new execution.
      * - null: inherit current search attributes
      * - empty map: clear search attributes
      * - non-empty map: use specified search attributes
      */
-    val searchAttributes: Map<String, io.temporal.api.common.v1.Payload>? = null,
+    val searchAttributes: Map<String, TemporalPayload>? = null,
     /**
      * Retry policy for the new execution.
      * - null: inherit current retry policy
@@ -764,7 +770,7 @@ data class ContinueAsNewOptions(
      * Headers for the new execution.
      * NOT inherited - must be explicitly provided if needed.
      */
-    val headers: Map<String, io.temporal.api.common.v1.Payload>? = null,
+    val headers: Map<String, TemporalPayload>? = null,
     /**
      * Versioning intent for the new execution.
      */

@@ -3,6 +3,9 @@ package com.surrealdev.temporal.testing
 import com.google.protobuf.ByteString
 import com.google.protobuf.Duration
 import com.google.protobuf.Timestamp
+import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.common.TemporalPayload
+import com.surrealdev.temporal.common.toProto
 import coresdk.activity_result.ActivityResult
 import coresdk.child_workflow.ChildWorkflow
 import coresdk.workflow_activation.WorkflowActivationOuterClass
@@ -33,6 +36,7 @@ import java.util.UUID
  * Factory functions for creating proto objects for testing purposes.
  * These helpers allow creating activation jobs without mocking frameworks.
  */
+@OptIn(InternalTemporalApi::class)
 object ProtoTestHelpers {
     /**
      * Creates a WorkflowActivation with the given jobs.
@@ -65,7 +69,7 @@ object ProtoTestHelpers {
     fun initializeWorkflowJob(
         workflowId: String = "test-workflow-${UUID.randomUUID()}",
         workflowType: String = "TestWorkflow",
-        arguments: List<Payload> = emptyList(),
+        arguments: List<TemporalPayload> = emptyList(),
         randomnessSeed: Long = 12345L,
         attempt: Int = 1,
     ): WorkflowActivationJob {
@@ -76,7 +80,7 @@ object ProtoTestHelpers {
                 .setWorkflowType(workflowType)
                 .setRandomnessSeed(randomnessSeed)
                 .setAttempt(attempt)
-                .addAllArguments(arguments)
+                .addAllArguments(arguments.map { it.toProto() })
                 .build()
 
         return WorkflowActivationJob
@@ -106,12 +110,12 @@ object ProtoTestHelpers {
      */
     fun resolveActivityJobCompleted(
         seq: Int,
-        result: Payload = Payload.getDefaultInstance(),
+        result: TemporalPayload? = null,
     ): WorkflowActivationJob {
         val completed =
             ActivityResult.Success
                 .newBuilder()
-                .setResult(result)
+                .setResult(result?.toProto() ?: Payload.getDefaultInstance())
                 .build()
 
         val resolution =
@@ -209,12 +213,12 @@ object ProtoTestHelpers {
      */
     fun resolveLocalActivityJobCompleted(
         seq: Int,
-        result: Payload = Payload.getDefaultInstance(),
+        result: TemporalPayload? = null,
     ): WorkflowActivationJob {
         val completed =
             ActivityResult.Success
                 .newBuilder()
-                .setResult(result)
+                .setResult(result?.toProto() ?: Payload.getDefaultInstance())
                 .build()
 
         val resolution =
@@ -472,14 +476,14 @@ object ProtoTestHelpers {
     fun queryWorkflowJob(
         queryId: String = UUID.randomUUID().toString(),
         queryType: String = "TestQuery",
-        arguments: List<Payload> = emptyList(),
+        arguments: List<TemporalPayload> = emptyList(),
     ): WorkflowActivationJob {
         val query =
             QueryWorkflow
                 .newBuilder()
                 .setQueryId(queryId)
                 .setQueryType(queryType)
-                .addAllArguments(arguments)
+                .addAllArguments(arguments.map { it.toProto() })
                 .build()
 
         return WorkflowActivationJob
@@ -493,13 +497,13 @@ object ProtoTestHelpers {
      */
     fun signalWorkflowJob(
         signalName: String = "TestSignal",
-        input: List<Payload> = emptyList(),
+        input: List<TemporalPayload> = emptyList(),
     ): WorkflowActivationJob {
         val signal =
             SignalWorkflow
                 .newBuilder()
                 .setSignalName(signalName)
-                .addAllInput(input)
+                .addAllInput(input.map { it.toProto() })
                 .build()
 
         return WorkflowActivationJob
@@ -521,7 +525,7 @@ object ProtoTestHelpers {
         id: String = UUID.randomUUID().toString(),
         protocolInstanceId: String = "update-protocol-${UUID.randomUUID()}",
         name: String = "TestUpdate",
-        input: List<Payload> = emptyList(),
+        input: List<TemporalPayload> = emptyList(),
         runValidator: Boolean = true,
     ): WorkflowActivationJob {
         val update =
@@ -530,7 +534,7 @@ object ProtoTestHelpers {
                 .setId(id)
                 .setProtocolInstanceId(protocolInstanceId)
                 .setName(name)
-                .addAllInput(input)
+                .addAllInput(input.map { it.toProto() })
                 .setRunValidator(runValidator)
                 .build()
 
@@ -693,7 +697,7 @@ object ProtoTestHelpers {
      */
     fun resolveChildWorkflowExecutionJob(
         seq: Int,
-        result: Payload = Payload.getDefaultInstance(),
+        result: TemporalPayload? = null,
     ): WorkflowActivationJob {
         val childResult =
             ChildWorkflow.ChildWorkflowResult
@@ -701,7 +705,7 @@ object ProtoTestHelpers {
                 .setCompleted(
                     ChildWorkflow.Success
                         .newBuilder()
-                        .setResult(result)
+                        .setResult(result?.toProto() ?: Payload.getDefaultInstance())
                         .build(),
                 ).build()
 

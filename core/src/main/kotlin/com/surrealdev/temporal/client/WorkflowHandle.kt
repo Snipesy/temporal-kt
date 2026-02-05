@@ -3,10 +3,13 @@ package com.surrealdev.temporal.client
 import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.client.history.WorkflowHistory
 import com.surrealdev.temporal.client.internal.WorkflowServiceClient
+import com.surrealdev.temporal.common.TemporalPayload
+import com.surrealdev.temporal.common.TemporalPayloads
+import com.surrealdev.temporal.common.toProto
+import com.surrealdev.temporal.common.toTemporal
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.workflow.WorkflowHandleBase
-import io.temporal.api.common.v1.Payloads
 import io.temporal.api.common.v1.WorkflowExecution
 import io.temporal.api.enums.v1.EventType
 import io.temporal.api.enums.v1.HistoryEventFilterType
@@ -59,7 +62,7 @@ interface WorkflowHandle : WorkflowHandleBase {
      * @throws WorkflowResultTimeoutException if waiting for the result timed out.
      */
     @InternalTemporalApi
-    suspend fun resultPayload(timeout: Duration = Duration.INFINITE): io.temporal.api.common.v1.Payload?
+    suspend fun resultPayload(timeout: Duration = Duration.INFINITE): TemporalPayload?
 
     /**
      * Sends a signal to the workflow.
@@ -73,7 +76,7 @@ interface WorkflowHandle : WorkflowHandleBase {
     @InternalTemporalApi
     override suspend fun signalWithPayloads(
         signalName: String,
-        args: Payloads,
+        args: TemporalPayloads,
     )
 
     /**
@@ -91,8 +94,8 @@ interface WorkflowHandle : WorkflowHandleBase {
     @InternalTemporalApi
     suspend fun updateWithPayloads(
         updateName: String,
-        args: Payloads,
-    ): Payloads
+        args: TemporalPayloads,
+    ): TemporalPayloads
 
     /**
      * Queries the workflow for its current state.
@@ -108,8 +111,8 @@ interface WorkflowHandle : WorkflowHandleBase {
     @InternalTemporalApi
     suspend fun queryWithPayloads(
         queryType: String,
-        args: Payloads,
-    ): Payloads
+        args: TemporalPayloads,
+    ): TemporalPayloads
 
     /**
      * Requests cancellation of the workflow.
@@ -156,7 +159,8 @@ internal class WorkflowHandleImpl(
     override val serializer: PayloadSerializer,
     internal val codec: PayloadCodec,
 ) : WorkflowHandle {
-    override suspend fun resultPayload(timeout: Duration): io.temporal.api.common.v1.Payload? {
+    @OptIn(InternalTemporalApi::class)
+    override suspend fun resultPayload(timeout: Duration): TemporalPayload? {
         val startTime = System.currentTimeMillis()
         val timeoutMillis = if (timeout == Duration.INFINITE) Long.MAX_VALUE else timeout.inWholeMilliseconds
 
@@ -240,17 +244,18 @@ internal class WorkflowHandleImpl(
             )
     }
 
+    @OptIn(InternalTemporalApi::class)
     private suspend fun handleCloseEvent(
         event: HistoryEvent,
         remainingTimeout: Duration,
-    ): io.temporal.api.common.v1.Payload? =
+    ): TemporalPayload? =
         when (event.eventType) {
             EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED -> {
                 val attrs = event.workflowExecutionCompletedEventAttributes
                 if (attrs.hasResult() && attrs.result.payloadsCount > 0) {
                     val payload = attrs.result.getPayloads(0)
-                    // Decode with codec and return raw payload
-                    codec.decode(listOf(payload)).single()
+                    // Convert proto payload to TemporalPayload, then decode with codec
+                    codec.decode(TemporalPayloads.of(listOf(payload.toTemporal())))[0]
                 } else {
                     // No result
                     null
@@ -312,10 +317,13 @@ internal class WorkflowHandleImpl(
             }
         }
 
+    @OptIn(InternalTemporalApi::class)
     override suspend fun signalWithPayloads(
         signalName: String,
-        args: Payloads,
+        args: TemporalPayloads,
     ) {
+        val protoPayloads = args.toProto()
+
         val request =
             SignalWorkflowExecutionRequest
                 .newBuilder()
@@ -327,20 +335,23 @@ internal class WorkflowHandleImpl(
                         .also { if (runId != null) it.setRunId(runId) }
                         .build(),
                 ).setSignalName(signalName)
-                .setInput(args)
+                .setInput(protoPayloads)
                 .build()
 
         serviceClient.signalWorkflowExecution(request)
     }
 
+    @OptIn(InternalTemporalApi::class)
     override suspend fun updateWithPayloads(
         updateName: String,
-        args: Payloads,
-    ): Payloads {
+        args: TemporalPayloads,
+    ): TemporalPayloads {
         val updateId =
             java.util.UUID
                 .randomUUID()
                 .toString()
+
+        val protoPayloads = args.toProto()
 
         val request =
             UpdateWorkflowExecutionRequest
@@ -364,7 +375,7 @@ internal class WorkflowHandleImpl(
                             io.temporal.api.update.v1.Input
                                 .newBuilder()
                                 .setName(updateName)
-                                .setArgs(args)
+                                .setArgs(protoPayloads)
                                 .build(),
                         ).build(),
                 ).setWaitPolicy(
@@ -388,7 +399,10 @@ internal class WorkflowHandleImpl(
                 message = response.outcome.failure.message,
             )
         } else if (response.hasOutcome() && response.outcome.hasSuccess()) {
-            return response.outcome.success
+            return TemporalPayloads.of(
+                response.outcome.success.payloadsList
+                    .map { it.toTemporal() },
+            )
         } else {
             throw WorkflowUpdateFailedException(
                 workflowId = workflowId,
@@ -400,10 +414,13 @@ internal class WorkflowHandleImpl(
         }
     }
 
+    @OptIn(InternalTemporalApi::class)
     override suspend fun queryWithPayloads(
         queryType: String,
-        args: Payloads,
-    ): Payloads {
+        args: TemporalPayloads,
+    ): TemporalPayloads {
+        val protoPayloads = args.toProto()
+
         val request =
             QueryWorkflowRequest
                 .newBuilder()
@@ -418,7 +435,7 @@ internal class WorkflowHandleImpl(
                     io.temporal.api.query.v1.WorkflowQuery
                         .newBuilder()
                         .setQueryType(queryType)
-                        .setQueryArgs(args)
+                        .setQueryArgs(protoPayloads)
                         .build(),
                 ).build()
 
@@ -434,7 +451,7 @@ internal class WorkflowHandleImpl(
             )
         }
 
-        return response.queryResult
+        return TemporalPayloads.of(response.queryResult.payloadsList.map { it.toTemporal() })
     }
 
     override suspend fun cancel() {

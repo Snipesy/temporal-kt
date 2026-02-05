@@ -61,11 +61,17 @@ object ActivityTaskCompleted : Hook<suspend (ActivityTaskCompletedContext) -> Un
  *
  * @property task The activity task that was processed
  * @property activityType The activity type name
+ * @property activityId The activity ID
+ * @property workflowId The workflow ID that scheduled this activity
+ * @property runId The workflow run ID
  * @property duration The time taken to execute the activity
  */
 data class ActivityTaskCompletedContext(
     val task: ActivityTask,
     val activityType: String,
+    val activityId: String,
+    val workflowId: String,
+    val runId: String,
     val duration: Duration,
 )
 
@@ -89,11 +95,17 @@ object ActivityTaskFailed : Hook<suspend (ActivityTaskFailedContext) -> Unit> {
  *
  * @property task The activity task that failed
  * @property activityType The activity type name
+ * @property activityId The activity ID
+ * @property workflowId The workflow ID that scheduled this activity
+ * @property runId The workflow run ID
  * @property error The exception that was thrown
  */
 data class ActivityTaskFailedContext(
     val task: ActivityTask,
     val activityType: String,
+    val activityId: String,
+    val workflowId: String,
+    val runId: String,
     val error: Throwable,
 )
 

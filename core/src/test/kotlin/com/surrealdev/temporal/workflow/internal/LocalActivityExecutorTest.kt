@@ -4,6 +4,7 @@ import com.google.protobuf.ByteString
 import com.google.protobuf.Timestamp
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
+import com.surrealdev.temporal.common.toTemporal
 import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
 import com.surrealdev.temporal.testing.ProtoTestHelpers
 import com.surrealdev.temporal.testing.createTestWorkflowExecutor
@@ -220,7 +221,13 @@ class LocalActivityIntegrationTest {
             val resolveActivation =
                 ProtoTestHelpers.createActivation(
                     runId = runId,
-                    jobs = listOf(ProtoTestHelpers.resolveLocalActivityJobCompleted(seq = 1, result = resultPayload)),
+                    jobs =
+                        listOf(
+                            ProtoTestHelpers.resolveLocalActivityJobCompleted(
+                                seq = 1,
+                                result = resultPayload.toTemporal(),
+                            ),
+                        ),
                 )
             val resolveCompletion = executor.activate(resolveActivation)
 
@@ -256,7 +263,7 @@ class LocalActivityIntegrationTest {
                             listOf(
                                 ProtoTestHelpers.resolveLocalActivityJobCompleted(
                                     seq = 1,
-                                    result = createPayload("\"A\""),
+                                    result = createPayload("\"A\"").toTemporal(),
                                 ),
                             ),
                     ),
@@ -279,7 +286,7 @@ class LocalActivityIntegrationTest {
                             listOf(
                                 ProtoTestHelpers.resolveLocalActivityJobCompleted(
                                     seq = 2,
-                                    result = createPayload("\"B\""),
+                                    result = createPayload("\"B\"").toTemporal(),
                                 ),
                             ),
                     ),
@@ -302,7 +309,7 @@ class LocalActivityIntegrationTest {
                             listOf(
                                 ProtoTestHelpers.resolveLocalActivityJobCompleted(
                                     seq = 3,
-                                    result = createPayload("\"C\""),
+                                    result = createPayload("\"C\"").toTemporal(),
                                 ),
                             ),
                     ),
@@ -344,15 +351,15 @@ class LocalActivityIntegrationTest {
                         listOf(
                             ProtoTestHelpers.resolveLocalActivityJobCompleted(
                                 seq = 1,
-                                result = createPayload("\"P1\""),
+                                result = createPayload("\"P1\"").toTemporal(),
                             ),
                             ProtoTestHelpers.resolveLocalActivityJobCompleted(
                                 seq = 2,
-                                result = createPayload("\"P2\""),
+                                result = createPayload("\"P2\"").toTemporal(),
                             ),
                             ProtoTestHelpers.resolveLocalActivityJobCompleted(
                                 seq = 3,
-                                result = createPayload("\"P3\""),
+                                result = createPayload("\"P3\"").toTemporal(),
                             ),
                         ),
                 )
@@ -434,7 +441,7 @@ class LocalActivityIntegrationTest {
                             listOf(
                                 ProtoTestHelpers.resolveLocalActivityJobCompleted(
                                     seq = retryCmd.seq,
-                                    result = createPayload("\"Success after retry!\""),
+                                    result = createPayload("\"Success after retry!\"").toTemporal(),
                                 ),
                             ),
                     ),

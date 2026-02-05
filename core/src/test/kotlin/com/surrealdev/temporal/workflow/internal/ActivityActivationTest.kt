@@ -1,8 +1,11 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.google.protobuf.ByteString
+import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
+import com.surrealdev.temporal.common.TemporalPayload
+import com.surrealdev.temporal.common.toTemporal
 import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
 import com.surrealdev.temporal.testing.ProtoTestHelpers.createActivation
 import com.surrealdev.temporal.testing.ProtoTestHelpers.initializeWorkflowJob
@@ -279,12 +282,14 @@ class ActivityActivationTest {
         return ExecutorResult(executor, runId, workflow, completion)
     }
 
-    private fun createPayload(data: String): Payload =
+    @OptIn(InternalTemporalApi::class)
+    private fun createPayload(data: String): TemporalPayload =
         Payload
             .newBuilder()
             .putMetadata("encoding", ByteString.copyFromUtf8("json/plain"))
             .setData(ByteString.copyFromUtf8(data))
             .build()
+            .toTemporal()
 
     private fun getCommandsFromCompletion(
         completion: coresdk.workflow_completion.WorkflowCompletion.WorkflowActivationCompletion,
@@ -933,7 +938,7 @@ class ActivityActivationTest {
                 executor.activate(
                     createActivation(
                         runId = runId,
-                        jobs = listOf(resolveActivityJobCompleted(seq, Payload.getDefaultInstance())),
+                        jobs = listOf(resolveActivityJobCompleted(seq, Payload.getDefaultInstance().toTemporal())),
                         isReplaying = false,
                     ),
                 )

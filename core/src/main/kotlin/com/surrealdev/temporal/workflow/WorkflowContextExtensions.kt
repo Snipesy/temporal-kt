@@ -1,12 +1,13 @@
 package com.surrealdev.temporal.workflow
 
 import com.surrealdev.temporal.annotation.Activity
+import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.common.SearchAttributesBuilder
+import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.searchAttributes
 import com.surrealdev.temporal.serialization.deserialize
 import com.surrealdev.temporal.serialization.serialize
-import io.temporal.api.common.v1.Payloads
 import kotlinx.coroutines.currentCoroutineContext
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -105,7 +106,7 @@ fun KClass<*>.getWorkflowType(): String {
  */
 suspend fun WorkflowContext.startChildWorkflow(
     workflowType: String,
-    args: Payloads,
+    args: TemporalPayloads,
     options: ChildWorkflowOptions,
 ): ChildWorkflowHandle =
     this.startChildWorkflowWithPayloads(
@@ -123,17 +124,18 @@ suspend fun WorkflowContext.startChildWorkflow(
  * @param options Configuration for the child workflow
  * @return A handle to the child workflow
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T> WorkflowContext.startChildWorkflow(
     workflowType: String,
     arg: T,
     options: ChildWorkflowOptions,
 ): ChildWorkflowHandle {
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(serializer.serialize(arg))
+    val payload = serializer.serialize(arg)
+    val payloads = TemporalPayloads.of(listOf(payload))
 
     return this.startChildWorkflowWithPayloads(
         workflowType = workflowType,
-        args = payloadsBuilder.build(),
+        args = payloads,
         options = options,
     )
 }
@@ -145,13 +147,14 @@ suspend inline fun <reified T> WorkflowContext.startChildWorkflow(
  * @param options Configuration for the child workflow
  * @return A handle to the child workflow
  */
+@OptIn(InternalTemporalApi::class)
 suspend fun WorkflowContext.startChildWorkflow(
     workflowType: String,
     options: ChildWorkflowOptions,
 ): ChildWorkflowHandle =
     this.startChildWorkflowWithPayloads(
         workflowType = workflowType,
-        args = Payloads.getDefaultInstance(),
+        args = TemporalPayloads.EMPTY,
         options = options,
     )
 
@@ -166,19 +169,20 @@ suspend fun WorkflowContext.startChildWorkflow(
  * @param options Configuration for the child workflow
  * @return A handle to the child workflow
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T1, reified T2> WorkflowContext.startChildWorkflow(
     workflowType: String,
     arg1: T1,
     arg2: T2,
     options: ChildWorkflowOptions,
 ): ChildWorkflowHandle {
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(serializer.serialize(arg1))
-    payloadsBuilder.addPayloads(serializer.serialize(arg2))
+    val payload1 = serializer.serialize(arg1)
+    val payload2 = serializer.serialize(arg2)
+    val payloads = TemporalPayloads.of(listOf(payload1, payload2))
 
     return this.startChildWorkflowWithPayloads(
         workflowType = workflowType,
-        args = payloadsBuilder.build(),
+        args = payloads,
         options = options,
     )
 }
@@ -197,13 +201,14 @@ suspend inline fun <reified T1, reified T2> WorkflowContext.startChildWorkflow(
  * @param options Configuration for the child workflow
  * @return A handle to the child workflow
  */
+@OptIn(InternalTemporalApi::class)
 suspend fun WorkflowContext.startChildWorkflow(
     workflowClass: KClass<*>,
     options: ChildWorkflowOptions,
 ): ChildWorkflowHandle =
     this.startChildWorkflowWithPayloads(
         workflowType = workflowClass.getWorkflowType(),
-        args = Payloads.getDefaultInstance(),
+        args = TemporalPayloads.EMPTY,
         options = options,
     )
 
@@ -216,16 +221,14 @@ suspend fun WorkflowContext.startChildWorkflow(
  * @param options Configuration for the child workflow
  * @return A handle to the child workflow
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T> WorkflowContext.startChildWorkflow(
     workflowClass: KClass<*>,
     arg: T,
     options: ChildWorkflowOptions,
 ): ChildWorkflowHandle {
-    val payloads =
-        Payloads
-            .newBuilder()
-            .addPayloads(serializer.serialize(arg))
-            .build()
+    val payload = serializer.serialize(arg)
+    val payloads = TemporalPayloads.of(listOf(payload))
 
     return this.startChildWorkflowWithPayloads(
         workflowType = workflowClass.getWorkflowType(),
@@ -245,18 +248,16 @@ suspend inline fun <reified T> WorkflowContext.startChildWorkflow(
  * @param options Configuration for the child workflow
  * @return A handle to the child workflow
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T1, reified T2> WorkflowContext.startChildWorkflow(
     workflowClass: KClass<*>,
     arg1: T1,
     arg2: T2,
     options: ChildWorkflowOptions,
 ): ChildWorkflowHandle {
-    val payloads =
-        Payloads
-            .newBuilder()
-            .addPayloads(serializer.serialize(arg1))
-            .addPayloads(serializer.serialize(arg2))
-            .build()
+    val payload1 = serializer.serialize(arg1)
+    val payload2 = serializer.serialize(arg2)
+    val payloads = TemporalPayloads.of(listOf(payload1, payload2))
 
     return this.startChildWorkflowWithPayloads(
         workflowType = workflowClass.getWorkflowType(),
@@ -278,6 +279,7 @@ suspend inline fun <reified T1, reified T2> WorkflowContext.startChildWorkflow(
  * @param options Configuration for the child workflow
  * @return A handle to the child workflow
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T1, reified T2, reified T3> WorkflowContext.startChildWorkflow(
     workflowClass: KClass<*>,
     arg1: T1,
@@ -285,13 +287,10 @@ suspend inline fun <reified T1, reified T2, reified T3> WorkflowContext.startChi
     arg3: T3,
     options: ChildWorkflowOptions,
 ): ChildWorkflowHandle {
-    val payloads =
-        Payloads
-            .newBuilder()
-            .addPayloads(serializer.serialize(arg1))
-            .addPayloads(serializer.serialize(arg2))
-            .addPayloads(serializer.serialize(arg3))
-            .build()
+    val payload1 = serializer.serialize(arg1)
+    val payload2 = serializer.serialize(arg2)
+    val payload3 = serializer.serialize(arg3)
+    val payloads = TemporalPayloads.of(listOf(payload1, payload2, payload3))
 
     return this.startChildWorkflowWithPayloads(
         workflowType = workflowClass.getWorkflowType(),
@@ -315,6 +314,7 @@ suspend inline fun <reified T1, reified T2, reified T3> WorkflowContext.startChi
  * @param options Configuration for the child workflow
  * @return A handle to the child workflow
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T1, reified T2, reified T3, reified T4> WorkflowContext.startChildWorkflow(
     workflowClass: KClass<*>,
     arg1: T1,
@@ -323,14 +323,11 @@ suspend inline fun <reified T1, reified T2, reified T3, reified T4> WorkflowCont
     arg4: T4,
     options: ChildWorkflowOptions,
 ): ChildWorkflowHandle {
-    val payloads =
-        Payloads
-            .newBuilder()
-            .addPayloads(serializer.serialize(arg1))
-            .addPayloads(serializer.serialize(arg2))
-            .addPayloads(serializer.serialize(arg3))
-            .addPayloads(serializer.serialize(arg4))
-            .build()
+    val payload1 = serializer.serialize(arg1)
+    val payload2 = serializer.serialize(arg2)
+    val payload3 = serializer.serialize(arg3)
+    val payload4 = serializer.serialize(arg4)
+    val payloads = TemporalPayloads.of(listOf(payload1, payload2, payload3, payload4))
 
     return this.startChildWorkflowWithPayloads(
         workflowType = workflowClass.getWorkflowType(),
@@ -354,30 +351,32 @@ suspend inline fun <reified T1, reified T2, reified T3, reified T4> WorkflowCont
  * @param options Configuration for the activity (must have at least one timeout set)
  * @return A handle to the activity
  */
+@OptIn(InternalTemporalApi::class)
 suspend fun WorkflowContext.startActivity(
     activityType: String,
     options: ActivityOptions,
 ): RemoteActivityHandle =
     this.startActivityWithPayloads(
         activityType = activityType,
-        args = Payloads.getDefaultInstance(),
+        args = TemporalPayloads.EMPTY,
         options = options,
     )
 
 /**
  * Starts an activity with a single typed argument using full ActivityOptions.
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T> WorkflowContext.startActivity(
     activityType: String,
     arg: T,
     options: ActivityOptions,
 ): RemoteActivityHandle {
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg))
+    val payload = this.serializer.serialize(arg)
+    val payloads = TemporalPayloads.of(listOf(payload))
 
     return this.startActivityWithPayloads(
         activityType = activityType,
-        args = payloadsBuilder.build(),
+        args = payloads,
         options = options,
     )
 }
@@ -385,19 +384,20 @@ suspend inline fun <reified T> WorkflowContext.startActivity(
 /**
  * Starts an activity with two typed arguments using full ActivityOptions.
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T1, reified T2> WorkflowContext.startActivity(
     activityType: String,
     arg1: T1,
     arg2: T2,
     options: ActivityOptions,
 ): RemoteActivityHandle {
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg1))
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
+    val payload1 = this.serializer.serialize(arg1)
+    val payload2 = this.serializer.serialize(arg2)
+    val payloads = TemporalPayloads.of(listOf(payload1, payload2))
 
     return this.startActivityWithPayloads(
         activityType = activityType,
-        args = payloadsBuilder.build(),
+        args = payloads,
         options = options,
     )
 }
@@ -405,6 +405,7 @@ suspend inline fun <reified T1, reified T2> WorkflowContext.startActivity(
 /**
  * Starts an activity with three typed arguments using full ActivityOptions.
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T1, reified T2, reified T3> WorkflowContext.startActivity(
     activityType: String,
     arg1: T1,
@@ -412,14 +413,14 @@ suspend inline fun <reified T1, reified T2, reified T3> WorkflowContext.startAct
     arg3: T3,
     options: ActivityOptions,
 ): RemoteActivityHandle {
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg1))
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg3))
+    val payload1 = this.serializer.serialize(arg1)
+    val payload2 = this.serializer.serialize(arg2)
+    val payload3 = this.serializer.serialize(arg3)
+    val payloads = TemporalPayloads.of(listOf(payload1, payload2, payload3))
 
     return this.startActivityWithPayloads(
         activityType = activityType,
-        args = payloadsBuilder.build(),
+        args = payloads,
         options = options,
     )
 }
@@ -429,7 +430,7 @@ suspend inline fun <reified T1, reified T2, reified T3> WorkflowContext.startAct
  */
 suspend fun WorkflowContext.startActivity(
     activityType: String,
-    args: Payloads,
+    args: TemporalPayloads,
     options: ActivityOptions,
 ): RemoteActivityHandle =
     this.startActivityWithPayloads(
@@ -458,6 +459,7 @@ suspend fun WorkflowContext.startActivity(
  * @param cancellationType How to handle cancellation
  * @return A handle to the activity
  */
+@OptIn(InternalTemporalApi::class)
 suspend fun WorkflowContext.startActivity(
     activityType: String,
     startToCloseTimeout: Duration? = null,
@@ -482,7 +484,7 @@ suspend fun WorkflowContext.startActivity(
         )
     return this.startActivityWithPayloads(
         activityType = activityType,
-        args = Payloads.getDefaultInstance(),
+        args = TemporalPayloads.EMPTY,
         options = options,
     )
 }
@@ -490,6 +492,7 @@ suspend fun WorkflowContext.startActivity(
 /**
  * Starts an activity with a single typed argument, specifying timeouts inline.
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T> WorkflowContext.startActivity(
     activityType: String,
     arg: T,
@@ -513,12 +516,12 @@ suspend inline fun <reified T> WorkflowContext.startActivity(
             activityId = activityId,
             cancellationType = cancellationType,
         )
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg))
+    val payload = this.serializer.serialize(arg)
+    val payloads = TemporalPayloads.of(listOf(payload))
 
     return this.startActivityWithPayloads(
         activityType = activityType,
-        args = payloadsBuilder.build(),
+        args = payloads,
         options = options,
     )
 }
@@ -526,6 +529,7 @@ suspend inline fun <reified T> WorkflowContext.startActivity(
 /**
  * Starts an activity with two typed arguments, specifying timeouts inline.
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T1, reified T2> WorkflowContext.startActivity(
     activityType: String,
     arg1: T1,
@@ -550,13 +554,13 @@ suspend inline fun <reified T1, reified T2> WorkflowContext.startActivity(
             activityId = activityId,
             cancellationType = cancellationType,
         )
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg1))
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
+    val payload1 = this.serializer.serialize(arg1)
+    val payload2 = this.serializer.serialize(arg2)
+    val payloads = TemporalPayloads.of(listOf(payload1, payload2))
 
     return this.startActivityWithPayloads(
         activityType = activityType,
-        args = payloadsBuilder.build(),
+        args = payloads,
         options = options,
     )
 }
@@ -564,6 +568,7 @@ suspend inline fun <reified T1, reified T2> WorkflowContext.startActivity(
 /**
  * Starts an activity with three typed arguments, specifying timeouts inline.
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T1, reified T2, reified T3> WorkflowContext.startActivity(
     activityType: String,
     arg1: T1,
@@ -589,14 +594,14 @@ suspend inline fun <reified T1, reified T2, reified T3> WorkflowContext.startAct
             activityId = activityId,
             cancellationType = cancellationType,
         )
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg1))
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg3))
+    val payload1 = this.serializer.serialize(arg1)
+    val payload2 = this.serializer.serialize(arg2)
+    val payload3 = this.serializer.serialize(arg3)
+    val payloads = TemporalPayloads.of(listOf(payload1, payload2, payload3))
 
     return this.startActivityWithPayloads(
         activityType = activityType,
-        args = payloadsBuilder.build(),
+        args = payloads,
         options = options,
     )
 }
@@ -637,30 +642,32 @@ fun KFunction<*>.getActivityType(): String {
  * @param options Configuration for the activity
  * @return A handle to the activity
  */
+@OptIn(InternalTemporalApi::class)
 suspend fun WorkflowContext.startActivity(
     activityFunc: KFunction<*>,
     options: ActivityOptions,
 ): RemoteActivityHandle =
     this.startActivityWithPayloads(
         activityType = activityFunc.getActivityType(),
-        args = Payloads.getDefaultInstance(),
+        args = TemporalPayloads.EMPTY,
         options = options,
     )
 
 /**
  * Starts an activity using a function reference with a single argument and full ActivityOptions.
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T> WorkflowContext.startActivity(
     activityFunc: KFunction<*>,
     arg: T,
     options: ActivityOptions,
 ): RemoteActivityHandle {
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg))
+    val payload = this.serializer.serialize(arg)
+    val payloads = TemporalPayloads.of(listOf(payload))
 
     return this.startActivityWithPayloads(
         activityType = activityFunc.getActivityType(),
-        args = payloadsBuilder.build(),
+        args = payloads,
         options = options,
     )
 }
@@ -668,19 +675,20 @@ suspend inline fun <reified T> WorkflowContext.startActivity(
 /**
  * Starts an activity using a function reference with two arguments and full ActivityOptions.
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T1, reified T2> WorkflowContext.startActivity(
     activityFunc: KFunction<*>,
     arg1: T1,
     arg2: T2,
     options: ActivityOptions,
 ): RemoteActivityHandle {
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg1))
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
+    val payload1 = this.serializer.serialize(arg1)
+    val payload2 = this.serializer.serialize(arg2)
+    val payloads = TemporalPayloads.of(listOf(payload1, payload2))
 
     return this.startActivityWithPayloads(
         activityType = activityFunc.getActivityType(),
-        args = payloadsBuilder.build(),
+        args = payloads,
         options = options,
     )
 }
@@ -688,6 +696,7 @@ suspend inline fun <reified T1, reified T2> WorkflowContext.startActivity(
 /**
  * Starts an activity using a function reference with three arguments and full ActivityOptions.
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T1, reified T2, reified T3> WorkflowContext.startActivity(
     activityFunc: KFunction<*>,
     arg1: T1,
@@ -695,14 +704,14 @@ suspend inline fun <reified T1, reified T2, reified T3> WorkflowContext.startAct
     arg3: T3,
     options: ActivityOptions,
 ): RemoteActivityHandle {
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg1))
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg3))
+    val payload1 = this.serializer.serialize(arg1)
+    val payload2 = this.serializer.serialize(arg2)
+    val payload3 = this.serializer.serialize(arg3)
+    val payloads = TemporalPayloads.of(listOf(payload1, payload2, payload3))
 
     return this.startActivityWithPayloads(
         activityType = activityFunc.getActivityType(),
-        args = payloadsBuilder.build(),
+        args = payloads,
         options = options,
     )
 }
@@ -733,6 +742,7 @@ suspend inline fun <reified T1, reified T2, reified T3> WorkflowContext.startAct
  * @param cancellationType How to handle cancellation
  * @return A handle to the activity
  */
+@OptIn(InternalTemporalApi::class)
 suspend fun WorkflowContext.startActivity(
     activityFunc: KFunction<*>,
     startToCloseTimeout: Duration? = null,
@@ -757,7 +767,7 @@ suspend fun WorkflowContext.startActivity(
         )
     return this.startActivityWithPayloads(
         activityType = activityFunc.getActivityType(),
-        args = Payloads.getDefaultInstance(),
+        args = TemporalPayloads.EMPTY,
         options = options,
     )
 }
@@ -765,6 +775,7 @@ suspend fun WorkflowContext.startActivity(
 /**
  * Starts an activity using a function reference with a single argument, specifying timeouts inline.
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T> WorkflowContext.startActivity(
     activityFunc: KFunction<*>,
     arg: T,
@@ -788,12 +799,12 @@ suspend inline fun <reified T> WorkflowContext.startActivity(
             activityId = activityId,
             cancellationType = cancellationType,
         )
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg))
+    val payload = this.serializer.serialize(arg)
+    val payloads = TemporalPayloads.of(listOf(payload))
 
     return this.startActivityWithPayloads(
         activityType = activityFunc.getActivityType(),
-        args = payloadsBuilder.build(),
+        args = payloads,
         options = options,
     )
 }
@@ -801,6 +812,7 @@ suspend inline fun <reified T> WorkflowContext.startActivity(
 /**
  * Starts an activity using a function reference with two arguments, specifying timeouts inline.
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T1, reified T2> WorkflowContext.startActivity(
     activityFunc: KFunction<*>,
     arg1: T1,
@@ -825,13 +837,13 @@ suspend inline fun <reified T1, reified T2> WorkflowContext.startActivity(
             activityId = activityId,
             cancellationType = cancellationType,
         )
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg1))
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
+    val payload1 = this.serializer.serialize(arg1)
+    val payload2 = this.serializer.serialize(arg2)
+    val payloads = TemporalPayloads.of(listOf(payload1, payload2))
 
     return this.startActivityWithPayloads(
         activityType = activityFunc.getActivityType(),
-        args = payloadsBuilder.build(),
+        args = payloads,
         options = options,
     )
 }
@@ -839,6 +851,7 @@ suspend inline fun <reified T1, reified T2> WorkflowContext.startActivity(
 /**
  * Starts an activity using a function reference with three arguments, specifying timeouts inline.
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T1, reified T2, reified T3> WorkflowContext.startActivity(
     activityFunc: KFunction<*>,
     arg1: T1,
@@ -864,14 +877,14 @@ suspend inline fun <reified T1, reified T2, reified T3> WorkflowContext.startAct
             activityId = activityId,
             cancellationType = cancellationType,
         )
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg1))
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg3))
+    val payload1 = this.serializer.serialize(arg1)
+    val payload2 = this.serializer.serialize(arg2)
+    val payload3 = this.serializer.serialize(arg3)
+    val payloads = TemporalPayloads.of(listOf(payload1, payload2, payload3))
 
     return this.startActivityWithPayloads(
         activityType = activityFunc.getActivityType(),
-        args = payloadsBuilder.build(),
+        args = payloads,
         options = options,
     )
 }
@@ -890,30 +903,32 @@ suspend inline fun <reified T1, reified T2, reified T3> WorkflowContext.startAct
  * @param options Configuration for the local activity
  * @return A handle to the local activity
  */
+@OptIn(InternalTemporalApi::class)
 suspend fun WorkflowContext.startLocalActivity(
     activityType: String,
     options: LocalActivityOptions,
 ): LocalActivityHandle =
     this.startLocalActivityWithPayloads(
         activityType = activityType,
-        args = Payloads.getDefaultInstance(),
+        args = TemporalPayloads.EMPTY,
         options = options,
     )
 
 /**
  * Starts a local activity with a single typed argument using full LocalActivityOptions.
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T> WorkflowContext.startLocalActivity(
     activityType: String,
     arg: T,
     options: LocalActivityOptions,
 ): LocalActivityHandle {
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg))
+    val payload = this.serializer.serialize(arg)
+    val payloads = TemporalPayloads.of(listOf(payload))
 
     return this.startLocalActivityWithPayloads(
         activityType = activityType,
-        args = payloadsBuilder.build(),
+        args = payloads,
         options = options,
     )
 }
@@ -921,19 +936,20 @@ suspend inline fun <reified T> WorkflowContext.startLocalActivity(
 /**
  * Starts a local activity with two typed arguments using full LocalActivityOptions.
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T1, reified T2> WorkflowContext.startLocalActivity(
     activityType: String,
     arg1: T1,
     arg2: T2,
     options: LocalActivityOptions,
 ): LocalActivityHandle {
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg1))
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
+    val payload1 = this.serializer.serialize(arg1)
+    val payload2 = this.serializer.serialize(arg2)
+    val payloads = TemporalPayloads.of(listOf(payload1, payload2))
 
     return this.startLocalActivityWithPayloads(
         activityType = activityType,
-        args = payloadsBuilder.build(),
+        args = payloads,
         options = options,
     )
 }
@@ -941,6 +957,7 @@ suspend inline fun <reified T1, reified T2> WorkflowContext.startLocalActivity(
 /**
  * Starts a local activity with three typed arguments using full LocalActivityOptions.
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T1, reified T2, reified T3> WorkflowContext.startLocalActivity(
     activityType: String,
     arg1: T1,
@@ -948,14 +965,14 @@ suspend inline fun <reified T1, reified T2, reified T3> WorkflowContext.startLoc
     arg3: T3,
     options: LocalActivityOptions,
 ): LocalActivityHandle {
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg1))
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg3))
+    val payload1 = this.serializer.serialize(arg1)
+    val payload2 = this.serializer.serialize(arg2)
+    val payload3 = this.serializer.serialize(arg3)
+    val payloads = TemporalPayloads.of(listOf(payload1, payload2, payload3))
 
     return this.startLocalActivityWithPayloads(
         activityType = activityType,
-        args = payloadsBuilder.build(),
+        args = payloads,
         options = options,
     )
 }
@@ -979,6 +996,7 @@ suspend inline fun <reified T1, reified T2, reified T3> WorkflowContext.startLoc
  * @param cancellationType How to handle cancellation (default WAIT_CANCELLATION_COMPLETED)
  * @return A handle to the local activity
  */
+@OptIn(InternalTemporalApi::class)
 suspend fun WorkflowContext.startLocalActivity(
     activityType: String,
     startToCloseTimeout: Duration? = null,
@@ -1001,7 +1019,7 @@ suspend fun WorkflowContext.startLocalActivity(
         )
     return this.startLocalActivityWithPayloads(
         activityType = activityType,
-        args = Payloads.getDefaultInstance(),
+        args = TemporalPayloads.EMPTY,
         options = options,
     )
 }
@@ -1009,6 +1027,7 @@ suspend fun WorkflowContext.startLocalActivity(
 /**
  * Starts a local activity with a single typed argument, specifying timeouts inline.
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T> WorkflowContext.startLocalActivity(
     activityType: String,
     arg: T,
@@ -1030,12 +1049,12 @@ suspend inline fun <reified T> WorkflowContext.startLocalActivity(
             localRetryThreshold = localRetryThreshold,
             cancellationType = cancellationType,
         )
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg))
+    val payload = this.serializer.serialize(arg)
+    val payloads = TemporalPayloads.of(listOf(payload))
 
     return this.startLocalActivityWithPayloads(
         activityType = activityType,
-        args = payloadsBuilder.build(),
+        args = payloads,
         options = options,
     )
 }
@@ -1043,6 +1062,7 @@ suspend inline fun <reified T> WorkflowContext.startLocalActivity(
 /**
  * Starts a local activity with two typed arguments, specifying timeouts inline.
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T1, reified T2> WorkflowContext.startLocalActivity(
     activityType: String,
     arg1: T1,
@@ -1065,13 +1085,13 @@ suspend inline fun <reified T1, reified T2> WorkflowContext.startLocalActivity(
             localRetryThreshold = localRetryThreshold,
             cancellationType = cancellationType,
         )
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg1))
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
+    val payload1 = this.serializer.serialize(arg1)
+    val payload2 = this.serializer.serialize(arg2)
+    val payloads = TemporalPayloads.of(listOf(payload1, payload2))
 
     return this.startLocalActivityWithPayloads(
         activityType = activityType,
-        args = payloadsBuilder.build(),
+        args = payloads,
         options = options,
     )
 }
@@ -1079,6 +1099,7 @@ suspend inline fun <reified T1, reified T2> WorkflowContext.startLocalActivity(
 /**
  * Starts a local activity with three typed arguments, specifying timeouts inline.
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T1, reified T2, reified T3> WorkflowContext.startLocalActivity(
     activityType: String,
     arg1: T1,
@@ -1102,14 +1123,14 @@ suspend inline fun <reified T1, reified T2, reified T3> WorkflowContext.startLoc
             localRetryThreshold = localRetryThreshold,
             cancellationType = cancellationType,
         )
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg1))
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg3))
+    val payload1 = this.serializer.serialize(arg1)
+    val payload2 = this.serializer.serialize(arg2)
+    val payload3 = this.serializer.serialize(arg3)
+    val payloads = TemporalPayloads.of(listOf(payload1, payload2, payload3))
 
     return this.startLocalActivityWithPayloads(
         activityType = activityType,
-        args = payloadsBuilder.build(),
+        args = payloads,
         options = options,
     )
 }
@@ -1124,30 +1145,32 @@ suspend inline fun <reified T1, reified T2, reified T3> WorkflowContext.startLoc
  * The activity type is automatically determined from the @Activity annotation
  * or the function name.
  */
+@OptIn(InternalTemporalApi::class)
 suspend fun WorkflowContext.startLocalActivity(
     activityFunc: KFunction<*>,
     options: LocalActivityOptions,
 ): LocalActivityHandle =
     this.startLocalActivityWithPayloads(
         activityType = activityFunc.getActivityType(),
-        args = Payloads.getDefaultInstance(),
+        args = TemporalPayloads.EMPTY,
         options = options,
     )
 
 /**
  * Starts a local activity using a function reference with a single argument.
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T> WorkflowContext.startLocalActivity(
     activityFunc: KFunction<*>,
     arg: T,
     options: LocalActivityOptions,
 ): LocalActivityHandle {
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg))
+    val payload = this.serializer.serialize(arg)
+    val payloads = TemporalPayloads.of(listOf(payload))
 
     return this.startLocalActivityWithPayloads(
         activityType = activityFunc.getActivityType(),
-        args = payloadsBuilder.build(),
+        args = payloads,
         options = options,
     )
 }
@@ -1155,6 +1178,7 @@ suspend inline fun <reified T> WorkflowContext.startLocalActivity(
 /**
  * Starts a local activity using a function reference, specifying timeouts inline.
  */
+@OptIn(InternalTemporalApi::class)
 suspend fun WorkflowContext.startLocalActivity(
     activityFunc: KFunction<*>,
     startToCloseTimeout: Duration? = null,
@@ -1177,7 +1201,7 @@ suspend fun WorkflowContext.startLocalActivity(
         )
     return this.startLocalActivityWithPayloads(
         activityType = activityFunc.getActivityType(),
-        args = Payloads.getDefaultInstance(),
+        args = TemporalPayloads.EMPTY,
         options = options,
     )
 }
@@ -1185,6 +1209,7 @@ suspend fun WorkflowContext.startLocalActivity(
 /**
  * Starts a local activity using a function reference with a single argument, specifying timeouts inline.
  */
+@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T> WorkflowContext.startLocalActivity(
     activityFunc: KFunction<*>,
     arg: T,
@@ -1206,12 +1231,12 @@ suspend inline fun <reified T> WorkflowContext.startLocalActivity(
             localRetryThreshold = localRetryThreshold,
             cancellationType = cancellationType,
         )
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg))
+    val payload = this.serializer.serialize(arg)
+    val payloads = TemporalPayloads.of(listOf(payload))
 
     return this.startLocalActivityWithPayloads(
         activityType = activityFunc.getActivityType(),
-        args = payloadsBuilder.build(),
+        args = payloads,
         options = options,
     )
 }
@@ -1231,6 +1256,7 @@ suspend inline fun <reified T> WorkflowContext.startLocalActivity(
  * @param name The query name to register
  * @param handler The handler function that receives the typed argument and returns a typed result
  */
+@OptIn(InternalTemporalApi::class)
 inline fun <reified T : Any, reified R> WorkflowContext.setQueryHandler(
     name: String,
     crossinline handler: (suspend (T) -> R),
@@ -1255,6 +1281,7 @@ inline fun <reified T : Any, reified R> WorkflowContext.setQueryHandler(
  * @param name The signal name to register
  * @param handler The handler function that receives the typed argument
  */
+@OptIn(InternalTemporalApi::class)
 inline fun <reified T : Any> WorkflowContext.setSignalHandler(
     name: String,
     crossinline handler: (suspend (T) -> Unit),
@@ -1280,6 +1307,7 @@ inline fun <reified T : Any> WorkflowContext.setSignalHandler(
  * @param handler The suspend function to handle the update, receiving the typed argument and returning a typed result
  * @param validator An optional synchronous validator that runs before the handler (in read-only mode)
  */
+@OptIn(InternalTemporalApi::class)
 inline fun <reified T : Any, reified R> WorkflowContext.setUpdateHandler(
     name: String,
     crossinline handler: (suspend (T) -> R),

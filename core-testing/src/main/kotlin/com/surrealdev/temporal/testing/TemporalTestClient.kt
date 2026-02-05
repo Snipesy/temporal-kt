@@ -1,11 +1,14 @@
 package com.surrealdev.temporal.testing
 
+import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.client.TemporalClient
 import com.surrealdev.temporal.client.TemporalClientImpl
 import com.surrealdev.temporal.client.WorkflowExecutionList
 import com.surrealdev.temporal.client.WorkflowHandle
 import com.surrealdev.temporal.client.WorkflowStartOptions
 import com.surrealdev.temporal.client.history.WorkflowHistory
+import com.surrealdev.temporal.common.TemporalPayload
+import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.core.TemporalTestServer
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import io.temporal.api.common.v1.Payloads
@@ -84,6 +87,7 @@ class TemporalTestClient internal constructor(
     override val serializer: PayloadSerializer
         get() = delegate.serializer
 
+    @OptIn(InternalTemporalApi::class)
     override suspend fun startWorkflowWithPayloads(
         workflowType: String,
         taskQueue: String,
@@ -161,7 +165,7 @@ internal class TimeSkippingWorkflowHandle(
      * When multiple handles call result() concurrently, only the first unlock
      * and last lock make actual RPC calls, thanks to the shared state tracker.
      */
-    override suspend fun resultPayload(timeout: Duration): io.temporal.api.common.v1.Payload? {
+    override suspend fun resultPayload(timeout: Duration): TemporalPayload? {
         stateTracker.unlock()
         try {
             return delegate.resultPayload(timeout)
@@ -178,20 +182,20 @@ internal class TimeSkippingWorkflowHandle(
 
     override suspend fun signalWithPayloads(
         signalName: String,
-        args: Payloads,
+        args: TemporalPayloads,
     ) {
         delegate.signalWithPayloads(signalName, args)
     }
 
     override suspend fun updateWithPayloads(
         updateName: String,
-        args: Payloads,
-    ): Payloads = delegate.updateWithPayloads(updateName, args)
+        args: TemporalPayloads,
+    ): TemporalPayloads = delegate.updateWithPayloads(updateName, args)
 
     override suspend fun queryWithPayloads(
         queryType: String,
-        args: Payloads,
-    ): Payloads = delegate.queryWithPayloads(queryType, args)
+        args: TemporalPayloads,
+    ): TemporalPayloads = delegate.queryWithPayloads(queryType, args)
 
     override suspend fun cancel() {
         delegate.cancel()

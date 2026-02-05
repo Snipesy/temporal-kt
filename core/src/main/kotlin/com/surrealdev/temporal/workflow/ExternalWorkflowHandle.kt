@@ -1,8 +1,8 @@
 package com.surrealdev.temporal.workflow
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.serialization.PayloadSerializer
-import io.temporal.api.common.v1.Payloads
 
 /**
  * Handle to an external workflow execution.
@@ -52,7 +52,7 @@ interface ExternalWorkflowHandle : WorkflowHandleBase {
     @InternalTemporalApi
     override suspend fun signalWithPayloads(
         signalName: String,
-        args: Payloads,
+        args: TemporalPayloads,
     )
 
     /**

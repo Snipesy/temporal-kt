@@ -1,6 +1,8 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.google.protobuf.Timestamp
+import com.surrealdev.temporal.common.TemporalPayload
+import com.surrealdev.temporal.common.toTemporal
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.workflow.ActivityCancellationType
 import com.surrealdev.temporal.workflow.ActivityCancelledException
@@ -78,7 +80,7 @@ internal class LocalActivityHandleImpl(
     override val isCancellationRequested: Boolean
         get() = cancellationRequested.get()
 
-    override suspend fun resultPayload(): Payload? {
+    override suspend fun resultPayload(): TemporalPayload? {
         logger.fine("Awaiting result for local activity: type=$activityType, id=$activityId, seq=$currentSeq")
 
         while (true) {
@@ -90,7 +92,7 @@ internal class LocalActivityHandleImpl(
                 cachedException?.let { throw it }
 
                 // Return raw payload (deserialization happens via extension function)
-                return payload
+                return payload?.toTemporal()
             } catch (e: DoBackoffException) {
                 logger.fine(
                     "Local activity received backoff: type=$activityType, id=$activityId, " +

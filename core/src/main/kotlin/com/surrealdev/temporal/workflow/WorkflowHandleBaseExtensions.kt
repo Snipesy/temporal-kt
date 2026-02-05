@@ -1,7 +1,7 @@
 package com.surrealdev.temporal.workflow
 
+import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.serialization.serialize
-import io.temporal.api.common.v1.Payloads
 
 /*
  * Extension functions for [WorkflowHandleBase] that provide type-safe signal operations.
@@ -20,11 +20,10 @@ suspend inline fun <reified T> WorkflowHandleBase.signal(
     signalName: String,
     arg: T,
 ) {
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg))
+    val payload = this.serializer.serialize(arg)
     this.signalWithPayloads(
         signalName,
-        payloadsBuilder.build(),
+        TemporalPayloads.of(listOf(payload)),
     )
 }
 
@@ -34,10 +33,9 @@ suspend inline fun <reified T> WorkflowHandleBase.signal(
  * @param signalName The name of the signal to send.
  */
 suspend fun WorkflowHandleBase.signal(signalName: String) {
-    val emptyPayloads = Payloads.newBuilder().build()
     this.signalWithPayloads(
         signalName,
-        emptyPayloads,
+        TemporalPayloads.EMPTY,
     )
 }
 
@@ -53,12 +51,11 @@ suspend inline fun <reified T1, reified T2> WorkflowHandleBase.signal(
     arg1: T1,
     arg2: T2,
 ) {
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg1))
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
+    val payload1 = this.serializer.serialize(arg1)
+    val payload2 = this.serializer.serialize(arg2)
     this.signalWithPayloads(
         signalName,
-        payloadsBuilder.build(),
+        TemporalPayloads.of(listOf(payload1, payload2)),
     )
 }
 
@@ -76,13 +73,12 @@ suspend inline fun <reified T1, reified T2, reified T3> WorkflowHandleBase.signa
     arg2: T2,
     arg3: T3,
 ) {
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg1))
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg3))
+    val payload1 = this.serializer.serialize(arg1)
+    val payload2 = this.serializer.serialize(arg2)
+    val payload3 = this.serializer.serialize(arg3)
     this.signalWithPayloads(
         signalName,
-        payloadsBuilder.build(),
+        TemporalPayloads.of(listOf(payload1, payload2, payload3)),
     )
 }
 
@@ -102,13 +98,12 @@ suspend inline fun <reified T1, reified T2, reified T3, reified T4> WorkflowHand
     arg3: T3,
     arg4: T4,
 ) {
-    val payloadsBuilder = Payloads.newBuilder()
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg1))
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg2))
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg3))
-    payloadsBuilder.addPayloads(this.serializer.serialize(arg4))
+    val payload1 = this.serializer.serialize(arg1)
+    val payload2 = this.serializer.serialize(arg2)
+    val payload3 = this.serializer.serialize(arg3)
+    val payload4 = this.serializer.serialize(arg4)
     this.signalWithPayloads(
         signalName,
-        payloadsBuilder.build(),
+        TemporalPayloads.of(listOf(payload1, payload2, payload3, payload4)),
     )
 }

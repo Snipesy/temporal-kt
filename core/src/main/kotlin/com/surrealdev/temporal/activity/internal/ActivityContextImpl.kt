@@ -6,12 +6,14 @@ import com.surrealdev.temporal.activity.ActivityContext
 import com.surrealdev.temporal.activity.ActivityInfo
 import com.surrealdev.temporal.activity.ActivityWorkflowInfo
 import com.surrealdev.temporal.activity.HeartbeatDetails
+import com.surrealdev.temporal.common.TemporalPayload
+import com.surrealdev.temporal.common.toProto
+import com.surrealdev.temporal.common.toTemporal
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.util.AttributeScope
 import com.surrealdev.temporal.util.Attributes
 import com.surrealdev.temporal.util.ExecutionScope
 import coresdk.activity_task.ActivityTaskOuterClass.Start
-import io.temporal.api.common.v1.Payload
 import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration.Companion.nanoseconds
 import kotlin.time.Duration.Companion.seconds
@@ -29,7 +31,7 @@ internal class ActivityContextImpl(
     private val taskToken: ByteString,
     private val taskQueue: String,
     override val serializer: PayloadSerializer,
-    private val heartbeatFn: suspend (ByteString, Payload?) -> Unit,
+    private val heartbeatFn: suspend (ByteString, io.temporal.api.common.v1.Payload?) -> Unit,
     override val parentScope: AttributeScope,
     private val parentCoroutineContext: CoroutineContext,
 ) : ActivityContext,
@@ -49,11 +51,11 @@ internal class ActivityContextImpl(
         buildActivityInfo()
     }
 
-    override suspend fun heartbeatWithPayload(details: Payload?) {
+    override suspend fun heartbeatWithPayload(details: TemporalPayload?) {
         // Check cancellation before heartbeating
         cancellationException?.let { throw it }
 
-        heartbeatFn(taskToken, details)
+        heartbeatFn(taskToken, details?.toProto())
 
         // Check cancellation after heartbeating (in case it was set during the call)
         cancellationException?.let { throw it }
@@ -98,7 +100,7 @@ internal class ActivityContextImpl(
         // Wrap heartbeat details from previous attempt for lazy deserialization
         val heartbeatDetails: HeartbeatDetails? =
             start.heartbeatDetailsList.firstOrNull()?.let { payload ->
-                HeartbeatDetails(payload, serializer)
+                HeartbeatDetails(payload.toTemporal(), serializer)
             }
 
         return ActivityInfo(

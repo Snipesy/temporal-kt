@@ -1,9 +1,11 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.annotation.Query
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.WorkflowRegistration
+import com.surrealdev.temporal.common.toTemporal
 import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
 import com.surrealdev.temporal.serialization.deserialize
 import com.surrealdev.temporal.serialization.serialize
@@ -404,7 +406,7 @@ class QueryHandlerTest {
             // Deserialize and verify the result
             val result =
                 serializer.deserialize<String>(
-                    queryResult.succeeded.response,
+                    queryResult.succeeded.response.toTemporal(),
                 )
             assertEquals("c", result) // items[2] = "c"
         }
@@ -438,9 +440,10 @@ class QueryHandlerTest {
                     .respondToQuery
             assertTrue(queryResult.hasSucceeded())
 
+            @OptIn(InternalTemporalApi::class)
             val result =
                 serializer.deserialize<List<String>>(
-                    queryResult.succeeded.response,
+                    queryResult.succeeded.response.toTemporal(),
                 )
             assertEquals(listOf("b", "c"), result)
         }
@@ -516,7 +519,7 @@ class QueryHandlerTest {
 
             val result =
                 serializer.deserialize<QueryResult>(
-                    queryResult.succeeded.response,
+                    queryResult.succeeded.response.toTemporal(),
                 )
             assertEquals("Hello Test", result.message)
             assertEquals(listOf("item1", "item2"), result.data)
@@ -567,7 +570,7 @@ class QueryHandlerTest {
 
             val result =
                 serializer.deserialize<String>(
-                    queryResult.succeeded.response,
+                    queryResult.succeeded.response.toTemporal(),
                 )
             assertEquals("specific", result)
         }
@@ -766,6 +769,7 @@ class QueryHandlerTest {
             setQueryHandlerWithPayloads("getNull") { _ ->
                 io.temporal.api.common.v1.Payload
                     .getDefaultInstance()
+                    .toTemporal()
             }
             return "done"
         }
@@ -803,7 +807,7 @@ class QueryHandlerTest {
 
             val result =
                 serializer.deserialize<String>(
-                    queryResult.succeeded.response,
+                    queryResult.succeeded.response.toTemporal(),
                 )
             assertEquals("runtime: updated", result)
         }
@@ -829,7 +833,7 @@ class QueryHandlerTest {
 
             val result =
                 serializer.deserialize<String>(
-                    queryResult.succeeded.response,
+                    queryResult.succeeded.response.toTemporal(),
                 )
             assertEquals("dynamic handler received: anyUnknownQuery", result)
         }
@@ -855,7 +859,7 @@ class QueryHandlerTest {
 
             val result =
                 serializer.deserialize<String>(
-                    queryResult.succeeded.response,
+                    queryResult.succeeded.response.toTemporal(),
                 )
             assertEquals("runtime override", result)
         }
@@ -881,7 +885,7 @@ class QueryHandlerTest {
 
             val result =
                 serializer.deserialize<String>(
-                    queryResult.succeeded.response,
+                    queryResult.succeeded.response.toTemporal(),
                 )
             assertEquals("hello world", result)
         }
@@ -907,7 +911,7 @@ class QueryHandlerTest {
 
             val result =
                 serializer.deserialize<Int>(
-                    queryResult.succeeded.response,
+                    queryResult.succeeded.response.toTemporal(),
                 )
             assertEquals(42, result)
         }
@@ -931,9 +935,10 @@ class QueryHandlerTest {
                     .respondToQuery
             assertTrue(queryResult.hasSucceeded())
 
+            @OptIn(InternalTemporalApi::class)
             val result =
                 serializer.deserialize<List<String>>(
-                    queryResult.succeeded.response,
+                    queryResult.succeeded.response.toTemporal(),
                 )
             assertEquals(listOf("a", "b", "c"), result)
         }
@@ -959,7 +964,7 @@ class QueryHandlerTest {
 
             val result =
                 serializer.deserialize<RuntimeQueryResult>(
-                    queryResult.succeeded.response,
+                    queryResult.succeeded.response.toTemporal(),
                 )
             assertEquals(RuntimeQueryResult("test", 123), result)
         }

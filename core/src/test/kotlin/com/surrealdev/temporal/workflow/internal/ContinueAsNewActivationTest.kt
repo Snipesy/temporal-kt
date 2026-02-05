@@ -2,6 +2,8 @@ package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
+import com.surrealdev.temporal.common.TemporalPayload
+import com.surrealdev.temporal.common.toTemporal
 import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
 import com.surrealdev.temporal.testing.ProtoTestHelpers.createActivation
 import com.surrealdev.temporal.testing.ProtoTestHelpers.initializeWorkflowJob
@@ -178,7 +180,13 @@ class ContinueAsNewActivationTest {
         val initActivation =
             createActivation(
                 runId = runId,
-                jobs = listOf(initializeWorkflowJob(workflowType = workflowType, arguments = arguments)),
+                jobs =
+                    listOf(
+                        initializeWorkflowJob(
+                            workflowType = workflowType,
+                            arguments = arguments.map { it.toTemporal() },
+                        ),
+                    ),
                 isReplaying = false,
             )
         val completion = executor.activate(initActivation)
@@ -437,16 +445,18 @@ class ContinueAsNewActivationTest {
             val headers =
                 mapOf(
                     "trace-id" to
-                        io.temporal.api.common.v1.Payload
-                            .newBuilder()
-                            .setData(
-                                com.google.protobuf.ByteString
-                                    .copyFromUtf8("\"test-trace-123\""),
-                            ).putMetadata(
-                                "encoding",
-                                com.google.protobuf.ByteString
-                                    .copyFromUtf8("json/plain"),
-                            ).build(),
+                        TemporalPayload(
+                            io.temporal.api.common.v1.Payload
+                                .newBuilder()
+                                .setData(
+                                    com.google.protobuf.ByteString
+                                        .copyFromUtf8("\"test-trace-123\""),
+                                ).putMetadata(
+                                    "encoding",
+                                    com.google.protobuf.ByteString
+                                        .copyFromUtf8("json/plain"),
+                                ).build(),
+                        ),
                 )
             continueAsNew(
                 42,

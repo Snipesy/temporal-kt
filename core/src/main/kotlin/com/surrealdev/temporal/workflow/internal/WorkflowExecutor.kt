@@ -1,5 +1,8 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.common.TemporalPayloads
+import com.surrealdev.temporal.common.toTemporal
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.util.AttributeScope
@@ -630,13 +633,15 @@ internal class WorkflowExecutor(
      * Deserializes workflow/handler arguments from Payloads to typed objects.
      * Applies codec.decode() before deserializing.
      */
+    @OptIn(InternalTemporalApi::class)
     internal suspend fun deserializeArguments(
         payloads: List<Payload>,
         parameterTypes: List<KType>,
     ): Array<Any?> {
         // Decode with codec first, then deserialize
-        val decodedPayloads = codec.decode(payloads)
-        return decodedPayloads
+        val temporalPayloads = TemporalPayloads.of(payloads.map { it.toTemporal() })
+        val decodedPayloads = codec.decode(temporalPayloads)
+        return decodedPayloads.payloads
             .zip(parameterTypes)
             .map { (payload, type) ->
                 serializer.deserialize(type, payload)

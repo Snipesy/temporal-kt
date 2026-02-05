@@ -1,8 +1,9 @@
 package com.surrealdev.temporal.workflow
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.common.TemporalPayload
+import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.serialization.PayloadSerializer
-import io.temporal.api.common.v1.Payloads
 
 /**
  * Handle to a running or completed child workflow.
@@ -56,7 +57,7 @@ interface ChildWorkflowHandle : WorkflowHandleBase {
      * @throws ChildWorkflowCancelledException if the child workflow was cancelled
      * @throws ChildWorkflowStartFailureException if the child workflow failed to start
      */
-    suspend fun resultPayload(): io.temporal.api.common.v1.Payload?
+    suspend fun resultPayload(): com.surrealdev.temporal.common.TemporalPayload?
 
     /**
      * Sends a signal to this child workflow.
@@ -71,7 +72,7 @@ interface ChildWorkflowHandle : WorkflowHandleBase {
     @InternalTemporalApi
     override suspend fun signalWithPayloads(
         signalName: String,
-        args: Payloads,
+        args: TemporalPayloads,
     )
 
     /**

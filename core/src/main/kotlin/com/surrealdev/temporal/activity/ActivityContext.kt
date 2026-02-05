@@ -1,9 +1,10 @@
 package com.surrealdev.temporal.activity
 
+import com.surrealdev.temporal.common.TemporalPayload
+import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.serialization.deserialize
 import com.surrealdev.temporal.serialization.serialize
-import io.temporal.api.common.v1.Payload
 import kotlinx.coroutines.CoroutineScope
 import kotlin.coroutines.CoroutineContext
 import kotlin.reflect.KType
@@ -79,7 +80,7 @@ interface ActivityContext :
      *
      * @param details Pre-serialized progress details to record, or null for a simple heartbeat
      */
-    suspend fun heartbeatWithPayload(details: Payload? = null)
+    suspend fun heartbeatWithPayload(details: TemporalPayload? = null)
 
     /**
      * Checks if cancellation has been requested for this activity.
@@ -131,7 +132,7 @@ data class ActivityInfo(
  * ```
  */
 class HeartbeatDetails internal constructor(
-    @PublishedApi internal val payload: Payload,
+    @PublishedApi internal val payload: TemporalPayload,
     @PublishedApi internal val serializer: PayloadSerializer,
 ) {
     /**
@@ -282,7 +283,7 @@ suspend fun ActivityContext.heartbeat() {
  * ```
  */
 class EncodedPayloads(
-    @PublishedApi internal val payloads: List<Payload>,
+    @PublishedApi internal val payloads: TemporalPayloads,
     @PublishedApi internal val serializer: PayloadSerializer,
 ) {
     /** The number of payloads. */
@@ -307,7 +308,7 @@ class EncodedPayloads(
      * @return The raw payload
      * @throws IllegalArgumentException if the index is out of bounds
      */
-    fun raw(index: Int): Payload {
+    fun raw(index: Int): TemporalPayload {
         require(index in payloads.indices) { "Index $index out of bounds (size=$size)" }
         return payloads[index]
     }

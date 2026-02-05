@@ -5,6 +5,8 @@ import com.surrealdev.temporal.activity.ActivityInfo
 import com.surrealdev.temporal.activity.ActivityWorkflowInfo
 import com.surrealdev.temporal.application.TemporalApplication
 import com.surrealdev.temporal.application.taskQueue
+import com.surrealdev.temporal.common.TemporalPayload
+import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.util.AttributeScope
@@ -12,8 +14,6 @@ import com.surrealdev.temporal.util.Attributes
 import com.surrealdev.temporal.util.ExecutionScope
 import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.WorkflowInfo
-import io.temporal.api.common.v1.Payload
-import io.temporal.api.common.v1.Payloads
 import kotlinx.coroutines.Dispatchers
 import kotlin.coroutines.CoroutineContext
 import kotlin.test.Test
@@ -898,13 +898,13 @@ class BasicDependencyInjectionTest {
         // Stubs for required methods
         override suspend fun startActivityWithPayloads(
             activityType: String,
-            args: Payloads,
+            args: TemporalPayloads,
             options: com.surrealdev.temporal.workflow.ActivityOptions,
         ): com.surrealdev.temporal.workflow.RemoteActivityHandle = TODO("Not needed for DI tests")
 
         override suspend fun startLocalActivityWithPayloads(
             activityType: String,
-            args: Payloads,
+            args: TemporalPayloads,
             options: com.surrealdev.temporal.workflow.LocalActivityOptions,
         ): com.surrealdev.temporal.workflow.LocalActivityHandle = TODO("Not needed for DI tests")
 
@@ -928,37 +928,37 @@ class BasicDependencyInjectionTest {
 
         override suspend fun startChildWorkflowWithPayloads(
             workflowType: String,
-            args: Payloads,
+            args: TemporalPayloads,
             options: com.surrealdev.temporal.workflow.ChildWorkflowOptions,
         ): com.surrealdev.temporal.workflow.ChildWorkflowHandle = TODO("Not needed for DI tests")
 
         override fun setQueryHandlerWithPayloads(
             name: String,
-            handler: (suspend (List<Payload>) -> Payload)?,
+            handler: (suspend (TemporalPayloads) -> TemporalPayload)?,
         ) = TODO("Not needed for DI tests")
 
         override fun setDynamicQueryHandlerWithPayloads(
-            handler: (suspend (queryType: String, args: List<Payload>) -> Payload)?,
+            handler: (suspend (queryType: String, args: TemporalPayloads) -> TemporalPayload)?,
         ) = TODO("Not needed for DI tests")
 
         override fun setSignalHandlerWithPayloads(
             name: String,
-            handler: (suspend (List<Payload>) -> Unit)?,
+            handler: (suspend (TemporalPayloads) -> Unit)?,
         ) = TODO("Not needed for DI tests")
 
         override fun setDynamicSignalHandlerWithPayloads(
-            handler: (suspend (signalName: String, args: List<Payload>) -> Unit)?,
+            handler: (suspend (signalName: String, args: TemporalPayloads) -> Unit)?,
         ) = TODO("Not needed for DI tests")
 
         override fun setUpdateHandlerWithPayloads(
             name: String,
-            handler: (suspend (List<Payload>) -> Payload)?,
-            validator: ((List<Payload>) -> Unit)?,
+            handler: (suspend (TemporalPayloads) -> TemporalPayload)?,
+            validator: ((TemporalPayloads) -> Unit)?,
         ) = TODO("Not needed for DI tests")
 
         override fun setDynamicUpdateHandlerWithPayloads(
-            handler: (suspend (updateName: String, args: List<Payload>) -> Payload)?,
-            validator: ((updateName: String, args: List<Payload>) -> Unit)?,
+            handler: (suspend (updateName: String, args: TemporalPayloads) -> TemporalPayload)?,
+            validator: ((updateName: String, args: TemporalPayloads) -> Unit)?,
         ) = TODO("Not needed for DI tests")
 
         override suspend fun upsertSearchAttributes(attributes: com.surrealdev.temporal.common.TypedSearchAttributes) =
@@ -1004,7 +1004,7 @@ class BasicDependencyInjectionTest {
         override val coroutineContext: CoroutineContext = Dispatchers.Unconfined
 
         // Stubs for required methods
-        override suspend fun heartbeatWithPayload(details: Payload?) {}
+        override suspend fun heartbeatWithPayload(details: TemporalPayload?) {}
 
         override fun ensureNotCancelled() {}
     }

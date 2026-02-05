@@ -1,7 +1,8 @@
 package com.surrealdev.temporal.serialization
 
-import com.google.protobuf.ByteString
-import io.temporal.api.common.v1.Payload
+import com.surrealdev.temporal.common.TemporalByteString
+import com.surrealdev.temporal.common.TemporalPayload
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
@@ -9,25 +10,22 @@ import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.decodeFromStream
+import kotlinx.serialization.json.encodeToStream
 import kotlinx.serialization.modules.SerializersModule
 import kotlinx.serialization.modules.contextual
 import kotlinx.serialization.serializer
+import java.io.InputStream
+import java.io.OutputStream
 import kotlin.reflect.KType
 
 /**
- * Standard metadata key for encoding type.
+ * Pre-built metadata maps for common encoding types.
  */
-private const val METADATA_ENCODING = "encoding"
-
-/**
- * JSON encoding type identifier.
- */
-private const val ENCODING_JSON = "json/plain"
-
-/**
- * Null encoding type identifier.
- */
-private const val ENCODING_NULL = "binary/null"
+private val JSON_METADATA =
+    mapOf(TemporalPayload.METADATA_ENCODING to TemporalByteString.fromUtf8(TemporalPayload.ENCODING_JSON))
+private val NULL_METADATA =
+    mapOf(TemporalPayload.METADATA_ENCODING to TemporalByteString.fromUtf8(TemporalPayload.ENCODING_NULL))
 
 /**
  * A [PayloadSerializer] implementation using kotlinx.serialization with JSON encoding.
@@ -57,41 +55,33 @@ class KotlinxJsonSerializer(
     override fun serialize(
         typeInfo: KType,
         value: Any?,
-    ): Payload {
+    ): TemporalPayload {
         // Handle null
         if (value == null) {
-            return Payload
-                .newBuilder()
-                .putMetadata(METADATA_ENCODING, ByteString.copyFromUtf8(ENCODING_NULL))
-                .build()
+            return TemporalPayload.create(NULL_METADATA)
         }
 
-        // Serialize to JSON
-        val jsonString =
-            try {
-                serializeToJson(typeInfo, value)
-            } catch (e: Exception) {
-                throw SerializationException(
-                    "Failed to serialize value of type ${typeInfo.javaClass.simpleName}: ${e.message}",
-                    e,
-                )
+        // Serialize to JSON directly into the payload data stream
+        return try {
+            TemporalPayload.create(JSON_METADATA) { stream ->
+                serializeToJson(typeInfo, stream, value)
             }
-
-        return Payload
-            .newBuilder()
-            .putMetadata(METADATA_ENCODING, ByteString.copyFromUtf8(ENCODING_JSON))
-            .setData(ByteString.copyFromUtf8(jsonString))
-            .build()
+        } catch (e: Exception) {
+            throw SerializationException(
+                "Failed to serialize value of type ${typeInfo.javaClass.simpleName}: ${e.message}",
+                e,
+            )
+        }
     }
 
     override fun deserialize(
         typeInfo: KType,
-        payload: Payload,
+        payload: TemporalPayload,
     ): Any? {
-        val encoding = payload.metadataMap[METADATA_ENCODING]?.toStringUtf8()
+        val encoding = payload.encoding
 
         // Handle null encoding
-        if (encoding == ENCODING_NULL) {
+        if (encoding == TemporalPayload.ENCODING_NULL) {
             if (!typeInfo.isMarkedNullable) {
                 throw SerializationException(
                     "Cannot deserialize null payload to non-nullable type ${typeInfo.javaClass.simpleName}",
@@ -101,10 +91,9 @@ class KotlinxJsonSerializer(
         }
 
         // Handle JSON encoding
-        if (encoding == ENCODING_JSON || encoding == null) {
-            val jsonString = payload.data.toStringUtf8()
+        if (encoding == TemporalPayload.ENCODING_JSON || encoding == null) {
             return try {
-                deserializeFromJson(typeInfo, jsonString)
+                deserializeFromJson(typeInfo, payload.dataInputStream())
             } catch (e: Exception) {
                 throw SerializationException(
                     "Failed to deserialize JSON to type ${typeInfo.javaClass.simpleName}: ${e.message}",
@@ -116,22 +105,23 @@ class KotlinxJsonSerializer(
         throw SerializationException("Unsupported encoding: $encoding")
     }
 
-    @Suppress("UNCHECKED_CAST")
+    @OptIn(ExperimentalSerializationApi::class)
     private fun serializeToJson(
         type: KType,
+        stream: OutputStream,
         value: Any,
-    ): String {
-        val serializer = json.serializersModule.serializer(type) as KSerializer<Any>
-        return json.encodeToString(serializer, value)
+    ) {
+        val serializer = json.serializersModule.serializer(type)
+        return json.encodeToStream(serializer, value, stream)
     }
 
-    @Suppress("UNCHECKED_CAST")
+    @OptIn(ExperimentalSerializationApi::class)
     private fun deserializeFromJson(
         type: KType,
-        jsonString: String,
+        jsonStream: InputStream,
     ): Any? {
         val serializer = json.serializersModule.serializer(type)
-        return json.decodeFromString(serializer, jsonString)
+        return json.decodeFromStream(serializer, jsonStream)
     }
 
     companion object {
