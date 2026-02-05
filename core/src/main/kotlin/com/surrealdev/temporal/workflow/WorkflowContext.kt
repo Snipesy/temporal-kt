@@ -77,12 +77,11 @@ interface WorkflowContext :
      * @throws IllegalArgumentException if neither startToCloseTimeout nor scheduleToCloseTimeout is set
      */
     @InternalTemporalApi
-    suspend fun <R> startActivityWithPayloads(
+    suspend fun startActivityWithPayloads(
         activityType: String,
         args: Payloads,
         options: ActivityOptions = ActivityOptions(),
-        returnType: kotlin.reflect.KType? = null,
-    ): RemoteActivityHandle<R>
+    ): RemoteActivityHandle
 
     /**
      * Starts a local activity and returns a handle to track its execution.
@@ -99,21 +98,18 @@ interface WorkflowContext :
      * - Retries managed locally up to `localRetryThreshold` (default 1 minute)
      * - Uses markers for replay (not re-execution)
      *
-     * @param R The expected result type of the local activity
      * @param activityType The activity type name (e.g., "greet")
      * @param args Serialized arguments to pass to the activity
      * @param options Configuration for the local activity
-     * @param returnType The KType for result deserialization
      * @return A handle to the local activity for awaiting results or cancellation
      * @throws IllegalArgumentException if neither startToCloseTimeout nor scheduleToCloseTimeout is set
      */
     @InternalTemporalApi
-    suspend fun <R> startLocalActivityWithPayloads(
+    suspend fun startLocalActivityWithPayloads(
         activityType: String,
         args: Payloads,
         options: LocalActivityOptions = LocalActivityOptions(startToCloseTimeout = Duration.parse("10s")),
-        returnType: kotlin.reflect.KType? = null,
-    ): LocalActivityHandle<R>
+    ): LocalActivityHandle
 
     /**
      * Suspends the workflow for the specified duration.
@@ -261,20 +257,17 @@ interface WorkflowContext :
      * This is the low-level method. For easier usage with type inference,
      * use the extension functions [startChildWorkflow].
      *
-     * @param R The expected result type of the child workflow
      * @param workflowType The workflow type name
      * @param args Serialized arguments to pass to the child workflow
      * @param options Configuration for the child workflow
-     * @param returnType The KType for result deserialization (used by extension functions)
      * @return A handle to the child workflow for awaiting results or cancellation
      */
     @InternalTemporalApi
-    suspend fun <R> startChildWorkflowWithPayloads(
+    suspend fun startChildWorkflowWithPayloads(
         workflowType: String,
         args: Payloads,
         options: ChildWorkflowOptions = ChildWorkflowOptions(),
-        returnType: kotlin.reflect.KType? = null,
-    ): ChildWorkflowHandle<R>
+    ): ChildWorkflowHandle
 
     /**
      * Registers or replaces a query handler at runtime.

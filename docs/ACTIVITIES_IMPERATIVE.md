@@ -49,11 +49,11 @@ class MyWorkflow {
     @WorkflowRun
     suspend fun run(name: String): String {
         val greeting = workflow()
-            .startActivity<String, String>(
+            .startActivity(
                 GreetingActivity::greet,
                 arg = name,
                 scheduleToCloseTimeout = 10.seconds,
-            ).result()
+            ).result<String>()
 
         return greeting
     }
@@ -229,12 +229,12 @@ Set `heartbeatTimeout` in activity options to enable cancellation detection. If 
 class UploadWorkflow {
     @WorkflowRun
     suspend fun run(fileId: String): UploadResult {
-        return workflow().startActivity<UploadResult, String>(
+        return workflow().startActivity(
             FileUploadActivity::uploadFile,
             arg = fileId,
             scheduleToCloseTimeout = 1.hours,
             heartbeatTimeout = 30.seconds,  // Activity must heartbeat every 30s
-        ).result()
+        ).result<UploadResult>()
     }
 }
 ```
@@ -398,7 +398,7 @@ sealed class ActivityException : RuntimeException {
 class CancellableWorkflow {
     @WorkflowRun
     suspend fun run(): String {
-        val handle = workflow().startActivity<String>(
+        val handle = workflow().startActivity(
             activityType = "longRunningTask",
             scheduleToCloseTimeout = 10.minutes,
             heartbeatTimeout = 30.seconds,
@@ -410,7 +410,7 @@ class CancellableWorkflow {
         handle.cancel()
 
         return try {
-            handle.result()
+            handle.result<String>()
         } catch (e: com.surrealdev.temporal.workflow.ActivityCancelledException) {
             "Activity was cancelled"
         } catch (e: ActivityTimeoutException) {
@@ -448,7 +448,7 @@ data class ActivityOptions(
 class TimeoutExampleWorkflow {
     @WorkflowRun
     suspend fun run(): String {
-        return workflow().startActivity<String>(
+        return workflow().startActivity(
             activityType = "myActivity",
 
             // Max time for a single execution attempt
@@ -466,7 +466,7 @@ class TimeoutExampleWorkflow {
             // Max time between heartbeats
             // Required for cancellation detection
             heartbeatTimeout = 10.seconds,
-        ).result()
+        ).result<String>()
     }
 }
 ```
@@ -490,7 +490,7 @@ data class RetryPolicy(
 class RetryExampleWorkflow {
     @WorkflowRun
     suspend fun run(): String {
-        return workflow().startActivity<String>(
+        return workflow().startActivity(
             activityType = "unreliableService",
             scheduleToCloseTimeout = 10.minutes,
             retryPolicy = RetryPolicy(
@@ -503,7 +503,7 @@ class RetryExampleWorkflow {
                     "AuthenticationException",
                 ),
             ),
-        ).result()
+        ).result<String>()
     }
 }
 ```
@@ -563,10 +563,10 @@ class LocalActivityWorkflow {
     @WorkflowRun
     suspend fun run(): String {
         // Simple local activity
-        val result = workflow().startLocalActivity<String>(
+        val result = workflow().startLocalActivity(
             activityType = "quickValidation",
             startToCloseTimeout = 10.seconds,
-        ).result()
+        ).result<String>()
 
         return result
     }
@@ -584,7 +584,7 @@ class ParallelLocalWorkflow {
 
         // Start multiple local activities
         val handles = listOf("task1", "task2", "task3").map { taskId ->
-            ctx.startLocalActivity<String, String>(
+            ctx.startLocalActivity(
                 activityType = "processTask",
                 arg = taskId,
                 startToCloseTimeout = 10.seconds,
@@ -592,7 +592,7 @@ class ParallelLocalWorkflow {
         }
 
         // Wait for all to complete
-        return handles.map { it.result() }
+        return handles.map { it.result<String>() }
     }
 }
 ```
@@ -617,12 +617,12 @@ class ParallelLocalWorkflow {
 class FunctionRefWorkflow {
     @WorkflowRun
     suspend fun run(name: String): String {
-        // Type parameters: <ReturnType, ArgType>
-        return workflow().startActivity<String, String>(
+        // Cleaner API with payload-based handles and type inference
+        return workflow().startActivity(
             GreetingActivity::greet,
             arg = name,
             scheduleToCloseTimeout = 10.seconds,
-        ).result()
+        ).result<String>()
     }
 }
 ```
@@ -634,11 +634,11 @@ class FunctionRefWorkflow {
 class StringTypeWorkflow {
     @WorkflowRun
     suspend fun run(name: String): String {
-        return workflow().startActivity<String, String>(
+        return workflow().startActivity(
             activityType = "greet",
             arg = name,
             scheduleToCloseTimeout = 10.seconds,
-        ).result()
+        ).result<String>()
     }
 }
 ```
@@ -650,13 +650,13 @@ class StringTypeWorkflow {
 class MultiArgWorkflow {
     @WorkflowRun
     suspend fun run(): PaymentResult {
-        // Type parameters: <ReturnType, Arg1Type, Arg2Type>
-        return workflow().startActivity<PaymentResult, String, Double>(
+        // No need for return type in function call
+        return workflow().startActivity(
             activityType = "processPayment",
             arg1 = "order-123",
             arg2 = 99.99,
             scheduleToCloseTimeout = 30.seconds,
-        ).result()
+        ).result<PaymentResult>()
     }
 }
 ```
@@ -668,7 +668,7 @@ class MultiArgWorkflow {
 class FullOptionsWorkflow {
     @WorkflowRun
     suspend fun run(): String {
-        return workflow().startActivity<String, String>(
+        return workflow().startActivity(
             activityType = "complexOperation",
             arg = "input",
             options = ActivityOptions(
@@ -681,7 +681,7 @@ class FullOptionsWorkflow {
                 ),
                 cancellationType = ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
             ),
-        ).result()
+        ).result<String>()
     }
 }
 ```

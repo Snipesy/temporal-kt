@@ -8,6 +8,7 @@ import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
 import com.surrealdev.temporal.testing.ProtoTestHelpers
 import com.surrealdev.temporal.testing.createTestWorkflowExecutor
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import com.surrealdev.temporal.workflow.startLocalActivity
 import coresdk.workflow_commands.WorkflowCommands
 import coresdk.workflow_completion.WorkflowCompletion
@@ -45,7 +46,7 @@ class LocalActivityIntegrationTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             result =
-                startLocalActivity<String>(
+                startLocalActivity(
                     activityType = "localGreet",
                     startToCloseTimeout = 10.seconds,
                 ).result()
@@ -62,17 +63,17 @@ class LocalActivityIntegrationTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             result1 =
-                startLocalActivity<String>(
+                startLocalActivity(
                     activityType = "step1",
                     startToCloseTimeout = 10.seconds,
                 ).result()
             result2 =
-                startLocalActivity<String>(
+                startLocalActivity(
                     activityType = "step2",
                     startToCloseTimeout = 10.seconds,
                 ).result()
             result3 =
-                startLocalActivity<String>(
+                startLocalActivity(
                     activityType = "step3",
                     startToCloseTimeout = 10.seconds,
                 ).result()
@@ -87,25 +88,25 @@ class LocalActivityIntegrationTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             val handle1 =
-                startLocalActivity<String>(
+                startLocalActivity(
                     activityType = "parallel1",
                     startToCloseTimeout = 10.seconds,
                 )
             val handle2 =
-                startLocalActivity<String>(
+                startLocalActivity(
                     activityType = "parallel2",
                     startToCloseTimeout = 10.seconds,
                 )
             val handle3 =
-                startLocalActivity<String>(
+                startLocalActivity(
                     activityType = "parallel3",
                     startToCloseTimeout = 10.seconds,
                 )
 
             // Await all concurrently
-            val r1 = handle1.result()
-            val r2 = handle2.result()
-            val r3 = handle3.result()
+            val r1: String = handle1.result()
+            val r2: String = handle2.result()
+            val r3: String = handle3.result()
 
             parallelResult = "$r1,$r2,$r3"
             return parallelResult!!
@@ -120,7 +121,7 @@ class LocalActivityIntegrationTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             finalResult =
-                startLocalActivity<String>(
+                startLocalActivity(
                     activityType = "flakyActivity",
                     startToCloseTimeout = 30.seconds,
                 ).result()

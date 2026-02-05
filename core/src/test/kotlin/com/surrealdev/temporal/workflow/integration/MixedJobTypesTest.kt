@@ -7,6 +7,7 @@ import com.surrealdev.temporal.client.startWorkflow
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import org.junit.jupiter.api.Tag
 import java.util.UUID
 import kotlin.test.Test
@@ -65,12 +66,12 @@ class MixedJobTypesTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "MixedJobTypesWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
 
             assertEquals("after-timer-1->condition-1-satisfied->after-timer-2->condition-2-satisfied", result)
 

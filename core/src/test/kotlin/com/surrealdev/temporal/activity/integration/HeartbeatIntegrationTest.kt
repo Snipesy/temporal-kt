@@ -10,6 +10,7 @@ import com.surrealdev.temporal.client.startWorkflow
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.ActivityOptions
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import com.surrealdev.temporal.workflow.startActivity
 import kotlinx.coroutines.delay
 import kotlinx.serialization.Serializable
@@ -56,7 +57,7 @@ class HeartbeatIntegrationTest {
     class HeartbeatTestWorkflow {
         @WorkflowRun
         suspend fun WorkflowContext.run(items: List<String>): ProcessingResult =
-            startActivity<ProcessingResult, List<String>>(
+            startActivity<List<String>>(
                 activityType = "processWithHeartbeat",
                 arg = items,
                 options =
@@ -83,13 +84,13 @@ class HeartbeatIntegrationTest {
             val items = listOf("item1", "item2", "item3", "item4", "item5")
 
             val handle =
-                client.startWorkflow<ProcessingResult, List<String>>(
+                client.startWorkflow<List<String>>(
                     workflowType = "HeartbeatTestWorkflow",
                     taskQueue = taskQueue,
                     arg = items,
                 )
 
-            val result = handle.result(timeout = 1.minutes)
+            val result: ProcessingResult = handle.result(timeout = 1.minutes)
 
             assertEquals(5, result.totalItems)
             assertEquals(5, result.finalProgress?.itemsProcessed)
@@ -114,13 +115,13 @@ class HeartbeatIntegrationTest {
             val items = listOf("x", "y", "z")
 
             val handle =
-                client.startWorkflow<ProcessingResult, List<String>>(
+                client.startWorkflow<List<String>>(
                     workflowType = "HeartbeatTestWorkflow",
                     taskQueue = taskQueue,
                     arg = items,
                 )
 
-            val result = handle.result(timeout = 1.minutes)
+            val result: ProcessingResult = handle.result(timeout = 1.minutes)
 
             // Verify heartbeats were sent and activity completed successfully
             assertEquals(3, result.totalItems)

@@ -16,7 +16,7 @@ import io.temporal.api.common.v1.Payloads
  *
  * Obtain a handle via [WorkflowContext] extension function `getExternalWorkflowHandle()`.
  */
-interface ExternalWorkflowHandle : WorkflowHandleBase<Unit> {
+interface ExternalWorkflowHandle : WorkflowHandleBase {
     /**
      * The workflow ID of the external workflow.
      */

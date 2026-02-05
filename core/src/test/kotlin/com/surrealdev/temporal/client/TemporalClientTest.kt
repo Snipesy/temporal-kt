@@ -6,6 +6,7 @@ import com.surrealdev.temporal.application.taskQueue
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -60,7 +61,7 @@ class TemporalClientTest {
             }
 
             val client = client()
-            val handle: WorkflowHandle<String> =
+            val handle: WorkflowHandle =
                 client.startWorkflow(
                     workflowType = "GreetingWorkflow",
                     taskQueue = taskQueue,
@@ -70,7 +71,7 @@ class TemporalClientTest {
             assertNotNull(handle.workflowId)
             assertNotNull(handle.runId)
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertEquals("Hello, World!", result)
         }
 
@@ -87,7 +88,7 @@ class TemporalClientTest {
             }
 
             val client = client()
-            val handle: WorkflowHandle<String> =
+            val handle: WorkflowHandle =
                 client.startWorkflow(
                     workflowType = "GreetingWorkflow",
                     taskQueue = taskQueue,
@@ -97,7 +98,7 @@ class TemporalClientTest {
 
             assertEquals(customWorkflowId, handle.workflowId)
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertEquals("Hello, Test!", result)
         }
 
@@ -113,14 +114,14 @@ class TemporalClientTest {
             }
 
             val client = client()
-            val handle: WorkflowHandle<String> =
+            val handle: WorkflowHandle =
                 client.startWorkflow(
                     workflowType = "TimerTestWorkflow",
                     taskQueue = taskQueue,
                     arg = 100L,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertEquals("Timer completed", result)
         }
 
@@ -136,14 +137,14 @@ class TemporalClientTest {
             }
 
             val client = client()
-            val handle: WorkflowHandle<String> =
+            val handle: WorkflowHandle =
                 client.startWorkflow(
                     workflowType = "GreetingWorkflow",
                     taskQueue = taskQueue,
                     arg = "History",
                 )
 
-            handle.result(timeout = 30.seconds)
+            handle.result<String>(timeout = 30.seconds)
 
             val history = handle.getHistory()
             assertTrue(history.isCompleted)
@@ -164,14 +165,14 @@ class TemporalClientTest {
             }
 
             val client = client()
-            val handle: WorkflowHandle<String> =
+            val handle: WorkflowHandle =
                 client.startWorkflow(
                     workflowType = "TimerTestWorkflow",
                     taskQueue = taskQueue,
                     arg = 50L,
                 )
 
-            handle.result(timeout = 30.seconds)
+            handle.result<String>(timeout = 30.seconds)
 
             handle.assertHistory {
                 completed()
@@ -194,14 +195,14 @@ class TemporalClientTest {
             }
 
             val client = client()
-            val handle: WorkflowHandle<String> =
+            val handle: WorkflowHandle =
                 client.startWorkflow(
                     workflowType = "GreetingWorkflow",
                     taskQueue = taskQueue,
                     arg = "Describe",
                 )
 
-            handle.result(timeout = 30.seconds)
+            handle.result<String>(timeout = 30.seconds)
 
             val description = handle.describe()
             assertEquals(handle.workflowId, description.workflowId)
@@ -223,14 +224,14 @@ class TemporalClientTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<Int, Int, Int>(
+                client.startWorkflow(
                     workflowType = "MultiArgWorkflow",
                     taskQueue = taskQueue,
                     arg1 = 5,
                     arg2 = 3,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: Int = handle.result(timeout = 30.seconds)
             assertEquals(8, result)
         }
 
@@ -246,13 +247,13 @@ class TemporalClientTest {
             }
 
             val client = client()
-            val handle: WorkflowHandle<String> =
+            val handle: WorkflowHandle =
                 client.startWorkflow(
                     workflowType = "NoArgWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertEquals("No args needed", result)
         }
 
@@ -271,7 +272,7 @@ class TemporalClientTest {
             val client = client()
 
             // Start the workflow
-            val originalHandle: WorkflowHandle<String> =
+            val originalHandle: WorkflowHandle =
                 client.startWorkflow(
                     workflowType = "GreetingWorkflow",
                     taskQueue = taskQueue,
@@ -280,12 +281,12 @@ class TemporalClientTest {
                 )
 
             // Get a new handle to the same workflow
-            val retrievedHandle = client.getWorkflowHandle<String>(workflowId)
+            val retrievedHandle = client.getWorkflowHandle(workflowId)
 
             assertEquals(workflowId, retrievedHandle.workflowId)
 
             // Both should return the same result
-            val result = retrievedHandle.result(timeout = 30.seconds)
+            val result: String = retrievedHandle.result(timeout = 30.seconds)
             assertEquals("Hello, Existing!", result)
         }
 }

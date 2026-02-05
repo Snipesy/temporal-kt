@@ -14,6 +14,7 @@ import com.surrealdev.temporal.testing.ProtoTestHelpers.signalWorkflowJob
 import com.surrealdev.temporal.testing.createTestWorkflowExecutor
 import com.surrealdev.temporal.workflow.ActivityOptions
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import com.surrealdev.temporal.workflow.startActivity
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
@@ -866,8 +867,8 @@ class SignalHandlerTest {
         @Signal("processData")
         suspend fun WorkflowContext.processData(input: String) {
             // This should schedule an activity and wait for result
-            val result =
-                startActivity<String, String>(
+            val result: String =
+                startActivity(
                     activityType = "echo",
                     arg = input,
                     options = ActivityOptions(startToCloseTimeout = 60.seconds),

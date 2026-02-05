@@ -13,8 +13,10 @@ import javax.inject.Inject
  * Example usage:
  * ```kotlin
  * temporal {
- *     enabled = true
- *     outputDir = layout.buildDirectory.dir("generated/temporal")
+ *     compiler {
+ *         enabled = true
+ *         outputDir = layout.buildDirectory.dir("generated/temporal")
+ *     }
  *     native {
  *         enabled = true
  *         classifier = "macos-aarch64" // or omit for auto-detection
@@ -29,16 +31,16 @@ abstract class TemporalExtension
         objects: ObjectFactory,
     ) {
         /**
-         * Whether the Temporal compiler plugin is enabled.
-         * Defaults to true.
+         * Configuration for the Temporal compiler plugin.
          */
-        abstract val enabled: Property<Boolean>
+        val compiler: CompilerExtension = objects.newInstance(CompilerExtension::class.java, project)
 
         /**
-         * Output directory for generated client stubs and metadata.
-         * Defaults to `build/generated/temporal`.
+         * Configures the Temporal compiler plugin.
          */
-        abstract val outputDir: DirectoryProperty
+        fun compiler(action: Action<CompilerExtension>) {
+            action.execute(compiler)
+        }
 
         /**
          * Configuration for native library dependencies.
@@ -51,9 +53,32 @@ abstract class TemporalExtension
         fun native(action: Action<NativeExtension>) {
             action.execute(native)
         }
+    }
+
+/**
+ * Extension for configuring the Temporal compiler plugin.
+ */
+abstract class CompilerExtension
+    @Inject
+    constructor(
+        project: Project,
+    ) {
+        /**
+         * Whether the Temporal compiler plugin is enabled.
+         * Defaults to false to avoid errors across Kotlin version changes.
+         * Set to true to enable determinism validation and code generation.
+         */
+        abstract val enabled: Property<Boolean>
+
+        /**
+         * Output directory for generated client stubs and metadata.
+         * Defaults to `build/generated/temporal`.
+         */
+        abstract val outputDir: DirectoryProperty
 
         init {
-            enabled.convention(true)
+            enabled.convention(false)
+            outputDir.convention(project.layout.buildDirectory.dir("generated/temporal"))
         }
     }
 

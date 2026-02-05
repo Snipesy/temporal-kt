@@ -10,6 +10,7 @@ import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.ChildWorkflowFailureException
 import com.surrealdev.temporal.workflow.ChildWorkflowOptions
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import com.surrealdev.temporal.workflow.signal
 import com.surrealdev.temporal.workflow.startChildWorkflow
 import kotlinx.serialization.Serializable
@@ -83,7 +84,7 @@ class ChildWorkflowIntegrationTest {
     class SimpleParentWorkflow {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
-            val childResult = startChildWorkflow<String>("SimpleChildWorkflow", ChildWorkflowOptions()).result()
+            val childResult: String = startChildWorkflow("SimpleChildWorkflow", ChildWorkflowOptions()).result()
             return "Parent received: $childResult"
         }
     }
@@ -96,8 +97,8 @@ class ChildWorkflowIntegrationTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(parentInput: String): String {
             val childInput = ChildInput(value = parentInput)
-            val result =
-                startChildWorkflow<ChildOutput, ChildInput>(
+            val result: ChildOutput =
+                startChildWorkflow(
                     "ChildWithArgsWorkflow",
                     childInput,
                     ChildWorkflowOptions(),
@@ -113,8 +114,8 @@ class ChildWorkflowIntegrationTest {
     class MultipleChildrenWorkflow {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
-            val result1 = startChildWorkflow<String>("SimpleChildWorkflow", ChildWorkflowOptions()).result()
-            val result2 = startChildWorkflow<String>("SimpleChildWorkflow", ChildWorkflowOptions()).result()
+            val result1: String = startChildWorkflow("SimpleChildWorkflow", ChildWorkflowOptions()).result()
+            val result2: String = startChildWorkflow("SimpleChildWorkflow", ChildWorkflowOptions()).result()
             return "Child1: $result1, Child2: $result2"
         }
     }
@@ -127,7 +128,7 @@ class ChildWorkflowIntegrationTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String =
             try {
-                startChildWorkflow<String>("FailingChildWorkflow", ChildWorkflowOptions()).result()
+                startChildWorkflow("FailingChildWorkflow", ChildWorkflowOptions()).result<String>()
                 "Child succeeded unexpectedly"
             } catch (e: ChildWorkflowFailureException) {
                 "Caught child failure: ${e.failure?.message}"
@@ -143,8 +144,7 @@ class ChildWorkflowIntegrationTest {
         suspend fun WorkflowContext.run(): String {
             val customId = "custom-child-${info.workflowId}"
             val options = ChildWorkflowOptions(workflowId = customId)
-            val result = startChildWorkflow<String>("SimpleChildWorkflow", options).result()
-            return result
+            return startChildWorkflow("SimpleChildWorkflow", options).result<String>()
         }
     }
 
@@ -164,7 +164,7 @@ class ChildWorkflowIntegrationTest {
     class ChildThatStartsGrandchild {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
-            val grandchildResult = startChildWorkflow<String>("GrandchildWorkflow", ChildWorkflowOptions()).result()
+            val grandchildResult: String = startChildWorkflow("GrandchildWorkflow", ChildWorkflowOptions()).result()
             return "Child received from grandchild: $grandchildResult"
         }
     }
@@ -176,7 +176,7 @@ class ChildWorkflowIntegrationTest {
     class NestedChildWorkflowsParent {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
-            val childResult = startChildWorkflow<String>("ChildThatStartsGrandchild", ChildWorkflowOptions()).result()
+            val childResult: String = startChildWorkflow("ChildThatStartsGrandchild", ChildWorkflowOptions()).result()
             return "Parent received: $childResult"
         }
     }
@@ -207,10 +207,10 @@ class ChildWorkflowIntegrationTest {
     class ParentThatSignalsChild {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
-            val childHandle = startChildWorkflow<String>("SignalableChildWorkflow", ChildWorkflowOptions())
+            val childHandle = startChildWorkflow("SignalableChildWorkflow", ChildWorkflowOptions())
             // Signal the child to complete
             childHandle.signal("completeWithValue", "hello from parent")
-            return "Parent got: ${childHandle.result()}"
+            return "Parent got: ${childHandle.result<String>()}"
         }
     }
 
@@ -232,12 +232,12 @@ class ChildWorkflowIntegrationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "SimpleParentWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertTrue(result.startsWith("Parent received: Hello from child"))
 
             handle.assertHistory {
@@ -259,13 +259,13 @@ class ChildWorkflowIntegrationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String, String>(
+                client.startWorkflow(
                     workflowType = "ParentWithArgsWorkflow",
                     taskQueue = taskQueue,
                     arg = "test input",
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertTrue(result.contains("Processed: test input"))
 
             handle.assertHistory {
@@ -287,12 +287,12 @@ class ChildWorkflowIntegrationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "MultipleChildrenWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertTrue(result.contains("Child1:"))
             assertTrue(result.contains("Child2:"))
 
@@ -315,12 +315,12 @@ class ChildWorkflowIntegrationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "ChildFailureHandlerWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertTrue(result.startsWith("Caught child failure:"))
 
             handle.assertHistory {
@@ -342,12 +342,12 @@ class ChildWorkflowIntegrationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "CustomChildIdWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             // The child should have the custom ID which includes parent's ID
             assertTrue(result.contains("custom-child-"))
 
@@ -371,12 +371,12 @@ class ChildWorkflowIntegrationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "NestedChildWorkflowsParent",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertTrue(result.contains("grandchild"))
 
             handle.assertHistory {
@@ -398,12 +398,12 @@ class ChildWorkflowIntegrationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "ParentThatSignalsChild",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertTrue(result.contains("hello from parent"))
 
             handle.assertHistory {

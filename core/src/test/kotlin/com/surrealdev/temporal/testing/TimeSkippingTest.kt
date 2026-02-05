@@ -5,6 +5,7 @@ import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.taskQueue
 import com.surrealdev.temporal.client.startWorkflow
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -97,12 +98,12 @@ class TimeSkippingTest {
                     // Start the workflow and wait for result
                     val client = client()
                     val handle =
-                        client.startWorkflow<String>(
+                        client.startWorkflow(
                             workflowType = "LongTimerWorkflow",
                             taskQueue = taskQueue,
                         )
 
-                    val result = handle.result(timeout = 30.seconds)
+                    val result: String = handle.result(timeout = 30.seconds)
                     assertEquals("Timer completed!", result)
                     println("Workflow result: $result")
                 }

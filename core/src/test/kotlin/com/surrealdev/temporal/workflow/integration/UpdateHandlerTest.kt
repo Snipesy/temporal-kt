@@ -11,6 +11,7 @@ import com.surrealdev.temporal.client.update
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import com.surrealdev.temporal.workflow.signal
 import org.junit.jupiter.api.Tag
 import java.util.UUID
@@ -66,7 +67,7 @@ class UpdateHandlerTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<Int>(
+                client.startWorkflow(
                     workflowType = "UpdateCounterWorkflow",
                     taskQueue = taskQueue,
                 )
@@ -84,7 +85,7 @@ class UpdateHandlerTest {
             // Complete workflow
             handle.signal("complete")
 
-            val finalResult = handle.result(timeout = 30.seconds)
+            val finalResult: Int = handle.result(timeout = 30.seconds)
             assertEquals(8, finalResult)
 
             handle.assertHistory {
@@ -141,7 +142,7 @@ class UpdateHandlerTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "ValidatedUpdateWorkflow",
                     taskQueue = taskQueue,
                 )
@@ -152,7 +153,7 @@ class UpdateHandlerTest {
 
             handle.signal("complete")
 
-            val finalResult = handle.result(timeout = 30.seconds)
+            val finalResult: String = handle.result(timeout = 30.seconds)
             assertEquals("hello", finalResult)
 
             handle.assertHistory {
@@ -173,19 +174,19 @@ class UpdateHandlerTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "ValidatedUpdateWorkflow",
                     taskQueue = taskQueue,
                 )
 
             // Invalid update (blank) should be rejected
             assertFailsWith<Exception> {
-                handle.update<String, String, String>("setValue", "")
+                handle.update<String, String>("setValue", "")
             }
 
             // Invalid update (too long) should be rejected
             assertFailsWith<Exception> {
-                handle.update<String, String, String>("setValue", "this is way too long")
+                handle.update<String, String>("setValue", "this is way too long")
             }
 
             // Valid update should still work after rejections
@@ -194,7 +195,7 @@ class UpdateHandlerTest {
 
             handle.signal("complete")
 
-            val finalResult = handle.result(timeout = 30.seconds)
+            val finalResult: String = handle.result(timeout = 30.seconds)
             assertEquals("valid", finalResult)
 
             handle.assertHistory {

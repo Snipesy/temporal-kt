@@ -8,6 +8,7 @@ import com.surrealdev.temporal.workflow.ActivityCancellationType
 import com.surrealdev.temporal.workflow.ActivityCancelledException
 import com.surrealdev.temporal.workflow.ActivityFailureException
 import com.surrealdev.temporal.workflow.ActivityTimeoutException
+import com.surrealdev.temporal.workflow.result
 import coresdk.activity_result.ActivityResult
 import io.temporal.api.common.v1.Payload
 import io.temporal.api.enums.v1.RetryState
@@ -23,26 +24,23 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import kotlin.reflect.typeOf
 
 class RemoteActivityHandleImplTest {
     private val serializer = KotlinxJsonSerializer()
     private val workflowState = WorkflowState("test-run-id")
 
-    private fun <R> createHandle(
+    private fun createHandle(
         activityId: String = "test-activity-id",
         seq: Int = 1,
         activityType: String = "TestActivity::run",
-        returnType: kotlin.reflect.KType = typeOf<String>(),
         cancellationType: ActivityCancellationType = ActivityCancellationType.TRY_CANCEL,
-    ): RemoteActivityHandleImpl<R> =
+    ): RemoteActivityHandleImpl =
         RemoteActivityHandleImpl(
             activityId = activityId,
             seq = seq,
             activityType = activityType,
             state = workflowState,
             serializer = serializer,
-            returnType = returnType,
             cancellationType = cancellationType,
         )
 
@@ -90,7 +88,7 @@ class RemoteActivityHandleImplTest {
     @Test
     fun `ActivityHandleImpl creation and initial state`() {
         val handle =
-            createHandle<String>(
+            createHandle(
                 activityId = "my-activity",
                 seq = 42,
             )
@@ -104,7 +102,7 @@ class RemoteActivityHandleImplTest {
     @Test
     fun `isDone becomes true after completion`() =
         runTest {
-            val handle = createHandle<String>()
+            val handle = createHandle()
 
             assertFalse(handle.isDone)
 
@@ -115,7 +113,7 @@ class RemoteActivityHandleImplTest {
 
     @Test
     fun `isCancellationRequested becomes true after cancel`() {
-        val handle = createHandle<String>()
+        val handle = createHandle()
 
         assertFalse(handle.isCancellationRequested)
 
@@ -131,7 +129,7 @@ class RemoteActivityHandleImplTest {
     @Test
     fun `result() returns correct value on completion`() =
         runTest {
-            val handle = createHandle<String>()
+            val handle = createHandle()
 
             // Create a payload with serialized string
             val jsonData = "\"Hello World\""
@@ -144,7 +142,7 @@ class RemoteActivityHandleImplTest {
 
             handle.resolve(createCompletedResolution(payload))
 
-            val result = handle.result()
+            val result = handle.result<String>()
 
             assertEquals("Hello World", result)
         }
@@ -152,11 +150,11 @@ class RemoteActivityHandleImplTest {
     @Test
     fun `result() handles Unit return type`() =
         runTest {
-            val handle = createHandle<Unit>(returnType = typeOf<Unit>())
+            val handle = createHandle()
 
             handle.resolve(createCompletedResolution(Payload.getDefaultInstance()))
 
-            val result = handle.result()
+            val result = handle.result<Unit>()
 
             assertEquals(Unit, result)
         }
@@ -164,11 +162,11 @@ class RemoteActivityHandleImplTest {
     @Test
     fun `result() handles null return type`() =
         runTest {
-            val handle = createHandle<String?>(returnType = typeOf<String?>())
+            val handle = createHandle()
 
             handle.resolve(createCompletedResolution(Payload.getDefaultInstance()))
 
-            val result = handle.result()
+            val result = handle.result<String?>()
 
             assertNull(result)
         }
@@ -177,7 +175,7 @@ class RemoteActivityHandleImplTest {
     fun `result deserialization works for various types`() =
         runTest {
             // Test Int type
-            val intHandle = createHandle<Int>(returnType = typeOf<Int>())
+            val intHandle = createHandle()
             val intPayload =
                 Payload
                     .newBuilder()
@@ -186,7 +184,7 @@ class RemoteActivityHandleImplTest {
                     .build()
 
             intHandle.resolve(createCompletedResolution(intPayload))
-            val intResult = intHandle.result()
+            val intResult = intHandle.result<Int>()
 
             assertEquals(42, intResult)
         }
@@ -198,7 +196,7 @@ class RemoteActivityHandleImplTest {
     @Test
     fun `result() throws ActivityFailureException on failure`() =
         runTest {
-            val handle = createHandle<String>()
+            val handle = createHandle()
 
             // Build nested failure proto (proper Temporal structure)
             // Outer: ActivityFailureInfo (activity failed)
@@ -230,7 +228,7 @@ class RemoteActivityHandleImplTest {
             // Should throw ActivityFailureException
             val exception =
                 try {
-                    val result = handle.result()
+                    val result = handle.result<String>()
                     throw AssertionError("Expected ActivityFailureException to be thrown, but got result: $result")
                 } catch (e: ActivityFailureException) {
                     e
@@ -253,7 +251,7 @@ class RemoteActivityHandleImplTest {
     @Test
     fun `result() throws ActivityCancelledException on cancellation`() =
         runTest {
-            val handle = createHandle<String>()
+            val handle = createHandle()
 
             val failure =
                 Failure
@@ -266,7 +264,7 @@ class RemoteActivityHandleImplTest {
             // Should throw ActivityCancelledException
             val exception =
                 try {
-                    handle.result()
+                    handle.result<String>()
                     throw AssertionError("Expected ActivityCancelledException to be thrown")
                 } catch (e: ActivityCancelledException) {
                     e
@@ -279,7 +277,7 @@ class RemoteActivityHandleImplTest {
 
     @Test
     fun `exceptionOrNull returns correct exception after failure`() {
-        val handle = createHandle<String>()
+        val handle = createHandle()
 
         // Initially null
         assertNull(handle.exceptionOrNull())
@@ -306,7 +304,7 @@ class RemoteActivityHandleImplTest {
 
     @Test
     fun `exceptionOrNull returns null before resolution`() {
-        val handle = createHandle<String>()
+        val handle = createHandle()
 
         assertNull(handle.exceptionOrNull())
     }
@@ -321,13 +319,12 @@ class RemoteActivityHandleImplTest {
 
         // Create a fresh handle with fresh state
         val freshHandle =
-            RemoteActivityHandleImpl<String>(
+            RemoteActivityHandleImpl(
                 activityId = "test-activity-id",
                 seq = 99,
                 activityType = "TestActivity::run",
                 state = state,
                 serializer = serializer,
-                returnType = typeOf<String>(),
                 cancellationType = ActivityCancellationType.TRY_CANCEL,
             )
 
@@ -350,13 +347,12 @@ class RemoteActivityHandleImplTest {
     fun `cancel() is idempotent`() {
         val state = WorkflowState("test-run-id")
         val handle =
-            RemoteActivityHandleImpl<String>(
+            RemoteActivityHandleImpl(
                 activityId = "test-activity-id",
                 seq = 1,
                 activityType = "TestActivity::run",
                 state = state,
                 serializer = serializer,
-                returnType = typeOf<String>(),
                 cancellationType = ActivityCancellationType.TRY_CANCEL,
             )
 
@@ -377,13 +373,12 @@ class RemoteActivityHandleImplTest {
     fun `cancel() is no-op if isDone`() {
         val state = WorkflowState("test-run-id")
         val handle =
-            RemoteActivityHandleImpl<String>(
+            RemoteActivityHandleImpl(
                 activityId = "test-activity-id",
                 seq = 1,
                 activityType = "TestActivity::run",
                 state = state,
                 serializer = serializer,
-                returnType = typeOf<String>(),
                 cancellationType = ActivityCancellationType.TRY_CANCEL,
             )
 
@@ -408,7 +403,7 @@ class RemoteActivityHandleImplTest {
 
     @Test
     fun `backoff resolution throws IllegalStateException`() {
-        val handle = createHandle<String>()
+        val handle = createHandle()
 
         // Resolve with backoff (invalid for regular activities)
         val exception =
@@ -423,7 +418,7 @@ class RemoteActivityHandleImplTest {
 
     @Test
     fun `resolve with unknown status throws IllegalStateException`() {
-        val handle = createHandle<String>()
+        val handle = createHandle()
 
         // Empty resolution (no status set)
         val resolution = ActivityResult.ActivityResolution.getDefaultInstance()
@@ -438,7 +433,7 @@ class RemoteActivityHandleImplTest {
 
     @Test
     fun `retry state mapping covers all cases`() {
-        val handle = createHandle<String>()
+        val handle = createHandle()
 
         val failure =
             Failure
@@ -459,7 +454,7 @@ class RemoteActivityHandleImplTest {
     @Test
     fun `failure with cause chain is built correctly`() =
         runTest {
-            val handle = createHandle<String>()
+            val handle = createHandle()
 
             // Build nested failure
             val rootCause =
@@ -483,7 +478,7 @@ class RemoteActivityHandleImplTest {
 
             val exception =
                 try {
-                    handle.result()
+                    handle.result<String>()
                     throw AssertionError("Expected ActivityFailureException to be thrown")
                 } catch (e: ActivityFailureException) {
                     e
@@ -505,7 +500,7 @@ class RemoteActivityHandleImplTest {
             )
 
         testCases.forEach { (protoState, expectedKotlinState) ->
-            val handle = createHandle<String>()
+            val handle = createHandle()
             val failure =
                 Failure
                     .newBuilder()
@@ -534,7 +529,7 @@ class RemoteActivityHandleImplTest {
     @Test
     fun `result() throws ActivityTimeoutException on timeout`() =
         runTest {
-            val handle = createHandle<String>()
+            val handle = createHandle()
 
             // Build timeout failure
             val timeoutFailure =
@@ -552,7 +547,7 @@ class RemoteActivityHandleImplTest {
             // Should throw ActivityTimeoutException
             val exception =
                 try {
-                    handle.result()
+                    handle.result<String>()
                     throw AssertionError("Expected ActivityTimeoutException to be thrown")
                 } catch (e: ActivityTimeoutException) {
                     e
@@ -567,7 +562,7 @@ class RemoteActivityHandleImplTest {
     @Test
     fun `cancel during resolve is thread-safe`() =
         runTest {
-            val handle = createHandle<String>()
+            val handle = createHandle()
 
             // Launch concurrent operations
             val cancelJob =
@@ -592,7 +587,7 @@ class RemoteActivityHandleImplTest {
     @Test
     fun `result deserialization handles type mismatch gracefully`() {
         runTest {
-            val handle = createHandle<Int>(returnType = typeOf<Int>())
+            val handle = createHandle()
 
             // Serialize a string but expect int
             val stringPayload =
@@ -607,7 +602,7 @@ class RemoteActivityHandleImplTest {
             // Should throw deserialization exception
             val exception =
                 try {
-                    handle.result()
+                    handle.result<Int>()
                     throw AssertionError("Expected deserialization exception to be thrown")
                 } catch (e: Exception) {
                     // Expected - deserialization should fail
@@ -623,13 +618,12 @@ class RemoteActivityHandleImplTest {
     fun `cancel with ABANDON type does not send command`() {
         val state = WorkflowState("test-run-id")
         val handle =
-            RemoteActivityHandleImpl<String>(
+            RemoteActivityHandleImpl(
                 activityId = "test-activity",
                 seq = 1,
                 activityType = "TestActivity::run",
                 state = state,
                 serializer = serializer,
-                returnType = typeOf<String>(),
                 cancellationType = ActivityCancellationType.ABANDON,
             )
 
@@ -648,13 +642,12 @@ class RemoteActivityHandleImplTest {
     fun `cancel with TRY_CANCEL type sends command`() {
         val state = WorkflowState("test-run-id")
         val handle =
-            RemoteActivityHandleImpl<String>(
+            RemoteActivityHandleImpl(
                 activityId = "test-activity",
                 seq = 1,
                 activityType = "TestActivity::run",
                 state = state,
                 serializer = serializer,
-                returnType = typeOf<String>(),
                 cancellationType = ActivityCancellationType.TRY_CANCEL,
             )
 
@@ -671,13 +664,12 @@ class RemoteActivityHandleImplTest {
     fun `cancel with WAIT_CANCELLATION_COMPLETED type sends command`() {
         val state = WorkflowState("test-run-id")
         val handle =
-            RemoteActivityHandleImpl<String>(
+            RemoteActivityHandleImpl(
                 activityId = "test-activity",
                 seq = 1,
                 activityType = "TestActivity::run",
                 state = state,
                 serializer = serializer,
-                returnType = typeOf<String>(),
                 cancellationType = ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
             )
 

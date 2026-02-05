@@ -8,6 +8,7 @@ import com.surrealdev.temporal.client.startWorkflow
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import com.surrealdev.temporal.workflow.signal
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -122,7 +123,7 @@ class ExternalWorkflowIntegrationTest {
 
             // Start the workflow that waits for a signal
             val waitingHandle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "SignalWaitingWorkflow",
                     taskQueue = taskQueue,
                     workflowId = targetWorkflowId,
@@ -130,15 +131,15 @@ class ExternalWorkflowIntegrationTest {
 
             // Start the workflow that will signal the waiting workflow
             val signalerHandle =
-                client.startWorkflow<String, String>(
+                client.startWorkflow<String>(
                     workflowType = "ExternalSignalerWorkflow",
                     taskQueue = taskQueue,
                     arg = targetWorkflowId,
                 )
 
             // Both workflows should complete
-            val signalerResult = signalerHandle.result(timeout = 30.seconds)
-            val waitingResult = waitingHandle.result(timeout = 30.seconds)
+            val signalerResult: String = signalerHandle.result(timeout = 30.seconds)
+            val waitingResult: String = waitingHandle.result(timeout = 30.seconds)
 
             assertEquals("Signaled workflow: $targetWorkflowId", signalerResult)
             assertEquals("Received: hello from external signaler", waitingResult)
@@ -168,7 +169,7 @@ class ExternalWorkflowIntegrationTest {
 
             // Start the workflow that waits for multiple signals
             val waitingHandle =
-                client.startWorkflow<String, Int>(
+                client.startWorkflow<Int>(
                     workflowType = "MultiSignalWorkflow",
                     taskQueue = taskQueue,
                     workflowId = targetWorkflowId,
@@ -177,7 +178,7 @@ class ExternalWorkflowIntegrationTest {
 
             // Start the workflow that will send multiple signals
             val signalerHandle =
-                client.startWorkflow<String, String, List<String>>(
+                client.startWorkflow<String, List<String>>(
                     workflowType = "MultiExternalSignalerWorkflow",
                     taskQueue = taskQueue,
                     arg1 = targetWorkflowId,
@@ -185,8 +186,8 @@ class ExternalWorkflowIntegrationTest {
                 )
 
             // Both workflows should complete
-            val signalerResult = signalerHandle.result(timeout = 30.seconds)
-            val waitingResult = waitingHandle.result(timeout = 30.seconds)
+            val signalerResult: String = signalerHandle.result(timeout = 30.seconds)
+            val waitingResult: String = waitingHandle.result(timeout = 30.seconds)
 
             assertEquals("Sent 3 signals to $targetWorkflowId", signalerResult)
             assertTrue(waitingResult.contains("first"))
@@ -220,7 +221,7 @@ class ExternalWorkflowIntegrationTest {
                 // Start workflow A which will signal B
                 val handleA =
                     async {
-                        client.startWorkflow<String, String>(
+                        client.startWorkflow<String>(
                             workflowType = "BidirectionalWorkflowA",
                             taskQueue = taskQueue,
                             workflowId = workflowAId,
@@ -231,7 +232,7 @@ class ExternalWorkflowIntegrationTest {
                 // Start workflow B which will signal A
                 val handleB =
                     async {
-                        client.startWorkflow<String, String>(
+                        client.startWorkflow<String>(
                             workflowType = "BidirectionalWorkflowB",
                             taskQueue = taskQueue,
                             workflowId = workflowBId,
@@ -243,8 +244,8 @@ class ExternalWorkflowIntegrationTest {
                 val workflowBHandle = handleB.await()
 
                 // Both workflows should complete
-                val resultA = workflowAHandle.result(timeout = 30.seconds)
-                val resultB = workflowBHandle.result(timeout = 30.seconds)
+                val resultA: String = workflowAHandle.result(timeout = 30.seconds)
+                val resultB: String = workflowBHandle.result(timeout = 30.seconds)
 
                 assertTrue(resultA.contains("from B"))
                 assertTrue(resultB.contains("from A"))

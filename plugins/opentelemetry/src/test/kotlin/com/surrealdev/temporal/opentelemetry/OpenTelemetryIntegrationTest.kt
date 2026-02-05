@@ -12,6 +12,7 @@ import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.ActivityOptions
 import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.logger
+import com.surrealdev.temporal.workflow.result
 import com.surrealdev.temporal.workflow.startActivity
 import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.trace.SpanKind
@@ -70,14 +71,14 @@ class OpenTelemetryIntegrationTest {
             val log = logger()
             log.info("WorkflowWithActivity starting activity for: {}", name)
             val greeting =
-                startActivity<String, String>(
+                startActivity(
                     activityType = "greet",
                     arg = name,
                     options =
                         ActivityOptions(
                             startToCloseTimeout = 1.minutes,
                         ),
-                ).result()
+                ).result<String>()
             log.info("WorkflowWithActivity got result: {}", greeting)
             return greeting
         }
@@ -112,13 +113,13 @@ class OpenTelemetryIntegrationTest {
             val client = client()
 
             val handle =
-                client.startWorkflow<String, String>(
+                client.startWorkflow<String>(
                     workflowType = "SimpleWorkflow",
                     taskQueue = taskQueue,
                     arg = "World",
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result = handle.result<String>(timeout = 30.seconds)
             assertEquals("Result: World", result)
 
             // Wait for workflow task spans to be exported (with polling)
@@ -164,13 +165,13 @@ class OpenTelemetryIntegrationTest {
             val client = client()
 
             val handle =
-                client.startWorkflow<String, String>(
+                client.startWorkflow<String>(
                     workflowType = "WorkflowWithActivity",
                     taskQueue = taskQueue,
                     arg = "Alice",
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result = handle.result<String>(timeout = 30.seconds)
             assertEquals("Hello, Alice!", result)
 
             // Wait for activity spans to be exported (with polling)
@@ -215,13 +216,13 @@ class OpenTelemetryIntegrationTest {
             val client = client()
 
             val handle =
-                client.startWorkflow<String, String>(
+                client.startWorkflow<String>(
                     workflowType = "WorkflowWithActivity",
                     taskQueue = taskQueue,
                     arg = "Bob",
                 )
 
-            handle.result(timeout = 30.seconds)
+            handle.result<String>(timeout = 30.seconds)
 
             // Wait for metrics to be collected (with polling)
             val workflowTaskMetric = waitForMetric(metricReader, "temporal.workflow.task.total", timeout = 5.seconds)
@@ -268,13 +269,13 @@ class OpenTelemetryIntegrationTest {
             val client = client()
 
             val handle =
-                client.startWorkflow<String, String>(
+                client.startWorkflow<String>(
                     workflowType = "WorkflowWithActivity",
                     taskQueue = taskQueue,
                     arg = "Charlie",
                 )
 
-            handle.result(timeout = 30.seconds)
+            handle.result<String>(timeout = 30.seconds)
 
             // Wait for activity spans (which should be recorded)
             val activitySpans = waitForSpans(spanExporter, "temporal.activity.execute", timeout = 5.seconds)

@@ -11,7 +11,6 @@ import com.surrealdev.temporal.serialization.PayloadSerializer
 import io.temporal.api.common.v1.Payloads
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlin.reflect.KType
 import kotlin.time.Duration
 
 /**
@@ -85,36 +84,32 @@ class TemporalTestClient internal constructor(
     override val serializer: PayloadSerializer
         get() = delegate.serializer
 
-    override suspend fun <R> startWorkflowWithPayloads(
+    override suspend fun startWorkflowWithPayloads(
         workflowType: String,
         taskQueue: String,
         workflowId: String,
         args: Payloads,
         options: WorkflowStartOptions,
-        resultTypeInfo: KType,
-    ): WorkflowHandle<R> {
+    ): WorkflowHandle {
         val handle =
-            delegate.startWorkflowWithPayloads<R>(
+            delegate.startWorkflowWithPayloads(
                 workflowType = workflowType,
                 taskQueue = taskQueue,
                 workflowId = workflowId,
                 args = args,
                 options = options,
-                resultTypeInfo = resultTypeInfo,
             )
         return TimeSkippingWorkflowHandle(handle, timeSkippingState)
     }
 
-    override fun <R> getWorkflowHandleInternal(
+    override fun getWorkflowHandleInternal(
         workflowId: String,
         runId: String?,
-        resultTypeInfo: KType,
-    ): WorkflowHandle<R> {
+    ): WorkflowHandle {
         val handle =
-            delegate.getWorkflowHandleInternal<R>(
+            delegate.getWorkflowHandleInternal(
                 workflowId = workflowId,
                 runId = runId,
-                resultTypeInfo = resultTypeInfo,
             )
         return TimeSkippingWorkflowHandle(handle, timeSkippingState)
     }
@@ -144,10 +139,10 @@ class TemporalTestClient internal constructor(
  * All other operations (signal, update, query, etc.) pass through to the delegate
  * without modifying time skipping state.
  */
-internal class TimeSkippingWorkflowHandle<R>(
-    private val delegate: WorkflowHandle<R>,
+internal class TimeSkippingWorkflowHandle(
+    private val delegate: WorkflowHandle,
     private val stateTracker: TimeSkippingStateTracker,
-) : WorkflowHandle<R> {
+) : WorkflowHandle {
     override val workflowId: String
         get() = delegate.workflowId
 
@@ -166,10 +161,10 @@ internal class TimeSkippingWorkflowHandle<R>(
      * When multiple handles call result() concurrently, only the first unlock
      * and last lock make actual RPC calls, thanks to the shared state tracker.
      */
-    override suspend fun result(timeout: Duration): R {
+    override suspend fun resultPayload(timeout: Duration): io.temporal.api.common.v1.Payload? {
         stateTracker.unlock()
         try {
-            return delegate.result(timeout)
+            return delegate.resultPayload(timeout)
         } finally {
             try {
                 stateTracker.lock()

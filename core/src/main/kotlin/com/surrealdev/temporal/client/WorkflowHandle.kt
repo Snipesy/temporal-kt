@@ -14,7 +14,6 @@ import io.temporal.api.history.v1.HistoryEvent
 import io.temporal.api.workflowservice.v1.*
 import kotlinx.coroutines.delay
 import org.slf4j.LoggerFactory
-import kotlin.reflect.KType
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -25,10 +24,8 @@ private val logger = LoggerFactory.getLogger(WorkflowHandleImpl::class.java)
  *
  * Provides methods to wait for results, send signals, get execution history,
  * and manage the workflow lifecycle.
- *
- * @param R The expected result type of the workflow.
  */
-interface WorkflowHandle<R> : WorkflowHandleBase<R> {
+interface WorkflowHandle : WorkflowHandleBase {
     /**
      * The workflow ID.
      */
@@ -46,17 +43,23 @@ interface WorkflowHandle<R> : WorkflowHandleBase<R> {
     override val serializer: PayloadSerializer
 
     /**
-     * Waits for the workflow to complete and returns the result.
+     * Waits for the workflow to complete and returns its raw result payload.
+     *
+     * For typed results, use the [result] extension function instead:
+     * ```kotlin
+     * val result: String = handle.result()
+     * ```
      *
      * @param timeout Maximum time to wait for the result. Default is infinite.
-     * @return The workflow result.
+     * @return The raw payload result of the workflow, or null if empty
      * @throws WorkflowFailedException if the workflow failed.
      * @throws WorkflowCanceledException if the workflow was canceled.
      * @throws WorkflowTerminatedException if the workflow was terminated.
      * @throws WorkflowTimedOutException if the workflow timed out.
      * @throws WorkflowResultTimeoutException if waiting for the result timed out.
      */
-    suspend fun result(timeout: Duration = Duration.INFINITE): R
+    @InternalTemporalApi
+    suspend fun resultPayload(timeout: Duration = Duration.INFINITE): io.temporal.api.common.v1.Payload?
 
     /**
      * Sends a signal to the workflow.
@@ -146,15 +149,14 @@ interface WorkflowHandle<R> : WorkflowHandleBase<R> {
 /**
  * Internal implementation of [WorkflowHandle].
  */
-internal class WorkflowHandleImpl<R>(
+internal class WorkflowHandleImpl(
     override val workflowId: String,
     override var runId: String?,
-    private val resultTypeInfo: KType,
     private val serviceClient: WorkflowServiceClient,
     override val serializer: PayloadSerializer,
     internal val codec: PayloadCodec,
-) : WorkflowHandle<R> {
-    override suspend fun result(timeout: Duration): R {
+) : WorkflowHandle {
+    override suspend fun resultPayload(timeout: Duration): io.temporal.api.common.v1.Payload? {
         val startTime = System.currentTimeMillis()
         val timeoutMillis = if (timeout == Duration.INFINITE) Long.MAX_VALUE else timeout.inWholeMilliseconds
 
@@ -238,22 +240,20 @@ internal class WorkflowHandleImpl<R>(
             )
     }
 
-    @Suppress("UNCHECKED_CAST")
     private suspend fun handleCloseEvent(
         event: HistoryEvent,
         remainingTimeout: Duration,
-    ): R =
+    ): io.temporal.api.common.v1.Payload? =
         when (event.eventType) {
             EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED -> {
                 val attrs = event.workflowExecutionCompletedEventAttributes
                 if (attrs.hasResult() && attrs.result.payloadsCount > 0) {
                     val payload = attrs.result.getPayloads(0)
-                    // Decode with codec first, then deserialize
-                    val decoded = codec.decode(listOf(payload)).single()
-                    serializer.deserialize(resultTypeInfo, decoded) as R
+                    // Decode with codec and return raw payload
+                    codec.decode(listOf(payload)).single()
                 } else {
-                    // No result (Unit return type)
-                    Unit as R
+                    // No result
+                    null
                 }
             }
 
@@ -296,16 +296,15 @@ internal class WorkflowHandleImpl<R>(
                     "[handleCloseEvent] Workflow $workflowId continued-as-new to runId=$newRunId, following...",
                 )
                 val newHandle =
-                    WorkflowHandleImpl<R>(
+                    WorkflowHandleImpl(
                         workflowId = workflowId,
                         runId = newRunId,
-                        resultTypeInfo = resultTypeInfo,
                         serviceClient = serviceClient,
                         serializer = serializer,
                         codec = codec,
                     )
                 // Recursively get result from the new run
-                newHandle.result(remainingTimeout)
+                newHandle.resultPayload(remainingTimeout)
             }
 
             else -> {

@@ -11,6 +11,7 @@ import com.surrealdev.temporal.workflow.ActivityCancelledException
 import com.surrealdev.temporal.workflow.ActivityFailureException
 import com.surrealdev.temporal.workflow.RetryPolicy
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import com.surrealdev.temporal.workflow.startLocalActivity
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -96,7 +97,7 @@ class LocalActivityIntegrationTest {
     class BasicLocalActivityWorkflow {
         @WorkflowRun
         suspend fun WorkflowContext.run(name: String): String =
-            startLocalActivity<String, String>(
+            startLocalActivity<String>(
                 activityType = "localGreet",
                 arg = name,
                 startToCloseTimeout = 10.seconds,
@@ -110,7 +111,7 @@ class LocalActivityIntegrationTest {
             a: Int,
             b: Int,
         ): Int =
-            startLocalActivity<Int, Int, Int>(
+            startLocalActivity<Int, Int>(
                 activityType = "localAdd",
                 arg1 = a,
                 arg2 = b,
@@ -125,15 +126,15 @@ class LocalActivityIntegrationTest {
             val handles =
                 listOf("Alice", "Bob", "Charlie").map { name ->
                     async {
-                        startLocalActivity<String, String>(
+                        startLocalActivity<String>(
                             activityType = "localGreet",
                             arg = name,
                             startToCloseTimeout = 10.seconds,
-                        ).result()
+                        ).result<String>()
                     }
                 }
 
-            val results = handles.awaitAll()
+            val results: List<String> = handles.awaitAll()
             return results.joinToString(", ")
         }
     }
@@ -142,22 +143,22 @@ class LocalActivityIntegrationTest {
     class SequentialLocalActivitiesWorkflow {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
-            val r1 =
-                startLocalActivity<String, String>(
+            val r1: String =
+                startLocalActivity<String>(
                     activityType = "localEcho",
                     arg = "step1",
                     startToCloseTimeout = 10.seconds,
                 ).result()
 
-            val r2 =
-                startLocalActivity<String, String>(
+            val r2: String =
+                startLocalActivity<String>(
                     activityType = "localEcho",
                     arg = "$r1->step2",
                     startToCloseTimeout = 10.seconds,
                 ).result()
 
-            val r3 =
-                startLocalActivity<String, String>(
+            val r3: String =
+                startLocalActivity<String>(
                     activityType = "localEcho",
                     arg = "$r2->step3",
                     startToCloseTimeout = 10.seconds,
@@ -174,11 +175,11 @@ class LocalActivityIntegrationTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             try {
-                startLocalActivity<String>(
+                startLocalActivity(
                     activityType = "localFailing",
                     startToCloseTimeout = 10.seconds,
                     retryPolicy = RetryPolicy(maximumAttempts = 1),
-                ).result()
+                ).result<String>()
                 return "unexpected success"
             } catch (e: ActivityFailureException) {
                 caughtMessage = e.message
@@ -194,7 +195,7 @@ class LocalActivityIntegrationTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             val handle =
-                startLocalActivity<String>(
+                startLocalActivity(
                     activityType = "localSlowSuccess",
                     startToCloseTimeout = 60.seconds,
                 )
@@ -203,7 +204,7 @@ class LocalActivityIntegrationTest {
             handle.cancel("Test cancellation")
 
             return try {
-                handle.result()
+                handle.result<String>()
                 "unexpected success"
             } catch (e: ActivityCancelledException) {
                 wasCancelled = true
@@ -233,13 +234,13 @@ class LocalActivityIntegrationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String, String>(
+                client.startWorkflow(
                     workflowType = "BasicLocalActivityWorkflow",
                     taskQueue = taskQueue,
                     arg = "World",
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertEquals("Hello, World!", result)
 
             handle.assertHistory {
@@ -264,14 +265,14 @@ class LocalActivityIntegrationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<Int, Int, Int>(
+                client.startWorkflow(
                     workflowType = "LocalActivityWithArgsWorkflow",
                     taskQueue = taskQueue,
                     arg1 = 10,
                     arg2 = 32,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: Int = handle.result(timeout = 30.seconds)
             assertEquals(42, result)
 
             handle.assertHistory {
@@ -297,12 +298,12 @@ class LocalActivityIntegrationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "ParallelLocalActivitiesWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
 
             // Should have all three greetings
             assertTrue(result.contains("Hello, Alice!"), "Should greet Alice")
@@ -332,12 +333,12 @@ class LocalActivityIntegrationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "SequentialLocalActivitiesWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertEquals("step1->step2->step3", result)
 
             handle.assertHistory {
@@ -363,12 +364,12 @@ class LocalActivityIntegrationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "FailingLocalActivityWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertTrue(result.startsWith("caught:"), "Should catch failure: $result")
 
             handle.assertHistory {
@@ -394,12 +395,12 @@ class LocalActivityIntegrationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "CancelLocalActivityWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertEquals("cancelled", result)
 
             handle.assertHistory {
@@ -427,7 +428,7 @@ class LocalActivityIntegrationTest {
             // Start multiple workflows concurrently
             val handles =
                 listOf("Alice", "Bob", "Charlie").map { name ->
-                    client.startWorkflow<String, String>(
+                    client.startWorkflow(
                         workflowType = "BasicLocalActivityWorkflow",
                         taskQueue = taskQueue,
                         arg = name,
@@ -435,7 +436,7 @@ class LocalActivityIntegrationTest {
                 }
 
             // Collect results
-            val results = handles.map { it.result(timeout = 30.seconds) }
+            val results: List<String> = handles.map { it.result<String>(timeout = 30.seconds) }
 
             // Each should have the correct greeting
             assertEquals("Hello, Alice!", results[0])

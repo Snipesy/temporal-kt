@@ -1,24 +1,31 @@
 package com.surrealdev.temporal.workflow
 
+import com.surrealdev.temporal.serialization.PayloadSerializer
+
 /**
  * Base handle interface for scheduled or running activities.
  *
  * This is the common interface shared by both [RemoteActivityHandle] (server-scheduled activities)
  * and [LocalActivityHandle] (local activities that run in the same worker process).
  *
- * Use [result] to await the activity result, or [cancel] to request cancellation.
- *
- * @param R The result type of the activity
+ * Use [resultPayload] to await the activity result as a raw payload, or use the typed
+ * [result] extension function to deserialize to a specific type. Use [cancel] to request cancellation.
  */
-interface ActivityHandle<R> {
+interface ActivityHandle {
     /**
      * The activity ID assigned to this activity.
      */
     val activityId: String
 
     /**
+     * Serializer associated with this activity handle.
+     * Used for converting values to/from Temporal Payloads.
+     */
+    val serializer: PayloadSerializer
+
+    /**
      * Whether the activity has completed (successfully, failed, or cancelled).
-     * Once true, [result] will return immediately and [exceptionOrNull] can be checked.
+     * Once true, [resultPayload] will return immediately and [exceptionOrNull] can be checked.
      */
     val isDone: Boolean
 
@@ -29,14 +36,19 @@ interface ActivityHandle<R> {
     val isCancellationRequested: Boolean
 
     /**
-     * Waits for the activity to complete and returns its result.
+     * Waits for the activity to complete and returns its raw result payload.
      *
-     * @return The result of the activity
+     * For typed results, use the [result] extension function instead:
+     * ```kotlin
+     * val result: String = handle.result()
+     * ```
+     *
+     * @return The raw payload result of the activity, or null if empty
      * @throws ActivityFailureException if the activity failed
      * @throws ActivityCancelledException if the activity was cancelled
      * @throws ActivityTimeoutException if the activity timed out
      */
-    suspend fun result(): R
+    suspend fun resultPayload(): io.temporal.api.common.v1.Payload?
 
     /**
      * Returns the exception if the activity completed exceptionally, or null if
@@ -56,7 +68,7 @@ interface ActivityHandle<R> {
      * - WAIT_CANCELLATION_COMPLETED: Sends cancel request, waits for acknowledgment
      * - ABANDON: Does nothing (activity continues, result() returns immediately with cancellation)
      *
-     * In all cases, this method returns immediately. The difference is when [result] returns.
+     * In all cases, this method returns immediately. The difference is when [resultPayload] returns.
      *
      * Calling cancel() multiple times is idempotent.
      *
@@ -69,7 +81,7 @@ interface ActivityHandle<R> {
  * Handle to a scheduled or running remote (server-scheduled) activity.
  *
  * Obtain a handle by calling [WorkflowContext.startActivityWithPayloads] or related extension functions.
- * Use [result] to await the activity result, or [cancel] to request cancellation.
+ * Use [resultPayload] to await the raw result, or the typed [result] extension function, or [cancel] to request cancellation.
  *
  * Remote activities are scheduled through the Temporal server, which manages:
  * - Task queue routing to workers
@@ -80,17 +92,16 @@ interface ActivityHandle<R> {
  * For short operations that don't need server-side management, consider using
  * [LocalActivityHandle] via `startLocalActivity()` instead.
  *
- * @param R The result type of the activity
  * @see ActivityHandle for common functionality
  * @see LocalActivityHandle for local activities
  */
-interface RemoteActivityHandle<R> : ActivityHandle<R>
+interface RemoteActivityHandle : ActivityHandle
 
 /**
  * Handle to a scheduled or running local activity.
  *
  * Obtain a handle by calling [WorkflowContext.startLocalActivityWithPayloads] or related extension functions.
- * Use [result] to await the activity result, or [cancel] to request cancellation.
+ * Use [resultPayload] to await the raw result, or the typed [result] extension function, or [cancel] to request cancellation.
  *
  * Local activities differ from remote activities in that they:
  * - Run in the same worker process as the workflow
@@ -98,12 +109,11 @@ interface RemoteActivityHandle<R> : ActivityHandle<R>
  * - Use markers for replay instead of re-execution
  * - May receive backoff signals that cause the workflow to schedule a timer before retrying
  *
- * The [result] method handles backoff transparently - if Core SDK signals that retry backoff
+ * The [resultPayload] method handles backoff transparently - if Core SDK signals that retry backoff
  * exceeds the local retry threshold, this handle will automatically schedule a timer,
  * wait, and reschedule the activity. This is hidden from the caller.
  *
- * @param R The result type of the local activity
  * @see ActivityHandle for common functionality
  * @see RemoteActivityHandle for server-scheduled activities
  */
-interface LocalActivityHandle<R> : ActivityHandle<R>
+interface LocalActivityHandle : ActivityHandle

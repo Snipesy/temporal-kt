@@ -19,6 +19,7 @@ import com.surrealdev.temporal.workflow.ActivityFailureException
 import com.surrealdev.temporal.workflow.ActivityTimeoutException
 import com.surrealdev.temporal.workflow.LocalActivityOptions
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import com.surrealdev.temporal.workflow.startLocalActivity
 import coresdk.workflow_commands.WorkflowCommands
 import coresdk.workflow_completion.WorkflowCompletion.WorkflowActivationCompletion
@@ -58,7 +59,7 @@ class LocalActivityActivationTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             localActivityResult =
-                startLocalActivity<String>(
+                startLocalActivity(
                     activityType = "localGreet",
                     startToCloseTimeout = 10.seconds,
                 ).result()
@@ -73,7 +74,7 @@ class LocalActivityActivationTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             try {
-                startLocalActivity<String>(
+                startLocalActivity(
                     activityType = "failingLocalActivity",
                     startToCloseTimeout = 10.seconds,
                 ).result()
@@ -91,7 +92,7 @@ class LocalActivityActivationTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             handleResult =
-                startLocalActivity<String>(
+                startLocalActivity(
                     activityType = "retryableLocalActivity",
                     startToCloseTimeout = 10.seconds,
                 ).result()
@@ -106,7 +107,7 @@ class LocalActivityActivationTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             handleResult =
-                startLocalActivity<String, String>(
+                startLocalActivity(
                     activityType = "localActivityWithArgs",
                     arg = "test-argument",
                     startToCloseTimeout = 10.seconds,
@@ -122,7 +123,7 @@ class LocalActivityActivationTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             try {
-                startLocalActivity<String>(
+                startLocalActivity(
                     activityType = "cancellableLocalActivity",
                     startToCloseTimeout = 10.seconds,
                 ).result()
@@ -145,7 +146,7 @@ class LocalActivityActivationTest {
                     activityId = "custom-la-id",
                     localRetryThreshold = 90.seconds,
                 )
-            startLocalActivity<Unit>(
+            startLocalActivity(
                 activityType = "configuredLocalActivity",
                 options = options,
             )
@@ -158,7 +159,7 @@ class LocalActivityActivationTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             val handle =
-                startLocalActivity<String>(
+                startLocalActivity(
                     activityType = "longRunningActivity",
                     startToCloseTimeout = 60.seconds,
                 )
@@ -179,7 +180,7 @@ class LocalActivityActivationTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             handleResult =
-                startLocalActivity<String>(
+                startLocalActivity(
                     activityType = "flakyActivity",
                     startToCloseTimeout = 60.seconds,
                 ).result()
@@ -195,7 +196,7 @@ class LocalActivityActivationTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             try {
-                startLocalActivity<String>(
+                startLocalActivity(
                     activityType = "slowActivity",
                     startToCloseTimeout = 1.seconds,
                 ).result()
@@ -220,7 +221,7 @@ class LocalActivityActivationTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             try {
-                startLocalActivity<String>(
+                startLocalActivity(
                     activityType = "detailedFailingActivity",
                     startToCloseTimeout = 10.seconds,
                 ).result()
@@ -243,10 +244,10 @@ class LocalActivityActivationTest {
 
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
-            startLocalActivity<Unit>(
+            startLocalActivity(
                 activityType = "voidActivity",
                 startToCloseTimeout = 10.seconds,
-            ).result()
+            ).result<Unit>()
             completed = true
             return "done"
         }
@@ -266,7 +267,7 @@ class LocalActivityActivationTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             result =
-                startLocalActivity<ComplexResult>(
+                startLocalActivity(
                     activityType = "complexActivity",
                     startToCloseTimeout = 10.seconds,
                 ).result()

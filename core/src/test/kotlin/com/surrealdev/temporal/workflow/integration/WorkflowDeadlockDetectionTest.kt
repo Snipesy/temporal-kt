@@ -9,6 +9,7 @@ import com.surrealdev.temporal.client.WorkflowStartOptions
 import com.surrealdev.temporal.client.startWorkflow
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
@@ -138,7 +139,7 @@ class WorkflowDeadlockDetectionTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "InfiniteLoopWorkflow",
                     taskQueue = taskQueue,
                 )
@@ -177,7 +178,7 @@ class WorkflowDeadlockDetectionTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "BlockingWorkflow",
                     taskQueue = taskQueue,
                     options =
@@ -215,7 +216,7 @@ class WorkflowDeadlockDetectionTest {
 
             // Start a deadlocking workflow
             val deadlockHandle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "InfiniteLoopWorkflow",
                     taskQueue = taskQueue,
                 )
@@ -228,13 +229,13 @@ class WorkflowDeadlockDetectionTest {
             // Start a normal workflow - should complete successfully
             // The deadlocked workflow doesn't block other workflows
             val normalHandle =
-                client.startWorkflow<String, String>(
+                client.startWorkflow<String>(
                     workflowType = "NormalWorkflow",
                     taskQueue = taskQueue,
                     arg = "after deadlock",
                 )
 
-            val result = normalHandle.result(timeout = 10.seconds)
+            val result: String = normalHandle.result(timeout = 10.seconds)
             assertEquals("Success: after deadlock", result)
         }
 
@@ -255,14 +256,14 @@ class WorkflowDeadlockDetectionTest {
 
             // Start both workflows concurrently
             val deadlockHandle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "InfiniteLoopWorkflow",
                     taskQueue = taskQueue,
                     workflowId = "deadlock-wf-${UUID.randomUUID()}",
                 )
 
             val normalHandle =
-                client.startWorkflow<String, String>(
+                client.startWorkflow<String>(
                     workflowType = "NormalWorkflow",
                     taskQueue = taskQueue,
                     workflowId = "normal-wf-${UUID.randomUUID()}",
@@ -270,7 +271,7 @@ class WorkflowDeadlockDetectionTest {
                 )
 
             // Normal workflow should complete successfully despite deadlocked neighbor
-            val result = normalHandle.result(timeout = 10.seconds)
+            val result: String = normalHandle.result(timeout = 10.seconds)
             assertEquals("Success: concurrent", result)
 
             // Deadlocked workflow will timeout at client (task keeps retrying)
@@ -296,13 +297,13 @@ class WorkflowDeadlockDetectionTest {
 
             // Normal workflows should still work
             val handle =
-                client.startWorkflow<String, String>(
+                client.startWorkflow<String>(
                     workflowType = "NormalWorkflow",
                     taskQueue = taskQueue,
                     arg = "no deadlock detection",
                 )
 
-            val result = handle.result(timeout = 10.seconds)
+            val result: String = handle.result(timeout = 10.seconds)
             assertEquals("Success: no deadlock detection", result)
         }
 
@@ -324,7 +325,7 @@ class WorkflowDeadlockDetectionTest {
             // Start multiple deadlocking workflows
             val deadlockHandles =
                 (1..3).map { i ->
-                    client.startWorkflow<String>(
+                    client.startWorkflow(
                         workflowType = "InfiniteLoopWorkflow",
                         taskQueue = taskQueue,
                         workflowId = "deadlock-$i-${UUID.randomUUID()}",
@@ -340,13 +341,13 @@ class WorkflowDeadlockDetectionTest {
 
             // Worker should still be functional
             val normalHandle =
-                client.startWorkflow<String, String>(
+                client.startWorkflow<String>(
                     workflowType = "NormalWorkflow",
                     taskQueue = taskQueue,
                     arg = "after multiple deadlocks",
                 )
 
-            val result = normalHandle.result(timeout = 10.seconds)
+            val result: String = normalHandle.result(timeout = 10.seconds)
             assertEquals("Success: after multiple deadlocks", result)
         }
 
@@ -372,19 +373,19 @@ class WorkflowDeadlockDetectionTest {
             // Both queues should work with normal workflows
             val shortResult =
                 client
-                    .startWorkflow<String, String>(
+                    .startWorkflow(
                         workflowType = "NormalWorkflow",
                         taskQueue = shortTimeoutQueue,
                         arg = "short",
-                    ).result(timeout = 10.seconds)
+                    ).result<String>(timeout = 10.seconds)
 
             val longResult =
                 client
-                    .startWorkflow<String, String>(
+                    .startWorkflow(
                         workflowType = "NormalWorkflow",
                         taskQueue = longTimeoutQueue,
                         arg = "long",
-                    ).result(timeout = 10.seconds)
+                    ).result<String>(timeout = 10.seconds)
 
             assertEquals("Success: short", shortResult)
             assertEquals("Success: long", longResult)

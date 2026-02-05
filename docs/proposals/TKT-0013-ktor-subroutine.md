@@ -18,8 +18,8 @@ fun main() = temporalApplication {
 
         post("/orders") {
             val request = call.receive<CreateOrderRequest>()
-            val handle = temporalClient.startWorkflow<CreateOrderWorkflow>(request)
-            call.respond(OrderResponse(workflowId = handle.id))
+            val handle = temporalClient.startWorkflow(request)
+            call.respond(OrderResponse(workflowId = handle.workflowId))
         }
 
         workflow<CreateOrderWorkflow>()
@@ -41,14 +41,14 @@ fun TemporalApplication.ordersModule() {
             // HTTP: POST /v1/orders
             post("/orders") {
                 val request = call.receive<CreateOrderRequest>()
-                val handle = temporalClient.startWorkflow<CreateOrderWorkflow>(request)
-                call.respond(handle.id)
+                val handle = temporalClient.startWorkflow(request)
+                call.respond(handle.workflowId)
             }
 
             // HTTP: GET /v1/orders/{id}
             get("/orders/{id}") {
                 val id = call.parameters["id"]!!
-                val handle = temporalClient.getHandle<CreateOrderWorkflow>(id)
+                val handle = temporalClient.getWorkflowHandle(id)
                 call.respond(handle.query(CreateOrderWorkflow::getStatus))
             }
 
@@ -91,12 +91,13 @@ The `temporalClient` is available in HTTP route handlers without further configu
 
 ```kotlin
 get("/workflows/{id}/result") {
-    val handle = temporalClient.getHandle<MyWorkflow>(call.parameters["id"]!!)
-    call.respond(handle.result())
+    val handle = temporalClient.getWorkflowHandle(call.parameters["id"]!!)
+    val result: MyResult = handle.result()
+    call.respond(result)
 }
 
 post("/workflows/{id}/signal") {
-    val handle = temporalClient.getHandle<MyWorkflow>(call.parameters["id"]!!)
+    val handle = temporalClient.getWorkflowHandle(call.parameters["id"]!!)
     handle.signal(MyWorkflow::mySignal, call.receive())
     call.respond(HttpStatusCode.Accepted)
 }

@@ -7,6 +7,7 @@ import com.surrealdev.temporal.client.startWorkflow
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import kotlinx.coroutines.async
 import org.junit.jupiter.api.Tag
 import java.util.UUID
@@ -66,12 +67,12 @@ class StructuredConcurrencyTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "AsyncOperationsWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
 
             // Results should always be in the await order, not completion order
             assertEquals("ABC", result)
@@ -122,12 +123,12 @@ class StructuredConcurrencyTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "NestedAsyncWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
 
             assertEquals("result: inner1-inner2", result)
 

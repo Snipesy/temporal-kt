@@ -87,7 +87,7 @@ class WorkflowActivationProcessingTest {
             // Register some pending operations
             val timerDeferred = state.registerTimer(1)
             val activityHandle =
-                RemoteActivityHandleImpl<String>(
+                RemoteActivityHandleImpl(
                     activityId = "test",
                     seq = 2,
                     activityType = "Test::run",
@@ -95,7 +95,6 @@ class WorkflowActivationProcessingTest {
                     serializer =
                         com.surrealdev.temporal.serialization
                             .KotlinxJsonSerializer(),
-                    returnType = typeOf<String>(),
                     cancellationType = com.surrealdev.temporal.workflow.ActivityCancellationType.TRY_CANCEL,
                 )
             state.registerActivity(2, activityHandle)

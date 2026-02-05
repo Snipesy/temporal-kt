@@ -13,7 +13,7 @@ import io.temporal.api.common.v1.Payloads
  * @param queryType The type of the query to perform.
  * @return The result of the query.
  */
-suspend inline fun <R, reified T> WorkflowHandle<R>.query(queryType: String): T {
+suspend inline fun <reified T> WorkflowHandle.query(queryType: String): T {
     val emptyPayloads = Payloads.newBuilder().build()
     val outputPayloads = this.queryWithPayloads(queryType, emptyPayloads)
     if (T::class == Unit::class) {
@@ -34,7 +34,7 @@ suspend inline fun <R, reified T> WorkflowHandle<R>.query(queryType: String): T 
  * @param arg The argument to send with the query.
  * @return The result of the query.
  */
-suspend inline fun <R, reified A, reified T> WorkflowHandle<R>.query(
+suspend inline fun <reified A, reified T> WorkflowHandle.query(
     queryType: String,
     arg: A,
 ): T {
@@ -61,7 +61,7 @@ suspend inline fun <R, reified A, reified T> WorkflowHandle<R>.query(
  * @param arg The argument to pass with the update.
  * @return The update result.
  */
-suspend inline fun <R, reified A, reified T> WorkflowHandle<R>.update(
+suspend inline fun <reified A, reified T> WorkflowHandle.update(
     updateName: String,
     arg: A,
 ): T {
@@ -89,7 +89,7 @@ suspend inline fun <R, reified A, reified T> WorkflowHandle<R>.update(
  * @param arg2 The second argument.
  * @return The update result.
  */
-suspend inline fun <R, reified A1, reified A2, reified T> WorkflowHandle<R>.update(
+suspend inline fun <reified A1, reified A2, reified T> WorkflowHandle.update(
     updateName: String,
     arg1: A1,
     arg2: A2,
@@ -120,7 +120,7 @@ suspend inline fun <R, reified A1, reified A2, reified T> WorkflowHandle<R>.upda
  * @param arg3 The third argument.
  * @return The update result.
  */
-suspend inline fun <R, reified A1, reified A2, reified A3, reified T> WorkflowHandle<R>.update(
+suspend inline fun <reified A1, reified A2, reified A3, reified T> WorkflowHandle.update(
     updateName: String,
     arg1: A1,
     arg2: A2,
@@ -154,7 +154,7 @@ suspend inline fun <R, reified A1, reified A2, reified A3, reified T> WorkflowHa
  * @param arg4 The fourth argument.
  * @return The update result.
  */
-suspend inline fun <R, reified A1, reified A2, reified A3, reified A4, reified T> WorkflowHandle<R>.update(
+suspend inline fun <reified A1, reified A2, reified A3, reified A4, reified T> WorkflowHandle.update(
     updateName: String,
     arg1: A1,
     arg2: A2,
@@ -186,7 +186,7 @@ suspend inline fun <R, reified A1, reified A2, reified A3, reified A4, reified T
  * @param updateName The name of the update to send.
  * @return The update result.
  */
-suspend inline fun <R, reified T> WorkflowHandle<R>.update(updateName: String): T {
+suspend inline fun <reified T> WorkflowHandle.update(updateName: String): T {
     val emptyPayloads = Payloads.newBuilder().build()
     val outputPayloads = this.updateWithPayloads(updateName, emptyPayloads)
     if (T::class == Unit::class) {

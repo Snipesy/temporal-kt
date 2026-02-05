@@ -32,8 +32,6 @@ import kotlinx.coroutines.slf4j.MDCContext
 import java.util.logging.Logger
 import kotlin.coroutines.ContinuationInterceptor
 import kotlin.coroutines.CoroutineContext
-import kotlin.reflect.KType
-import kotlin.reflect.typeOf
 import kotlin.time.Duration
 import kotlin.time.Instant
 import kotlin.time.toJavaDuration
@@ -209,12 +207,11 @@ internal class WorkflowContextImpl(
      * @throws IllegalArgumentException if validation fails (invalid timeouts, priority, etc.)
      * @throws ReadOnlyContextException if called during query processing
      */
-    override suspend fun <R> startActivityWithPayloads(
+    override suspend fun startActivityWithPayloads(
         activityType: String,
         args: Payloads,
         options: ActivityOptions,
-        returnType: KType?,
-    ): RemoteActivityHandle<R> {
+    ): RemoteActivityHandle {
         ensureOnWorkflowDispatcher("startActivity")
         logger.fine("Starting activity: type=$activityType, options=$options")
 
@@ -396,16 +393,13 @@ internal class WorkflowContextImpl(
 
         // ========== Section 4: Handle Creation & Registration ==========
 
-        val effectiveReturnType = returnType ?: typeOf<Any?>()
-
         val handle =
-            RemoteActivityHandleImpl<R>(
+            RemoteActivityHandleImpl(
                 activityId = activityId,
                 seq = seq,
                 activityType = activityType,
                 state = state,
                 serializer = serializer,
-                returnType = effectiveReturnType,
                 cancellationType = options.cancellationType,
             )
 
@@ -428,12 +422,11 @@ internal class WorkflowContextImpl(
      * @throws IllegalArgumentException if validation fails (invalid timeouts, etc.)
      * @throws ReadOnlyContextException if called during query processing
      */
-    override suspend fun <R> startLocalActivityWithPayloads(
+    override suspend fun startLocalActivityWithPayloads(
         activityType: String,
         args: Payloads,
         options: LocalActivityOptions,
-        returnType: KType?,
-    ): LocalActivityHandle<R> {
+    ): LocalActivityHandle {
         ensureOnWorkflowDispatcher("startLocalActivity")
         logger.fine("Starting local activity: type=$activityType, options=$options")
 
@@ -504,17 +497,14 @@ internal class WorkflowContextImpl(
 
         // ========== Section 4: Handle Creation & Registration ==========
 
-        val effectiveReturnType = returnType ?: typeOf<Any?>()
-
         val handle =
-            LocalActivityHandleImpl<R>(
+            LocalActivityHandleImpl(
                 activityId = activityId,
                 initialSeq = seq,
                 activityType = activityType,
                 state = state,
                 context = this,
                 serializer = serializer,
-                returnType = effectiveReturnType,
                 options = options,
                 cancellationType = options.cancellationType,
                 arguments = args.payloadsList,
@@ -639,14 +629,12 @@ internal class WorkflowContextImpl(
         return usePatch
     }
 
-    override suspend fun <R> startChildWorkflowWithPayloads(
+    override suspend fun startChildWorkflowWithPayloads(
         workflowType: String,
         args: Payloads,
         options: ChildWorkflowOptions,
-        returnType: KType?,
-    ): ChildWorkflowHandle<R> {
+    ): ChildWorkflowHandle {
         ensureOnWorkflowDispatcher("startChildWorkflow")
-        val effectiveReturnType = returnType ?: typeOf<Any?>()
         val seq = state.nextSeq()
         val childWorkflowId = options.workflowId ?: "${info.workflowId}-child-$seq"
 
@@ -694,13 +682,12 @@ internal class WorkflowContextImpl(
 
         // Create and register the handle
         val handle =
-            ChildWorkflowHandleImpl<R>(
+            ChildWorkflowHandleImpl(
                 workflowId = childWorkflowId,
                 seq = seq,
                 workflowType = workflowType,
                 state = state,
                 serializer = serializer,
-                returnType = effectiveReturnType,
                 cancellationType = options.cancellationType,
             )
 

@@ -7,6 +7,7 @@ import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.embeddedTemporal
 import com.surrealdev.temporal.application.taskQueue
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import com.surrealdev.temporal.workflow.startActivity
 import com.surrealdev.temporal.workflow.workflow
 import kotlin.time.Duration.Companion.seconds
@@ -80,11 +81,11 @@ class GreetingWorkflow {
         // Using string-based API (activity type from @Activity annotation)
         val greeting =
             workflow()
-                .startActivity<String, String>(
+                .startActivity(
                     GreetingActivity::formatGreeting,
                     arg = name,
                     scheduleToCloseTimeout = 10.seconds,
-                ).result()
+                ).result<String>()
 
         // Alternative: Use reflection-based API with function reference
         // This automatically extracts the activity type from the @Activity annotation.
@@ -188,20 +189,20 @@ class ReflectionDemoWorkflow {
         // Using function reference - activity type is automatically extracted
         // from the @Activity annotation (which says "calculate")
         val sum =
-            startActivity<Int, Int, Int>(
+            startActivity(
                 SimpleActivities::performCalculation,
                 arg1 = 10,
                 arg2 = 20,
                 scheduleToCloseTimeout = 10.seconds,
-            ).result()
+            ).result<Int>()
 
         // Using function reference - activity type defaults to function name "processData"
         val processed =
-            startActivity<String, String>(
+            startActivity(
                 SimpleActivities::processData,
                 arg = "hello",
                 scheduleToCloseTimeout = 10.seconds,
-            ).result()
+            ).result<String>()
 
         return "Sum: $sum, Processed: $processed"
     }

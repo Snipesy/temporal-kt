@@ -15,7 +15,6 @@ import coresdk.workflow_commands.WorkflowCommands
 import io.temporal.api.common.v1.Payload
 import io.temporal.api.common.v1.Payloads
 import kotlinx.coroutines.CompletableDeferred
-import kotlin.reflect.KType
 
 /**
  * Internal implementation of [ChildWorkflowHandle].
@@ -26,24 +25,21 @@ import kotlin.reflect.KType
  * 3. Execution continues → waits for execution resolution
  * 4. Execution resolution received → completed, failed, or cancelled
  *
- * @param R The result type of the child workflow
  * @param workflowId The workflow ID of the child
  * @param seq The sequence number for this child workflow (used to correlate commands/resolutions)
  * @param workflowType The child workflow type name
  * @param state Reference to the workflow state for adding cancel commands
  * @param serializer For deserializing the result payload
- * @param returnType The expected return type for deserialization
  * @param cancellationType How to handle cancellation
  */
-internal class ChildWorkflowHandleImpl<R>(
+internal class ChildWorkflowHandleImpl(
     override val workflowId: String,
     internal val seq: Int,
     internal val workflowType: String,
     private val state: WorkflowState,
     override val serializer: PayloadSerializer,
-    private val returnType: KType,
     private val cancellationType: ChildWorkflowCancellationType,
-) : ChildWorkflowHandle<R> {
+) : ChildWorkflowHandle {
     /**
      * Deferred that completes when the child workflow starts (or fails to start).
      * Holds the run ID on success.
@@ -67,8 +63,7 @@ internal class ChildWorkflowHandleImpl<R>(
         return runId
     }
 
-    @Suppress("UNCHECKED_CAST")
-    override suspend fun result(): R {
+    override suspend fun resultPayload(): Payload? {
         // Wait for start resolution first
         val runId = startDeferred.await()
         _firstExecutionRunId = runId
@@ -79,7 +74,12 @@ internal class ChildWorkflowHandleImpl<R>(
         return when {
             result.hasCompleted() -> {
                 val payload = result.completed.result
-                deserializeResult(payload)
+                // Return raw payload (deserialization happens via extension function)
+                if (payload == Payload.getDefaultInstance() || payload.data.isEmpty) {
+                    null
+                } else {
+                    payload
+                }
             }
 
             result.hasFailed() -> {
@@ -224,18 +224,4 @@ internal class ChildWorkflowHandleImpl<R>(
     internal fun resolveExecution(result: ChildWorkflow.ChildWorkflowResult) {
         executionDeferred.complete(result)
     }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun deserializeResult(payload: Payload): R =
-        if (payload == Payload.getDefaultInstance() || payload.data.isEmpty) {
-            if (returnType.classifier == Unit::class) {
-                Unit as R
-            } else {
-                throw IllegalStateException(
-                    "Child workflow result payload is empty but return type is not Unit",
-                )
-            }
-        } else {
-            serializer.deserialize(returnType, payload) as R
-        }
 }

@@ -14,6 +14,7 @@ import com.surrealdev.temporal.workflow.ActivityFailureException
 import com.surrealdev.temporal.workflow.ActivityOptions
 import com.surrealdev.temporal.workflow.RetryPolicy
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import com.surrealdev.temporal.workflow.startActivity
 import com.surrealdev.temporal.workflow.startLocalActivity
 import org.junit.jupiter.api.Tag
@@ -133,7 +134,7 @@ class ApplicationErrorIntegrationTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String =
             try {
-                startActivity<String>(
+                startActivity(
                     activityType = "throwNonRetryable",
                     options =
                         ActivityOptions(
@@ -154,7 +155,7 @@ class ApplicationErrorIntegrationTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String =
             try {
-                startActivity<String>(
+                startActivity(
                     activityType = "throwRetryable",
                     options =
                         ActivityOptions(
@@ -172,7 +173,7 @@ class ApplicationErrorIntegrationTest {
     class RetryThenSucceedWorkflow {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String =
-            startActivity<String>(
+            startActivity(
                 activityType = "throwRetryableThenSucceed",
                 options =
                     ActivityOptions(
@@ -187,7 +188,7 @@ class ApplicationErrorIntegrationTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(errorType: String): String =
             try {
-                startActivity<String, String>(
+                startActivity(
                     activityType = "throwWithCustomType",
                     arg = errorType,
                     options =
@@ -206,7 +207,7 @@ class ApplicationErrorIntegrationTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String =
             try {
-                startLocalActivity<String>(
+                startLocalActivity(
                     activityType = "throwNonRetryable",
                     startToCloseTimeout = 1.minutes,
                     retryPolicy = RetryPolicy(maximumAttempts = 5),
@@ -237,12 +238,12 @@ class ApplicationErrorIntegrationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "NonRetryableActivityWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result = handle.result<String>(timeout = 30.seconds)
 
             // Verify only 1 attempt was made (no retries)
             assertEquals(1, activities.getNonRetryableAttempts(), "Should only attempt once for non-retryable error")
@@ -272,12 +273,12 @@ class ApplicationErrorIntegrationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "RetryableActivityWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result = handle.result<String>(timeout = 30.seconds)
 
             // Verify all 3 attempts were made
             assertEquals(3, activities.getRetryableAttempts(), "Should attempt 3 times (max attempts)")
@@ -309,12 +310,12 @@ class ApplicationErrorIntegrationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "RetryThenSucceedWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result = handle.result<String>(timeout = 30.seconds)
 
             // Should succeed on attempt 3
             assertEquals("Success on attempt 3", result)
@@ -340,13 +341,13 @@ class ApplicationErrorIntegrationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String, String>(
+                client.startWorkflow(
                     workflowType = "CustomErrorTypeWorkflow",
                     taskQueue = taskQueue,
                     arg = "MyCustomErrorType",
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result = handle.result<String>(timeout = 30.seconds)
 
             // Verify the custom error type is propagated
             assertTrue(result.contains("type=MyCustomErrorType"), "Should have custom error type: $result")
@@ -371,12 +372,12 @@ class ApplicationErrorIntegrationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "LocalActivityNonRetryableWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result = handle.result<String>(timeout = 30.seconds)
 
             // Verify only 1 attempt was made
             assertEquals(1, activities.getNonRetryableAttempts(), "Local activity should only attempt once")
@@ -398,7 +399,7 @@ class ApplicationErrorIntegrationTest {
                 @WorkflowRun
                 suspend fun WorkflowContext.run(): String =
                     try {
-                        startActivity<String>(
+                        startActivity(
                             activityType = "throwNonRetryable",
                             options =
                                 ActivityOptions(
@@ -429,12 +430,12 @@ class ApplicationErrorIntegrationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "InspectFailureWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result = handle.result<String>(timeout = 30.seconds)
             assertEquals("verified", result)
 
             handle.assertHistory {
@@ -450,7 +451,7 @@ class ApplicationErrorIntegrationTest {
                 @WorkflowRun
                 suspend fun WorkflowContext.run(): String =
                     try {
-                        startActivity<String>(
+                        startActivity(
                             activityType = "throwBenignError",
                             options =
                                 ActivityOptions(
@@ -478,12 +479,12 @@ class ApplicationErrorIntegrationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "BenignErrorWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result = handle.result<String>(timeout = 30.seconds)
 
             assertTrue(result.contains("type=NotFoundError"), "Should have NotFoundError type: $result")
             assertTrue(result.contains("category=BENIGN"), "Should have BENIGN category: $result")
@@ -501,7 +502,7 @@ class ApplicationErrorIntegrationTest {
                 @WorkflowRun
                 suspend fun WorkflowContext.run(): String =
                     try {
-                        startActivity<String, Int, String>(
+                        startActivity(
                             activityType = "throwWithDetails",
                             arg1 = 400,
                             arg2 = "email",
@@ -530,12 +531,12 @@ class ApplicationErrorIntegrationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "DetailsErrorWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result = handle.result<String>(timeout = 30.seconds)
 
             assertTrue(result.contains("type=ValidationError"), "Should have ValidationError type: $result")
             assertTrue(result.contains("hasDetails=true"), "Should have details: $result")

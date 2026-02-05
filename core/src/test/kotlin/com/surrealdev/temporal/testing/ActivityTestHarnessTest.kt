@@ -3,7 +3,6 @@ package com.surrealdev.temporal.testing
 import com.surrealdev.temporal.activity.ActivityCancelledException
 import com.surrealdev.temporal.activity.ActivityContext
 import com.surrealdev.temporal.activity.heartbeat
-import com.surrealdev.temporal.annotation.Activity
 import kotlinx.coroutines.delay
 import kotlinx.serialization.Serializable
 import org.junit.jupiter.api.Nested
@@ -14,9 +13,13 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 /**
- * Tests for the [ActivityTestHarness].
+ * Tests for the simplified [ActivityTestHarness].
+ *
+ * The new approach calls activity methods directly with a mock ActivityContext,
+ * skipping serialization and dispatcher overhead.
  */
 class ActivityTestHarnessTest {
     // =========================================================================
@@ -24,10 +27,8 @@ class ActivityTestHarnessTest {
     // =========================================================================
 
     class GreetingActivity {
-        @Activity
         fun greet(name: String): String = "Hello, $name!"
 
-        @Activity
         fun greetMultiple(
             firstName: String,
             lastName: String,
@@ -35,7 +36,6 @@ class ActivityTestHarnessTest {
     }
 
     class ContextGreetingActivity {
-        @Activity
         fun ActivityContext.greet(name: String): String {
             // Access context info to verify it's properly populated
             return "Hello, $name! (activity: ${info.activityId})"
@@ -43,7 +43,6 @@ class ActivityTestHarnessTest {
     }
 
     class SuspendGreetingActivity {
-        @Activity
         suspend fun greet(name: String): String {
             delay(1) // Simulate async work
             return "Hello, $name!"
@@ -51,7 +50,6 @@ class ActivityTestHarnessTest {
     }
 
     class SuspendContextActivity {
-        @Activity
         suspend fun ActivityContext.greet(name: String): String {
             delay(1)
             return "Hello, $name! (attempt: ${info.attempt})"
@@ -59,7 +57,6 @@ class ActivityTestHarnessTest {
     }
 
     class HeartbeatingActivity {
-        @Activity
         suspend fun ActivityContext.longRunning(iterations: Int): Int {
             for (i in 1..iterations) {
                 heartbeat(i)
@@ -68,9 +65,9 @@ class ActivityTestHarnessTest {
             return iterations
         }
 
-        @Activity
         suspend fun ActivityContext.longRunningWithCancellationCheck(iterations: Int): Int {
             for (i in 1..iterations) {
+                ensureNotCancelled()
                 heartbeat(i)
                 delay(1)
             }
@@ -79,21 +76,17 @@ class ActivityTestHarnessTest {
     }
 
     class FailingActivity {
-        @Activity
         fun fail(): String = throw IllegalStateException("Intentional failure")
 
-        @Activity
         fun failWithCustomMessage(message: String): String = throw RuntimeException(message)
     }
 
     class CalculatorActivity {
-        @Activity
         fun add(
             a: Int,
             b: Int,
         ): Int = a + b
 
-        @Activity
         fun multiply(
             a: Int,
             b: Int,
@@ -101,17 +94,14 @@ class ActivityTestHarnessTest {
     }
 
     class NullResultActivity {
-        @Activity
         fun returnNull(): String? = null
 
-        @Activity
         fun returnNullable(value: String?): String? = value
     }
 
     class UnitReturnActivity {
         var sideEffect: String = ""
 
-        @Activity
         fun doSomething(value: String) {
             sideEffect = value
         }
@@ -131,7 +121,6 @@ class ActivityTestHarnessTest {
     )
 
     class ComplexActivity {
-        @Activity
         fun process(input: ComplexInput): ComplexOutput =
             ComplexOutput(
                 greeting = "Hello, ${input.name}!",
@@ -144,37 +133,54 @@ class ActivityTestHarnessTest {
     // =========================================================================
 
     @Nested
-    inner class RegistrationAndExecution {
+    inner class BasicExecution {
         @Test
-        fun `activity can be registered and executed`() =
+        fun `activity can be called directly`() =
             runActivityTest {
-                register(GreetingActivity())
+                val activity = GreetingActivity()
 
-                val result: String = execute("greet", "World")
+                val result =
+                    withActivityContext {
+                        activity.greet("World")
+                    }
 
                 assertEquals("Hello, World!", result)
             }
 
         @Test
-        fun `multiple activities can be registered`() =
+        fun `multiple activities can be called`() =
             runActivityTest {
-                register(GreetingActivity())
-                register(CalculatorActivity())
+                val greeting = GreetingActivity()
+                val calculator = CalculatorActivity()
 
-                val greeting: String = execute("greet", "Test")
-                val sum: Int = execute("add", 2, 3)
+                val greetResult =
+                    withActivityContext {
+                        greeting.greet("Test")
+                    }
 
-                assertEquals("Hello, Test!", greeting)
-                assertEquals(5, sum)
+                val sumResult =
+                    withActivityContext {
+                        calculator.add(2, 3)
+                    }
+
+                assertEquals("Hello, Test!", greetResult)
+                assertEquals(5, sumResult)
             }
 
         @Test
-        fun `same activity can be executed multiple times`() =
+        fun `same activity can be called multiple times`() =
             runActivityTest {
-                register(GreetingActivity())
+                val activity = GreetingActivity()
 
-                val result1: String = execute("greet", "Alice")
-                val result2: String = execute("greet", "Bob")
+                val result1 =
+                    withActivityContext {
+                        activity.greet("Alice")
+                    }
+
+                val result2 =
+                    withActivityContext {
+                        activity.greet("Bob")
+                    }
 
                 assertEquals("Hello, Alice!", result1)
                 assertEquals("Hello, Bob!", result2)
@@ -182,51 +188,67 @@ class ActivityTestHarnessTest {
     }
 
     @Nested
-    inner class ArgumentSerialization {
+    inner class Arguments {
         @Test
-        fun `single argument is serialized correctly`() =
+        fun `single argument works`() =
             runActivityTest {
-                register(GreetingActivity())
+                val activity = GreetingActivity()
 
-                val result = execute<String, String>("greet", "Test")
+                val result =
+                    withActivityContext {
+                        activity.greet("Test")
+                    }
 
                 assertEquals("Hello, Test!", result)
             }
 
         @Test
-        fun `multiple arguments are serialized correctly`() =
+        fun `multiple arguments work`() =
             runActivityTest {
-                register(GreetingActivity())
+                val activity = GreetingActivity()
 
-                val result = execute<String, String, String>("greetMultiple", "John", "Doe")
+                val result =
+                    withActivityContext {
+                        activity.greetMultiple("John", "Doe")
+                    }
 
                 assertEquals("Hello, John Doe!", result)
             }
 
         @Test
-        fun `integer arguments work correctly`() =
+        fun `integer arguments work`() =
             runActivityTest {
-                register(CalculatorActivity())
+                val activity = CalculatorActivity()
 
-                val sum: Int = execute("add", 10, 20)
-                val product: Int = execute("multiply", 5, 6)
+                val sum =
+                    withActivityContext {
+                        activity.add(10, 20)
+                    }
+
+                val product =
+                    withActivityContext {
+                        activity.multiply(5, 6)
+                    }
 
                 assertEquals(30, sum)
                 assertEquals(30, product)
             }
 
         @Test
-        fun `complex serializable arguments work correctly`() =
+        fun `complex objects work`() =
             runActivityTest {
-                register(ComplexActivity())
-
+                val activity = ComplexActivity()
                 val input =
                     ComplexInput(
                         name = "Test",
                         count = 5,
                         tags = listOf("a", "b", "c"),
                     )
-                val result: ComplexOutput = execute("process", input)
+
+                val result =
+                    withActivityContext {
+                        activity.process(input)
+                    }
 
                 assertEquals("Hello, Test!", result.greeting)
                 assertEquals(10, result.processedCount)
@@ -234,34 +256,43 @@ class ActivityTestHarnessTest {
     }
 
     @Nested
-    inner class ResultDeserialization {
+    inner class Results {
         @Test
-        fun `string result is deserialized correctly`() =
+        fun `string result works`() =
             runActivityTest {
-                register(GreetingActivity())
+                val activity = GreetingActivity()
 
-                val result: String = execute("greet", "World")
+                val result =
+                    withActivityContext {
+                        activity.greet("World")
+                    }
 
                 assertEquals("Hello, World!", result)
             }
 
         @Test
-        fun `integer result is deserialized correctly`() =
+        fun `integer result works`() =
             runActivityTest {
-                register(CalculatorActivity())
+                val activity = CalculatorActivity()
 
-                val result: Int = execute("add", 100, 200)
+                val result =
+                    withActivityContext {
+                        activity.add(100, 200)
+                    }
 
                 assertEquals(300, result)
             }
 
         @Test
-        fun `complex result is deserialized correctly`() =
+        fun `complex result works`() =
             runActivityTest {
-                register(ComplexActivity())
-
+                val activity = ComplexActivity()
                 val input = ComplexInput("User", 7, listOf("tag1"))
-                val result: ComplexOutput = execute("process", input)
+
+                val result =
+                    withActivityContext {
+                        activity.process(input)
+                    }
 
                 assertNotNull(result)
                 assertEquals("Hello, User!", result.greeting)
@@ -269,42 +300,52 @@ class ActivityTestHarnessTest {
             }
 
         @Test
-        fun `null result is handled correctly`() =
+        fun `null result works`() =
             runActivityTest {
-                register(NullResultActivity())
+                val activity = NullResultActivity()
 
-                val result = execute<String?>("returnNull")
+                val result =
+                    withActivityContext {
+                        activity.returnNull()
+                    }
 
                 assertNull(result)
             }
 
         @Test
-        fun `nullable result with value works correctly`() =
+        fun `nullable result with value works`() =
             runActivityTest {
-                register(NullResultActivity())
+                val activity = NullResultActivity()
 
-                val result: String? = execute("returnNullable", "test")
+                val result =
+                    withActivityContext {
+                        activity.returnNullable("test")
+                    }
 
                 assertEquals("test", result)
             }
 
         @Test
-        fun `nullable result with null works correctly`() =
+        fun `nullable result with null works`() =
             runActivityTest {
-                register(NullResultActivity())
+                val activity = NullResultActivity()
 
-                val result: String? = execute("returnNullable", null)
+                val result =
+                    withActivityContext {
+                        activity.returnNullable(null)
+                    }
 
                 assertNull(result)
             }
 
         @Test
-        fun `Unit return type is handled correctly`() =
+        fun `Unit return type works`() =
             runActivityTest {
                 val activity = UnitReturnActivity()
-                register(activity)
 
-                execute<Unit, String>("doSomething", "test-value")
+                withActivityContext {
+                    activity.doSomething("test-value")
+                }
 
                 assertEquals("test-value", activity.sideEffect)
             }
@@ -315,10 +356,12 @@ class ActivityTestHarnessTest {
         @Test
         fun `activity with context receiver works`() =
             runActivityTest {
-                register(ContextGreetingActivity())
+                val activity = ContextGreetingActivity()
 
-                // Context receiver activities can't use KFunction references
-                val result = execute<String, String>("greet", "World")
+                val result =
+                    withActivityContext {
+                        with(activity) { greet("World") }
+                    }
 
                 assertTrue(result.startsWith("Hello, World!"))
                 assertTrue(result.contains("activity:"))
@@ -327,9 +370,12 @@ class ActivityTestHarnessTest {
         @Test
         fun `activity without context receiver works`() =
             runActivityTest {
-                register(GreetingActivity())
+                val activity = GreetingActivity()
 
-                val result = execute<String, String>(GreetingActivity::greet, "World")
+                val result =
+                    withActivityContext {
+                        activity.greet("World")
+                    }
 
                 assertEquals("Hello, World!", result)
             }
@@ -340,9 +386,12 @@ class ActivityTestHarnessTest {
         @Test
         fun `suspend activity works`() =
             runActivityTest {
-                register(SuspendGreetingActivity())
+                val activity = SuspendGreetingActivity()
 
-                val result = execute<String, String>(SuspendGreetingActivity::greet, "World")
+                val result =
+                    withActivityContext {
+                        activity.greet("World")
+                    }
 
                 assertEquals("Hello, World!", result)
             }
@@ -350,9 +399,12 @@ class ActivityTestHarnessTest {
         @Test
         fun `non-suspend activity works`() =
             runActivityTest {
-                register(GreetingActivity())
+                val activity = GreetingActivity()
 
-                val result = execute<String, String>(GreetingActivity::greet, "World")
+                val result =
+                    withActivityContext {
+                        activity.greet("World")
+                    }
 
                 assertEquals("Hello, World!", result)
             }
@@ -360,10 +412,12 @@ class ActivityTestHarnessTest {
         @Test
         fun `suspend activity with context receiver works`() =
             runActivityTest {
-                register(SuspendContextActivity())
+                val activity = SuspendContextActivity()
 
-                // Context receiver activities can't use KFunction references
-                val result = execute<String, String>("greet", "World")
+                val result =
+                    withActivityContext {
+                        with(activity) { greet("World") }
+                    }
 
                 assertTrue(result.startsWith("Hello, World!"))
                 assertTrue(result.contains("attempt:"))
@@ -375,39 +429,72 @@ class ActivityTestHarnessTest {
         @Test
         fun `heartbeats are recorded`() =
             runActivityTest {
-                register(HeartbeatingActivity())
+                val activity = HeartbeatingActivity()
 
-                // Context receiver activities can't use KFunction references
-                val result = execute<Int, Int>("longRunning", 5)
+                val result =
+                    withActivityContext {
+                        with(activity) { longRunning(5) }
+                    }
 
                 assertEquals(5, result)
-                assertEquals(5, heartbeats.size)
+                assertHeartbeatCount(5)
             }
 
         @Test
         fun `heartbeats can be cleared`() =
             runActivityTest {
-                register(HeartbeatingActivity())
+                val activity = HeartbeatingActivity()
 
-                execute<Int, Int>("longRunning", 3)
-                assertEquals(3, heartbeats.size)
+                withActivityContext {
+                    with(activity) { longRunning(3) }
+                }
+                assertHeartbeatCount(3)
 
                 clearHeartbeats()
-                assertEquals(0, heartbeats.size)
+                assertHeartbeatCount(0)
 
-                execute<Int, Int>("longRunning", 2)
-                assertEquals(2, heartbeats.size)
+                withActivityContext {
+                    with(activity) { longRunning(2) }
+                }
+                assertHeartbeatCount(2)
             }
 
         @Test
-        fun `heartbeat records contain task token`() =
+        fun `heartbeat values are accessible`() =
             runActivityTest {
-                register(HeartbeatingActivity())
+                val activity = HeartbeatingActivity()
 
-                execute<Int, Int>("longRunning", 1)
+                withActivityContext {
+                    with(activity) { longRunning(3) }
+                }
 
-                assertEquals(1, heartbeats.size)
-                assertTrue(!heartbeats[0].taskToken.isEmpty)
+                assertEquals(listOf(1, 2, 3), deserializeHeartbeats<Int>())
+            }
+
+        @Test
+        fun `assertLastHeartbeat works`() =
+            runActivityTest {
+                val activity = HeartbeatingActivity()
+
+                withActivityContext {
+                    with(activity) { longRunning(5) }
+                }
+
+                val lastValue = deserializeHeartbeats<Int>().lastOrNull()
+                assertEquals(5, lastValue)
+            }
+
+        @Test
+        fun `assertHeartbeats predicate works`() =
+            runActivityTest {
+                val activity = HeartbeatingActivity()
+
+                withActivityContext {
+                    with(activity) { longRunning(5) }
+                }
+
+                val values = deserializeHeartbeats<Int>()
+                assertTrue(values.all { it != null && it > 0 })
             }
     }
 
@@ -416,26 +503,28 @@ class ActivityTestHarnessTest {
         @Test
         fun `activity failure propagates correctly`() =
             runActivityTest {
-                register(FailingActivity())
+                val activity = FailingActivity()
 
                 val exception =
-                    assertThrows<ActivityTestException> {
-                        execute<String>("fail")
+                    assertThrows<IllegalStateException> {
+                        withActivityContext {
+                            activity.fail()
+                        }
                     }
 
                 assertEquals("Intentional failure", exception.message)
-                assertEquals("fail", exception.activityType)
-                assertNotNull(exception.stackTrace)
             }
 
         @Test
         fun `activity failure includes custom message`() =
             runActivityTest {
-                register(FailingActivity())
+                val activity = FailingActivity()
 
                 val exception =
-                    assertThrows<ActivityTestException> {
-                        execute<String, String>(FailingActivity::failWithCustomMessage, "Custom error!")
+                    assertThrows<RuntimeException> {
+                        withActivityContext {
+                            activity.failWithCustomMessage("Custom error!")
+                        }
                     }
 
                 assertEquals("Custom error!", exception.message)
@@ -468,55 +557,122 @@ class ActivityTestHarnessTest {
         @Test
         fun `reset clears both heartbeats and cancellation`() =
             runActivityTest {
-                register(HeartbeatingActivity())
+                val activity = HeartbeatingActivity()
 
-                execute<Int, Int>("longRunning", 2)
+                withActivityContext {
+                    with(activity) { longRunning(2) }
+                }
                 requestCancellation()
 
-                assertTrue(heartbeats.isNotEmpty())
+                assertHasHeartbeats()
                 assertTrue(isCancellationRequested)
 
                 reset()
 
-                assertTrue(heartbeats.isEmpty())
+                assertNoHeartbeats()
                 assertFalse(isCancellationRequested)
             }
 
         @Test
-        fun `activity sees cancellation through heartbeat mechanism`() =
+        fun `activity sees cancellation through heartbeat`() =
             runActivityTest {
-                register(HeartbeatingActivity())
+                val activity = HeartbeatingActivity()
 
-                // Request cancellation before the activity runs
                 requestCancellation()
 
-                // Activity should fail when it tries to heartbeat
                 val exception =
-                    assertThrows<ActivityTestException> {
-                        execute<Int, Int>("longRunningWithCancellationCheck", 10)
+                    assertThrows<ActivityCancelledException> {
+                        withActivityContext {
+                            with(activity) { longRunningWithCancellationCheck(10) }
+                        }
                     }
 
-                // The exception should indicate cancellation (via ActivityCancelledException)
-                assertTrue(
-                    exception.message?.contains("cancelled") == true ||
-                        exception.cause is ActivityCancelledException,
-                )
+                assertTrue(exception.message?.contains("cancelled") == true)
+            }
+
+        @Test
+        fun `ensureNotCancelled throws when cancelled`() =
+            runActivityTest {
+                requestCancellation()
+
+                assertThrows<ActivityCancelledException> {
+                    withActivityContext {
+                        ensureNotCancelled()
+                    }
+                }
             }
     }
 
     @Nested
-    inner class ErrorCases {
+    inner class ActivityInfo {
         @Test
-        fun `unregistered activity type throws exception`() =
+        fun `activity info is accessible`() =
             runActivityTest {
-                // Don't register any activities
+                val activity = ContextGreetingActivity()
 
-                val exception =
-                    assertThrows<ActivityTestException> {
-                        execute<String, String>("unknownMethod", "arg")
+                val result =
+                    withActivityContext {
+                        with(activity) { greet("Test") }
                     }
 
-                assertEquals(exception.message?.contains("not registered"), true)
+                assertTrue(result.contains("activity:"))
+            }
+
+        @Test
+        fun `activity info can be customized`() =
+            runActivityTest {
+                val activity = SuspendContextActivity()
+
+                configureActivityInfo {
+                    attempt = 3
+                    activityType = "CustomActivity"
+                }
+
+                val result =
+                    withActivityContext {
+                        with(activity) { greet("Test") }
+                    }
+
+                assertTrue(result.contains("attempt: 3"))
+            }
+
+        @Test
+        fun `deadline can be configured`() =
+            runActivityTest {
+                configureActivityInfo {
+                    deadlineIn(30.seconds)
+                }
+
+                withActivityContext {
+                    assertNotNull(info.deadline)
+                }
+            }
+    }
+
+    @Nested
+    inner class AssertionHelpers {
+        @Test
+        fun `assertNoHeartbeats works`() =
+            runActivityTest {
+                val activity = GreetingActivity()
+
+                withActivityContext {
+                    activity.greet("Test")
+                }
+
+                assertNoHeartbeats()
+            }
+
+        @Test
+        fun `assertHasHeartbeats works`() =
+            runActivityTest {
+                val activity = HeartbeatingActivity()
+
+                withActivityContext {
+                    with(activity) { longRunning(1) }
+                }
+
+                assertHasHeartbeats()
             }
     }
 }

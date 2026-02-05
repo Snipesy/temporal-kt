@@ -85,11 +85,11 @@ class GreetingWorkflow {
     @WorkflowRun
     suspend fun run(name: String): String {
         val greeting = workflow()
-            .startActivity<String, String>(
+            .startActivity(
                 GreetingActivity::formatGreeting,
                 arg = name,
                 scheduleToCloseTimeout = 10.seconds
-            ).result()
+            ).result<String>()
         return greeting
     }
 }
@@ -140,45 +140,45 @@ class MyWorkflow {
         val ctx = workflow()
 
         // Run 2 activities sequentially
-        val resultA = ctx.startActivity<String, String>(
+        val resultA = ctx.startActivity(
             activityType = "activityA",
             arg = input.paramA,
             scheduleToCloseTimeout = 10.seconds
-        ).result()
+        ).result<String>()
 
-        val resultB = ctx.startActivity<String, String>(
+        val resultB = ctx.startActivity(
             activityType = "activityB",
             arg = input.paramB,
             scheduleToCloseTimeout = 10.seconds
-        ).result()
+        ).result<String>()
 
         // Run multiple activities in parallel using handles
-        val handleC = ctx.startActivity<String, String>(
+        val handleC = ctx.startActivity(
             activityType = "activityC",
             arg = resultA,
             scheduleToCloseTimeout = 10.seconds
         )
-        val handleD = ctx.startActivity<String, String>(
+        val handleD = ctx.startActivity(
             activityType = "activityD",
             arg = resultB,
             scheduleToCloseTimeout = 10.seconds
         )
-        val results = listOf(handleC.result(), handleD.result())
+        val results = listOf(handleC.result<String>(), handleD.result<String>())
 
         // Or use coroutine async for parallel execution
         val deferred1 = async {
-            ctx.startActivity<String, String>(
+            ctx.startActivity(
                 activityType = "activityC",
                 arg = resultA,
                 scheduleToCloseTimeout = 10.seconds
-            ).result()
+            ).result<String>()
         }
         val deferred2 = async {
-            ctx.startActivity<String, String>(
+            ctx.startActivity(
                 activityType = "activityD",
                 arg = resultB,
                 scheduleToCloseTimeout = 10.seconds
-            ).result()
+            ).result<String>()
         }
         val results2 = awaitAll(deferred1, deferred2)
 

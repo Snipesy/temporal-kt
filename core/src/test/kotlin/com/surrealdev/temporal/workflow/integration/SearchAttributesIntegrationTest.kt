@@ -11,6 +11,7 @@ import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.ChildWorkflowOptions
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import com.surrealdev.temporal.workflow.startChildWorkflow
 import com.surrealdev.temporal.workflow.upsertSearchAttributes
 import org.junit.jupiter.api.Tag
@@ -64,7 +65,7 @@ class SearchAttributesIntegrationTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             val childResult =
-                startChildWorkflow<String>(
+                startChildWorkflow(
                     "SearchAttrTestWorkflow",
                     ChildWorkflowOptions(
                         searchAttributes =
@@ -73,7 +74,7 @@ class SearchAttributesIntegrationTest {
                                 IS_PREMIUM to false
                             },
                     ),
-                ).result()
+                ).result<String>()
             return "Parent received: $childResult"
         }
     }
@@ -128,7 +129,7 @@ class SearchAttributesIntegrationTest {
             val client = client()
             val timestamp = Instant.now()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "SearchAttrTestWorkflow",
                     taskQueue = taskQueue,
                     options =
@@ -144,7 +145,7 @@ class SearchAttributesIntegrationTest {
                         ),
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertTrue(result.startsWith("Completed workflow:"))
 
             handle.assertHistory {
@@ -166,12 +167,12 @@ class SearchAttributesIntegrationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "ParentWithSearchAttrChildWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertTrue(result.contains("Parent received:"))
             assertTrue(result.contains("Completed workflow:"))
 
@@ -194,7 +195,7 @@ class SearchAttributesIntegrationTest {
             val client = client()
             // Empty search attributes should not cause any issues
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "SearchAttrTestWorkflow",
                     taskQueue = taskQueue,
                     options =
@@ -203,7 +204,7 @@ class SearchAttributesIntegrationTest {
                         ),
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertTrue(result.startsWith("Completed workflow:"))
 
             handle.assertHistory {
@@ -225,12 +226,12 @@ class SearchAttributesIntegrationTest {
             val client = client()
             // No search attributes option at all
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "SearchAttrTestWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertTrue(result.startsWith("Completed workflow:"))
 
             handle.assertHistory {
@@ -258,13 +259,13 @@ class SearchAttributesIntegrationTest {
 
             // Start workflow that upserts search attributes
             val handle =
-                client.startWorkflow<String, String>(
+                client.startWorkflow(
                     workflowType = "UpsertSearchAttrWorkflow",
                     taskQueue = taskQueue,
                     arg = customerId,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertEquals("Upserted: $customerId", result)
 
             // Verify via history that the upsert command was recorded
@@ -292,13 +293,13 @@ class SearchAttributesIntegrationTest {
 
             // Start workflow that upserts Int search attribute
             val handle =
-                client.startWorkflow<String, Long>(
+                client.startWorkflow(
                     workflowType = "UpsertIntSearchAttrWorkflow",
                     taskQueue = taskQueue,
                     arg = count,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertEquals("Upserted count: $count", result)
 
             // Verify via history that the upsert command was recorded
@@ -325,7 +326,7 @@ class SearchAttributesIntegrationTest {
 
             // Start workflow with Int search attribute on dev server (timeSkipping=false)
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "SearchAttrTestWorkflow",
                     taskQueue = taskQueue,
                     options =
@@ -337,7 +338,7 @@ class SearchAttributesIntegrationTest {
                         ),
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertTrue(result.startsWith("Completed workflow:"))
 
             handle.assertHistory {

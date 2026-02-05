@@ -52,14 +52,15 @@ fun main() = runBlocking {
         namespace = "default"
     }
     
-    // Types are <Return, Argument, Argument2...>
-    val workflowHandle = client.startWorkflow<String, String>(
+    // Start workflow - type parameters no longer needed on startWorkflow
+    val workflowHandle = client.startWorkflow(
         OrdersWorkflow::class, // or "OrdersWorkflow" as a string
         "hello-world-queue",
         arg = "12345" // orderId argument
     )
-    
-    val result = workflowHandle.result()
+
+    // Get result with type parameter
+    val result = workflowHandle.result<String>()
     println("Workflow result: $result")
 }
 ```
@@ -110,22 +111,22 @@ import kotlin.time.Duration.Companion.seconds
 class GreetingWorkflow {
     @WorkflowRun
     suspend fun run(name: String): String {
-        // Using function reference
+        // Using function reference - cleaner API with payload-based handles
         val greeting = workflow()
-            .startActivity<String, String>(
+            .startActivity(
                 GreetingActivity::formatGreeting,
                 arg = name,
                 scheduleToCloseTimeout = 10.seconds,
-            ).result()
+            ).result<String>()
 
         // Using activity type string with multiple arguments
         val localized = workflow()
-            .startActivity<String, String, String>(
+            .startActivity(
                 activityType = "getLocalizedGreeting",
                 arg1 = name,
                 arg2 = "es",
                 scheduleToCloseTimeout = 10.seconds,
-            ).result()
+            ).result<String>()
 
         return "$greeting ($localized)"
     }
@@ -191,7 +192,7 @@ fun main() = runBlocking {
         namespace = "default"
     }
 
-    val handle = client.startWorkflow<List<String>>(
+    val handle = client.startWorkflow(
         OrderWorkflow::class,
         "orders-queue",
     )
@@ -201,7 +202,7 @@ fun main() = runBlocking {
     handle.signal("addItem", "Banana")
     handle.signal("complete")
 
-    val result = handle.result()
+    val result = handle.result<List<String>>()
     println("Order items: $result")
 }
 ```
@@ -258,18 +259,17 @@ fun main() = runBlocking {
         namespace = "default"
     }
 
-    val handle = client.startWorkflow<Int>(
+    val handle = client.startWorkflow(
         CounterWorkflow::class,
         "counter-queue",
     )
 
     // Query the running workflow
-    // Type parameters are <WorkflowResult, QueryResult>
     delay(500.milliseconds)
-    val currentCount = handle.query<Int, Int>("getCounter")
+    val currentCount = handle.query<Int>("getCounter")
     println("Current counter: $currentCount")
 
-    val status = handle.query<Int, String>("getStatus")
+    val status = handle.query<String>("getStatus")
     println("Status: $status")
 }
 ```
@@ -407,18 +407,17 @@ fun main() = runBlocking {
         namespace = "default"
     }
 
-    val handle = client.startWorkflow<OrderSummary>(
+    val handle = client.startWorkflow(
         CartWorkflow::class,
         "cart-queue",
     )
 
     // Updates return values and wait for completion
-    // Type parameters are <WorkflowResult, ArgumentType, UpdateResult>
-    val cartSize = handle.update<OrderSummary, CartItem, Int>("addItem", CartItem("1", "Apple", 1.99))
+    val cartSize = handle.update<Int>("addItem", CartItem("1", "Apple", 1.99))
     println("Cart now has $cartSize items")
 
-    // For updates without arguments, type parameters are <WorkflowResult, UpdateResult>
-    val total = handle.update<OrderSummary, Double>("checkout")
+    // For updates without arguments
+    val total = handle.update<Double>("checkout")
     println("Order total: $$total")
 }
 ```
@@ -451,14 +450,14 @@ class BatchProcessorWorkflow {
         val results = mutableListOf<OrderResult>()
 
         for (orderId in orderIds) {
-            // Start child workflow with type-safe API
-            val result = workflow().startChildWorkflow<OrderResult, String>(
+            // Start child workflow - payload-based handles for cleaner API
+            val result = workflow().startChildWorkflow(
                 workflowClass = ProcessOrderWorkflow::class,
                 arg = orderId,
                 options = ChildWorkflowOptions(
                     workflowId = "process-$orderId",
                 ),
-            ).result()
+            ).result<OrderResult>()
 
             results.add(result)
         }
@@ -479,7 +478,7 @@ class ParallelProcessorWorkflow {
 
         // Start all child workflows
         val handles = orderIds.map { orderId ->
-            ctx.startChildWorkflow<OrderResult, String>(
+            ctx.startChildWorkflow(
                 workflowClass = ProcessOrderWorkflow::class,
                 arg = orderId,
                 options = ChildWorkflowOptions(),
@@ -487,7 +486,7 @@ class ParallelProcessorWorkflow {
         }
 
         // Wait for all to complete
-        return handles.map { it.result() }
+        return handles.map { it.result<OrderResult>() }
     }
 }
 ```
@@ -513,10 +512,10 @@ class ResilientParentWorkflow {
     @WorkflowRun
     suspend fun run(): String {
         return try {
-            workflow().startChildWorkflow<String>(
+            workflow().startChildWorkflow(
                 workflowType = "UnreliableChildWorkflow",
                 options = ChildWorkflowOptions(),
-            ).result()
+            ).result<String>()
         } catch (e: ChildWorkflowFailureException) {
             "Child failed: ${e.failure?.message}"
         }
@@ -547,7 +546,7 @@ class ChildWithSignalWorkflow {
 class ParentSignalingWorkflow {
     @WorkflowRun
     suspend fun run(): String {
-        val childHandle = workflow().startChildWorkflow<String>(
+        val childHandle = workflow().startChildWorkflow(
             workflowType = "ChildWithSignalWorkflow",
             options = ChildWorkflowOptions(),
         )
@@ -555,7 +554,7 @@ class ParentSignalingWorkflow {
         // Signal the child workflow
         childHandle.signal("setData", "Hello from parent!")
 
-        return childHandle.result()
+        return childHandle.result<String>()
     }
 }
 ```
@@ -1036,7 +1035,7 @@ fun main() = runBlocking {
         namespace = "default"
     }
 
-    val handle = client.startWorkflow<String>(
+    val handle = client.startWorkflow(
         workflowType = "OrderWorkflow",
         taskQueue = "orders",
         options = WorkflowStartOptions(
@@ -1051,7 +1050,7 @@ fun main() = runBlocking {
         )
     )
 
-    val result = handle.result()
+    val result = handle.result<String>()
 }
 ```
 
@@ -1062,7 +1061,7 @@ fun main() = runBlocking {
 class ParentWorkflow {
     @WorkflowRun
     suspend fun run(customerId: String): String {
-        val childResult = workflow().startChildWorkflow<String, String>(
+        val childResult = workflow().startChildWorkflow(
             workflowType = "ChildWorkflow",
             arg = customerId,
             options = ChildWorkflowOptions(
@@ -1071,7 +1070,7 @@ class ParentWorkflow {
                     IS_PREMIUM to false
                 }
             )
-        ).result()
+        ).result<String>()
 
         return "Parent completed: $childResult"
     }
@@ -1096,11 +1095,11 @@ class OrderProcessingWorkflow {
             ORDER_STATUS to "validating"
         }
 
-        val validationResult = ctx.startActivity<ValidationResult, String>(
+        val validationResult = ctx.startActivity(
             ::validateOrder,
             arg = orderId,
             scheduleToCloseTimeout = 30.seconds
-        ).result()
+        ).result<ValidationResult>()
 
         // Update with validation results
         upsertSearchAttributes {

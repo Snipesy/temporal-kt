@@ -12,6 +12,7 @@ import com.surrealdev.temporal.client.update
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import com.surrealdev.temporal.workflow.signal
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -100,7 +101,7 @@ class CombinedHandlersTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "CombinedHandlersWorkflow",
                     taskQueue = taskQueue,
                 )
@@ -137,7 +138,7 @@ class CombinedHandlersTest {
             // Complete
             handle.signal("complete")
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertEquals("signal:A,update:B,signal:C", result)
 
             handle.assertHistory {

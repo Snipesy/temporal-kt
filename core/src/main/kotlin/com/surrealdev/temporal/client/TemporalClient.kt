@@ -18,8 +18,6 @@ import io.temporal.api.workflowservice.v1.ListWorkflowExecutionsRequest
 import io.temporal.api.workflowservice.v1.StartWorkflowExecutionRequest
 import org.slf4j.LoggerFactory
 import java.util.UUID
-import kotlin.reflect.KType
-import kotlin.reflect.typeOf
 
 private val logger = LoggerFactory.getLogger(TemporalClientImpl::class.java)
 
@@ -72,14 +70,13 @@ interface TemporalClient {
      * @return A handle to the started workflow execution.
      */
     @InternalTemporalApi
-    suspend fun <R> startWorkflowWithPayloads(
+    suspend fun startWorkflowWithPayloads(
         workflowType: String,
         taskQueue: String,
         workflowId: String,
         args: Payloads,
         options: WorkflowStartOptions,
-        resultTypeInfo: KType,
-    ): WorkflowHandle<R>
+    ): WorkflowHandle
 
     /**
      * Gets a handle to an existing workflow. This is an internal API - use the
@@ -92,11 +89,10 @@ interface TemporalClient {
      * @return A handle to the workflow execution.
      */
     @InternalTemporalApi
-    fun <R> getWorkflowHandleInternal(
+    fun getWorkflowHandleInternal(
         workflowId: String,
         runId: String?,
-        resultTypeInfo: KType,
-    ): WorkflowHandle<R>
+    ): WorkflowHandle
 
     /**
      * Lists workflow executions matching the given query.
@@ -254,19 +250,17 @@ private class ConnectedTemporalClient(
 /**
  * Gets a handle to an existing workflow execution.
  *
- * @param R The expected result type of the workflow.
  * @param workflowId The workflow ID.
  * @param runId Optional run ID. If not specified, the latest run is used.
  * @return A handle to the workflow execution.
  */
-inline fun <reified R> TemporalClient.getWorkflowHandle(
+fun TemporalClient.getWorkflowHandle(
     workflowId: String,
     runId: String? = null,
-): WorkflowHandle<R> =
+): WorkflowHandle =
     getWorkflowHandleInternal(
         workflowId = workflowId,
         runId = runId,
-        resultTypeInfo = typeOf<R>(),
     )
 
 /**
@@ -280,14 +274,13 @@ class TemporalClientImpl internal constructor(
 ) : TemporalClient {
     internal val serviceClient = WorkflowServiceClient(coreClient, config.namespace)
 
-    override suspend fun <R> startWorkflowWithPayloads(
+    override suspend fun startWorkflowWithPayloads(
         workflowType: String,
         taskQueue: String,
         workflowId: String,
         args: Payloads,
         options: WorkflowStartOptions,
-        resultTypeInfo: KType,
-    ): WorkflowHandle<R> {
+    ): WorkflowHandle {
         // Build the request
         val requestBuilder =
             StartWorkflowExecutionRequest
@@ -373,22 +366,19 @@ class TemporalClientImpl internal constructor(
         return WorkflowHandleImpl(
             workflowId = workflowId,
             runId = response.runId,
-            resultTypeInfo = resultTypeInfo,
             serviceClient = serviceClient,
             serializer = serializer,
             codec = codec,
         )
     }
 
-    override fun <R> getWorkflowHandleInternal(
+    override fun getWorkflowHandleInternal(
         workflowId: String,
         runId: String?,
-        resultTypeInfo: KType,
-    ): WorkflowHandle<R> =
+    ): WorkflowHandle =
         WorkflowHandleImpl(
             workflowId = workflowId,
             runId = runId,
-            resultTypeInfo = resultTypeInfo,
             serviceClient = serviceClient,
             serializer = serializer,
             codec = codec,

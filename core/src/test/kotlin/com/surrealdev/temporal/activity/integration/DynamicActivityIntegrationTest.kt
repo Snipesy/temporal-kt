@@ -11,6 +11,7 @@ import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.ActivityOptions
 import com.surrealdev.temporal.workflow.RetryPolicy
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import com.surrealdev.temporal.workflow.startActivity
 import kotlinx.coroutines.delay
 import org.junit.jupiter.api.Tag
@@ -37,7 +38,7 @@ class DynamicActivityIntegrationTest {
             activityType: String,
             input: String,
         ): String =
-            startActivity<String, String>(
+            startActivity(
                 activityType = activityType,
                 arg = input,
                 options = ActivityOptions(startToCloseTimeout = 1.minutes),
@@ -54,11 +55,11 @@ class DynamicActivityIntegrationTest {
             val results = mutableListOf<String>()
             for (input in inputs) {
                 val result =
-                    startActivity<String, String>(
+                    startActivity(
                         activityType = "dynamicEcho",
                         arg = input,
                         options = ActivityOptions(startToCloseTimeout = 1.minutes),
-                    ).result()
+                    ).result<String>()
                 results.add(result)
             }
             return results
@@ -94,14 +95,14 @@ class DynamicActivityIntegrationTest {
             val client = client()
 
             val handle =
-                client.startWorkflow<String, String, String>(
+                client.startWorkflow(
                     workflowType = "DynamicActivityTestWorkflow",
                     taskQueue = taskQueue,
                     arg1 = "unregisteredActivity",
                     arg2 = "test-input",
                 )
 
-            val result = handle.result(timeout = 1.minutes)
+            val result: String = handle.result(timeout = 1.minutes)
 
             assertEquals("Dynamic: test-input", result)
             assertTrue(dynamicResults.contains("called: unregisteredActivity"))
@@ -130,14 +131,14 @@ class DynamicActivityIntegrationTest {
 
             // Call the statically registered activity
             val handle =
-                client.startWorkflow<String, String, String>(
+                client.startWorkflow(
                     workflowType = "DynamicActivityTestWorkflow",
                     taskQueue = taskQueue,
                     arg1 = "staticGreet",
                     arg2 = "World",
                 )
 
-            val result = handle.result(timeout = 1.minutes)
+            val result: String = handle.result(timeout = 1.minutes)
 
             // Should use the static activity, not the dynamic handler
             assertEquals("Static: Hello, World!", result)
@@ -171,33 +172,33 @@ class DynamicActivityIntegrationTest {
 
             // Test uppercase
             val upperHandle =
-                client.startWorkflow<String, String, String>(
+                client.startWorkflow(
                     workflowType = "DynamicActivityTestWorkflow",
                     taskQueue = taskQueue,
                     arg1 = "dynamicUpper",
                     arg2 = "hello",
                 )
-            assertEquals("HELLO", upperHandle.result(timeout = 1.minutes))
+            assertEquals("HELLO", upperHandle.result<String>(timeout = 1.minutes))
 
             // Test lowercase
             val lowerHandle =
-                client.startWorkflow<String, String, String>(
+                client.startWorkflow(
                     workflowType = "DynamicActivityTestWorkflow",
                     taskQueue = taskQueue,
                     arg1 = "dynamicLower",
                     arg2 = "WORLD",
                 )
-            assertEquals("world", lowerHandle.result(timeout = 1.minutes))
+            assertEquals("world", lowerHandle.result<String>(timeout = 1.minutes))
 
             // Test reverse
             val reverseHandle =
-                client.startWorkflow<String, String, String>(
+                client.startWorkflow(
                     workflowType = "DynamicActivityTestWorkflow",
                     taskQueue = taskQueue,
                     arg1 = "dynamicReverse",
                     arg2 = "abc",
                 )
-            assertEquals("cba", reverseHandle.result(timeout = 1.minutes))
+            assertEquals("cba", reverseHandle.result<String>(timeout = 1.minutes))
         }
 
     @Test
@@ -221,14 +222,14 @@ class DynamicActivityIntegrationTest {
             val client = client()
 
             val handle =
-                client.startWorkflow<String, String, String>(
+                client.startWorkflow(
                     workflowType = "DynamicActivityTestWorkflow",
                     taskQueue = taskQueue,
                     arg1 = "contextTest",
                     arg2 = "ignored",
                 )
 
-            val result = handle.result(timeout = 1.minutes)
+            val result: String = handle.result(timeout = 1.minutes)
 
             assertTrue(result.contains("type=contextTest"))
             assertTrue(result.contains("attempt=1"))
@@ -253,13 +254,13 @@ class DynamicActivityIntegrationTest {
             val client = client()
 
             val handle =
-                client.startWorkflow<List<String>, List<String>>(
+                client.startWorkflow(
                     workflowType = "MultiDynamicActivityWorkflow",
                     taskQueue = taskQueue,
                     arg = listOf("a", "b", "c"),
                 )
 
-            val results = handle.result(timeout = 1.minutes)
+            val results: List<String> = handle.result(timeout = 1.minutes)
 
             assertEquals(listOf("echo: a", "echo: b", "echo: c"), results)
         }
@@ -275,11 +276,11 @@ class DynamicActivityIntegrationTest {
     class DynamicVoidActivityWorkflow {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
-            startActivity<Unit, String>(
+            startActivity(
                 activityType = "dynamicVoid",
                 arg = "ignored",
                 options = ActivityOptions(startToCloseTimeout = 1.minutes),
-            ).result()
+            ).result<Unit>()
             return "completed"
         }
     }
@@ -291,7 +292,7 @@ class DynamicActivityIntegrationTest {
     class DynamicHeartbeatWorkflow {
         @WorkflowRun
         suspend fun WorkflowContext.run(itemCount: Int): String =
-            startActivity<String, Int>(
+            startActivity(
                 activityType = "dynamicHeartbeating",
                 arg = itemCount,
                 options =
@@ -312,7 +313,7 @@ class DynamicActivityIntegrationTest {
             activityType: String,
             input: String,
         ): String =
-            startActivity<String, String>(
+            startActivity(
                 activityType = activityType,
                 arg = input,
                 options =
@@ -349,13 +350,13 @@ class DynamicActivityIntegrationTest {
             val client = client()
 
             val handle =
-                client.startWorkflow<String, Int>(
+                client.startWorkflow(
                     workflowType = "DynamicHeartbeatWorkflow",
                     taskQueue = taskQueue,
                     arg = 5,
                 )
 
-            val result = handle.result(timeout = 1.minutes)
+            val result: String = handle.result(timeout = 1.minutes)
 
             assertEquals("processed 5 items", result)
             assertEquals(listOf(1, 2, 3, 4, 5), heartbeatValues)
@@ -381,12 +382,12 @@ class DynamicActivityIntegrationTest {
             val client = client()
 
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "DynamicVoidActivityWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 1.minutes)
+            val result: String = handle.result(timeout = 1.minutes)
 
             assertEquals("completed", result)
             assertTrue(activityExecuted, "Dynamic activity should have been executed")
@@ -422,14 +423,14 @@ class DynamicActivityIntegrationTest {
             val client = client()
 
             val handle =
-                client.startWorkflow<String, String, String>(
+                client.startWorkflow(
                     workflowType = "DynamicRetryActivityWorkflow",
                     taskQueue = taskQueue,
                     arg1 = "dynamicWithRetry",
                     arg2 = "input",
                 )
 
-            val result = handle.result(timeout = 1.minutes)
+            val result: String = handle.result(timeout = 1.minutes)
 
             assertEquals(2, attemptNumber)
             assertTrue(result.contains("attempt=2"))

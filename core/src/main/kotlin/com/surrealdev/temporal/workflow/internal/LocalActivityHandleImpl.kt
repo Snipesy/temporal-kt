@@ -15,7 +15,6 @@ import io.temporal.api.common.v1.Payload
 import kotlinx.coroutines.CompletableDeferred
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.logging.Logger
-import kotlin.reflect.KType
 import kotlin.time.Duration
 import kotlin.time.toJavaDuration
 import kotlin.time.toKotlinDuration
@@ -26,14 +25,14 @@ import kotlin.time.toKotlinDuration
  * This class handles:
  * - Async result awaiting via CompletableDeferred
  * - Thread-safe cancellation with idempotency
- * - Result deserialization with proper type handling
+ * - Raw payload results (deserialization happens via extension function)
  * - Exception mapping from proto failures to Kotlin exceptions
  * - **DoBackoff handling**: When Core SDK signals that backoff exceeds the threshold,
  *   this class orchestrates timer scheduling and activity rescheduling with a NEW sequence number.
  *
  * **Key Design (Exception-Based Backoff Flow):**
  * When a DoBackoff resolution is received, the current deferred is completed exceptionally with
- * a DoBackoffException. The result() method catches this exception, sleeps for the backoff duration,
+ * a DoBackoffException. The resultPayload() method catches this exception, sleeps for the backoff duration,
  * and reschedules the activity. This pattern matches the Python SDK approach.
  *
  * Thread Safety:
@@ -41,18 +40,17 @@ import kotlin.time.toKotlinDuration
  * - cancel() uses AtomicBoolean for thread-safe idempotency
  * - cachedException field is volatile (written once, read multiple times)
  */
-internal class LocalActivityHandleImpl<R>(
+internal class LocalActivityHandleImpl(
     override val activityId: String,
     initialSeq: Int,
     internal val activityType: String,
     private val state: WorkflowState,
     private val context: WorkflowContextImpl,
-    private val serializer: PayloadSerializer,
-    private val returnType: KType,
+    override val serializer: PayloadSerializer,
     private val options: LocalActivityOptions,
     private val cancellationType: ActivityCancellationType,
     private val arguments: List<Payload>,
-) : LocalActivityHandle<R> {
+) : LocalActivityHandle {
     companion object {
         private val logger = Logger.getLogger(LocalActivityHandleImpl::class.java.name)
     }
@@ -80,8 +78,7 @@ internal class LocalActivityHandleImpl<R>(
     override val isCancellationRequested: Boolean
         get() = cancellationRequested.get()
 
-    @Suppress("UNCHECKED_CAST")
-    override suspend fun result(): R {
+    override suspend fun resultPayload(): Payload? {
         logger.fine("Awaiting result for local activity: type=$activityType, id=$activityId, seq=$currentSeq")
 
         while (true) {
@@ -92,8 +89,8 @@ internal class LocalActivityHandleImpl<R>(
                 // Check if we resolved with an exception
                 cachedException?.let { throw it }
 
-                // Deserialize and return the result
-                return deserializeResult(payload)
+                // Return raw payload (deserialization happens via extension function)
+                return payload
             } catch (e: DoBackoffException) {
                 logger.fine(
                     "Local activity received backoff: type=$activityType, id=$activityId, " +
@@ -108,27 +105,6 @@ internal class LocalActivityHandleImpl<R>(
             }
         }
     }
-
-    /**
-     * Deserializes the result payload to the expected type R.
-     * Handles Unit and null results correctly.
-     */
-    @Suppress("UNCHECKED_CAST")
-    private fun deserializeResult(payload: Payload?): R =
-        if (payload == null || payload == Payload.getDefaultInstance() || payload.data.isEmpty) {
-            // Empty payload means Unit or null
-            if (returnType.classifier == Unit::class) {
-                Unit as R
-            } else {
-                null as R
-            }
-        } else {
-            // Deserialize using stored type info
-            serializer.deserialize(
-                returnType,
-                payload,
-            ) as R
-        }
 
     override fun cancel(reason: String) {
         // Check if already done

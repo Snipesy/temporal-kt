@@ -228,7 +228,7 @@ class HistoryAssertionScope(
  * }
  * ```
  */
-suspend fun WorkflowHandle<*>.assertHistory(assertions: HistoryAssertionScope.() -> Unit) {
+suspend fun WorkflowHandle.assertHistory(assertions: HistoryAssertionScope.() -> Unit) {
     val history = getHistory()
     val scope = HistoryAssertionScope(history)
     scope.assertions()
@@ -249,7 +249,7 @@ suspend fun WorkflowHandle<*>.assertHistory(assertions: HistoryAssertionScope.()
  * println("Workflow type: ${history.workflowType}")
  * ```
  */
-suspend fun WorkflowHandle<*>.assertHistoryAndReturn(assertions: HistoryAssertionScope.() -> Unit): WorkflowHistory {
+suspend fun WorkflowHandle.assertHistoryAndReturn(assertions: HistoryAssertionScope.() -> Unit): WorkflowHistory {
     val history = getHistory()
     val scope = HistoryAssertionScope(history)
     scope.assertions()

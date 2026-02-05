@@ -3,6 +3,7 @@ package com.surrealdev.temporal.workflow.internal
 import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
 import com.surrealdev.temporal.testing.ProtoTestHelpers.timestamp
 import com.surrealdev.temporal.workflow.ActivityCancellationType
+import com.surrealdev.temporal.workflow.result
 import coresdk.activity_result.ActivityResult
 import io.temporal.api.common.v1.Payload
 import io.temporal.api.failure.v1.Failure
@@ -11,7 +12,6 @@ import java.util.logging.Handler
 import java.util.logging.Level
 import java.util.logging.LogRecord
 import java.util.logging.Logger
-import kotlin.reflect.typeOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -106,13 +106,12 @@ class WorkflowStateTest {
         val serializer = KotlinxJsonSerializer()
 
         val handle =
-            RemoteActivityHandleImpl<String>(
+            RemoteActivityHandleImpl(
                 activityId = "test",
                 seq = 1,
                 activityType = "Test::run",
                 state = state,
                 serializer = serializer,
-                returnType = typeOf<String>(),
                 cancellationType = ActivityCancellationType.TRY_CANCEL,
             )
 
@@ -130,13 +129,12 @@ class WorkflowStateTest {
         val serializer = KotlinxJsonSerializer()
 
         val handle =
-            RemoteActivityHandleImpl<String>(
+            RemoteActivityHandleImpl(
                 activityId = "test",
                 seq = 1,
                 activityType = "Test::run",
                 state = state,
                 serializer = serializer,
-                returnType = typeOf<String>(),
                 cancellationType = ActivityCancellationType.TRY_CANCEL,
             )
 
@@ -440,13 +438,12 @@ class WorkflowStateTest {
             val serializer = KotlinxJsonSerializer()
 
             val handle =
-                RemoteActivityHandleImpl<String>(
+                RemoteActivityHandleImpl(
                     activityId = "test",
                     seq = 1,
                     activityType = "Test::run",
                     state = state,
                     serializer = serializer,
-                    returnType = typeOf<String>(),
                     cancellationType = ActivityCancellationType.TRY_CANCEL,
                 )
 
@@ -478,13 +475,12 @@ class WorkflowStateTest {
             val serializer = KotlinxJsonSerializer()
 
             val handle =
-                RemoteActivityHandleImpl<String>(
+                RemoteActivityHandleImpl(
                     activityId = "test",
                     seq = 1,
                     activityType = "Test::run",
                     state = state,
                     serializer = serializer,
-                    returnType = typeOf<String>(),
                     cancellationType = ActivityCancellationType.TRY_CANCEL,
                 )
 
@@ -513,7 +509,7 @@ class WorkflowStateTest {
 
             val exception =
                 assertFailsWith<com.surrealdev.temporal.workflow.ActivityFailureException> {
-                    handle.result()
+                    handle.result<String>()
                 }
             assertEquals("Activity failed!", exception.message)
         }
@@ -526,13 +522,12 @@ class WorkflowStateTest {
             val serializer = KotlinxJsonSerializer()
 
             val handle =
-                RemoteActivityHandleImpl<String>(
+                RemoteActivityHandleImpl(
                     activityId = "test",
                     seq = 1,
                     activityType = "Test::run",
                     state = state,
                     serializer = serializer,
-                    returnType = typeOf<String>(),
                     cancellationType = ActivityCancellationType.TRY_CANCEL,
                 )
 
@@ -551,7 +546,7 @@ class WorkflowStateTest {
             assertTrue(handle.isDone)
 
             assertFailsWith<com.surrealdev.temporal.workflow.ActivityCancelledException> {
-                handle.result()
+                handle.result<String>()
             }
         }
 
@@ -578,13 +573,12 @@ class WorkflowStateTest {
             val serializer = KotlinxJsonSerializer()
 
             val handle =
-                RemoteActivityHandleImpl<String>(
+                RemoteActivityHandleImpl(
                     activityId = "test",
                     seq = 1,
                     activityType = "Test::run",
                     state = state,
                     serializer = serializer,
-                    returnType = typeOf<String>(),
                     cancellationType = ActivityCancellationType.TRY_CANCEL,
                 )
 
@@ -709,13 +703,12 @@ class WorkflowStateTest {
             // Register various operations
             val timerDeferred = state.registerTimer(1)
             val handle =
-                RemoteActivityHandleImpl<String>(
+                RemoteActivityHandleImpl(
                     activityId = "test",
                     seq = 2,
                     activityType = "Test::run",
                     state = state,
                     serializer = serializer,
-                    returnType = typeOf<String>(),
                     cancellationType = ActivityCancellationType.TRY_CANCEL,
                 )
             state.registerActivity(2, handle)
@@ -943,13 +936,12 @@ class WorkflowStateTest {
             val serializer = KotlinxJsonSerializer()
 
             val handle =
-                RemoteActivityHandleImpl<String>(
+                RemoteActivityHandleImpl(
                     activityId = "test-activity",
                     seq = 42,
                     activityType = "TestActivity::run",
                     state = state,
                     serializer = serializer,
-                    returnType = typeOf<String>(),
                     cancellationType = ActivityCancellationType.TRY_CANCEL,
                 )
 
@@ -977,13 +969,12 @@ class WorkflowStateTest {
             val serializer = KotlinxJsonSerializer()
 
             val handle =
-                RemoteActivityHandleImpl<String>(
+                RemoteActivityHandleImpl(
                     activityId = "test-activity",
                     seq = 1,
                     activityType = "TestActivity::run",
                     state = state,
                     serializer = serializer,
-                    returnType = typeOf<String>(),
                     cancellationType = ActivityCancellationType.TRY_CANCEL,
                 )
 
@@ -1039,13 +1030,12 @@ class WorkflowStateTest {
             val serializer = KotlinxJsonSerializer()
 
             val handle =
-                RemoteActivityHandleImpl<String>(
+                RemoteActivityHandleImpl(
                     activityId = "test",
                     seq = 1,
                     activityType = "Test::run",
                     state = state,
                     serializer = serializer,
-                    returnType = typeOf<String>(),
                     cancellationType = ActivityCancellationType.TRY_CANCEL,
                 )
 
@@ -1063,24 +1053,22 @@ class WorkflowStateTest {
             val serializer = KotlinxJsonSerializer()
 
             val handle1 =
-                RemoteActivityHandleImpl<String>(
+                RemoteActivityHandleImpl(
                     activityId = "test1",
                     seq = 1,
                     activityType = "Test::run",
                     state = state,
                     serializer = serializer,
-                    returnType = typeOf<String>(),
                     cancellationType = ActivityCancellationType.TRY_CANCEL,
                 )
 
             val handle2 =
-                RemoteActivityHandleImpl<Int>(
+                RemoteActivityHandleImpl(
                     activityId = "test2",
                     seq = 2,
                     activityType = "Test::run",
                     state = state,
                     serializer = serializer,
-                    returnType = typeOf<Int>(),
                     cancellationType = ActivityCancellationType.TRY_CANCEL,
                 )
 

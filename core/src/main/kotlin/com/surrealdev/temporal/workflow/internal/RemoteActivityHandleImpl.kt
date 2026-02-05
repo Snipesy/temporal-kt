@@ -13,7 +13,6 @@ import io.temporal.api.common.v1.Payload
 import kotlinx.coroutines.CompletableDeferred
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.logging.Logger
-import kotlin.reflect.KType
 
 /**
  * Internal implementation of ActivityHandle that manages the lifecycle of an activity invocation.
@@ -21,7 +20,7 @@ import kotlin.reflect.KType
  * This class handles:
  * - Async result awaiting via CompletableDeferred
  * - Thread-safe cancellation with idempotency
- * - Result deserialization with proper type handling
+ * - Raw payload results (deserialization happens via extension function)
  * - Exception mapping from proto failures to Kotlin exceptions
  *
  * Thread Safety:
@@ -29,15 +28,14 @@ import kotlin.reflect.KType
  * - cancel() uses AtomicBoolean for thread-safe idempotency
  * - cachedException field is volatile (written once, read multiple times)
  */
-internal class RemoteActivityHandleImpl<R>(
+internal class RemoteActivityHandleImpl(
     override val activityId: String,
     internal val seq: Int,
     internal val activityType: String,
     private val state: WorkflowState,
-    private val serializer: PayloadSerializer,
-    private val returnType: KType,
+    override val serializer: PayloadSerializer,
     private val cancellationType: ActivityCancellationType,
-) : RemoteActivityHandle<R> {
+) : RemoteActivityHandle {
     companion object {
         private val logger = Logger.getLogger(RemoteActivityHandleImpl::class.java.name)
     }
@@ -58,8 +56,7 @@ internal class RemoteActivityHandleImpl<R>(
     override val isCancellationRequested: Boolean
         get() = cancellationRequested.get()
 
-    @Suppress("UNCHECKED_CAST")
-    override suspend fun result(): R {
+    override suspend fun resultPayload(): Payload? {
         logger.fine("Awaiting result for activity: type=$activityType, id=$activityId, seq=$seq")
 
         // This may throw if activity failed/cancelled (via resolve())
@@ -68,30 +65,9 @@ internal class RemoteActivityHandleImpl<R>(
         // Check if we resolved with an exception
         cachedException?.let { throw it }
 
-        // Deserialize the result
-        return deserializeResult(payload)
+        // Return raw payload (deserialization happens via extension function)
+        return payload
     }
-
-    /**
-     * Deserializes the result payload to the expected type R.
-     * Handles Unit and null results correctly.
-     */
-    @Suppress("UNCHECKED_CAST")
-    private fun deserializeResult(payload: Payload?): R =
-        if (payload == null || payload == Payload.getDefaultInstance() || payload.data.isEmpty) {
-            // Empty payload means Unit or null
-            if (returnType.classifier == Unit::class) {
-                Unit as R
-            } else {
-                null as R
-            }
-        } else {
-            // Deserialize using stored type info
-            serializer.deserialize(
-                returnType,
-                payload,
-            ) as R
-        }
 
     override fun cancel(reason: String) {
         // Check if already done

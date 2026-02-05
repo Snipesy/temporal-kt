@@ -16,7 +16,6 @@ import io.temporal.api.common.v1.Payload
 import io.temporal.api.common.v1.Payloads
 import kotlinx.coroutines.Dispatchers
 import kotlin.coroutines.CoroutineContext
-import kotlin.reflect.KType
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -466,7 +465,7 @@ class BasicDependencyInjectionTest {
 
         // Get from queue 1 multiple times (different contexts)
         val queue1Context1 = queue1Registry!!.createWorkflowContext()
-        val queue1Context2 = queue1Registry!!.createWorkflowContext()
+        val queue1Context2 = queue1Registry.createWorkflowContext()
         queue1Context1.get(key)
         queue1Context2.get(key)
 
@@ -897,19 +896,17 @@ class BasicDependencyInjectionTest {
         override val coroutineContext: CoroutineContext = Dispatchers.Unconfined
 
         // Stubs for required methods
-        override suspend fun <R> startActivityWithPayloads(
+        override suspend fun startActivityWithPayloads(
             activityType: String,
             args: Payloads,
             options: com.surrealdev.temporal.workflow.ActivityOptions,
-            returnType: KType?,
-        ): com.surrealdev.temporal.workflow.RemoteActivityHandle<R> = TODO("Not needed for DI tests")
+        ): com.surrealdev.temporal.workflow.RemoteActivityHandle = TODO("Not needed for DI tests")
 
-        override suspend fun <R> startLocalActivityWithPayloads(
+        override suspend fun startLocalActivityWithPayloads(
             activityType: String,
             args: Payloads,
             options: com.surrealdev.temporal.workflow.LocalActivityOptions,
-            returnType: KType?,
-        ): com.surrealdev.temporal.workflow.LocalActivityHandle<R> = TODO("Not needed for DI tests")
+        ): com.surrealdev.temporal.workflow.LocalActivityHandle = TODO("Not needed for DI tests")
 
         override suspend fun sleep(duration: Duration) = TODO("Not needed for DI tests")
 
@@ -929,12 +926,11 @@ class BasicDependencyInjectionTest {
 
         override fun isContinueAsNewSuggested(): Boolean = false
 
-        override suspend fun <R> startChildWorkflowWithPayloads(
+        override suspend fun startChildWorkflowWithPayloads(
             workflowType: String,
             args: Payloads,
             options: com.surrealdev.temporal.workflow.ChildWorkflowOptions,
-            returnType: KType?,
-        ): com.surrealdev.temporal.workflow.ChildWorkflowHandle<R> = TODO("Not needed for DI tests")
+        ): com.surrealdev.temporal.workflow.ChildWorkflowHandle = TODO("Not needed for DI tests")
 
         override fun setQueryHandlerWithPayloads(
             name: String,

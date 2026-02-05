@@ -10,6 +10,7 @@ import com.surrealdev.temporal.serialization.serialize
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -86,7 +87,7 @@ class QueryHandlerTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<Int>(
+                client.startWorkflow(
                     workflowType = "QueryableWorkflow",
                     taskQueue = taskQueue,
                 )
@@ -96,7 +97,7 @@ class QueryHandlerTest {
             assertTrue(midCounter >= 0, "Counter should be non-negative")
 
             // Wait for completion
-            val finalResult = handle.result(timeout = 30.seconds)
+            val finalResult: Int = handle.result(timeout = 30.seconds)
             assertEquals(5, finalResult, "Final counter should be 5")
 
             // Query after completion
@@ -151,7 +152,7 @@ class QueryHandlerTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "RuntimeQueryWorkflow",
                     taskQueue = taskQueue,
                 )
@@ -169,7 +170,7 @@ class QueryHandlerTest {
             assertTrue(secret1 == "initial" || secret1 == "updated", "Secret should be initial or updated")
 
             // Wait for completion
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertEquals("updated", result)
 
             // Query after completion should return final value

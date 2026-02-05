@@ -107,7 +107,7 @@ fun `test workflow with delays`() = testTemporalApplication {
 fun `test timeout behavior`() = testTemporalApplication {
     application { ... }
 
-    val handle = startWorkflow<OrderWorkflow, Unit>(arg)
+    val handle = startWorkflow(OrderWorkflow::class, "test-queue", arg = arg)
 
     // Advance time manually
     advanceTime(Duration.ofHours(1))

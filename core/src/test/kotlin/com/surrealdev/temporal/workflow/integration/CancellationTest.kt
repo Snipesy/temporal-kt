@@ -7,6 +7,7 @@ import com.surrealdev.temporal.client.startWorkflow
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import org.junit.jupiter.api.Tag
 import java.util.UUID
 import kotlin.test.Test
@@ -43,7 +44,7 @@ class CancellationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "CancellableConditionWorkflow",
                     taskQueue = taskQueue,
                 )

@@ -14,6 +14,7 @@ import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.ActivityOptions
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import com.surrealdev.temporal.workflow.startActivity
 import io.temporal.api.common.v1.Payload
 import kotlinx.serialization.Serializable
@@ -95,8 +96,8 @@ class PayloadCodecIntegrationTest {
     class ProcessLargeDataWorkflow {
         @WorkflowRun
         suspend fun WorkflowContext.run(payload: LargePayload): ProcessedResult {
-            val result =
-                startActivity<ProcessedResult, LargePayload>(
+            val result: ProcessedResult =
+                startActivity<LargePayload>(
                     activityType = "processLargeData",
                     arg = payload,
                     options = ActivityOptions(startToCloseTimeout = 30.seconds),
@@ -187,13 +188,13 @@ class PayloadCodecIntegrationTest {
                 )
 
             val handle =
-                client.startWorkflow<LargePayload, LargePayload>(
+                client.startWorkflow(
                     workflowType = "EchoLargeDataWorkflow",
                     taskQueue = taskQueue,
                     arg = largePayload,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: LargePayload = handle.result(timeout = 30.seconds)
 
             // Verify the data round-tripped correctly
             assertEquals("echoed-test-123", result.id)
@@ -232,13 +233,13 @@ class PayloadCodecIntegrationTest {
                 )
 
             val handle =
-                client.startWorkflow<ProcessedResult, LargePayload>(
+                client.startWorkflow(
                     workflowType = "ProcessLargeDataWorkflow",
                     taskQueue = taskQueue,
                     arg = largePayload,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: ProcessedResult = handle.result(timeout = 30.seconds)
 
             // Verify the activity processed the data correctly
             assertEquals(3000, result.originalSize)
@@ -268,13 +269,13 @@ class PayloadCodecIntegrationTest {
             val client = client()
 
             val handle =
-                client.startWorkflow<LargePayload, Int>(
+                client.startWorkflow(
                     workflowType = "GenerateLargeDataWorkflow",
                     taskQueue = taskQueue,
                     arg = 200, // Generate 200 items
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: LargePayload = handle.result(timeout = 30.seconds)
 
             // Verify the generated data
             assertTrue(result.id.startsWith("generated-"))
@@ -312,13 +313,13 @@ class PayloadCodecIntegrationTest {
                 )
 
             val handle =
-                client.startWorkflow<LargePayload, LargePayload>(
+                client.startWorkflow(
                     workflowType = "EchoLargeDataWorkflow",
                     taskQueue = taskQueue,
                     arg = largePayload,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: LargePayload = handle.result(timeout = 30.seconds)
 
             // Verify codec was called
             assertTrue(recordingCodec.encodeWasCalled.get(), "Encode should have been called")
@@ -362,13 +363,13 @@ class PayloadCodecIntegrationTest {
                 )
 
             val handle =
-                client.startWorkflow<LargePayload, LargePayload>(
+                client.startWorkflow(
                     workflowType = "EchoLargeDataWorkflow",
                     taskQueue = taskQueue,
                     arg = smallPayload,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: LargePayload = handle.result(timeout = 30.seconds)
 
             // Verify the codec was still called (even if it didn't compress)
             assertTrue(recordingCodec.encodeWasCalled.get())

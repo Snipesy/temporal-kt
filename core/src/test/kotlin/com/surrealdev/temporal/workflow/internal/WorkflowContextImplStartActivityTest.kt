@@ -92,7 +92,7 @@ class WorkflowContextImplStartActivityTest {
 
             val exception =
                 assertFailsWith<ReadOnlyContextException> {
-                    context.startActivity<String>("TestActivity", options)
+                    context.startActivity("TestActivity", options)
                 }
 
             assertTrue(
@@ -109,7 +109,7 @@ class WorkflowContextImplStartActivityTest {
 
             val exception =
                 assertFailsWith<IllegalArgumentException> {
-                    context.startActivity<String>("", options)
+                    context.startActivity("", options)
                 }
 
             assertTrue(exception.message!!.contains("activityType"))
@@ -142,7 +142,7 @@ class WorkflowContextImplStartActivityTest {
 
             val exception =
                 assertFailsWith<IllegalArgumentException> {
-                    context.startActivity<String>("TestActivity", options)
+                    context.startActivity("TestActivity", options)
                 }
 
             assertTrue(exception.message!!.contains("startToCloseTimeout"))
@@ -157,7 +157,7 @@ class WorkflowContextImplStartActivityTest {
 
             val exception =
                 assertFailsWith<IllegalArgumentException> {
-                    context.startActivity<String>("TestActivity", options)
+                    context.startActivity("TestActivity", options)
                 }
 
             assertTrue(exception.message!!.contains("scheduleToCloseTimeout"))
@@ -176,7 +176,7 @@ class WorkflowContextImplStartActivityTest {
 
             val exception =
                 assertFailsWith<IllegalArgumentException> {
-                    context.startActivity<String>("TestActivity", options)
+                    context.startActivity("TestActivity", options)
                 }
 
             assertTrue(exception.message!!.contains("scheduleToStartTimeout"))
@@ -195,7 +195,7 @@ class WorkflowContextImplStartActivityTest {
 
             val exception =
                 assertFailsWith<IllegalArgumentException> {
-                    context.startActivity<String>("TestActivity", options)
+                    context.startActivity("TestActivity", options)
                 }
 
             assertTrue(exception.message!!.contains("heartbeatTimeout"))
@@ -216,7 +216,7 @@ class WorkflowContextImplStartActivityTest {
 
             val exception =
                 assertFailsWith<IllegalArgumentException> {
-                    context.startActivity<String>("TestActivity", options)
+                    context.startActivity("TestActivity", options)
                 }
 
             assertTrue(exception.message!!.contains("scheduleToCloseTimeout"))
@@ -268,7 +268,7 @@ class WorkflowContextImplStartActivityTest {
 
             val exception =
                 assertFailsWith<IllegalArgumentException> {
-                    context.startActivity<String>("TestActivity", options)
+                    context.startActivity("TestActivity", options)
                 }
 
             assertTrue(exception.message!!.contains("scheduleToStartTimeout"))
@@ -288,7 +288,7 @@ class WorkflowContextImplStartActivityTest {
                 )
 
             // Should not throw
-            val handle = context.startActivity<String>("TestActivity", options)
+            val handle = context.startActivity("TestActivity", options)
             assertNotNull(handle)
         }
 
@@ -305,7 +305,7 @@ class WorkflowContextImplStartActivityTest {
                 )
 
             // Should not throw, but will log a warning
-            val handle = context.startActivity<String>("TestActivity", options)
+            val handle = context.startActivity("TestActivity", options)
             assertNotNull(handle)
         }
 
@@ -323,7 +323,7 @@ class WorkflowContextImplStartActivityTest {
 
             val exception =
                 assertFailsWith<IllegalArgumentException> {
-                    context.startActivity<String>("TestActivity", options)
+                    context.startActivity("TestActivity", options)
                 }
 
             assertTrue(exception.message!!.contains("priority"))
@@ -342,7 +342,7 @@ class WorkflowContextImplStartActivityTest {
 
             val exception =
                 assertFailsWith<IllegalArgumentException> {
-                    context.startActivity<String>("TestActivity", options)
+                    context.startActivity("TestActivity", options)
                 }
 
             assertTrue(exception.message!!.contains("priority"))
@@ -360,7 +360,7 @@ class WorkflowContextImplStartActivityTest {
                     startToCloseTimeout = 30.seconds,
                     priority = 0,
                 )
-            val handle0 = context.startActivity<String>("TestActivity0", options0)
+            val handle0 = context.startActivity("TestActivity0", options0)
             assertNotNull(handle0)
 
             val options100 =
@@ -368,7 +368,7 @@ class WorkflowContextImplStartActivityTest {
                     startToCloseTimeout = 30.seconds,
                     priority = 100,
                 )
-            val handle100 = context.startActivity<String>("TestActivity100", options100)
+            val handle100 = context.startActivity("TestActivity100", options100)
             assertNotNull(handle100)
 
             // Test middle value
@@ -377,7 +377,7 @@ class WorkflowContextImplStartActivityTest {
                     startToCloseTimeout = 30.seconds,
                     priority = 50,
                 )
-            val handle50 = context.startActivity<String>("TestActivity50", options50)
+            val handle50 = context.startActivity("TestActivity50", options50)
             assertNotNull(handle50)
         }
 
@@ -395,7 +395,7 @@ class WorkflowContextImplStartActivityTest {
 
             val exception =
                 assertFailsWith<IllegalArgumentException> {
-                    context.startActivity<String>("TestActivity", options)
+                    context.startActivity("TestActivity", options)
                 }
 
             assertTrue(exception.message!!.contains("backoffCoefficient"))
@@ -414,7 +414,7 @@ class WorkflowContextImplStartActivityTest {
 
             val exception =
                 assertFailsWith<IllegalArgumentException> {
-                    context.startActivity<String>("TestActivity", options)
+                    context.startActivity("TestActivity", options)
                 }
 
             assertTrue(exception.message!!.contains("maximumAttempts"))
@@ -436,7 +436,7 @@ class WorkflowContextImplStartActivityTest {
 
             val exception =
                 assertFailsWith<IllegalArgumentException> {
-                    context.startActivity<String>("TestActivity", options)
+                    context.startActivity("TestActivity", options)
                 }
 
             assertTrue(exception.message!!.contains("maximumInterval"))
@@ -451,7 +451,7 @@ class WorkflowContextImplStartActivityTest {
             val context = createContext()
             val options = ActivityOptions(startToCloseTimeout = 30.seconds)
 
-            val handle = context.startActivity<String>("TestActivity", options)
+            val handle = context.startActivity("TestActivity", options)
 
             // First activity should have ID "1" (seq starts at 1)
             assertEquals("1", handle.activityId)
@@ -468,7 +468,7 @@ class WorkflowContextImplStartActivityTest {
                     activityId = customId,
                 )
 
-            val handle = context.startActivity<String>("TestActivity", options)
+            val handle = context.startActivity("TestActivity", options)
 
             assertEquals(customId, handle.activityId)
         }
@@ -486,7 +486,7 @@ class WorkflowContextImplStartActivityTest {
                     activityId = "test-activity-id",
                 )
 
-            val handle = context.startActivity<String>("TestActivity", options)
+            val handle = context.startActivity("TestActivity", options)
 
             assertNotNull(handle)
             assertEquals("test-activity-id", handle.activityId)
@@ -508,7 +508,7 @@ class WorkflowContextImplStartActivityTest {
                 }
             val options = ActivityOptions(startToCloseTimeout = 30.seconds)
 
-            val handle = context.startActivity<String>("TestActivity", options)
+            val handle = context.startActivity("TestActivity", options)
 
             // Verify handle is registered in state
             val seq = 1 // First seq
@@ -526,7 +526,7 @@ class WorkflowContextImplStartActivityTest {
             val state = getState(context)
             val options = ActivityOptions(startToCloseTimeout = 30.seconds)
 
-            context.startActivity<String>("TestActivity", options)
+            context.startActivity("TestActivity", options)
 
             val commands = getCommands(state)
             assertEquals(1, commands.size)
@@ -540,7 +540,7 @@ class WorkflowContextImplStartActivityTest {
             val state = getState(context)
             val options = ActivityOptions(startToCloseTimeout = 30.seconds)
 
-            context.startActivity<String>("TestActivity", options)
+            context.startActivity("TestActivity", options)
 
             val command = getCommands(state)[0].scheduleActivity
             assertEquals(1, command.seq) // First command should have seq 1
@@ -557,7 +557,7 @@ class WorkflowContextImplStartActivityTest {
                     activityId = "custom-id",
                 )
 
-            context.startActivity<String>("MyActivity", options)
+            context.startActivity("MyActivity", options)
 
             val command = getCommands(state)[0].scheduleActivity
             assertEquals("custom-id", command.activityId)
@@ -571,7 +571,7 @@ class WorkflowContextImplStartActivityTest {
             val state = getState(context)
             val options = ActivityOptions(startToCloseTimeout = 30.seconds)
 
-            context.startActivity<String>("TestActivity", options)
+            context.startActivity("TestActivity", options)
 
             val command = getCommands(state)[0].scheduleActivity
             assertEquals("test-queue", command.taskQueue) // From WorkflowInfo
@@ -588,7 +588,7 @@ class WorkflowContextImplStartActivityTest {
                     taskQueue = "custom-task-queue",
                 )
 
-            context.startActivity<String>("TestActivity", options)
+            context.startActivity("TestActivity", options)
 
             val command = getCommands(state)[0].scheduleActivity
             assertEquals("custom-task-queue", command.taskQueue)
@@ -607,7 +607,7 @@ class WorkflowContextImplStartActivityTest {
                     heartbeatTimeout = 5.seconds,
                 )
 
-            context.startActivity<String>("TestActivity", options)
+            context.startActivity("TestActivity", options)
 
             val command = getCommands(state)[0].scheduleActivity
             assertTrue(command.hasStartToCloseTimeout())
@@ -639,7 +639,7 @@ class WorkflowContextImplStartActivityTest {
                         ),
                 )
 
-            context.startActivity<String>("TestActivity", options)
+            context.startActivity("TestActivity", options)
 
             val command = getCommands(state)[0].scheduleActivity
             assertTrue(command.hasRetryPolicy())
@@ -676,7 +676,7 @@ class WorkflowContextImplStartActivityTest {
                         cancellationType = domainType,
                     )
 
-                context.startActivity<String>("TestActivity-${domainType.name}", options)
+                context.startActivity("TestActivity-${domainType.name}", options)
 
                 val commands = getCommands(state)
                 val command = commands.last().scheduleActivity
@@ -708,7 +708,7 @@ class WorkflowContextImplStartActivityTest {
                         versioningIntent = domainIntent,
                     )
 
-                context.startActivity<String>("TestActivity-${domainIntent.name}", options)
+                context.startActivity("TestActivity-${domainIntent.name}", options)
 
                 val commands = getCommands(state)
                 val command = commands.last().scheduleActivity
@@ -744,7 +744,7 @@ class WorkflowContextImplStartActivityTest {
                     headers = headers,
                 )
 
-            context.startActivity<String>("TestActivity", options)
+            context.startActivity("TestActivity", options)
 
             val command = getCommands(state)[0].scheduleActivity
             assertEquals(2, command.headersMap.size)
@@ -764,7 +764,7 @@ class WorkflowContextImplStartActivityTest {
                     startToCloseTimeout = 30.seconds,
                     disableEagerExecution = true,
                 )
-            context.startActivity<String>("TestActivity1", optionsTrue)
+            context.startActivity("TestActivity1", optionsTrue)
 
             val commandTrue = getCommands(state)[0].scheduleActivity
             assertTrue(commandTrue.doNotEagerlyExecute)
@@ -775,7 +775,7 @@ class WorkflowContextImplStartActivityTest {
                     startToCloseTimeout = 30.seconds,
                     disableEagerExecution = false,
                 )
-            context.startActivity<String>("TestActivity2", optionsFalse)
+            context.startActivity("TestActivity2", optionsFalse)
 
             val commandFalse = getCommands(state)[1].scheduleActivity
             assertEquals(false, commandFalse.doNotEagerlyExecute)
@@ -794,7 +794,7 @@ class WorkflowContextImplStartActivityTest {
                     priority = 50,
                 )
 
-            context.startActivity<String>("TestActivity", options)
+            context.startActivity("TestActivity", options)
 
             val command = getCommands(state)[0].scheduleActivity
             assertTrue(command.hasPriority())

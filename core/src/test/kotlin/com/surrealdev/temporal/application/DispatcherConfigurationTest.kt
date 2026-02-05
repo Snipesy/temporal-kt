@@ -8,6 +8,7 @@ import com.surrealdev.temporal.client.startWorkflow
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.ActivityOptions
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import com.surrealdev.temporal.workflow.startActivity
 import org.junit.jupiter.api.Tag
 import java.util.UUID
@@ -93,8 +94,8 @@ class DispatcherConfigurationTest {
             val workflowThread = Thread.currentThread().name
             recordWorkflowThread(info.taskQueue, workflowThread)
 
-            val activityResult =
-                startActivity<String>(
+            val activityResult: String =
+                startActivity(
                     activityType = "recordThread",
                     options = ActivityOptions(startToCloseTimeout = 30.seconds),
                 ).result()
@@ -117,12 +118,12 @@ class DispatcherConfigurationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "ThreadTrackingWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
 
             assertTrue(result.startsWith("workflow-on-"))
             val threads = getWorkflowThreads(taskQueue)
@@ -151,12 +152,12 @@ class DispatcherConfigurationTest {
             // Run multiple workflows to verify they use virtual threads
             repeat(3) { i ->
                 val handle =
-                    client.startWorkflow<String>(
+                    client.startWorkflow(
                         workflowType = "ThreadTrackingWorkflow",
                         taskQueue = taskQueue,
                         workflowId = "wf-$taskQueue-$i",
                     )
-                handle.result(timeout = 30.seconds)
+                handle.result<String>(timeout = 30.seconds)
             }
 
             val threads = getWorkflowThreads(taskQueue)
@@ -185,12 +186,12 @@ class DispatcherConfigurationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "WorkflowWithActivity",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
 
             assertTrue(result.contains("activity-on-"))
             val threads = getActivityThreads(taskQueue)
@@ -220,12 +221,12 @@ class DispatcherConfigurationTest {
             // Run multiple workflows to verify activities run on virtual threads
             repeat(3) { i ->
                 val handle =
-                    client.startWorkflow<String>(
+                    client.startWorkflow(
                         workflowType = "WorkflowWithActivity",
                         taskQueue = taskQueue,
                         workflowId = "wf-activity-$taskQueue-$i",
                     )
-                handle.result(timeout = 30.seconds)
+                handle.result<String>(timeout = 30.seconds)
             }
 
             val threads = getActivityThreads(taskQueue)
@@ -254,12 +255,12 @@ class DispatcherConfigurationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "WorkflowWithActivity",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
 
             assertTrue(result.contains("workflow(") && result.contains("activity-on-"))
             val workflowThreads = getWorkflowThreads(taskQueue)
@@ -300,21 +301,21 @@ class DispatcherConfigurationTest {
 
             // Run workflow on queue 1
             val handle1 =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "ThreadTrackingWorkflow",
                     taskQueue = taskQueue1,
                     workflowId = "wf-q1-${UUID.randomUUID()}",
                 )
-            handle1.result(timeout = 30.seconds)
+            handle1.result<String>(timeout = 30.seconds)
 
             // Run workflow on queue 2
             val handle2 =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "ThreadTrackingWorkflow",
                     taskQueue = taskQueue2,
                     workflowId = "wf-q2-${UUID.randomUUID()}",
                 )
-            handle2.result(timeout = 30.seconds)
+            handle2.result<String>(timeout = 30.seconds)
 
             val threads1 = getWorkflowThreads(taskQueue1)
             val threads2 = getWorkflowThreads(taskQueue2)

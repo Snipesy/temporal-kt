@@ -8,6 +8,7 @@ import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.ContinueAsNewOptions
 import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.continueAsNew
+import com.surrealdev.temporal.workflow.result
 import kotlinx.serialization.Serializable
 import org.junit.jupiter.api.Tag
 import java.util.UUID
@@ -186,13 +187,13 @@ class ContinueAsNewIntegrationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String, Int>(
+                client.startWorkflow<Int>(
                     workflowType = "SimpleContinueAsNewWorkflow",
                     taskQueue = taskQueue,
                     arg = 1,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertEquals("completed at iteration 2", result)
 
             // Note: Can't use assertHistory { completed() } because the original run's
@@ -213,13 +214,13 @@ class ContinueAsNewIntegrationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String, Int>(
+                client.startWorkflow<Int>(
                     workflowType = "ChainedContinueAsNewWorkflow",
                     taskQueue = taskQueue,
                     arg = 1,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertEquals("completed after 5 iterations", result)
 
             // Note: Can't use assertHistory { completed() } because the original run's
@@ -241,13 +242,13 @@ class ContinueAsNewIntegrationTest {
             val client = client()
             val initialState = IterationState(iteration = 1, accumulator = "start")
             val handle =
-                client.startWorkflow<String, IterationState>(
+                client.startWorkflow<IterationState>(
                     workflowType = "ComplexDataContinueAsNewWorkflow",
                     taskQueue = taskQueue,
                     arg = initialState,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertEquals("Final: start-1-2", result)
 
             // Note: Can't use assertHistory { completed() } because the original run's
@@ -268,14 +269,14 @@ class ContinueAsNewIntegrationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String, Int, String>(
+                client.startWorkflow(
                     workflowType = "MultiArgContinueAsNewWorkflow",
                     taskQueue = taskQueue,
                     arg1 = 1,
                     arg2 = "Hello",
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertEquals("Final: Hello!! (count=3)", result)
 
             // Note: Can't use assertHistory { completed() } because the original run's
@@ -296,13 +297,13 @@ class ContinueAsNewIntegrationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String, Int>(
+                client.startWorkflow<Int>(
                     workflowType = "ContinueAsNewWithOptionsWorkflow",
                     taskQueue = taskQueue,
                     arg = 1,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertEquals("completed with options at 2", result)
 
             // Note: Can't use assertHistory { completed() } because the original run's
@@ -324,12 +325,12 @@ class ContinueAsNewIntegrationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "ContinueToNewTypeWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertEquals("TargetWorkflow received: 42", result)
 
             // Note: Can't use assertHistory { completed() } because the original run's
@@ -350,13 +351,13 @@ class ContinueAsNewIntegrationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String, Int>(
+                client.startWorkflow<Int>(
                     workflowType = "ContinueAsNewWithTimerWorkflow",
                     taskQueue = taskQueue,
                     arg = 1,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertEquals("completed at iteration 2", result)
 
             // Note: Can't use assertHistory { completed() } because the original run's
@@ -379,13 +380,13 @@ class ContinueAsNewIntegrationTest {
 
             // Start with iteration 1
             val handle =
-                client.startWorkflow<String, Int>(
+                client.startWorkflow<Int>(
                     workflowType = "ChainedContinueAsNewWorkflow",
                     taskQueue = taskQueue,
                     arg = 1,
                 )
 
-            val result = handle.result(timeout = 60.seconds)
+            val result: String = handle.result(timeout = 60.seconds)
 
             // Verify final result
             assertTrue(result.startsWith("completed after"))
@@ -426,12 +427,12 @@ class ContinueAsNewIntegrationTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "HistoryMetricsTestWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             // History length should be present and positive
             assertTrue(result.contains("historyLength="))
             // History size should be present

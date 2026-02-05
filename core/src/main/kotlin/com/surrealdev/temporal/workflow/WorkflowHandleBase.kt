@@ -10,10 +10,8 @@ import io.temporal.api.common.v1.Payloads
  *
  * This interface defines common operations that can be performed on any workflow,
  * whether accessed from client code or from within a parent workflow.
- *
- * @param R The expected result type of the workflow.
  */
-interface WorkflowHandleBase<R> {
+interface WorkflowHandleBase {
     /**
      * The workflow ID.
      */

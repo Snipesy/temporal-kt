@@ -9,6 +9,7 @@ import com.surrealdev.temporal.client.startWorkflow
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.ActivityOptions
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import com.surrealdev.temporal.workflow.startActivity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -77,27 +78,27 @@ class ParallelPerformanceTest {
             val deferreds =
                 (1..ACTIVITY_COUNT).map {
                     async {
-                        startActivity<String>(
+                        startActivity(
                             activityType = "slowSleep",
                             options = ActivityOptions(startToCloseTimeout = 2.minutes),
-                        ).result()
+                        ).result<String>()
                     }
                 }
 
             val deferredDelay =
                 (1..ACTIVITY_COUNT).map {
                     async {
-                        startActivity<String>(
+                        startActivity(
                             activityType = "slowSleep",
                             options = ActivityOptions(startToCloseTimeout = 2.minutes),
-                        ).result()
+                        ).result<String>()
                     }
                 }
 
             // Wait for all to complete
-            val results = deferreds.awaitAll()
+            val results: List<String> = deferreds.awaitAll()
 
-            val resultsDelay = deferredDelay.awaitAll()
+            val resultsDelay: List<String> = deferredDelay.awaitAll()
 
             return results.size + resultsDelay.size
         }
@@ -157,12 +158,12 @@ class ParallelPerformanceTest {
             val elapsed =
                 measureTime {
                     val handle =
-                        client.startWorkflow<Int>(
+                        client.startWorkflow(
                             workflowType = "ParallelActivitiesWorkflow",
                             taskQueue = taskQueue,
                         )
 
-                    val result = handle.result(timeout = 5.minutes)
+                    val result: Int = handle.result(timeout = 5.minutes)
                     assertEquals(ACTIVITY_COUNT * 2, result)
                 }
 
@@ -211,7 +212,7 @@ class ParallelPerformanceTest {
                     // Start all workflows
                     val handles =
                         (1..WORKFLOW_COUNT).map { index ->
-                            client.startWorkflow<String>(
+                            client.startWorkflow(
                                 workflowType = "OneSleepWorkflow",
                                 taskQueue = taskQueue,
                                 workflowId = "sleep-wf-$index-${UUID.randomUUID()}",
@@ -220,7 +221,7 @@ class ParallelPerformanceTest {
 
                     // Wait for all to complete
                     handles.forEach { handle ->
-                        val result = handle.result(timeout = 5.minutes)
+                        val result: String = handle.result(timeout = 5.minutes)
                         assertEquals("slept", result)
                     }
                 }
@@ -256,7 +257,7 @@ class ParallelPerformanceTest {
                     // Start all workflows
                     val handles =
                         (1..WORKFLOW_COUNT).map { index ->
-                            client.startWorkflow<String>(
+                            client.startWorkflow(
                                 workflowType = "OneDeadLockedWorkflow",
                                 taskQueue = taskQueue,
                                 workflowId = "sleep-wf-$index-${UUID.randomUUID()}",
@@ -265,7 +266,7 @@ class ParallelPerformanceTest {
 
                     // Wait for all to complete
                     handles.forEach { handle ->
-                        val result = handle.result(timeout = 5.minutes)
+                        val result: String = handle.result(timeout = 5.minutes)
                         assertEquals("slept", result)
                     }
                 }

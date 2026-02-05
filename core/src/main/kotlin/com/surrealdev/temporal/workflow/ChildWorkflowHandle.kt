@@ -13,10 +13,8 @@ import io.temporal.api.common.v1.Payloads
  * workflow handles. Note that query and update operations are NOT supported on child workflows
  * from within workflow code (they require synchronous RPC calls which break determinism).
  * Use an activity to query or update child workflows if needed.
- *
- * @param R The result type of the child workflow
  */
-interface ChildWorkflowHandle<R> : WorkflowHandleBase<R> {
+interface ChildWorkflowHandle : WorkflowHandleBase {
     /**
      * The workflow ID of this child workflow.
      */
@@ -46,14 +44,19 @@ interface ChildWorkflowHandle<R> : WorkflowHandleBase<R> {
     suspend fun awaitStart(): String
 
     /**
-     * Waits for the child workflow to complete and returns its result.
+     * Waits for the child workflow to complete and returns its raw result payload.
      *
-     * @return The result of the child workflow
+     * For typed results, use the [result] extension function instead:
+     * ```kotlin
+     * val result: String = handle.result()
+     * ```
+     *
+     * @return The raw payload result of the child workflow, or null if empty
      * @throws ChildWorkflowFailureException if the child workflow failed
      * @throws ChildWorkflowCancelledException if the child workflow was cancelled
      * @throws ChildWorkflowStartFailureException if the child workflow failed to start
      */
-    suspend fun result(): R
+    suspend fun resultPayload(): io.temporal.api.common.v1.Payload?
 
     /**
      * Sends a signal to this child workflow.

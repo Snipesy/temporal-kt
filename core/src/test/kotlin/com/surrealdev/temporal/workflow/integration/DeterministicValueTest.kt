@@ -7,6 +7,7 @@ import com.surrealdev.temporal.client.startWorkflow
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import org.junit.jupiter.api.Tag
 import java.util.UUID
 import kotlin.test.Test
@@ -49,12 +50,12 @@ class DeterministicValueTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<List<String>>(
+                client.startWorkflow(
                     workflowType = "RandomUuidWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: List<String> = handle.result(timeout = 30.seconds)
 
             // Result should be a list of 5 UUIDs
             assertEquals(5, result.size)
@@ -101,12 +102,12 @@ class DeterministicValueTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<List<Long>>(
+                client.startWorkflow(
                     workflowType = "TimeProgressionWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: List<Long> = handle.result(timeout = 30.seconds)
 
             // Result should have 3 timestamps
             assertEquals(3, result.size)

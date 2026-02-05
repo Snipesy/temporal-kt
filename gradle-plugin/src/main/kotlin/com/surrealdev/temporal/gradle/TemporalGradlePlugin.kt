@@ -28,8 +28,10 @@ import org.jetbrains.kotlin.gradle.plugin.SubpluginOption
  * }
  *
  * temporal {
- *     enabled = true  // Enable/disable compiler plugin (default: true)
- *     outputDir = layout.buildDirectory.dir("generated/temporal")
+ *     compiler {
+ *         enabled = true  // Enable/disable compiler plugin (default: false)
+ *         outputDir = layout.buildDirectory.dir("generated/temporal")
+ *     }
  *     native {
  *         enabled = true  // Enable/disable native library dependency (default: true)
  *         classifier = "macos-aarch64"  // Optional: override auto-detected platform
@@ -40,27 +42,22 @@ import org.jetbrains.kotlin.gradle.plugin.SubpluginOption
 class TemporalGradlePlugin : KotlinCompilerPluginSupportPlugin {
     override fun apply(target: Project) {
         // Register the temporal extension for user configuration
-        val extension =
-            target.extensions.create(
-                EXTENSION_NAME,
-                TemporalExtension::class.java,
-                target,
-            )
-
-        // Configure default output directory
-        extension.outputDir.convention(
-            target.layout.buildDirectory.dir("generated/temporal"),
+        target.extensions.create(
+            EXTENSION_NAME,
+            TemporalExtension::class.java,
+            target,
         )
     }
 
     /**
      * Determines if this plugin should apply to the given compilation.
-     * We apply to all JVM and multiplatform compilations where enabled=true.
+     * We apply to all JVM and multiplatform compilations where compiler.enabled=true.
+     * Defaults to false to avoid errors across Kotlin version changes.
      */
     override fun isApplicable(kotlinCompilation: KotlinCompilation<*>): Boolean {
         val project = kotlinCompilation.target.project
         val extension = project.extensions.findByType(TemporalExtension::class.java)
-        val applicable = extension?.enabled?.get() ?: true
+        val applicable = extension?.compiler?.enabled?.get() ?: false
         return applicable
     }
 
@@ -110,12 +107,12 @@ class TemporalGradlePlugin : KotlinCompilerPluginSupportPlugin {
 
         return project.provider {
             buildList {
-                // Pass enabled flag
-                val enabled = extension?.enabled?.get() ?: true
+                // Pass enabled flag from compiler block
+                val enabled = extension?.compiler?.enabled?.get() ?: false
                 add(SubpluginOption(TemporalCommandLineProcessor.OPTION_ENABLED, enabled.toString()))
 
-                // Pass output directory
-                extension?.outputDir?.orNull?.let { dir ->
+                // Pass output directory from compiler block
+                extension?.compiler?.outputDir?.orNull?.let { dir ->
                     add(SubpluginOption(TemporalCommandLineProcessor.OPTION_OUTPUT_DIR, dir.asFile.absolutePath))
                 }
             }

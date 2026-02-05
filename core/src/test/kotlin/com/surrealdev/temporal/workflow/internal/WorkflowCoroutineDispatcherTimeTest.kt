@@ -7,6 +7,7 @@ import com.surrealdev.temporal.client.startWorkflow
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
@@ -164,13 +165,13 @@ class WorkflowCoroutineDispatcherTimeTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "DelayWorkflow",
                     taskQueue = taskQueue,
                 )
 
             // delay() should work correctly now - it creates a durable timer
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertEquals("Delay completed!", result)
 
             // Verify a timer was created
@@ -199,12 +200,12 @@ class WorkflowCoroutineDispatcherTimeTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "SingleTimerWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertEquals("Timer fired", result)
 
             handle.assertHistory {
@@ -228,13 +229,13 @@ class WorkflowCoroutineDispatcherTimeTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String, Int>(
+                client.startWorkflow(
                     workflowType = "MultipleTimersWorkflow",
                     taskQueue = taskQueue,
                     arg = 3,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertEquals("All 3 timers fired", result)
 
             handle.assertHistory {
@@ -256,12 +257,12 @@ class WorkflowCoroutineDispatcherTimeTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "AsyncWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             // Both async branches should complete
             assertTrue(result.contains("A"))
             assertTrue(result.contains("B"))
@@ -286,13 +287,13 @@ class WorkflowCoroutineDispatcherTimeTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<Int, Int>(
+                client.startWorkflow(
                     workflowType = "ComputeAndSleepWorkflow",
                     taskQueue = taskQueue,
                     arg = 5,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: Int = handle.result(timeout = 30.seconds)
             // 5 * 2 = 10, then sleep, then 10 * 3 = 30
             assertEquals(30, result)
 
@@ -315,13 +316,13 @@ class WorkflowCoroutineDispatcherTimeTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String, String>(
+                client.startWorkflow(
                     workflowType = "ImmediateReturnWorkflow",
                     taskQueue = taskQueue,
                     arg = "test",
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertEquals("Immediate: test", result)
 
             handle.assertHistory {
@@ -348,14 +349,14 @@ class WorkflowCoroutineDispatcherTimeTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "LongTimerWorkflow",
                     taskQueue = taskQueue,
                 )
 
             // With time-skipping, a 1-hour timer should complete almost instantly
             // We give it 30 seconds of wall-clock time which should be plenty
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertEquals("Waited 1 hour", result)
 
             handle.assertHistory {
@@ -379,14 +380,14 @@ class WorkflowCoroutineDispatcherTimeTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "MultipleLongTimersWorkflow",
                     taskQueue = taskQueue,
                 )
 
             // Total workflow time: 30s + 1h + 30s = over 1 hour
             // With time-skipping, should complete almost instantly
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertEquals("Completed all timers", result)
 
             handle.assertHistory {

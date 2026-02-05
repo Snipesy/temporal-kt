@@ -9,6 +9,7 @@ import com.surrealdev.temporal.serialization.deserialize
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import com.surrealdev.temporal.workflow.signal
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -86,7 +87,7 @@ class SignalHandlerTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "SignalAccumulatorWorkflow",
                     taskQueue = taskQueue,
                 )
@@ -97,7 +98,7 @@ class SignalHandlerTest {
             handle.signal("addValue", "third")
             handle.signal("complete")
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
 
             assertEquals("first,second,third", result)
 
@@ -159,7 +160,7 @@ class SignalHandlerTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "BufferedSignalReplayWorkflow",
                     taskQueue = taskQueue,
                 )
@@ -186,7 +187,7 @@ class SignalHandlerTest {
             // Complete the workflow
             handle.signal("complete")
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
 
             // All signals should be received: buffered ones replayed + live ones
             assertTrue(result.contains("dynamic:buffered1"), "Should contain buffered1")
@@ -235,7 +236,7 @@ class SignalHandlerTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "DynamicSignalWorkflow",
                     taskQueue = taskQueue,
                 )
@@ -246,7 +247,7 @@ class SignalHandlerTest {
             handle.signal("signalC")
             handle.signal("complete")
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
 
             assertEquals("signalA,signalB,signalC", result)
 

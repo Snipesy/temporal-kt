@@ -8,6 +8,7 @@ import com.surrealdev.temporal.client.startWorkflow
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import com.surrealdev.temporal.workflow.signal
 import kotlinx.coroutines.async
 import org.junit.jupiter.api.Tag
@@ -58,12 +59,12 @@ class ConditionDeterminismTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<Int>(
+                client.startWorkflow(
                     workflowType = "ConditionWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: Int = handle.result(timeout = 30.seconds)
 
             assertEquals(3, result)
 
@@ -120,12 +121,12 @@ class ConditionDeterminismTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "SequentialConditionsWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
 
             assertEquals("phase1,phase2,phase3", result)
 
@@ -177,12 +178,12 @@ class ConditionDeterminismTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "ConditionAfterStateChangeWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
 
             assertEquals("item1,item2,item3", result)
 
@@ -229,12 +230,12 @@ class ConditionDeterminismTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "AwaitConditionTimeoutWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertEquals("timeout: waiting for approval", result)
 
             handle.assertHistory {
@@ -280,7 +281,7 @@ class ConditionDeterminismTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "ConditionBeforeTimeoutWorkflow",
                     taskQueue = taskQueue,
                 )
@@ -288,7 +289,7 @@ class ConditionDeterminismTest {
             // Send signal to satisfy condition before timeout
             handle.signal("approve")
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertEquals("approved", result)
 
             handle.assertHistory {
@@ -329,7 +330,7 @@ class ConditionDeterminismTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "AwaitConditionNoTimeoutWorkflow",
                     taskQueue = taskQueue,
                 )
@@ -337,7 +338,7 @@ class ConditionDeterminismTest {
             // Signal to complete
             handle.signal("complete")
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertEquals("done", result)
 
             handle.assertHistory {
@@ -374,12 +375,12 @@ class ConditionDeterminismTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "ConditionAlreadyTrueWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertEquals("immediate", result)
 
             // Should complete without any timers being created

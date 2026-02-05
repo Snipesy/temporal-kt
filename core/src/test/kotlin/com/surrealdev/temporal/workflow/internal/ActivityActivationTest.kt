@@ -14,6 +14,7 @@ import com.surrealdev.temporal.workflow.ActivityCancelledException
 import com.surrealdev.temporal.workflow.ActivityFailureException
 import com.surrealdev.temporal.workflow.ActivityOptions
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import com.surrealdev.temporal.workflow.startActivity
 import coresdk.workflow_commands.WorkflowCommands
 import io.temporal.api.common.v1.Payload
@@ -80,7 +81,7 @@ class ActivityActivationTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             activityResult =
-                startActivity<String>(
+                startActivity(
                     activityType = "TestActivity::greet",
                     options = ActivityOptions(startToCloseTimeout = 30.seconds),
                 ).result()
@@ -97,7 +98,7 @@ class ActivityActivationTest {
         suspend fun WorkflowContext.run(input: String): String {
             workflowInput = input
             activityResult =
-                startActivity<String, String>(
+                startActivity(
                     activityType = "TestActivity::process",
                     arg = input,
                     options = ActivityOptions(startToCloseTimeout = 30.seconds),
@@ -115,17 +116,17 @@ class ActivityActivationTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             result1 =
-                startActivity<String>(
+                startActivity(
                     activityType = "TestActivity::step1",
                     options = ActivityOptions(startToCloseTimeout = 30.seconds),
                 ).result()
             result2 =
-                startActivity<String>(
+                startActivity(
                     activityType = "TestActivity::step2",
                     options = ActivityOptions(startToCloseTimeout = 30.seconds),
                 ).result()
             result3 =
-                startActivity<String>(
+                startActivity(
                     activityType = "TestActivity::step3",
                     options = ActivityOptions(startToCloseTimeout = 30.seconds),
                 ).result()
@@ -141,24 +142,24 @@ class ActivityActivationTest {
         suspend fun WorkflowContext.run(): String {
             val deferred1 =
                 async {
-                    startActivity<String>(
+                    startActivity(
                         activityType = "TestActivity::parallel1",
                         options = ActivityOptions(startToCloseTimeout = 30.seconds),
-                    ).result()
+                    ).result<String>()
                 }
             val deferred2 =
                 async {
-                    startActivity<String>(
+                    startActivity(
                         activityType = "TestActivity::parallel2",
                         options = ActivityOptions(startToCloseTimeout = 30.seconds),
-                    ).result()
+                    ).result<String>()
                 }
             val deferred3 =
                 async {
-                    startActivity<String>(
+                    startActivity(
                         activityType = "TestActivity::parallel3",
                         options = ActivityOptions(startToCloseTimeout = 30.seconds),
-                    ).result()
+                    ).result<String>()
                 }
 
             val r1 = deferred1.await()
@@ -177,7 +178,7 @@ class ActivityActivationTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String =
             try {
-                startActivity<String>(
+                startActivity(
                     activityType = "TestActivity::failing",
                     options = ActivityOptions(startToCloseTimeout = 30.seconds),
                 ).result()
@@ -194,7 +195,7 @@ class ActivityActivationTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             val handle =
-                startActivity<String>(
+                startActivity(
                     activityType = "TestActivity::longRunning",
                     options = ActivityOptions(startToCloseTimeout = 30.seconds),
                 )
@@ -219,7 +220,7 @@ class ActivityActivationTest {
         suspend fun WorkflowContext.run(): ActivityOutput {
             val input = ActivityInput("test", 42)
             output =
-                startActivity<ActivityOutput, ActivityInput>(
+                startActivity(
                     activityType = "TestActivity::processComplex",
                     arg = input,
                     options = ActivityOptions(startToCloseTimeout = 30.seconds),
@@ -793,13 +794,13 @@ class ActivityActivationTest {
             // Use a workflow that stores the handle and signals to allow checking mid-execution
             @Workflow("HandleCheckWorkflow")
             class HandleCheckWorkflow {
-                var handle: com.surrealdev.temporal.workflow.ActivityHandle<String>? = null
+                var handle: com.surrealdev.temporal.workflow.ActivityHandle? = null
                 var shouldContinue = false
 
                 @WorkflowRun
                 suspend fun WorkflowContext.run(): String {
                     handle =
-                        startActivity<String>(
+                        startActivity(
                             activityType = "TestActivity::check",
                             options = ActivityOptions(startToCloseTimeout = 30.seconds),
                         )
@@ -851,8 +852,9 @@ class ActivityActivationTest {
             val seq = commands[0].scheduleActivity.seq
 
             // Verify handle is not done before resolution
-            assertNotNull(workflow.handle)
-            assertFalse(workflow.handle!!.isDone)
+            val handleSnapshot = workflow.handle
+            assertNotNull(handleSnapshot)
+            assertFalse(handleSnapshot!!.isDone)
 
             // Resolve the activity
             executor.activate(
@@ -864,8 +866,9 @@ class ActivityActivationTest {
             )
 
             // Verify handle is done after resolution
-            assertNotNull(workflow.handle)
-            assertTrue(workflow.handle!!.isDone)
+            val handleSnapshotAfter = workflow.handle
+            assertNotNull(handleSnapshotAfter)
+            assertTrue(handleSnapshotAfter!!.isDone)
         }
 
     @Test
@@ -877,10 +880,10 @@ class ActivityActivationTest {
 
                 @WorkflowRun
                 suspend fun WorkflowContext.run(): String {
-                    startActivity<Unit>(
+                    startActivity(
                         activityType = "TestActivity::doSomething",
                         options = ActivityOptions(startToCloseTimeout = 30.seconds),
-                    ).result()
+                    ).result<Unit>()
                     completed = true
                     return "Done"
                 }

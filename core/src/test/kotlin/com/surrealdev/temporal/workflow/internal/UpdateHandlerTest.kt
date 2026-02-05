@@ -15,6 +15,7 @@ import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveActivityJobComple
 import com.surrealdev.temporal.testing.createTestWorkflowExecutor
 import com.surrealdev.temporal.workflow.ActivityOptions
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import com.surrealdev.temporal.workflow.startActivity
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
@@ -947,8 +948,8 @@ class UpdateHandlerTest {
         @Update("doWork")
         suspend fun WorkflowContext.doWork(input: String): String {
             // This should schedule an activity and return its result
-            val result =
-                startActivity<String, String>(
+            val result: String =
+                startActivity(
                     activityType = "echo",
                     arg = input,
                     options = ActivityOptions(startToCloseTimeout = 60.seconds),

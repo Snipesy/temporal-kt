@@ -41,7 +41,7 @@ class PaymentWorkflow {
     @WorkflowRun
     suspend fun WorkflowContext.run(cardNumber: String, amount: Double): String {
         return try {
-            startActivity<Receipt, String, Double>(
+            startActivity(
                 activityType = "processPayment",
                 arg1 = cardNumber,
                 arg2 = amount,
@@ -49,7 +49,7 @@ class PaymentWorkflow {
                     startToCloseTimeout = 30.seconds,
                     retryPolicy = RetryPolicy(maximumAttempts = 3),
                 ),
-            ).result()
+            ).result<Receipt>()
             "Payment successful"
         } catch (e: ActivityFailureException) {
             val failure = e.applicationFailure
@@ -149,7 +149,7 @@ catch (e: ActivityFailureException) {
 You can also make errors non-retryable by matching their type in the retry policy:
 
 ```kotlin
-startActivity<String>(
+startActivity(
     activityType = "myActivity",
     options = ActivityOptions(
         startToCloseTimeout = 30.seconds,
@@ -278,14 +278,14 @@ class RobustWorkflow {
     @WorkflowRun
     suspend fun WorkflowContext.run(): String {
         return try {
-            startActivity<String>(
+            startActivity(
                 activityType = "riskyOperation",
                 options = ActivityOptions(
                     startToCloseTimeout = 30.seconds,
                     heartbeatTimeout = 10.seconds,
                     retryPolicy = RetryPolicy(maximumAttempts = 3),
                 ),
-            ).result()
+            ).result<String>()
         } catch (e: ActivityFailureException) {
             // Activity failed with application error
             val failure = e.applicationFailure

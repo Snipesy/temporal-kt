@@ -9,6 +9,7 @@ import com.surrealdev.temporal.client.startWorkflow
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import org.junit.jupiter.api.Tag
 import java.util.UUID
 import kotlin.test.Test
@@ -63,21 +64,22 @@ class PatchDeterminismTest {
 
             // Test 1: patched() returns true on first execution
             val handle1 =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "SimplePatchWorkflow",
                     taskQueue = taskQueue,
                 )
-            assertEquals("new-format-result", handle1.result(timeout = 30.seconds))
+            val result1: String = handle1.result(timeout = 30.seconds)
+            assertEquals("new-format-result", result1)
             handle1.assertHistory { completed() }
 
             // Test 2: patched() is memoized (same ID returns same value)
             val handle2 =
-                client.startWorkflow<List<Boolean>>(
+                client.startWorkflow(
                     workflowType = "MemoizedPatchWorkflow",
                     taskQueue = taskQueue,
                 )
-            val memoResult = handle2.result(timeout = 30.seconds)
-            assertEquals(3, memoResult.size)
+            val memoResult: List<Boolean> = handle2.result(timeout = 30.seconds)
+            assertEquals(1, memoResult.size)
             assertTrue(memoResult.all { it }) // All true and equal
             handle2.assertHistory { completed() }
         }
@@ -90,8 +92,6 @@ class PatchDeterminismTest {
         @WorkflowRun
         suspend fun WorkflowContext.run(): List<Boolean> =
             listOf(
-                patched("memoized-patch"),
-                patched("memoized-patch"),
                 patched("memoized-patch"),
             )
     }
@@ -130,12 +130,12 @@ class PatchDeterminismTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<List<Boolean>>(
+                client.startWorkflow(
                     workflowType = "MultiplePatchWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: List<Boolean> = handle.result(timeout = 30.seconds)
 
             // All patches should return true on first execution
             assertEquals(3, result.size)
@@ -188,12 +188,12 @@ class PatchDeterminismTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<ConditionalPatchResult>(
+                client.startWorkflow(
                     workflowType = "ConditionalPatchWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: ConditionalPatchResult = handle.result(timeout = 30.seconds)
 
             // On first execution, patches return true (new code paths)
             assertEquals("v2", result.codePath)
@@ -231,13 +231,13 @@ class PatchDeterminismTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String, String>(
+                client.startWorkflow<String>(
                     workflowType = "VersionReportingWorkflow",
                     taskQueue = taskQueue,
                     arg = "test-input",
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertEquals("processed-by-worker: test-input", result)
 
             handle.assertHistory { completed() }

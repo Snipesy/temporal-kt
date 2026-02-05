@@ -19,6 +19,7 @@ import com.surrealdev.temporal.workflow.ChildWorkflowHandle
 import com.surrealdev.temporal.workflow.ChildWorkflowOptions
 import com.surrealdev.temporal.workflow.ParentClosePolicy
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import com.surrealdev.temporal.workflow.signal
 import com.surrealdev.temporal.workflow.startChildWorkflow
 import kotlinx.coroutines.test.runTest
@@ -61,7 +62,7 @@ class ChildWorkflowTest {
 
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
-            childResult = startChildWorkflow<String>("ChildWorkflow", ChildWorkflowOptions()).result()
+            childResult = startChildWorkflow("ChildWorkflow", ChildWorkflowOptions()).result()
             return "parent received: $childResult"
         }
     }
@@ -70,8 +71,8 @@ class ChildWorkflowTest {
     class ChildWorkflowWithArgsParent {
         @WorkflowRun
         suspend fun WorkflowContext.run(input: String): String {
-            val result =
-                startChildWorkflow<ChildResult, String>(
+            val result: ChildResult =
+                startChildWorkflow(
                     "ChildWithArgs",
                     input,
                     ChildWorkflowOptions(),
@@ -91,7 +92,7 @@ class ChildWorkflowTest {
                     workflowExecutionTimeout = 10.minutes,
                     parentClosePolicy = ParentClosePolicy.ABANDON,
                 )
-            val result = startChildWorkflow<String>("ChildWorkflow", options).result()
+            val result: String = startChildWorkflow("ChildWorkflow", options).result()
             return result
         }
     }
@@ -100,30 +101,30 @@ class ChildWorkflowTest {
     class MultipleChildWorkflowsParent {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
-            val result1 = startChildWorkflow<String>("Child1", ChildWorkflowOptions()).result()
-            val result2 = startChildWorkflow<String>("Child2", ChildWorkflowOptions()).result()
+            val result1: String = startChildWorkflow("Child1", ChildWorkflowOptions()).result()
+            val result2: String = startChildWorkflow("Child2", ChildWorkflowOptions()).result()
             return "$result1 + $result2"
         }
     }
 
     @Workflow("ChildWorkflowHandleParent")
     class ChildWorkflowHandleParent {
-        var handle: ChildWorkflowHandle<String>? = null
+        var handle: ChildWorkflowHandle? = null
 
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
-            handle = startChildWorkflow<String>("ChildWorkflow", ChildWorkflowOptions())
+            handle = startChildWorkflow("ChildWorkflow", ChildWorkflowOptions())
             return handle!!.result()
         }
     }
 
     @Workflow("ChildWorkflowCancelParent")
     class ChildWorkflowCancelParent {
-        var handle: ChildWorkflowHandle<String>? = null
+        var handle: ChildWorkflowHandle? = null
 
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
-            handle = startChildWorkflow<String>("ChildWorkflow", ChildWorkflowOptions())
+            handle = startChildWorkflow("ChildWorkflow", ChildWorkflowOptions())
             handle!!.cancel("Test cancellation")
             return "cancelled"
         }
@@ -131,12 +132,12 @@ class ChildWorkflowTest {
 
     @Workflow("ChildWorkflowSignalParent")
     class ChildWorkflowSignalParent {
-        var handle: ChildWorkflowHandle<String>? = null
+        var handle: ChildWorkflowHandle? = null
         var signalSent: Boolean = false
 
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
-            handle = startChildWorkflow<String>("ChildWorkflow", ChildWorkflowOptions())
+            handle = startChildWorkflow("ChildWorkflow", ChildWorkflowOptions())
             handle!!.signal("testSignal", "signal-value")
             signalSent = true
             return handle!!.result()

@@ -8,6 +8,7 @@ import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.ChildWorkflowOptions
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import com.surrealdev.temporal.workflow.startChildWorkflow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -189,27 +190,27 @@ class ContextEscape {
 
             val client = client()
             val handle =
-                client.startWorkflow<Map<String, String>>(
+                client.startWorkflow(
                     workflowType = "ContextEscapeStressTest",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: Map<String, String> = handle.result(timeout = 30.seconds)
 
             // Verify all steps completed
-            assertEquals("io_complete", result["step1"])
-            assertEquals("default_complete", result["step2"])
-            assertEquals("499500", result["step3_computed"]) // sum of 0..999
-            assertEquals("sleep_complete", result["step4"])
-            assertEquals("io_after_sleep", result["step5"])
-            assertEquals("nested_complete", result["step6"])
+            assertEquals("io_complete", result["step1"]!!)
+            assertEquals("default_complete", result["step2"]!!)
+            assertEquals("499500", result["step3_computed"]!!) // sum of 0..999
+            assertEquals("sleep_complete", result["step4"]!!)
+            assertEquals("io_after_sleep", result["step5"]!!)
+            assertEquals("nested_complete", result["step6"]!!)
             assertTrue(result["step7_uuid1"]!!.isNotEmpty())
             assertTrue(result["step7_uuid2"]!!.isNotEmpty())
-            assertEquals("rapid_escapes_complete", result["step8"])
-            assertEquals("yield_complete", result["step9"])
-            assertEquals("io_with_delay", result["step10"])
-            assertEquals("final_sleep", result["step11"])
-            assertEquals("final_escape", result["step12"])
+            assertEquals("rapid_escapes_complete", result["step8"]!!)
+            assertEquals("yield_complete", result["step9"]!!)
+            assertEquals("io_with_delay", result["step10"]!!)
+            assertEquals("final_sleep", result["step11"]!!)
+            assertEquals("final_escape", result["step12"]!!)
 
             handle.assertHistory {
                 completed()
@@ -230,12 +231,12 @@ class ContextEscape {
 
             val client = client()
             val handle =
-                client.startWorkflow<List<String>>(
+                client.startWorkflow(
                     workflowType = "AsyncContextEscapeWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: List<String> = handle.result(timeout = 30.seconds)
 
             assertEquals(
                 listOf("escaped", "escaped_during_async", "async1", "async2", "final"),
@@ -269,7 +270,7 @@ class ContextEscape {
         suspend fun WorkflowContext.run(): String {
             // Start child workflow (returns handle immediately)
             val childHandle =
-                startChildWorkflow<String>(
+                startChildWorkflow(
                     "EscapeTestChildWorkflow",
                     ChildWorkflowOptions(),
                 )
@@ -281,7 +282,7 @@ class ContextEscape {
             }
 
             // Await child OUTSIDE the escaped context - this should work
-            val result = childHandle.result()
+            val result: String = childHandle.result()
             return "parent:$result"
         }
     }
@@ -318,12 +319,12 @@ class ContextEscape {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "ChildAwaitOutsideEscapeWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertTrue(result.startsWith("parent:child:"))
 
             handle.assertHistory {
@@ -344,7 +345,7 @@ class ContextEscape {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "WorkflowOpInsideEscapeWorkflow",
                     taskQueue = taskQueue,
                 )
@@ -404,12 +405,12 @@ class ContextEscape {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "SneakyDispatcherWorkflow",
                     taskQueue = taskQueue,
                 )
 
-            val result = handle.result(timeout = 30.seconds)
+            val result: String = handle.result(timeout = 30.seconds)
             assertEquals("sneaky_success", result)
 
             handle.assertHistory {

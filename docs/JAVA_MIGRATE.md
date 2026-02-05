@@ -131,12 +131,12 @@ public class GreetingWorkflowImpl implements GreetingWorkflow {
 class GreetingWorkflow {
     @WorkflowRun
     suspend fun run(name: String): String {
-        return workflow().startActivity<String, String, String>(
+        return workflow().startActivity(
             activityType = "composeGreeting",
             arg1 = "Hello",
             arg2 = name,
             scheduleToCloseTimeout = 10.seconds,
-        ).result()
+        ).result<String>()
     }
 }
 ```
@@ -309,12 +309,12 @@ String result = workflow.getGreeting("World");
 ```kotlin
 // Kotlin
 val client = TemporalClient.connect("localhost:7233", "default")
-val handle = client.startWorkflow<String, String>(
+val handle = client.startWorkflow(
     workflowType = "GreetingWorkflow",
     taskQueue = "my-task-queue",
     arg = "World",
 )
-val result = handle.result()
+val result = handle.result<String>()
 ```
 
 ### Signals & Queries from Client
@@ -324,6 +324,5 @@ val result = handle.result()
 handle.signal("approve", "manager@example.com")
 
 // Query workflow
-// Type parameters are <WorkflowResult, QueryResult>
-val status = handle.query<String, OrderStatus>("getStatus")
+val status = handle.query<OrderStatus>("getStatus")
 ```

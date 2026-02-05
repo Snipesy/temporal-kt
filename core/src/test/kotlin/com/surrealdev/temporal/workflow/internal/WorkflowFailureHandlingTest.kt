@@ -7,6 +7,7 @@ import com.surrealdev.temporal.client.startWorkflow
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext
+import com.surrealdev.temporal.workflow.result
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -168,7 +169,7 @@ class WorkflowFailureHandlingTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String, String>(
+                client.startWorkflow<String>(
                     workflowType = "FailingWorkflow",
                     taskQueue = taskQueue,
                     arg = "test error",
@@ -207,7 +208,7 @@ class WorkflowFailureHandlingTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "FailAfterSleepWorkflow",
                     taskQueue = taskQueue,
                 )
@@ -240,7 +241,7 @@ class WorkflowFailureHandlingTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "FailInAsyncWorkflow",
                     taskQueue = taskQueue,
                 )
@@ -271,7 +272,7 @@ class WorkflowFailureHandlingTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "FailInLaunchWorkflow",
                     taskQueue = taskQueue,
                 )
@@ -307,7 +308,7 @@ class WorkflowFailureHandlingTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "CustomExceptionWorkflow",
                     taskQueue = taskQueue,
                 )
@@ -342,7 +343,7 @@ class WorkflowFailureHandlingTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "PartialAsyncFailureWorkflow",
                     taskQueue = taskQueue,
                 )
@@ -386,7 +387,7 @@ class WorkflowFailureHandlingTest {
 
             // Start a workflow that fails
             val failingHandle =
-                client.startWorkflow<String, String>(
+                client.startWorkflow<String>(
                     workflowType = "FailingWorkflow",
                     taskQueue = taskQueue,
                     arg = "first failure",
@@ -398,18 +399,18 @@ class WorkflowFailureHandlingTest {
 
             // Start a successful workflow - should work fine
             val successHandle =
-                client.startWorkflow<String, String>(
+                client.startWorkflow<String>(
                     workflowType = "SuccessfulWorkflow",
                     taskQueue = taskQueue,
                     arg = "after failure",
                 )
 
-            val result = successHandle.result(timeout = 10.seconds)
+            val result: String = successHandle.result(timeout = 10.seconds)
             assertEquals("Success: after failure", result)
 
             // Start another failing workflow - should also work
             val failingHandle2 =
-                client.startWorkflow<String, String>(
+                client.startWorkflow<String>(
                     workflowType = "FailingWorkflow",
                     taskQueue = taskQueue,
                     arg = "second failure",
@@ -436,7 +437,7 @@ class WorkflowFailureHandlingTest {
             // Start multiple workflows that all fail
             val handles =
                 (1..3).map { i ->
-                    client.startWorkflow<String, String>(
+                    client.startWorkflow<String>(
                         workflowType = "FailingWorkflow",
                         taskQueue = taskQueue,
                         arg = "failure $i",
@@ -469,13 +470,13 @@ class WorkflowFailureHandlingTest {
 
             // Start both workflows concurrently without waiting
             val failingHandle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "FailAfterSleepWorkflow",
                     taskQueue = taskQueue,
                 )
 
             val successHandle =
-                client.startWorkflow<String, String>(
+                client.startWorkflow<String>(
                     workflowType = "SuccessfulWorkflow",
                     taskQueue = taskQueue,
                     arg = "neighbor",
@@ -489,7 +490,7 @@ class WorkflowFailureHandlingTest {
             assertEquals(failException.message?.contains("Failed after sleep"), true)
 
             // The successful workflow should complete despite its neighbor failing
-            val result = successHandle.result(timeout = 10.seconds)
+            val result: String = successHandle.result(timeout = 10.seconds)
             assertEquals("Success: neighbor", result)
 
             // Verify both workflows reached their expected terminal states
@@ -519,7 +520,7 @@ class WorkflowFailureHandlingTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "CancellableWorkflow",
                     taskQueue = taskQueue,
                 )
@@ -560,7 +561,7 @@ class WorkflowFailureHandlingTest {
 
             // Start and cancel a workflow
             val cancelledHandle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "CancellableWorkflow",
                     taskQueue = taskQueue,
                 )
@@ -573,13 +574,13 @@ class WorkflowFailureHandlingTest {
 
             // Worker should still process new workflows
             val successHandle =
-                client.startWorkflow<String, String>(
+                client.startWorkflow<String>(
                     workflowType = "SuccessfulWorkflow",
                     taskQueue = taskQueue,
                     arg = "after cancellation",
                 )
 
-            val result = successHandle.result(timeout = 10.seconds)
+            val result: String = successHandle.result(timeout = 10.seconds)
             assertEquals("Success: after cancellation", result)
         }
 
@@ -610,7 +611,7 @@ class WorkflowFailureHandlingTest {
 
             val client = client()
             val handle =
-                client.startWorkflow<String>(
+                client.startWorkflow(
                     workflowType = "NullPointerWorkflow",
                     taskQueue = taskQueue,
                 )

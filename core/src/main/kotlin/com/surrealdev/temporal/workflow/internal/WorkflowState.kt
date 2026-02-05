@@ -159,19 +159,19 @@ internal class WorkflowState(
     /**
      * Pending activity operations, keyed by sequence number.
      */
-    private val pendingActivities = ConcurrentHashMap<Int, RemoteActivityHandleImpl<*>>()
+    private val pendingActivities = ConcurrentHashMap<Int, RemoteActivityHandleImpl>()
 
     /**
      * Pending child workflow operations, keyed by sequence number.
      */
-    private val pendingChildWorkflows = ConcurrentHashMap<Int, ChildWorkflowHandleImpl<*>>()
+    private val pendingChildWorkflows = ConcurrentHashMap<Int, ChildWorkflowHandleImpl>()
 
     /**
      * Pending local activity operations, keyed by sequence number.
      * Separate from regular activities because local activities have different
      * resolution handling (DoBackoff support, marker-based replay).
      */
-    private val pendingLocalActivities = ConcurrentHashMap<Int, LocalActivityHandleImpl<*>>()
+    private val pendingLocalActivities = ConcurrentHashMap<Int, LocalActivityHandleImpl>()
 
     /**
      * Pending external signal operations, keyed by sequence number.
@@ -319,7 +319,7 @@ internal class WorkflowState(
      */
     fun registerActivity(
         seq: Int,
-        handle: RemoteActivityHandleImpl<*>,
+        handle: RemoteActivityHandleImpl,
     ) {
         if (isReadOnly) {
             throw ReadOnlyContextException("Cannot register activity in read-only mode (e.g., during query processing)")
@@ -330,7 +330,7 @@ internal class WorkflowState(
     /**
      * Gets a pending activity by its sequence number.
      */
-    fun getActivity(seq: Int): RemoteActivityHandleImpl<*>? = pendingActivities[seq]
+    fun getActivity(seq: Int): RemoteActivityHandleImpl? = pendingActivities[seq]
 
     /**
      * Resolves an activity by its sequence number.
@@ -349,7 +349,7 @@ internal class WorkflowState(
      */
     fun registerLocalActivity(
         seq: Int,
-        handle: LocalActivityHandleImpl<*>,
+        handle: LocalActivityHandleImpl,
     ) {
         if (isReadOnly) {
             throw ReadOnlyContextException(
@@ -362,7 +362,7 @@ internal class WorkflowState(
     /**
      * Gets a pending local activity by its sequence number.
      */
-    fun getLocalActivity(seq: Int): LocalActivityHandleImpl<*>? = pendingLocalActivities[seq]
+    fun getLocalActivity(seq: Int): LocalActivityHandleImpl? = pendingLocalActivities[seq]
 
     /**
      * Resolves a local activity by its sequence number.
@@ -423,7 +423,7 @@ internal class WorkflowState(
      */
     fun registerChildWorkflow(
         seq: Int,
-        handle: ChildWorkflowHandleImpl<*>,
+        handle: ChildWorkflowHandleImpl,
     ) {
         if (isReadOnly) {
             throw ReadOnlyContextException(
@@ -436,7 +436,7 @@ internal class WorkflowState(
     /**
      * Gets a pending child workflow by its sequence number.
      */
-    fun getChildWorkflow(seq: Int): ChildWorkflowHandleImpl<*>? = pendingChildWorkflows[seq]
+    fun getChildWorkflow(seq: Int): ChildWorkflowHandleImpl? = pendingChildWorkflows[seq]
 
     /**
      * Resolves a child workflow start by its sequence number.
