@@ -5,12 +5,12 @@ import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.taskQueue
 import com.surrealdev.temporal.client.startWorkflow
-import com.surrealdev.temporal.common.ActivityRetryState
-import com.surrealdev.temporal.common.ApplicationErrorCategory
-import com.surrealdev.temporal.common.ApplicationFailure
+import com.surrealdev.temporal.common.exceptions.ActivityRetryState
+import com.surrealdev.temporal.common.exceptions.ApplicationErrorCategory
+import com.surrealdev.temporal.common.exceptions.ApplicationFailure
+import com.surrealdev.temporal.common.exceptions.WorkflowActivityFailureException
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
-import com.surrealdev.temporal.workflow.ActivityFailureException
 import com.surrealdev.temporal.workflow.ActivityOptions
 import com.surrealdev.temporal.workflow.RetryPolicy
 import com.surrealdev.temporal.workflow.WorkflowContext
@@ -142,7 +142,7 @@ class ApplicationFailureIntegrationTest {
                             retryPolicy = RetryPolicy(maximumAttempts = 5),
                         ),
                 ).result()
-            } catch (e: ActivityFailureException) {
+            } catch (e: WorkflowActivityFailureException) {
                 "caught: type=${e.applicationFailure?.type}, " +
                     "message=${e.applicationFailure?.message}, " +
                     "isNonRetryable=${e.applicationFailure?.isNonRetryable}, " +
@@ -163,7 +163,7 @@ class ApplicationFailureIntegrationTest {
                             retryPolicy = RetryPolicy(maximumAttempts = 3),
                         ),
                 ).result()
-            } catch (e: ActivityFailureException) {
+            } catch (e: WorkflowActivityFailureException) {
                 "caught: type=${e.applicationFailure?.type}, " +
                     "retryState=${e.retryState}"
             }
@@ -197,7 +197,7 @@ class ApplicationFailureIntegrationTest {
                             retryPolicy = RetryPolicy(maximumAttempts = 1),
                         ),
                 ).result()
-            } catch (e: ActivityFailureException) {
+            } catch (e: WorkflowActivityFailureException) {
                 "caught: type=${e.applicationFailure?.type}"
             }
     }
@@ -212,7 +212,7 @@ class ApplicationFailureIntegrationTest {
                     startToCloseTimeout = 1.minutes,
                     retryPolicy = RetryPolicy(maximumAttempts = 5),
                 ).result()
-            } catch (e: ActivityFailureException) {
+            } catch (e: WorkflowActivityFailureException) {
                 "caught: type=${e.applicationFailure?.type}, " +
                     "isNonRetryable=${e.applicationFailure?.isNonRetryable}, " +
                     "retryState=${e.retryState}"
@@ -407,7 +407,7 @@ class ApplicationFailureIntegrationTest {
                                     retryPolicy = RetryPolicy(maximumAttempts = 1),
                                 ),
                         ).result()
-                    } catch (e: ActivityFailureException) {
+                    } catch (e: WorkflowActivityFailureException) {
                         val failure = e.applicationFailure
                         assertNotNull(failure)
                         assertEquals("ValidationError", failure.type)
@@ -459,7 +459,7 @@ class ApplicationFailureIntegrationTest {
                                     retryPolicy = RetryPolicy(maximumAttempts = 1),
                                 ),
                         ).result()
-                    } catch (e: ActivityFailureException) {
+                    } catch (e: WorkflowActivityFailureException) {
                         val failure = e.applicationFailure
                         "type=${failure?.type}, " +
                             "category=${failure?.category}, " +
@@ -512,7 +512,7 @@ class ApplicationFailureIntegrationTest {
                                     retryPolicy = RetryPolicy(maximumAttempts = 1),
                                 ),
                         ).result()
-                    } catch (e: ActivityFailureException) {
+                    } catch (e: WorkflowActivityFailureException) {
                         val failure = e.applicationFailure
                         // Details are present (as encoded bytes) - verify they exist
                         "type=${failure?.type}, hasDetails=${failure?.encodedDetails != null}"

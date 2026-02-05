@@ -1,8 +1,8 @@
 package com.surrealdev.temporal.testing
 
-import com.surrealdev.temporal.activity.ActivityCancelledException
 import com.surrealdev.temporal.activity.ActivityContext
 import com.surrealdev.temporal.activity.heartbeat
+import com.surrealdev.temporal.common.exceptions.ActivityCancelledException
 import kotlinx.coroutines.delay
 import kotlinx.serialization.Serializable
 import org.junit.jupiter.api.Nested

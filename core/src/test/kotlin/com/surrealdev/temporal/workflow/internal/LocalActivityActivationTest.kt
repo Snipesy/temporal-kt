@@ -3,6 +3,9 @@ package com.surrealdev.temporal.workflow.internal
 import com.google.protobuf.ByteString
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
+import com.surrealdev.temporal.common.exceptions.WorkflowActivityCancelledException
+import com.surrealdev.temporal.common.exceptions.WorkflowActivityFailureException
+import com.surrealdev.temporal.common.exceptions.WorkflowActivityTimeoutException
 import com.surrealdev.temporal.common.toTemporal
 import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
 import com.surrealdev.temporal.testing.ProtoTestHelpers.createActivation
@@ -15,9 +18,6 @@ import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveLocalActivityJobF
 import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveLocalActivityJobFailedWithDetails
 import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveLocalActivityJobTimeout
 import com.surrealdev.temporal.testing.createTestWorkflowExecutor
-import com.surrealdev.temporal.workflow.ActivityCancelledException
-import com.surrealdev.temporal.workflow.ActivityFailureException
-import com.surrealdev.temporal.workflow.ActivityTimeoutException
 import com.surrealdev.temporal.workflow.LocalActivityOptions
 import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.result
@@ -201,7 +201,7 @@ class LocalActivityActivationTest {
                     activityType = "slowActivity",
                     startToCloseTimeout = 1.seconds,
                 ).result()
-            } catch (e: ActivityTimeoutException) {
+            } catch (e: WorkflowActivityTimeoutException) {
                 caughtException = e
                 timeoutType = e.timeoutType.name
             } catch (e: Exception) {
@@ -226,7 +226,7 @@ class LocalActivityActivationTest {
                     activityType = "detailedFailingActivity",
                     startToCloseTimeout = 10.seconds,
                 ).result()
-            } catch (e: ActivityFailureException) {
+            } catch (e: WorkflowActivityFailureException) {
                 caughtException = e
                 failureMessage = e.message
                 failureType = e.failureType
@@ -547,7 +547,7 @@ class LocalActivityActivationTest {
             executor.activate(resolveActivation)
 
             assertNotNull((workflow as CancellableLocalActivityWorkflow).caughtException)
-            assertTrue(workflow.caughtException is ActivityCancelledException)
+            assertTrue(workflow.caughtException is WorkflowActivityCancelledException)
         }
 
     /**
@@ -737,10 +737,10 @@ class LocalActivityActivationTest {
         }
 
     /**
-     * Tests that timeout resolution produces ActivityTimeoutException.
+     * Tests that timeout resolution produces WorkflowActivityTimeoutException.
      */
     @Test
-    fun `local activity timeout resolution throws ActivityTimeoutException`() =
+    fun `local activity timeout resolution throws WorkflowActivityTimeoutException`() =
         runTest {
             val (executor, runId, workflow, _) =
                 createExecutorWithWorkflow<TimeoutLocalActivityWorkflow>("TimeoutLocalActivityWorkflow")
@@ -762,7 +762,10 @@ class LocalActivityActivationTest {
 
             val wf = workflow as TimeoutLocalActivityWorkflow
             assertNotNull(wf.caughtException, "Should have caught exception")
-            assertTrue(wf.caughtException is ActivityTimeoutException, "Should be ActivityTimeoutException")
+            assertTrue(
+                wf.caughtException is WorkflowActivityTimeoutException,
+                "Should be WorkflowActivityTimeoutException",
+            )
             assertEquals("START_TO_CLOSE", wf.timeoutType, "Should capture timeout type")
         }
 
@@ -793,7 +796,10 @@ class LocalActivityActivationTest {
 
             val wf = workflow as FailureDetailsWorkflow
             assertNotNull(wf.caughtException, "Should have caught exception")
-            assertTrue(wf.caughtException is ActivityFailureException, "Should be ActivityFailureException")
+            assertTrue(
+                wf.caughtException is WorkflowActivityFailureException,
+                "Should be WorkflowActivityFailureException",
+            )
             assertNotNull(wf.failureMessage, "Should have failure message")
             assertTrue(
                 wf.failureMessage!!.contains("Database connection failed"),
@@ -966,7 +972,7 @@ class LocalActivityActivationTest {
 
             val wf = workflow as TimeoutLocalActivityWorkflow
             assertNotNull(wf.caughtException, "Should have caught exception")
-            assertTrue(wf.caughtException is ActivityTimeoutException)
+            assertTrue(wf.caughtException is WorkflowActivityTimeoutException)
             assertEquals("SCHEDULE_TO_CLOSE", wf.timeoutType)
         }
 }

@@ -1,14 +1,14 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.google.protobuf.ByteString
-import com.surrealdev.temporal.common.ActivityRetryState
-import com.surrealdev.temporal.common.ActivityTimeoutType
-import com.surrealdev.temporal.common.ApplicationFailure
+import com.surrealdev.temporal.common.exceptions.ActivityRetryState
+import com.surrealdev.temporal.common.exceptions.ActivityTimeoutType
+import com.surrealdev.temporal.common.exceptions.ApplicationFailure
+import com.surrealdev.temporal.common.exceptions.WorkflowActivityCancelledException
+import com.surrealdev.temporal.common.exceptions.WorkflowActivityFailureException
+import com.surrealdev.temporal.common.exceptions.WorkflowActivityTimeoutException
 import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
 import com.surrealdev.temporal.workflow.ActivityCancellationType
-import com.surrealdev.temporal.workflow.ActivityCancelledException
-import com.surrealdev.temporal.workflow.ActivityFailureException
-import com.surrealdev.temporal.workflow.ActivityTimeoutException
 import com.surrealdev.temporal.workflow.result
 import coresdk.activity_result.ActivityResult
 import io.temporal.api.common.v1.Payload
@@ -195,7 +195,7 @@ class RemoteActivityHandleImplTest {
     // ============================================================================
 
     @Test
-    fun `result() throws ActivityFailureException on failure`() =
+    fun `result() throws WorkflowActivityFailureException on failure`() =
         runTest {
             val handle = createHandle()
 
@@ -226,16 +226,18 @@ class RemoteActivityHandleImplTest {
 
             handle.resolve(createFailedResolution(failure))
 
-            // Should throw ActivityFailureException
+            // Should throw WorkflowActivityFailureException
             val exception =
                 try {
                     val result = handle.result<String>()
-                    throw AssertionError("Expected ActivityFailureException to be thrown, but got result: $result")
-                } catch (e: ActivityFailureException) {
+                    throw AssertionError(
+                        "Expected WorkflowActivityFailureException to be thrown, but got result: $result",
+                    )
+                } catch (e: WorkflowActivityFailureException) {
                     e
                 } catch (e: Throwable) {
                     throw AssertionError(
-                        "Expected ActivityFailureException, but got ${e::class.simpleName}: ${e.message}",
+                        "Expected WorkflowActivityFailureException, but got ${e::class.simpleName}: ${e.message}",
                         e,
                     )
                 }
@@ -250,7 +252,7 @@ class RemoteActivityHandleImplTest {
         }
 
     @Test
-    fun `result() throws ActivityCancelledException on cancellation`() =
+    fun `result() throws WorkflowActivityCancelledException on cancellation`() =
         runTest {
             val handle = createHandle()
 
@@ -262,12 +264,12 @@ class RemoteActivityHandleImplTest {
 
             handle.resolve(createCancelledResolution(failure))
 
-            // Should throw ActivityCancelledException
+            // Should throw WorkflowActivityCancelledException
             val exception =
                 try {
                     handle.result<String>()
-                    throw AssertionError("Expected ActivityCancelledException to be thrown")
-                } catch (e: ActivityCancelledException) {
+                    throw AssertionError("Expected WorkflowActivityCancelledException to be thrown")
+                } catch (e: WorkflowActivityCancelledException) {
                     e
                 }
 
@@ -299,7 +301,7 @@ class RemoteActivityHandleImplTest {
         // Should have exception
         val exception = handle.exceptionOrNull()
         assertNotNull(exception)
-        assertTrue(exception is ActivityFailureException)
+        assertTrue(exception is WorkflowActivityFailureException)
         assertEquals("Test failure", exception?.message)
     }
 
@@ -448,7 +450,7 @@ class RemoteActivityHandleImplTest {
 
         handle.resolve(createFailedResolution(failure))
 
-        val exception = handle.exceptionOrNull() as ActivityFailureException
+        val exception = handle.exceptionOrNull() as WorkflowActivityFailureException
         assertEquals(ActivityRetryState.TIMEOUT, exception.retryState)
     }
 
@@ -480,8 +482,8 @@ class RemoteActivityHandleImplTest {
             val exception =
                 try {
                     handle.result<String>()
-                    throw AssertionError("Expected ActivityFailureException to be thrown")
-                } catch (e: ActivityFailureException) {
+                    throw AssertionError("Expected WorkflowActivityFailureException to be thrown")
+                } catch (e: WorkflowActivityFailureException) {
                     e
                 }
 
@@ -518,7 +520,7 @@ class RemoteActivityHandleImplTest {
 
             handle.resolve(createFailedResolution(failure))
 
-            val exception = handle.exceptionOrNull() as ActivityFailureException
+            val exception = handle.exceptionOrNull() as WorkflowActivityFailureException
             assertEquals(
                 expectedKotlinState,
                 exception.retryState,
@@ -532,7 +534,7 @@ class RemoteActivityHandleImplTest {
     // ============================================================================
 
     @Test
-    fun `result() throws ActivityTimeoutException on timeout`() =
+    fun `result() throws WorkflowActivityTimeoutException on timeout`() =
         runTest {
             val handle = createHandle()
 
@@ -549,12 +551,12 @@ class RemoteActivityHandleImplTest {
 
             handle.resolve(createFailedResolution(timeoutFailure))
 
-            // Should throw ActivityTimeoutException
+            // Should throw WorkflowActivityTimeoutException
             val exception =
                 try {
                     handle.result<String>()
-                    throw AssertionError("Expected ActivityTimeoutException to be thrown")
-                } catch (e: ActivityTimeoutException) {
+                    throw AssertionError("Expected WorkflowActivityTimeoutException to be thrown")
+                } catch (e: WorkflowActivityTimeoutException) {
                     e
                 }
 

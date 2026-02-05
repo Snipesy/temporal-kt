@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.workflow
 
+import com.surrealdev.temporal.common.exceptions.WorkflowActivityException
 import com.surrealdev.temporal.serialization.PayloadSerializer
 
 /**
@@ -44,9 +45,9 @@ interface ActivityHandle {
      * ```
      *
      * @return The raw payload result of the activity, or null if empty
-     * @throws ActivityFailureException if the activity failed
-     * @throws ActivityCancelledException if the activity was cancelled
-     * @throws ActivityTimeoutException if the activity timed out
+     * @throws com.surrealdev.temporal.common.exceptions.WorkflowActivityFailureException if the activity failed
+     * @throws com.surrealdev.temporal.common.exceptions.WorkflowActivityCancelledException if the activity was cancelled
+     * @throws com.surrealdev.temporal.common.exceptions.WorkflowActivityTimeoutException if the activity timed out
      */
     suspend fun resultPayload(): com.surrealdev.temporal.common.TemporalPayload?
 
@@ -58,7 +59,7 @@ interface ActivityHandle {
      *
      * @return The exception if failed/cancelled/timed out, or null otherwise
      */
-    fun exceptionOrNull(): ActivityException?
+    fun exceptionOrNull(): WorkflowActivityException?
 
     /**
      * Requests cancellation of this activity.

@@ -1,7 +1,6 @@
 package com.surrealdev.temporal.workflow
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
-import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.serialization.PayloadSerializer
 
@@ -67,7 +66,7 @@ interface ChildWorkflowHandle : WorkflowHandleBase {
      *
      * @param signalName The name of the signal to send.
      * @param args Arguments to pass with the signal.
-     * @throws SignalExternalWorkflowFailedException if the signal delivery failed
+     * @throws com.surrealdev.temporal.common.exceptions.SignalExternalWorkflowFailedException if the signal delivery failed
      */
     @InternalTemporalApi
     override suspend fun signalWithPayloads(

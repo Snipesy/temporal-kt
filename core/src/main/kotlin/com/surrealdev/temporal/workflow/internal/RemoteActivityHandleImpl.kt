@@ -1,13 +1,13 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.common.TemporalPayload
+import com.surrealdev.temporal.common.exceptions.WorkflowActivityCancelledException
+import com.surrealdev.temporal.common.exceptions.WorkflowActivityException
+import com.surrealdev.temporal.common.exceptions.WorkflowActivityFailureException
+import com.surrealdev.temporal.common.exceptions.WorkflowActivityTimeoutException
 import com.surrealdev.temporal.common.toTemporal
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.workflow.ActivityCancellationType
-import com.surrealdev.temporal.workflow.ActivityCancelledException
-import com.surrealdev.temporal.workflow.ActivityException
-import com.surrealdev.temporal.workflow.ActivityFailureException
-import com.surrealdev.temporal.workflow.ActivityTimeoutException
 import com.surrealdev.temporal.workflow.RemoteActivityHandle
 import coresdk.activity_result.ActivityResult
 import coresdk.workflow_commands.WorkflowCommands
@@ -50,7 +50,7 @@ internal class RemoteActivityHandleImpl(
 
     /** Cached exception from resolution (if any). */
     @Volatile
-    private var cachedException: ActivityException? = null
+    private var cachedException: WorkflowActivityException? = null
 
     override val isDone: Boolean
         get() = resultDeferred.isCompleted
@@ -127,7 +127,7 @@ internal class RemoteActivityHandleImpl(
         state.addCommand(command)
     }
 
-    override fun exceptionOrNull(): ActivityException? = cachedException
+    override fun exceptionOrNull(): WorkflowActivityException? = cachedException
 
     /**
      * Resolves the activity with the given result.
@@ -158,7 +158,7 @@ internal class RemoteActivityHandleImpl(
                 logger.warning("Activity cancelled: type=$activityType, id=$activityId, seq=$seq")
                 val cancelledFailure = result.cancelled.failure
                 val exception =
-                    ActivityCancelledException(
+                    WorkflowActivityCancelledException(
                         activityType = activityType,
                         activityId = activityId,
                         message = "Activity was cancelled",
@@ -193,14 +193,14 @@ internal class RemoteActivityHandleImpl(
     }
 
     /**
-     * Builds an ActivityException from a proto Failure.
-     * Returns ActivityTimeoutException for timeouts, ActivityFailureException for other failures.
+     * Builds a WorkflowActivityException from a proto Failure.
+     * Returns WorkflowActivityTimeoutException for timeouts, WorkflowActivityFailureException for other failures.
      */
-    private fun buildFailureException(failure: io.temporal.api.failure.v1.Failure): ActivityException {
-        // Check for timeout first - should return ActivityTimeoutException
+    private fun buildFailureException(failure: io.temporal.api.failure.v1.Failure): WorkflowActivityException {
+        // Check for timeout first - should return WorkflowActivityTimeoutException
         if (failure.hasTimeoutFailureInfo()) {
             val timeoutInfo = failure.timeoutFailureInfo
-            return ActivityTimeoutException(
+            return WorkflowActivityTimeoutException(
                 activityType = activityType,
                 activityId = activityId,
                 timeoutType = mapTimeoutType(timeoutInfo.timeoutType),
@@ -222,7 +222,7 @@ internal class RemoteActivityHandleImpl(
                 null
             }
 
-        return ActivityFailureException(
+        return WorkflowActivityFailureException(
             activityType = activityType,
             activityId = activityId,
             failureType = determineFailureType(failure),

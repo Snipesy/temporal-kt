@@ -5,6 +5,7 @@ import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.taskQueue
 import com.surrealdev.temporal.client.startWorkflow
+import com.surrealdev.temporal.common.exceptions.WorkflowConditionTimeoutException
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext
@@ -212,7 +213,7 @@ class ConditionDeterminismTest {
                     timeoutSummary = "waiting for approval",
                 ) { false }
                 "condition met"
-            } catch (e: com.surrealdev.temporal.workflow.WorkflowConditionTimeoutException) {
+            } catch (e: WorkflowConditionTimeoutException) {
                 "timeout: ${e.summary}"
             }
     }
@@ -263,7 +264,7 @@ class ConditionDeterminismTest {
                     timeoutSummary = "waiting for approval signal",
                 ) { approved }
                 "approved"
-            } catch (e: com.surrealdev.temporal.workflow.WorkflowConditionTimeoutException) {
+            } catch (e: WorkflowConditionTimeoutException) {
                 "timeout"
             }
     }

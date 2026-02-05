@@ -3,6 +3,7 @@ package com.surrealdev.temporal.workflow.internal
 import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
+import com.surrealdev.temporal.common.exceptions.SignalExternalWorkflowFailedException
 import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.common.toTemporal
 import com.surrealdev.temporal.serialization.PayloadSerializer
@@ -11,7 +12,6 @@ import com.surrealdev.temporal.workflow.ChildWorkflowCancelledException
 import com.surrealdev.temporal.workflow.ChildWorkflowFailureException
 import com.surrealdev.temporal.workflow.ChildWorkflowHandle
 import com.surrealdev.temporal.workflow.ChildWorkflowStartFailureException
-import com.surrealdev.temporal.workflow.SignalExternalWorkflowFailedException
 import com.surrealdev.temporal.workflow.StartChildWorkflowFailureCause
 import coresdk.child_workflow.ChildWorkflow
 import coresdk.workflow_activation.WorkflowActivationOuterClass.ResolveChildWorkflowExecutionStart

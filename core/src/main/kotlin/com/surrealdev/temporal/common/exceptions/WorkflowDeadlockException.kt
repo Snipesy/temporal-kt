@@ -1,4 +1,4 @@
-package com.surrealdev.temporal.workflow.internal
+package com.surrealdev.temporal.common.exceptions
 
 /**
  * Exception thrown when a workflow appears to be deadlocked.
@@ -29,7 +29,7 @@ class WorkflowDeadlockException(
      * May differ from detectionTimestamp if there's delay in capturing.
      */
     val stackCaptureTimestamp: Long = System.currentTimeMillis(),
-) : RuntimeException(baseMessage) {
+) : TemporalCancellationException(baseMessage) {
     override val message: String
         get() =
             buildString {

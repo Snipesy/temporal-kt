@@ -143,12 +143,12 @@ interface WorkflowContext :
      * this method returns immediately without creating any timers.
      *
      * If a timeout is specified and the condition is not met within the timeout duration,
-     * a [WorkflowConditionTimeoutException] is thrown.
+     * a [com.surrealdev.temporal.common.exceptions.WorkflowConditionTimeoutException] is thrown.
      *
      * @param timeout Maximum duration to wait before timing out
      * @param timeoutSummary Optional description for debugging (included in exception message)
      * @param condition A function that returns true when the workflow should continue
-     * @throws WorkflowConditionTimeoutException if timeout expires before condition is met
+     * @throws com.surrealdev.temporal.common.exceptions.WorkflowConditionTimeoutException if timeout expires before condition is met
      */
     suspend fun awaitCondition(
         timeout: Duration,

@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.surrealdev.temporal.common.exceptions.WorkflowDeadlockException
 import coresdk.workflow_activation.WorkflowActivationOuterClass.WorkflowActivation
 import coresdk.workflow_completion.WorkflowCompletion.WorkflowActivationCompletion
 import kotlinx.coroutines.CompletableDeferred
@@ -105,7 +106,7 @@ internal class WorkflowVirtualThread(
      * Dispatches an activation to this workflow's virtual thread.
      * Called from the poller coroutine; suspends until completion.
      *
-     * @throws WorkflowDeadlockException if the workflow doesn't yield within deadlockTimeoutMs
+     * @throws com.surrealdev.temporal.common.exceptions.WorkflowDeadlockException if the workflow doesn't yield within deadlockTimeoutMs
      */
     suspend fun dispatch(activation: WorkflowActivation): WorkflowActivationCompletion {
         val deferred = CompletableDeferred<WorkflowActivationCompletion>()

@@ -39,7 +39,7 @@ fun <P : PluginPipeline, F : Any> P.plugin(plugin: Plugin<*, *, F>): F {
 fun <P : PluginPipeline, F : Any> P.pluginOrNull(plugin: Plugin<*, *, F>): F? {
     // First check local registry
     @Suppress("UNCHECKED_CAST")
-    val localPlugin = pluginRegistry.getOrNull(plugin.key) as? F
+    val localPlugin = pluginRegistry.getOrNull(plugin.key)
     if (localPlugin != null) {
         return localPlugin
     }
@@ -47,7 +47,7 @@ fun <P : PluginPipeline, F : Any> P.pluginOrNull(plugin: Plugin<*, *, F>): F? {
     // For TaskQueueBuilder, fall back to parent application
     if (this is TaskQueueBuilder) {
         @Suppress("UNCHECKED_CAST")
-        return parentApplication?.pluginRegistry?.getOrNull(plugin.key) as? F
+        return parentApplication?.pluginRegistry?.getOrNull(plugin.key)
     }
 
     return null

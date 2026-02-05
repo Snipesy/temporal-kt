@@ -1,9 +1,9 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
-import com.surrealdev.temporal.common.ApplicationErrorCategory
-import com.surrealdev.temporal.common.ApplicationFailure
 import com.surrealdev.temporal.common.TemporalPayloads
+import com.surrealdev.temporal.common.exceptions.ApplicationErrorCategory
+import com.surrealdev.temporal.common.exceptions.ApplicationFailure
 import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.workflow.ContinueAsNewException
 import com.surrealdev.temporal.workflow.VersioningIntent

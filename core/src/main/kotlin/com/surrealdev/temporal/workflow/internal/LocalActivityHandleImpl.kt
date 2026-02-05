@@ -2,13 +2,13 @@ package com.surrealdev.temporal.workflow.internal
 
 import com.google.protobuf.Timestamp
 import com.surrealdev.temporal.common.TemporalPayload
+import com.surrealdev.temporal.common.exceptions.WorkflowActivityCancelledException
+import com.surrealdev.temporal.common.exceptions.WorkflowActivityException
+import com.surrealdev.temporal.common.exceptions.WorkflowActivityFailureException
+import com.surrealdev.temporal.common.exceptions.WorkflowActivityTimeoutException
 import com.surrealdev.temporal.common.toTemporal
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.workflow.ActivityCancellationType
-import com.surrealdev.temporal.workflow.ActivityCancelledException
-import com.surrealdev.temporal.workflow.ActivityException
-import com.surrealdev.temporal.workflow.ActivityFailureException
-import com.surrealdev.temporal.workflow.ActivityTimeoutException
 import com.surrealdev.temporal.workflow.LocalActivityHandle
 import com.surrealdev.temporal.workflow.LocalActivityOptions
 import coresdk.activity_result.ActivityResult
@@ -68,7 +68,7 @@ internal class LocalActivityHandleImpl(
 
     /** Cached exception from resolution (if any). */
     @Volatile
-    private var cachedException: ActivityException? = null
+    private var cachedException: WorkflowActivityException? = null
 
     /** Whether the activity has been finally resolved (not a backoff). */
     @Volatile
@@ -161,7 +161,7 @@ internal class LocalActivityHandleImpl(
         state.addCommand(command)
     }
 
-    override fun exceptionOrNull(): ActivityException? = cachedException
+    override fun exceptionOrNull(): WorkflowActivityException? = cachedException
 
     /**
      * Handles a DoBackoff resolution from Core SDK.
@@ -294,7 +294,7 @@ internal class LocalActivityHandleImpl(
         logger.warning("Local activity cancelled: type=$activityType, id=$activityId, seq=$currentSeq")
         isFinallyDone = true
         val exception =
-            ActivityCancelledException(
+            WorkflowActivityCancelledException(
                 activityType = activityType,
                 activityId = activityId,
                 message = "Local activity was cancelled",
@@ -310,14 +310,14 @@ internal class LocalActivityHandleImpl(
     }
 
     /**
-     * Builds an ActivityException from a proto Failure.
-     * Returns ActivityTimeoutException for timeouts, ActivityFailureException for other failures.
+     * Builds a WorkflowActivityException from a proto Failure.
+     * Returns WorkflowActivityTimeoutException for timeouts, WorkflowActivityFailureException for other failures.
      */
-    private fun buildFailureException(failure: io.temporal.api.failure.v1.Failure): ActivityException {
-        // Check for timeout first - should return ActivityTimeoutException
+    private fun buildFailureException(failure: io.temporal.api.failure.v1.Failure): WorkflowActivityException {
+        // Check for timeout first - should return WorkflowActivityTimeoutException
         if (failure.hasTimeoutFailureInfo()) {
             val timeoutInfo = failure.timeoutFailureInfo
-            return ActivityTimeoutException(
+            return WorkflowActivityTimeoutException(
                 activityType = activityType,
                 activityId = activityId,
                 timeoutType = mapTimeoutType(timeoutInfo.timeoutType),
@@ -339,7 +339,7 @@ internal class LocalActivityHandleImpl(
                 null
             }
 
-        return ActivityFailureException(
+        return WorkflowActivityFailureException(
             activityType = activityType,
             activityId = activityId,
             failureType = determineFailureType(failure),

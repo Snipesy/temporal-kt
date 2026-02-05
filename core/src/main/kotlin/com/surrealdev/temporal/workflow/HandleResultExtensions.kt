@@ -1,7 +1,6 @@
 package com.surrealdev.temporal.workflow
 
 import com.surrealdev.temporal.client.WorkflowHandle
-import com.surrealdev.temporal.serialization.deserialize
 import kotlin.reflect.typeOf
 import kotlin.time.Duration
 
@@ -13,7 +12,7 @@ import kotlin.time.Duration
  *
  * @param R The expected result type
  * @return The deserialized result
- * @throws ActivityException if the activity failed
+ * @throws com.surrealdev.temporal.common.exceptions.WorkflowActivityException if the activity failed
  */
 suspend inline fun <reified R> ActivityHandle.result(): R {
     val payload = resultPayload()

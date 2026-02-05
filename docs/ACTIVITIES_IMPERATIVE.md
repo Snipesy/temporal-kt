@@ -355,10 +355,10 @@ class DataExportActivity {
 
 ### Activity-Side Cancellation Exceptions
 
-These exceptions are thrown within activity code (from `com.surrealdev.temporal.activity`):
+These exceptions are thrown within activity code (from `com.surrealdev.temporal.common.exceptions`):
 
 ```kotlin
-sealed class ActivityCancelledException : RuntimeException {
+sealed class ActivityCancelledException : TemporalCancellationException {
     class NotFound      // Activity no longer exists on server
     class Cancelled     // Explicitly cancelled by workflow
     class TimedOut      // Activity exceeded timeout
@@ -370,24 +370,24 @@ sealed class ActivityCancelledException : RuntimeException {
 
 ### Workflow-Side Activity Exceptions
 
-These exceptions are thrown when awaiting activity results (from `com.surrealdev.temporal.workflow`):
+These exceptions are thrown when awaiting activity results (from `com.surrealdev.temporal.common.exceptions`):
 
 ```kotlin
-sealed class ActivityException : RuntimeException {
+sealed class WorkflowActivityException : TemporalRuntimeException {
     // Activity failed with application error
-    class ActivityFailureException(
+    class WorkflowActivityFailureException(
         val failureType: String,
         val retryState: ActivityRetryState,
         val applicationFailure: ApplicationFailure?,
     )
 
     // Activity timed out
-    class ActivityTimeoutException(
+    class WorkflowActivityTimeoutException(
         val timeoutType: ActivityTimeoutType,  // SCHEDULE_TO_START, START_TO_CLOSE, etc.
     )
 
     // Activity was cancelled
-    class ActivityCancelledException
+    class WorkflowActivityCancelledException
 }
 ```
 
@@ -411,11 +411,11 @@ class CancellableWorkflow {
 
         return try {
             handle.result<String>()
-        } catch (e: com.surrealdev.temporal.workflow.ActivityCancelledException) {
+        } catch (e: com.surrealdev.temporal.common.exceptions.WorkflowActivityCancelledException) {
             "Activity was cancelled"
-        } catch (e: ActivityTimeoutException) {
+        } catch (e: WorkflowActivityTimeoutException) {
             "Activity timed out: ${e.timeoutType}"
-        } catch (e: ActivityFailureException) {
+        } catch (e: WorkflowActivityFailureException) {
             "Activity failed: ${e.applicationFailure?.message}"
         }
     }

@@ -1,18 +1,14 @@
-package com.surrealdev.temporal.workflow
-
-import com.surrealdev.temporal.common.ActivityRetryState
-import com.surrealdev.temporal.common.ActivityTimeoutType
-import com.surrealdev.temporal.common.ApplicationFailure
+package com.surrealdev.temporal.common.exceptions
 
 /**
- * Base exception for activity failures.
+ * Base exception for activity failures as viewed from within workflow code.
  */
-sealed class ActivityException(
+sealed class WorkflowActivityException(
     message: String?,
     val activityType: String,
     val activityId: String,
     cause: Throwable? = null,
-) : RuntimeException(message, cause)
+) : TemporalRuntimeException(message, cause)
 
 /**
  * Thrown when an activity fails due to an application error.
@@ -21,7 +17,7 @@ sealed class ActivityException(
  * The [applicationFailure] is extracted from the [cause] chain when
  * the activity failed with an [ApplicationFailure].
  */
-class ActivityFailureException(
+class WorkflowActivityFailureException(
     message: String?,
     activityType: String,
     activityId: String,
@@ -30,7 +26,7 @@ class ActivityFailureException(
     /** Retry state indicating why retries stopped. */
     val retryState: ActivityRetryState,
     cause: Throwable? = null,
-) : ActivityException(message, activityType, activityId, cause) {
+) : WorkflowActivityException(message, activityType, activityId, cause) {
     /** The application failure details, if the activity failed with an [ApplicationFailure]. */
     val applicationFailure: ApplicationFailure?
         get() =
@@ -42,21 +38,49 @@ class ActivityFailureException(
 /**
  * Thrown when an activity times out.
  */
-class ActivityTimeoutException(
+class WorkflowActivityTimeoutException(
     message: String?,
     activityType: String,
     activityId: String,
     /** Which timeout was exceeded. */
     val timeoutType: ActivityTimeoutType,
     cause: Throwable? = null,
-) : ActivityException(message, activityType, activityId, cause)
+) : WorkflowActivityException(message, activityType, activityId, cause)
 
 /**
  * Thrown when an activity is cancelled.
  */
-class ActivityCancelledException(
+class WorkflowActivityCancelledException(
     message: String = "Activity was cancelled",
     activityType: String = "",
     activityId: String = "",
     cause: Throwable? = null,
-) : ActivityException(message, activityType, activityId, cause)
+) : WorkflowActivityException(message, activityType, activityId, cause)
+
+/**
+ * Indicates why activity retries stopped.
+ *
+ * Maps to [io.temporal.api.enums.v1.RetryState].
+ */
+enum class ActivityRetryState {
+    UNSPECIFIED,
+    IN_PROGRESS,
+    NON_RETRYABLE_FAILURE,
+    TIMEOUT,
+    MAXIMUM_ATTEMPTS_REACHED,
+    RETRY_POLICY_NOT_SET,
+    INTERNAL_SERVER_ERROR,
+    CANCEL_REQUESTED,
+}
+
+/**
+ * Types of activity timeouts.
+ *
+ * Maps to [io.temporal.api.enums.v1.TimeoutType].
+ */
+enum class ActivityTimeoutType {
+    SCHEDULE_TO_START,
+    START_TO_CLOSE,
+    SCHEDULE_TO_CLOSE,
+    HEARTBEAT,
+}

@@ -5,10 +5,10 @@ import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.taskQueue
 import com.surrealdev.temporal.client.startWorkflow
+import com.surrealdev.temporal.common.exceptions.WorkflowActivityCancelledException
+import com.surrealdev.temporal.common.exceptions.WorkflowActivityFailureException
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
-import com.surrealdev.temporal.workflow.ActivityCancelledException
-import com.surrealdev.temporal.workflow.ActivityFailureException
 import com.surrealdev.temporal.workflow.RetryPolicy
 import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.result
@@ -181,7 +181,7 @@ class LocalActivityIntegrationTest {
                     retryPolicy = RetryPolicy(maximumAttempts = 1),
                 ).result<String>()
                 return "unexpected success"
-            } catch (e: ActivityFailureException) {
+            } catch (e: WorkflowActivityFailureException) {
                 caughtMessage = e.message
                 return "caught: ${e.message}"
             }
@@ -206,7 +206,7 @@ class LocalActivityIntegrationTest {
             return try {
                 handle.result<String>()
                 "unexpected success"
-            } catch (e: ActivityCancelledException) {
+            } catch (e: WorkflowActivityCancelledException) {
                 wasCancelled = true
                 "cancelled"
             }
@@ -348,7 +348,7 @@ class LocalActivityIntegrationTest {
 
     /**
      * Tests local activity failure handling.
-     * Workflow should catch ActivityFailureException.
+     * Workflow should catch WorkflowActivityFailureException.
      */
     @Test
     fun `local activity failure is caught by workflow`() =
@@ -379,10 +379,10 @@ class LocalActivityIntegrationTest {
 
     /**
      * Tests local activity cancellation.
-     * Cancelling before completion should throw ActivityCancelledException.
+     * Cancelling before completion should throw WorkflowActivityCancelledException.
      */
     @Test
-    fun `local activity cancellation throws ActivityCancelledException`() =
+    fun `local activity cancellation throws WorkflowActivityCancelledException`() =
         runTemporalTest {
             val taskQueue = "test-la-cancel-${UUID.randomUUID()}"
 

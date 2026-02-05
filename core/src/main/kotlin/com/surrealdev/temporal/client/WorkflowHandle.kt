@@ -5,11 +5,20 @@ import com.surrealdev.temporal.client.history.WorkflowHistory
 import com.surrealdev.temporal.client.internal.WorkflowServiceClient
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
+import com.surrealdev.temporal.common.exceptions.ClientWorkflowCancelledException
+import com.surrealdev.temporal.common.exceptions.ClientWorkflowFailedException
+import com.surrealdev.temporal.common.exceptions.ClientWorkflowQueryRejectedException
+import com.surrealdev.temporal.common.exceptions.ClientWorkflowResultTimeoutException
+import com.surrealdev.temporal.common.exceptions.ClientWorkflowTerminatedException
+import com.surrealdev.temporal.common.exceptions.ClientWorkflowTimedOutException
+import com.surrealdev.temporal.common.exceptions.ClientWorkflowUpdateFailedException
+import com.surrealdev.temporal.common.exceptions.WorkflowTimeoutType
 import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.common.toTemporal
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.workflow.WorkflowHandleBase
+import com.surrealdev.temporal.workflow.internal.buildCause
 import io.temporal.api.common.v1.WorkflowExecution
 import io.temporal.api.enums.v1.EventType
 import io.temporal.api.enums.v1.HistoryEventFilterType
@@ -55,11 +64,11 @@ interface WorkflowHandle : WorkflowHandleBase {
      *
      * @param timeout Maximum time to wait for the result. Default is infinite.
      * @return The raw payload result of the workflow, or null if empty
-     * @throws WorkflowFailedException if the workflow failed.
-     * @throws WorkflowCanceledException if the workflow was canceled.
-     * @throws WorkflowTerminatedException if the workflow was terminated.
-     * @throws WorkflowTimedOutException if the workflow timed out.
-     * @throws WorkflowResultTimeoutException if waiting for the result timed out.
+     * @throws com.surrealdev.temporal.common.exceptions.ClientWorkflowFailedException if the workflow failed.
+     * @throws com.surrealdev.temporal.common.exceptions.ClientWorkflowCancelledException if the workflow was canceled.
+     * @throws com.surrealdev.temporal.common.exceptions.ClientWorkflowTerminatedException if the workflow was terminated.
+     * @throws com.surrealdev.temporal.common.exceptions.ClientWorkflowTimedOutException if the workflow timed out.
+     * @throws com.surrealdev.temporal.common.exceptions.ClientWorkflowResultTimeoutException if waiting for the result timed out.
      */
     @InternalTemporalApi
     suspend fun resultPayload(timeout: Duration = Duration.INFINITE): TemporalPayload?
@@ -173,7 +182,7 @@ internal class WorkflowHandleImpl(
             val elapsed = System.currentTimeMillis() - startTime
             if (elapsed >= timeoutMillis) {
                 logger.warn("[result] Timeout waiting for workflow $workflowId after ${elapsed}ms")
-                throw WorkflowResultTimeoutException(workflowId, runId)
+                throw ClientWorkflowResultTimeoutException(workflowId, runId)
             }
 
             logger.debug("[result] Poll #$pollCount for workflow $workflowId (elapsed=${elapsed}ms)")
@@ -264,21 +273,23 @@ internal class WorkflowHandleImpl(
 
             EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED -> {
                 val attrs = event.workflowExecutionFailedEventAttributes
-                throw WorkflowFailedException(
+                val failure = if (attrs.hasFailure()) attrs.failure else null
+                throw ClientWorkflowFailedException(
                     workflowId = workflowId,
                     runId = runId,
                     workflowType = null,
-                    failure = if (attrs.hasFailure()) attrs.failure else null,
+                    failure = failure,
+                    cause = failure?.let { buildCause(it) },
                 )
             }
 
             EventType.EVENT_TYPE_WORKFLOW_EXECUTION_CANCELED -> {
-                throw WorkflowCanceledException(workflowId, runId)
+                throw ClientWorkflowCancelledException(workflowId, runId)
             }
 
             EventType.EVENT_TYPE_WORKFLOW_EXECUTION_TERMINATED -> {
                 val attrs = event.workflowExecutionTerminatedEventAttributes
-                throw WorkflowTerminatedException(
+                throw ClientWorkflowTerminatedException(
                     workflowId = workflowId,
                     runId = runId,
                     reason = attrs.reason.ifEmpty { null },
@@ -286,7 +297,7 @@ internal class WorkflowHandleImpl(
             }
 
             EventType.EVENT_TYPE_WORKFLOW_EXECUTION_TIMED_OUT -> {
-                throw WorkflowTimedOutException(
+                throw ClientWorkflowTimedOutException(
                     workflowId = workflowId,
                     runId = runId,
                     timeoutType = WorkflowTimeoutType.WORKFLOW_EXECUTION_TIMEOUT,
@@ -391,7 +402,7 @@ internal class WorkflowHandleImpl(
 
         // Check for failure
         if (response.hasOutcome() && response.outcome.hasFailure()) {
-            throw WorkflowUpdateFailedException(
+            throw ClientWorkflowUpdateFailedException(
                 workflowId = workflowId,
                 runId = runId,
                 updateName = updateName,
@@ -404,7 +415,7 @@ internal class WorkflowHandleImpl(
                     .map { it.toTemporal() },
             )
         } else {
-            throw WorkflowUpdateFailedException(
+            throw ClientWorkflowUpdateFailedException(
                 workflowId = workflowId,
                 runId = runId,
                 updateName = updateName,
@@ -443,7 +454,7 @@ internal class WorkflowHandleImpl(
 
         // Check for query rejected
         if (response.hasQueryRejected()) {
-            throw WorkflowQueryRejectedException(
+            throw ClientWorkflowQueryRejectedException(
                 workflowId = workflowId,
                 runId = runId,
                 queryType = queryType,

@@ -5,6 +5,8 @@ import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.common.TemporalPayload
+import com.surrealdev.temporal.common.exceptions.WorkflowActivityCancelledException
+import com.surrealdev.temporal.common.exceptions.WorkflowActivityFailureException
 import com.surrealdev.temporal.common.toTemporal
 import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
 import com.surrealdev.temporal.testing.ProtoTestHelpers.createActivation
@@ -13,8 +15,6 @@ import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveActivityJobCancel
 import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveActivityJobCompleted
 import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveActivityJobFailed
 import com.surrealdev.temporal.testing.createTestWorkflowExecutor
-import com.surrealdev.temporal.workflow.ActivityCancelledException
-import com.surrealdev.temporal.workflow.ActivityFailureException
 import com.surrealdev.temporal.workflow.ActivityOptions
 import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.result
@@ -185,7 +185,7 @@ class ActivityActivationTest {
                     activityType = "TestActivity::failing",
                     options = ActivityOptions(startToCloseTimeout = 30.seconds),
                 ).result()
-            } catch (e: ActivityFailureException) {
+            } catch (e: WorkflowActivityFailureException) {
                 caughtException = "Caught failure: ${e.message}"
                 caughtException!!
             }
@@ -208,7 +208,7 @@ class ActivityActivationTest {
             cancellationResult =
                 try {
                     handle.result()
-                } catch (e: ActivityCancelledException) {
+                } catch (e: WorkflowActivityCancelledException) {
                     "Activity was cancelled: ${e.activityType}"
                 }
             return cancellationResult!!
@@ -634,7 +634,7 @@ class ActivityActivationTest {
         }
 
     @Test
-    fun `cancelled activity resolves with ActivityCancelledException`() =
+    fun `cancelled activity resolves with WorkflowActivityCancelledException`() =
         runTest {
             val result = createExecutorWithWorkflow<ActivityCancellationWorkflow>("ActivityCancellationWorkflow")
             val workflow = result.workflow as ActivityCancellationWorkflow

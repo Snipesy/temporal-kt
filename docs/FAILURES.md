@@ -7,7 +7,7 @@ This document describes how to throw and handle failures in Temporal-KT activiti
 ### Throwing from an Activity
 
 ```kotlin
-import com.surrealdev.temporal.common.ApplicationFailure
+import com.surrealdev.temporal.common.exceptions.ApplicationFailure
 
 class PaymentActivity {
     @Activity("processPayment")
@@ -51,7 +51,7 @@ class PaymentWorkflow {
                 ),
             ).result<Receipt>()
             "Payment successful"
-        } catch (e: ActivityFailureException) {
+        } catch (e: WorkflowActivityFailureException) {
             val failure = e.applicationFailure
             when (failure?.type) {
                 "ValidationError" -> "Invalid card: ${failure.message}"
@@ -63,15 +63,86 @@ class PaymentWorkflow {
 }
 ```
 
+### Catching on the Client
+
+```kotlin
+try {
+    val result = handle.result<String>()
+} catch (e: ClientWorkflowFailedException) {
+    val failure = e.applicationFailure
+    when (failure?.type) {
+        "ValidationError" -> println("Bad input: ${failure.message}")
+        else -> println("Workflow failed: ${e.message}")
+    }
+} catch (e: ClientWorkflowCancelledException) {
+    println("Workflow was cancelled")
+}
+```
+
+## Exception Hierarchy
+
+All exceptions in the SDK organized by where they are used.
+
+```
+RuntimeException
+├── TemporalRuntimeException (sealed)                      [com.surrealdev.temporal.common.exceptions]
+│   │
+│   ├── ApplicationFailure                                 [common - throw & receive side]
+│   │
+│   ├── WorkflowActivityException (sealed)                 [workflow code - catching activity results]
+│   │   ├── WorkflowActivityFailureException               ← activity failed with error
+│   │   ├── WorkflowActivityTimeoutException               ← activity timed out
+│   │   └── WorkflowActivityCancelledException             ← activity was cancelled
+│   │
+│   ├── ExternalWorkflowException (sealed)                 [workflow code - external workflow operations]
+│   │   ├── SignalExternalWorkflowFailedException          ← signal delivery failed
+│   │   └── CancelExternalWorkflowFailedException          ← cancel request failed
+│   │
+│   └── ClientWorkflowException (sealed)                   [client code - waiting for workflow results]
+│       ├── ClientWorkflowFailedException                  ← workflow execution failed
+│       ├── ClientWorkflowCancelledException               ← workflow was cancelled
+│       ├── ClientWorkflowTerminatedException              ← workflow was terminated
+│       ├── ClientWorkflowTimedOutException                ← workflow execution timed out
+│       ├── ClientWorkflowResultTimeoutException           ← client wait timed out
+│       ├── ClientWorkflowNotFoundException                ← workflow not found
+│       ├── ClientWorkflowAlreadyExistsException           ← workflow ID already exists
+│       ├── ClientWorkflowUpdateFailedException            ← workflow update failed
+│       └── ClientWorkflowQueryRejectedException           ← workflow query rejected
+│
+├── ChildWorkflowException (sealed)                        [workflow code - catching child workflow results]
+│   ├── ChildWorkflowFailureException                      ← child workflow failed
+│   ├── ChildWorkflowCancelledException                    ← child workflow was cancelled
+│   └── ChildWorkflowStartFailureException                 ← child workflow failed to start
+│
+├── TemporalCoreException                                  [internal - Rust FFI bridge error]
+│
+├── DuplicatePluginException (IllegalStateException)       [setup - duplicate plugin installed]
+└── MissingPluginException (IllegalStateException)         [setup - required plugin missing]
+
+CancellationException
+└── TemporalCancellationException (sealed)                 [com.surrealdev.temporal.common.exceptions]
+    ├── ActivityCancelledException (sealed)                 [activity code - detecting cancellation]
+    │   ├── ActivityCancelledException.NotFound             ← activity no longer exists on server
+    │   ├── ActivityCancelledException.Cancelled            ← explicitly cancelled by workflow/user
+    │   ├── ActivityCancelledException.TimedOut             ← activity exceeded timeout
+    │   ├── ActivityCancelledException.WorkerShutdown       ← worker shutting down
+    │   ├── ActivityCancelledException.Paused               ← activity was paused
+    │   └── ActivityCancelledException.Reset                ← activity was reset
+    │
+    ├── WorkflowCancelledException                         [workflow code - workflow cancellation signal]
+    ├── WorkflowConditionTimeoutException                  [workflow code - awaitCondition() timed out]
+    └── WorkflowDeadlockException                          [internal - workflow didn't yield]
+```
+
 ## ApplicationFailure
 
-`ApplicationFailure` is the exception you throw from activities (or workflows) to signal application-level failures. It extends `TemporalFailure` and provides control over retry behavior. The same type is also used on the receive side when inspecting failures from activities or child workflows.
+`ApplicationFailure` is the exception you throw from activities (or workflows) to signal application-level failures. It provides control over retry behavior. The same type is also used on the receive side when inspecting failures from activities or child workflows.
 
 ### Import
 
 ```kotlin
-import com.surrealdev.temporal.common.ApplicationFailure
-import com.surrealdev.temporal.common.ApplicationErrorCategory
+import com.surrealdev.temporal.common.exceptions.ApplicationFailure
+import com.surrealdev.temporal.common.exceptions.ApplicationErrorCategory
 ```
 
 ### Factory Methods
@@ -135,7 +206,7 @@ throw ApplicationFailure.nonRetryable(
 )
 
 // Workflow handles by type
-catch (e: ActivityFailureException) {
+catch (e: WorkflowActivityFailureException) {
     when (e.applicationFailure?.type) {
         "NotFoundError" -> createUser()
         "ValidationError" -> rejectRequest()
@@ -217,30 +288,24 @@ throw ApplicationFailure.nonRetryable(
 )
 ```
 
-## Catching Activity Failures
+## Catching Activity Failures (Workflow Side)
 
-When an activity fails, the workflow receives an exception from the `ActivityException` hierarchy.
+When an activity fails, the workflow receives an exception from the `WorkflowActivityException` sealed hierarchy.
 
-### Exception Hierarchy
+### WorkflowActivityException
 
 ```kotlin
-sealed class ActivityException : RuntimeException {
+sealed class WorkflowActivityException : TemporalRuntimeException {
     val activityType: String
     val activityId: String
 }
-
-class ActivityFailureException : ActivityException {
-    val failureType: String                    // e.g., "ApplicationFailure"
-    val retryState: ActivityRetryState         // Why retries stopped
-    val applicationFailure: ApplicationFailure? // Failure details
-}
-
-class ActivityTimeoutException : ActivityException {
-    val timeoutType: ActivityTimeoutType       // Which timeout was exceeded
-}
-
-class ActivityCancelledException : ActivityException
 ```
+
+| Subclass | When | Key Properties |
+|----------|------|----------------|
+| `WorkflowActivityFailureException` | Activity failed with an error | `failureType`, `retryState`, `applicationFailure` |
+| `WorkflowActivityTimeoutException` | Activity timed out | `timeoutType` |
+| `WorkflowActivityCancelledException` | Activity was cancelled | — |
 
 ### ActivityRetryState
 
@@ -273,57 +338,38 @@ enum class ActivityTimeoutType {
 ### Handling Different Failure Types
 
 ```kotlin
-@Workflow("RobustWorkflow")
-class RobustWorkflow {
-    @WorkflowRun
-    suspend fun WorkflowContext.run(): String {
-        return try {
-            startActivity(
-                activityType = "riskyOperation",
-                options = ActivityOptions(
-                    startToCloseTimeout = 30.seconds,
-                    heartbeatTimeout = 10.seconds,
-                    retryPolicy = RetryPolicy(maximumAttempts = 3),
-                ),
-            ).result<String>()
-        } catch (e: ActivityFailureException) {
-            // Activity failed with application error
-            val failure = e.applicationFailure
-            when (e.retryState) {
-                ActivityRetryState.NON_RETRYABLE_FAILURE ->
-                    "Permanent failure: ${failure?.message}"
-                ActivityRetryState.MAXIMUM_ATTEMPTS_REACHED ->
-                    "Failed after ${e.retryState} retries: ${failure?.message}"
-                else ->
-                    "Failed: ${failure?.message}"
-            }
-        } catch (e: ActivityTimeoutException) {
-            // Activity timed out
-            when (e.timeoutType) {
-                ActivityTimeoutType.START_TO_CLOSE ->
-                    "Activity took too long"
-                ActivityTimeoutType.HEARTBEAT ->
-                    "Activity stopped heartbeating"
-                ActivityTimeoutType.SCHEDULE_TO_START ->
-                    "No worker available"
-                else ->
-                    "Timeout: ${e.timeoutType}"
-            }
-        } catch (e: ActivityCancelledException) {
-            // Activity was cancelled
-            "Activity was cancelled"
-        }
+try {
+    activityHandle.result<String>()
+} catch (e: WorkflowActivityFailureException) {
+    // Activity failed with application error
+    val failure = e.applicationFailure
+    when (e.retryState) {
+        ActivityRetryState.NON_RETRYABLE_FAILURE ->
+            "Permanent failure: ${failure?.message}"
+        ActivityRetryState.MAXIMUM_ATTEMPTS_REACHED ->
+            "Failed after max retries: ${failure?.message}"
+        else ->
+            "Failed: ${failure?.message}"
     }
+} catch (e: WorkflowActivityTimeoutException) {
+    when (e.timeoutType) {
+        ActivityTimeoutType.START_TO_CLOSE -> "Activity took too long"
+        ActivityTimeoutType.HEARTBEAT -> "Activity stopped heartbeating"
+        ActivityTimeoutType.SCHEDULE_TO_START -> "No worker available"
+        else -> "Timeout: ${e.timeoutType}"
+    }
+} catch (e: WorkflowActivityCancelledException) {
+    "Activity was cancelled"
 }
 ```
 
 ### Inspecting ApplicationFailure
 
-On the receive side, `ApplicationFailure` is extracted from the cause chain of `ActivityFailureException`:
+On the receive side, `ApplicationFailure` is extracted from the cause chain of `WorkflowActivityFailureException`:
 
 ```kotlin
-catch (e: ActivityFailureException) {
-    val failure = e.applicationFailure  // ApplicationFailure? (from cause chain)
+catch (e: WorkflowActivityFailureException) {
+    val failure = e.applicationFailure  // ApplicationFailure?
     if (failure != null) {
         println("Type: ${failure.type}")
         println("Message: ${failure.message}")
@@ -331,6 +377,225 @@ catch (e: ActivityFailureException) {
         println("Category: ${failure.category}")
         println("Has details: ${failure.encodedDetails != null}")
     }
+}
+```
+
+## Catching Child Workflow Failures (Workflow Side)
+
+When a child workflow fails, the workflow receives an exception from the `ChildWorkflowException` sealed hierarchy.
+
+### ChildWorkflowException
+
+```kotlin
+sealed class ChildWorkflowException : RuntimeException  // not yet migrated to TemporalRuntimeException
+```
+
+| Subclass | When | Key Properties |
+|----------|------|----------------|
+| `ChildWorkflowFailureException` | Child workflow execution failed | `childWorkflowId`, `childWorkflowType`, `failure`, `applicationFailure` |
+| `ChildWorkflowCancelledException` | Child workflow was cancelled | `childWorkflowId`, `childWorkflowType`, `failure` |
+| `ChildWorkflowStartFailureException` | Child workflow failed to start | `childWorkflowId`, `childWorkflowType`, `startFailureCause` |
+
+### StartChildWorkflowFailureCause
+
+```kotlin
+enum class StartChildWorkflowFailureCause {
+    WORKFLOW_ALREADY_EXISTS,
+    UNKNOWN,
+}
+```
+
+### Handling Child Workflow Failures
+
+```kotlin
+try {
+    val result = childHandle.result<String>()
+} catch (e: ChildWorkflowFailureException) {
+    val failure = e.applicationFailure
+    println("Child workflow failed: ${failure?.type} - ${failure?.message}")
+} catch (e: ChildWorkflowCancelledException) {
+    println("Child workflow was cancelled")
+} catch (e: ChildWorkflowStartFailureException) {
+    when (e.startFailureCause) {
+        StartChildWorkflowFailureCause.WORKFLOW_ALREADY_EXISTS ->
+            println("Workflow ${e.childWorkflowId} already exists")
+        StartChildWorkflowFailureCause.UNKNOWN ->
+            println("Failed to start child workflow")
+    }
+}
+```
+
+## External Workflow Operation Failures (Workflow Side)
+
+When signaling or cancelling an external workflow fails, the workflow receives an exception from the `ExternalWorkflowException` sealed hierarchy.
+
+### ExternalWorkflowException
+
+```kotlin
+sealed class ExternalWorkflowException : TemporalRuntimeException
+```
+
+| Subclass | When | Key Properties |
+|----------|------|----------------|
+| `SignalExternalWorkflowFailedException` | Signal delivery to external workflow failed | `targetWorkflowId`, `signalName`, `failure` |
+| `CancelExternalWorkflowFailedException` | Cancel request to external workflow failed | `targetWorkflowId`, `failure` |
+
+### Handling External Workflow Operation Failures
+
+```kotlin
+// Signaling
+try {
+    externalHandle.signal("mySignal", payload)
+} catch (e: SignalExternalWorkflowFailedException) {
+    println("Failed to signal ${e.targetWorkflowId}: ${e.message}")
+}
+
+// Cancelling
+try {
+    externalHandle.cancel()
+} catch (e: CancelExternalWorkflowFailedException) {
+    println("Failed to cancel ${e.targetWorkflowId}: ${e.message}")
+}
+
+// Exhaustive handling
+catch (e: ExternalWorkflowException) {
+    when (e) {
+        is SignalExternalWorkflowFailedException ->
+            println("Signal '${e.signalName}' failed for ${e.targetWorkflowId}")
+        is CancelExternalWorkflowFailedException ->
+            println("Cancel failed for ${e.targetWorkflowId}")
+    }
+}
+```
+
+## Client-Side Exceptions
+
+When waiting for workflow results from the client, exceptions come from the `ClientWorkflowException` sealed hierarchy.
+
+### ClientWorkflowException
+
+```kotlin
+sealed class ClientWorkflowException : TemporalRuntimeException
+```
+
+| Subclass | When | Key Properties |
+|----------|------|----------------|
+| `ClientWorkflowFailedException` | Workflow execution failed | `workflowId`, `runId`, `workflowType`, `failure`, `applicationFailure` |
+| `ClientWorkflowCancelledException` | Workflow was cancelled | `workflowId`, `runId` |
+| `ClientWorkflowTerminatedException` | Workflow was terminated | `workflowId`, `runId`, `reason` |
+| `ClientWorkflowTimedOutException` | Workflow execution timed out | `workflowId`, `runId`, `timeoutType` |
+| `ClientWorkflowResultTimeoutException` | Client's wait timed out (not the workflow) | `workflowId`, `runId` |
+| `ClientWorkflowNotFoundException` | Workflow not found | `workflowId`, `runId` |
+| `ClientWorkflowAlreadyExistsException` | Workflow with same ID exists | `workflowId`, `existingRunId` |
+| `ClientWorkflowUpdateFailedException` | Workflow update failed | `workflowId`, `runId`, `updateName`, `updateId` |
+| `ClientWorkflowQueryRejectedException` | Workflow query rejected | `workflowId`, `runId`, `queryType`, `status` |
+
+### WorkflowTimeoutType
+
+```kotlin
+enum class WorkflowTimeoutType {
+    WORKFLOW_EXECUTION_TIMEOUT,
+}
+```
+
+### Handling Client Exceptions
+
+```kotlin
+try {
+    val result = handle.result<String>()
+} catch (e: ClientWorkflowFailedException) {
+    // Inspect the application failure
+    val failure = e.applicationFailure
+    println("Workflow failed: ${failure?.type} - ${failure?.message}")
+    // Full cause chain is available
+    println("Cause: ${e.cause}")
+} catch (e: ClientWorkflowCancelledException) {
+    println("Workflow ${e.workflowId} was cancelled")
+} catch (e: ClientWorkflowTerminatedException) {
+    println("Workflow ${e.workflowId} was terminated: ${e.reason}")
+} catch (e: ClientWorkflowTimedOutException) {
+    println("Workflow ${e.workflowId} timed out: ${e.timeoutType}")
+} catch (e: ClientWorkflowResultTimeoutException) {
+    println("Timed out waiting for result from ${e.workflowId}")
+}
+```
+
+## Activity-Side Cancellation
+
+When an activity detects that it has been cancelled (via heartbeating or `ensureNotCancelled()`), it receives an `ActivityCancelledException`.
+
+### ActivityCancelledException
+
+```kotlin
+sealed class ActivityCancelledException : TemporalCancellationException
+```
+
+| Subclass | When |
+|----------|------|
+| `ActivityCancelledException.NotFound` | Activity no longer exists on the server |
+| `ActivityCancelledException.Cancelled` | Explicitly cancelled by the workflow or user |
+| `ActivityCancelledException.TimedOut` | Activity exceeded its timeout |
+| `ActivityCancelledException.WorkerShutdown` | Worker is shutting down |
+| `ActivityCancelledException.Paused` | Activity was paused |
+| `ActivityCancelledException.Reset` | Activity was reset |
+
+### Handling Activity Cancellation
+
+```kotlin
+@Activity("longRunning")
+suspend fun longRunningActivity(): String {
+    val ctx = activity()
+    for (i in 0 until 1000) {
+        doWork(i)
+        ctx.heartbeat(i) // Throws ActivityCancelledException if cancelled
+    }
+    return "done"
+}
+
+// Or check manually
+@Activity("manualCheck")
+suspend fun manualCheckActivity(): String {
+    val ctx = activity()
+    try {
+        ctx.ensureNotCancelled()
+    } catch (e: ActivityCancelledException) {
+        when (e) {
+            is ActivityCancelledException.TimedOut -> cleanup()
+            is ActivityCancelledException.WorkerShutdown -> saveProgress()
+            else -> {}
+        }
+        throw e
+    }
+    return "done"
+}
+```
+
+## Workflow-Side Miscellaneous Exceptions
+
+### WorkflowCancelledException
+
+Thrown when a workflow is cancelled. Extends `TemporalCancellationException` (which extends `CancellationException`), so it integrates with Kotlin coroutine cancellation and will **not** be caught by `catch (e: RuntimeException)`.
+
+```kotlin
+try {
+    someActivity.result<String>()
+} catch (e: WorkflowCancelledException) {
+    // Perform cleanup before the workflow completes as cancelled
+    compensate()
+    throw e // Re-throw to let the workflow complete as cancelled
+}
+```
+
+### WorkflowConditionTimeoutException
+
+Thrown when `WorkflowContext.awaitCondition()` times out. Extends `TemporalCancellationException` (which extends `CancellationException`), so it will **not** be caught by `catch (e: RuntimeException)`.
+
+```kotlin
+try {
+    awaitCondition(timeout = 30.seconds) { orderApproved }
+} catch (e: WorkflowConditionTimeoutException) {
+    println("Condition timed out after ${e.timeout}")
+    // Handle timeout as business logic
 }
 ```
 
@@ -480,24 +745,3 @@ suspend fun processBatch(items: List<Item>): BatchResult {
     return BatchResult(processed)
 }
 ```
-
-## Exception Hierarchy Summary
-
-```
-TemporalFailure (sealed)
-└── ApplicationFailure         ← Throw from activities/workflows (also on receive side)
-
-ActivityException (sealed)     ← Catch in workflows
-├── ActivityFailureException   ← Activity failed with error
-├── ActivityTimeoutException   ← Activity timed out
-└── ActivityCancelledException ← Activity was cancelled
-```
-
-## Best Practices
-
-1. **Use descriptive error types** - Makes error handling in workflows cleaner
-2. **Use non-retryable for permanent failures** - Validation errors, auth failures, not-found
-3. **Use BENIGN category for expected business cases** - Insufficient funds, user not found
-4. **Include details for debugging** - But keep them as strings
-5. **Set appropriate retry policies** - Use `nonRetryableErrorTypes` for known permanent failures
-6. **Handle specific exceptions** - Don't catch generic `Exception` in workflows

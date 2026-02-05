@@ -47,7 +47,7 @@ interface ExternalWorkflowHandle : WorkflowHandleBase {
      *
      * @param signalName The name of the signal to send.
      * @param args Arguments to pass with the signal.
-     * @throws SignalExternalWorkflowFailedException if the signal delivery failed
+     * @throws com.surrealdev.temporal.common.exceptions.SignalExternalWorkflowFailedException if the signal delivery failed
      */
     @InternalTemporalApi
     override suspend fun signalWithPayloads(
@@ -62,7 +62,7 @@ interface ExternalWorkflowHandle : WorkflowHandleBase {
      * until the cancellation request has been acknowledged by the server.
      *
      * @param reason Optional reason for cancellation (for debugging)
-     * @throws CancelExternalWorkflowFailedException if the cancellation request failed
+     * @throws com.surrealdev.temporal.common.exceptions.CancelExternalWorkflowFailedException if the cancellation request failed
      */
     suspend fun cancel(reason: String = "")
 }

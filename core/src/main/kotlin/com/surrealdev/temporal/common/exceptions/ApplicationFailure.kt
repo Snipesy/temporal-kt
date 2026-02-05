@@ -1,34 +1,7 @@
-package com.surrealdev.temporal.common
+package com.surrealdev.temporal.common.exceptions
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
 import kotlin.time.Duration
-
-// =============================================================================
-// Temporal Failure Hierarchy
-// =============================================================================
-
-/**
- * Base class for all Temporal failure exceptions.
- *
- * This sealed class hierarchy enables exhaustive `when` matching and provides
- * a common base for failures that can occur during workflow or activity execution.
- *
- * Example:
- * ```kotlin
- * try {
- *     activity.execute()
- * } catch (e: TemporalFailure) {
- *     when (e) {
- *         is ApplicationFailure -> handleAppError(e)
- *         // Future: CancelledError, TimeoutError, etc.
- *     }
- * }
- * ```
- */
-sealed class TemporalFailure(
-    message: String?,
-    cause: Throwable? = null,
-) : RuntimeException(message, cause)
 
 /**
  * Category for application errors, affecting logging and metrics behavior.
@@ -55,7 +28,7 @@ enum class ApplicationErrorCategory {
 
 /**
  * Application-level failure that can be thrown from activities or workflows,
- * and is also reconstructed on the receive side when inspecting activity or
+ * and is also reconstructed on the reception side when inspecting activity or
  * child workflow failures.
  *
  * ## Throwing from Activities
@@ -94,13 +67,14 @@ enum class ApplicationErrorCategory {
  *
  * ## Inspecting on the Receive Side
  *
- * When catching [ActivityFailureException] or [ChildWorkflowFailureException],
+ * When catching [WorkflowActivityFailureException] or
+ * [com.surrealdev.temporal.workflow.ChildWorkflowFailureException],
  * the [ApplicationFailure] is available via the `applicationFailure` property:
  *
  * ```kotlin
  * try {
  *     activity.result()
- * } catch (e: ActivityFailureException) {
+ * } catch (e: WorkflowActivityFailureException) {
  *     val failure = e.applicationFailure
  *     when (failure?.type) {
  *         "ValidationError" -> handleValidation(failure)
@@ -141,7 +115,7 @@ class ApplicationFailure private constructor(
     /** Error category affecting logging and metrics. */
     val category: ApplicationErrorCategory = ApplicationErrorCategory.UNSPECIFIED,
     cause: Throwable? = null,
-) : TemporalFailure(message, cause) {
+) : TemporalRuntimeException(message, cause) {
     companion object {
         /**
          * Creates a retryable application failure.
@@ -283,32 +257,4 @@ class ApplicationFailure private constructor(
             cause = cause,
         )
     }
-}
-
-/**
- * Indicates why activity retries stopped.
- *
- * Maps to [io.temporal.api.enums.v1.RetryState].
- */
-enum class ActivityRetryState {
-    UNSPECIFIED,
-    IN_PROGRESS,
-    NON_RETRYABLE_FAILURE,
-    TIMEOUT,
-    MAXIMUM_ATTEMPTS_REACHED,
-    RETRY_POLICY_NOT_SET,
-    INTERNAL_SERVER_ERROR,
-    CANCEL_REQUESTED,
-}
-
-/**
- * Types of activity timeouts.
- *
- * Maps to [io.temporal.api.enums.v1.TimeoutType].
- */
-enum class ActivityTimeoutType {
-    SCHEDULE_TO_START,
-    START_TO_CLOSE,
-    SCHEDULE_TO_CLOSE,
-    HEARTBEAT,
 }

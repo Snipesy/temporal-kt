@@ -4,9 +4,9 @@ import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.taskQueue
 import com.surrealdev.temporal.client.RetryPolicy
-import com.surrealdev.temporal.client.WorkflowResultTimeoutException
 import com.surrealdev.temporal.client.WorkflowStartOptions
 import com.surrealdev.temporal.client.startWorkflow
+import com.surrealdev.temporal.common.exceptions.ClientWorkflowResultTimeoutException
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.result
@@ -153,7 +153,7 @@ class WorkflowDeadlockDetectionTest {
             // 3. Workflow is manually terminated
             // 4. Client timeout (what happens here)
             val exception =
-                assertFailsWith<WorkflowResultTimeoutException> {
+                assertFailsWith<ClientWorkflowResultTimeoutException> {
                     handle.result(timeout = 3.seconds)
                 }
 
@@ -192,7 +192,7 @@ class WorkflowDeadlockDetectionTest {
 
             // Same as infinite loop - deadlock causes task failure and retry
             val exception =
-                assertFailsWith<WorkflowResultTimeoutException> {
+                assertFailsWith<ClientWorkflowResultTimeoutException> {
                     handle.result(timeout = 3.seconds)
                 }
 
@@ -222,7 +222,7 @@ class WorkflowDeadlockDetectionTest {
                 )
 
             // Let deadlock detection trigger - will timeout at client
-            assertFailsWith<WorkflowResultTimeoutException> {
+            assertFailsWith<ClientWorkflowResultTimeoutException> {
                 deadlockHandle.result(timeout = 2.seconds)
             }
 
@@ -275,7 +275,7 @@ class WorkflowDeadlockDetectionTest {
             assertEquals("Success: concurrent", result)
 
             // Deadlocked workflow will timeout at client (task keeps retrying)
-            assertFailsWith<WorkflowResultTimeoutException> {
+            assertFailsWith<ClientWorkflowResultTimeoutException> {
                 deadlockHandle.result(timeout = 2.seconds)
             }
         }
@@ -334,7 +334,7 @@ class WorkflowDeadlockDetectionTest {
 
             // All should timeout at client (tasks keep retrying)
             deadlockHandles.forEach { handle ->
-                assertFailsWith<WorkflowResultTimeoutException> {
+                assertFailsWith<ClientWorkflowResultTimeoutException> {
                     handle.result(timeout = 2.seconds)
                 }
             }

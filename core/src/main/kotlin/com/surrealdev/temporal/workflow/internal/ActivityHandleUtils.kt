@@ -1,10 +1,10 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
-import com.surrealdev.temporal.common.ActivityRetryState
-import com.surrealdev.temporal.common.ActivityTimeoutType
-import com.surrealdev.temporal.common.ApplicationErrorCategory
-import com.surrealdev.temporal.common.ApplicationFailure
+import com.surrealdev.temporal.common.exceptions.ActivityRetryState
+import com.surrealdev.temporal.common.exceptions.ActivityTimeoutType
+import com.surrealdev.temporal.common.exceptions.ApplicationErrorCategory
+import com.surrealdev.temporal.common.exceptions.ApplicationFailure
 import io.temporal.api.failure.v1.Failure
 
 /*

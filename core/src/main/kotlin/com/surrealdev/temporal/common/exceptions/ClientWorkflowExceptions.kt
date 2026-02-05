@@ -1,14 +1,15 @@
-package com.surrealdev.temporal.client
+package com.surrealdev.temporal.common.exceptions
 
+import com.surrealdev.temporal.workflow.internal.extractApplicationFailure
 import io.temporal.api.failure.v1.Failure
 
 /**
- * Base exception for workflow-related errors.
+ * Base exception for client workflow errors when waiting for workflow results from the client.
  */
-sealed class WorkflowException(
+sealed class ClientWorkflowException(
     message: String,
     cause: Throwable? = null,
-) : RuntimeException(message, cause)
+) : TemporalRuntimeException(message, cause)
 
 /**
  * Exception thrown when a workflow execution fails.
@@ -21,14 +22,24 @@ sealed class WorkflowException(
  * @property workflowType The type of workflow that failed
  * @property failure The Temporal failure details, if available
  */
-class WorkflowFailedException(
+class ClientWorkflowFailedException(
     val workflowId: String,
     val runId: String?,
     val workflowType: String?,
     val failure: Failure?,
     message: String = buildMessage(workflowId, runId, workflowType, failure),
     cause: Throwable? = null,
-) : WorkflowException(message, cause) {
+) : ClientWorkflowException(message, cause) {
+    /** The application failure details, if the workflow failed with an [ApplicationFailure]. */
+    val applicationFailure: ApplicationFailure?
+        get() =
+            // First check the cause chain (populated when buildCause creates ApplicationFailure)
+            generateSequence(cause) { it.cause }
+                .filterIsInstance<ApplicationFailure>()
+                .firstOrNull()
+                // Fallback: extract from proto failure if cause chain doesn't contain it
+                ?: failure?.let { extractApplicationFailure(it) }
+
     companion object {
         private fun buildMessage(
             workflowId: String,
@@ -59,12 +70,12 @@ class WorkflowFailedException(
  * @property workflowId The workflow ID that was canceled
  * @property runId The run ID of the canceled execution
  */
-class WorkflowCanceledException(
+class ClientWorkflowCancelledException(
     val workflowId: String,
     val runId: String?,
     message: String = "Workflow (workflowId=$workflowId, runId=$runId) was canceled",
     cause: Throwable? = null,
-) : WorkflowException(message, cause)
+) : ClientWorkflowException(message, cause)
 
 /**
  * Exception thrown when a workflow execution is terminated.
@@ -73,13 +84,13 @@ class WorkflowCanceledException(
  * @property runId The run ID of the terminated execution
  * @property reason The termination reason, if provided
  */
-class WorkflowTerminatedException(
+class ClientWorkflowTerminatedException(
     val workflowId: String,
     val runId: String?,
     val reason: String?,
     message: String = buildMessage(workflowId, runId, reason),
     cause: Throwable? = null,
-) : WorkflowException(message, cause) {
+) : ClientWorkflowException(message, cause) {
     companion object {
         private fun buildMessage(
             workflowId: String,
@@ -106,13 +117,13 @@ class WorkflowTerminatedException(
  * @property runId The run ID of the timed-out execution
  * @property timeoutType The type of timeout that occurred
  */
-class WorkflowTimedOutException(
+class ClientWorkflowTimedOutException(
     val workflowId: String,
     val runId: String?,
     val timeoutType: WorkflowTimeoutType,
     message: String = "Workflow (workflowId=$workflowId, runId=$runId) timed out: $timeoutType",
     cause: Throwable? = null,
-) : WorkflowException(message, cause)
+) : ClientWorkflowException(message, cause)
 
 /**
  * Types of workflow timeouts.
@@ -120,30 +131,24 @@ class WorkflowTimedOutException(
 enum class WorkflowTimeoutType {
     /** The workflow execution exceeded the allowed duration. */
     WORKFLOW_EXECUTION_TIMEOUT,
-
-    /** A single workflow run exceeded the allowed duration. */
-    WORKFLOW_RUN_TIMEOUT,
-
-    /** A workflow task exceeded the allowed duration. */
-    WORKFLOW_TASK_TIMEOUT,
 }
 
 /**
  * Exception thrown when waiting for a workflow result times out.
  *
- * This is different from [WorkflowTimedOutException] - this exception
+ * This is different from [ClientWorkflowTimedOutException] - this exception
  * is thrown when the client's wait operation times out, not when the
  * workflow itself times out.
  *
  * @property workflowId The workflow ID being waited on
  * @property runId The run ID being waited on
  */
-class WorkflowResultTimeoutException(
+class ClientWorkflowResultTimeoutException(
     val workflowId: String,
     val runId: String?,
     message: String = "Timed out waiting for workflow result (workflowId=$workflowId, runId=$runId)",
     cause: Throwable? = null,
-) : WorkflowException(message, cause)
+) : ClientWorkflowException(message, cause)
 
 /**
  * Exception thrown when a workflow is not found.
@@ -151,12 +156,12 @@ class WorkflowResultTimeoutException(
  * @property workflowId The workflow ID that was not found
  * @property runId The run ID that was not found, if specified
  */
-class WorkflowNotFoundException(
+class ClientWorkflowNotFoundException(
     val workflowId: String,
     val runId: String?,
     message: String = buildMessage(workflowId, runId),
     cause: Throwable? = null,
-) : WorkflowException(message, cause) {
+) : ClientWorkflowException(message, cause) {
     companion object {
         private fun buildMessage(
             workflowId: String,
@@ -178,12 +183,12 @@ class WorkflowNotFoundException(
  * @property workflowId The workflow ID that already exists
  * @property existingRunId The run ID of the existing workflow
  */
-class WorkflowAlreadyExistsException(
+class ClientWorkflowAlreadyExistsException(
     val workflowId: String,
     val existingRunId: String?,
     message: String = "Workflow already exists (workflowId=$workflowId, existingRunId=$existingRunId)",
     cause: Throwable? = null,
-) : WorkflowException(message, cause)
+) : ClientWorkflowException(message, cause)
 
 /**
  * Exception thrown when a workflow update fails.
@@ -193,14 +198,14 @@ class WorkflowAlreadyExistsException(
  * @property updateName The name of the update that failed
  * @property updateId The ID of the update that failed
  */
-class WorkflowUpdateFailedException(
+class ClientWorkflowUpdateFailedException(
     val workflowId: String,
     val runId: String?,
     val updateName: String,
     val updateId: String,
     message: String,
     cause: Throwable? = null,
-) : WorkflowException(
+) : ClientWorkflowException(
         "Workflow update '$updateName' failed (workflowId=$workflowId, runId=$runId, updateId=$updateId): $message",
         cause,
     )
@@ -213,13 +218,13 @@ class WorkflowUpdateFailedException(
  * @property queryType The type of query that was rejected
  * @property status The rejection status
  */
-class WorkflowQueryRejectedException(
+class ClientWorkflowQueryRejectedException(
     val workflowId: String,
     val runId: String?,
     val queryType: String,
     val status: String,
     cause: Throwable? = null,
-) : WorkflowException(
+) : ClientWorkflowException(
         "Workflow query '$queryType' rejected (workflowId=$workflowId, runId=$runId): $status",
         cause,
     )

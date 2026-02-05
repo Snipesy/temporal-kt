@@ -1,14 +1,14 @@
 package com.surrealdev.temporal.activity.internal
 
 import com.google.protobuf.ByteString
-import com.surrealdev.temporal.activity.ActivityCancelledException
 import com.surrealdev.temporal.activity.EncodedPayloads
 import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.application.DynamicActivityHandler
-import com.surrealdev.temporal.common.ApplicationErrorCategory
-import com.surrealdev.temporal.common.ApplicationFailure
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
+import com.surrealdev.temporal.common.exceptions.ActivityCancelledException
+import com.surrealdev.temporal.common.exceptions.ApplicationErrorCategory
+import com.surrealdev.temporal.common.exceptions.ApplicationFailure
 import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.common.toTemporal
 import com.surrealdev.temporal.internal.ZombieEvictionConfig

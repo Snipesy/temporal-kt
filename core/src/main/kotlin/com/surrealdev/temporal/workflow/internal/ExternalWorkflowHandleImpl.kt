@@ -2,11 +2,11 @@ package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.common.TemporalPayloads
+import com.surrealdev.temporal.common.exceptions.CancelExternalWorkflowFailedException
+import com.surrealdev.temporal.common.exceptions.SignalExternalWorkflowFailedException
 import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.serialization.PayloadSerializer
-import com.surrealdev.temporal.workflow.CancelExternalWorkflowFailedException
 import com.surrealdev.temporal.workflow.ExternalWorkflowHandle
-import com.surrealdev.temporal.workflow.SignalExternalWorkflowFailedException
 import coresdk.common.Common.NamespacedWorkflowExecution
 import coresdk.workflow_commands.WorkflowCommands
 

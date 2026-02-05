@@ -1,5 +1,7 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.surrealdev.temporal.common.exceptions.WorkflowActivityCancelledException
+import com.surrealdev.temporal.common.exceptions.WorkflowActivityFailureException
 import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
 import com.surrealdev.temporal.testing.ProtoTestHelpers.timestamp
 import com.surrealdev.temporal.workflow.ActivityCancellationType
@@ -508,7 +510,7 @@ class WorkflowStateTest {
             assertTrue(handle.isDone)
 
             val exception =
-                assertFailsWith<com.surrealdev.temporal.workflow.ActivityFailureException> {
+                assertFailsWith<WorkflowActivityFailureException> {
                     handle.result<String>()
                 }
             assertEquals("Activity failed!", exception.message)
@@ -545,7 +547,7 @@ class WorkflowStateTest {
 
             assertTrue(handle.isDone)
 
-            assertFailsWith<com.surrealdev.temporal.workflow.ActivityCancelledException> {
+            assertFailsWith<WorkflowActivityCancelledException> {
                 handle.result<String>()
             }
         }

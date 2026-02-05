@@ -5,6 +5,7 @@ import com.surrealdev.temporal.common.SearchAttributeEncoder
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.TypedSearchAttributes
+import com.surrealdev.temporal.common.exceptions.WorkflowConditionTimeoutException
 import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
@@ -596,7 +597,7 @@ internal class WorkflowContextImpl(
                 // Clean up the condition from registry
                 state.removeCondition(deferred)
                 // Rethrow as custom exception with context
-                throw com.surrealdev.temporal.workflow.WorkflowConditionTimeoutException(
+                throw WorkflowConditionTimeoutException(
                     message = timeoutSummary ?: "Condition wait timed out after $timeout",
                     timeout = timeout,
                     summary = timeoutSummary,
