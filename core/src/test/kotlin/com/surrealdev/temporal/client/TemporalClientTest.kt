@@ -289,4 +289,41 @@ class TemporalClientTest {
             val result: String = retrievedHandle.result(timeout = 30.seconds)
             assertEquals("Hello, Existing!", result)
         }
+
+    @Test
+    fun `can bind to custom IP for cross-container access`() =
+        runTemporalTest(timeSkipping = false, ip = "0.0.0.0") {
+            // Verify targetUrl is accessible - returns host:port format
+            // Note: targetUrl returns the connection address (127.0.0.1:port), not the bind address
+            // The ip="0.0.0.0" makes the server accessible from external hosts, but the
+            // canonical connection address for local use is still 127.0.0.1
+            val url = targetUrl
+            assertNotNull(url)
+            assertTrue(url.contains(":"), "Expected targetUrl to contain host:port, got: $url")
+
+            // Extract port and verify it's a valid number
+            val port = url.substringAfter(":").toIntOrNull()
+            assertNotNull(port, "Expected valid port in targetUrl: $url")
+            assertTrue(port > 0, "Expected positive port number, got: $port")
+
+            val taskQueue = "test-client-custom-ip-${UUID.randomUUID()}"
+
+            application {
+                taskQueue(taskQueue) {
+                    workflow<GreetingWorkflow>()
+                }
+            }
+
+            // Verify workflow still works with custom IP binding
+            val client = client()
+            val handle: WorkflowHandle =
+                client.startWorkflow(
+                    workflowType = "GreetingWorkflow",
+                    taskQueue = taskQueue,
+                    arg = "CrossContainer",
+                )
+
+            val result: String = handle.result(timeout = 30.seconds)
+            assertEquals("Hello, CrossContainer!", result)
+        }
 }

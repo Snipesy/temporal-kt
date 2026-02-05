@@ -78,6 +78,12 @@ class TemporalTestApplicationBuilder internal constructor(
     private var shutdownConfig: ShutdownConfig = ShutdownConfig()
 
     /**
+     * The gRPC target URL for connecting to the ephemeral server.
+     */
+    val targetUrl: String
+        get() = server.targetUrl
+
+    /**
      * The test server instance, if time-skipping is enabled.
      *
      * This is null when using a regular dev server (timeSkipping = false).
@@ -324,13 +330,19 @@ class TemporalTestApplicationBuilder internal constructor(
  * @param timeSkipping If true, starts a test server that automatically skips time
  *                     when workflows are waiting on timers. This allows tests with
  *                     long timers (hours/days) to complete in milliseconds.
+ * @param ip The IP address to bind the server to. Defaults to "127.0.0.1".
+ *           Use "0.0.0.0" to allow connections from Docker containers or external hosts.
+ *           Note: Only supported when timeSkipping = false (dev server). The test server
+ *           does not support custom IP binding.
  * @param searchAttributes Custom search attributes to register with the server.
+ * @throws IllegalArgumentException if ip is specified with timeSkipping = true
  */
 fun runTemporalTest(
     timeSkipping: Boolean = true,
+    ip: String = "127.0.0.1",
     searchAttributes: List<SearchAttributeKey<*>> = emptyList(),
     block: suspend TemporalTestApplicationBuilder.() -> Unit,
-): TestResult = runTemporalTest(EmptyCoroutineContext, timeSkipping, searchAttributes, block)
+): TestResult = runTemporalTest(EmptyCoroutineContext, timeSkipping, ip, searchAttributes, block)
 
 /**
  * Runs a test with an ephemeral Temporal dev server.
@@ -340,12 +352,15 @@ fun runTemporalTest(
  *
  * @param parentCoroutineContext Additional coroutine context elements
  * @param timeSkipping If true, starts a test server that automatically skips time
+ * @param ip The IP address to bind the server to. Defaults to "127.0.0.1".
  * @param searchAttributes Custom search attributes to register with the server.
  * @param block The test block with application configuration and test code
+ * @throws IllegalArgumentException if ip is specified with timeSkipping = true
  */
 fun runTemporalTest(
     parentCoroutineContext: CoroutineContext,
     timeSkipping: Boolean = true,
+    ip: String = "127.0.0.1",
     searchAttributes: List<SearchAttributeKey<*>> = emptyList(),
     block: suspend TemporalTestApplicationBuilder.() -> Unit,
 ): TestResult =
@@ -354,7 +369,13 @@ fun runTemporalTest(
         // (similar to Ktor's runTestWithRealTime)
         // if we don't do this then we can run info FFM issues
         withContext(Dispatchers.Default.limitedParallelism(1)) {
-            runTestApplication(this.coroutineContext + parentCoroutineContext, timeSkipping, searchAttributes, block)
+            runTestApplication(
+                this.coroutineContext + parentCoroutineContext,
+                timeSkipping,
+                ip,
+                searchAttributes,
+                block,
+            )
         }
     }
 
@@ -366,15 +387,27 @@ fun runTemporalTest(
  *
  * @param parentCoroutineContext Additional coroutine context elements
  * @param timeSkipping If true, starts a test server that automatically skips time
+ * @param ip The IP address to bind the server to. Defaults to "127.0.0.1".
+ *           Use "0.0.0.0" to allow connections from Docker containers or external hosts.
+ *           Note: Only supported when timeSkipping = false (dev server).
  * @param searchAttributes Custom search attributes to register with the server.
  * @param block The test block with application configuration and test code
+ * @throws IllegalArgumentException if ip is not "127.0.0.1" with timeSkipping = true
  */
 suspend fun TestScope.runTestApplication(
     parentCoroutineContext: CoroutineContext = EmptyCoroutineContext,
     timeSkipping: Boolean = true,
+    ip: String = "127.0.0.1",
     searchAttributes: List<SearchAttributeKey<*>> = emptyList(),
     block: suspend TemporalTestApplicationBuilder.() -> Unit,
 ) {
+    // Validate ip parameter - test server doesn't support custom IP binding
+    require(!(timeSkipping && ip != "127.0.0.1")) {
+        "Custom IP binding (ip=$ip) is not supported with timeSkipping=true. " +
+            "The test server only supports binding to 127.0.0.1. " +
+            "Use timeSkipping=false with TemporalDevServer for custom IP binding."
+    }
+
     // Convert SearchAttributeKey to CLI args format: name=type
     val searchAttributePairs = searchAttributes.map { it.name to it.typeName }
 
@@ -411,6 +444,7 @@ suspend fun TestScope.runTestApplication(
             TemporalDevServer
                 .start(
                     runtime = runtime,
+                    ip = ip,
                     searchAttributes = searchAttributePairs,
                 ).use { devServer ->
                     val builder =
