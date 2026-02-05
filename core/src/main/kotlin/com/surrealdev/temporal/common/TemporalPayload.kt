@@ -116,6 +116,20 @@ value class TemporalPayload(
                     .build()
             return TemporalPayload(proto)
         }
+
+        fun createFromProtoBytes(data: ByteArray): TemporalPayload {
+            val proto =
+                io.temporal.api.common.v1.Payload
+                    .parseFrom(data)
+            return TemporalPayload(proto)
+        }
+
+        fun createFromProtoStream(input: InputStream): TemporalPayload {
+            val proto =
+                io.temporal.api.common.v1.Payload
+                    .parseFrom(input)
+            return TemporalPayload(proto)
+        }
     }
 
     /** Size of the serialized data in bytes. */
@@ -130,6 +144,19 @@ value class TemporalPayload(
      * Get the data as an InputStream. (avoid copy)
      */
     fun dataInputStream(): InputStream = proto.data.newInput()
+
+    /**
+     * Serialize the entire proto payload to a byte array, including metadata. (use with caution)
+     */
+    val asByteArray: ByteArray
+        get() = proto.toByteArray()
+
+    fun writeTo(output: OutputStream) {
+        proto.writeTo(output)
+    }
+
+    val serializedSize: Int
+        get() = proto.serializedSize
 
     /** Metadata describing how to interpret the data (encoding, type, etc.). */
     val metadata: Map<String, ByteArray>
@@ -178,7 +205,7 @@ fun TemporalPayload.toProto(): io.temporal.api.common.v1.Payload = this.proto
 @JvmInline
 value class TemporalPayloads(
     @PublishedApi internal val proto: io.temporal.api.common.v1.Payloads,
-) {
+) : Iterable<TemporalPayload> {
     companion object {
         /** Empty payloads. */
         val EMPTY: TemporalPayloads =
@@ -197,6 +224,20 @@ value class TemporalPayloads(
                     .newBuilder()
                     .addAllPayloads(payloads.map { it.proto })
                     .build()
+            return TemporalPayloads(proto)
+        }
+
+        fun createFromProtoBytes(data: ByteArray): TemporalPayloads {
+            val proto =
+                io.temporal.api.common.v1.Payloads
+                    .parseFrom(data)
+            return TemporalPayloads(proto)
+        }
+
+        fun createFromProtoStream(input: InputStream): TemporalPayloads {
+            val proto =
+                io.temporal.api.common.v1.Payloads
+                    .parseFrom(input)
             return TemporalPayloads(proto)
         }
     }
@@ -221,6 +262,18 @@ value class TemporalPayloads(
     operator fun get(index: Int): TemporalPayload = TemporalPayload(proto.getPayloads(index))
 
     override fun toString(): String = "TemporalPayloads(size=$size)"
+
+    override fun iterator(): Iterator<TemporalPayload> = payloads.iterator()
+
+    val asByteArray: ByteArray
+        get() = proto.toByteArray()
+
+    val serializedSize: Int
+        get() = proto.serializedSize
+
+    fun writeTo(output: OutputStream) {
+        proto.writeTo(output)
+    }
 }
 
 /**
