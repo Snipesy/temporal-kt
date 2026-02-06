@@ -1,6 +1,7 @@
 package com.surrealdev.temporal.application.plugin
 
 import com.surrealdev.temporal.annotation.TemporalDsl
+import com.surrealdev.temporal.application.TaskQueueBuilder
 import com.surrealdev.temporal.application.TemporalApplication
 import com.surrealdev.temporal.application.plugin.hooks.ActivityTaskContext
 import com.surrealdev.temporal.application.plugin.hooks.ApplicationSetupContext
@@ -38,9 +39,32 @@ abstract class PluginBuilder<PluginConfig : Any> internal constructor(
     val key: AttributeKey<*>,
 ) {
     /**
-     * The application this plugin is being installed into.
+     * The pipeline this plugin is being installed into.
      */
-    abstract val application: TemporalApplication
+    abstract val pipeline: PluginPipeline
+
+    /**
+     * The application this plugin is being installed into.
+     *
+     * For application-level plugins, this is the pipeline itself.
+     * For task-queue-level plugins, this resolves to the parent application.
+     */
+    val application: TemporalApplication
+        get() =
+            when (val p = pipeline) {
+                is TemporalApplication -> {
+                    p
+                }
+
+                is TaskQueueBuilder -> {
+                    p.parentApplication
+                        ?: error("TaskQueueBuilder has no parent application")
+                }
+
+                else -> {
+                    error("Unknown pipeline type: ${p::class}")
+                }
+            }
 
     /**
      * The plugin's configuration.
@@ -118,14 +142,15 @@ abstract class PluginBuilder<PluginConfig : Any> internal constructor(
  */
 class PluginBuilderImpl<PluginConfig : Any>(
     key: AttributeKey<*>,
-    override val application: TemporalApplication,
+    override val pipeline: PluginPipeline,
     override val pluginConfig: PluginConfig,
 ) : PluginBuilder<PluginConfig>(key)
 
 /**
  * Creates an application-level plugin with the given configuration.
  *
- * This is the primary way to create custom plugins for temporal-kt.
+ * For plugins that should be installable at any pipeline level (application or task queue),
+ * use [createScopedPlugin] instead.
  *
  * Example:
  * ```kotlin
@@ -161,7 +186,7 @@ class PluginBuilderImpl<PluginConfig : Any>(
  */
 inline fun <reified TPlugin : Any, TConfig : Any> createApplicationPlugin(
     name: String,
-    crossinline createConfiguration: () -> TConfig = { Unit as TConfig },
+    @Suppress("UNCHECKED_CAST") crossinline createConfiguration: () -> TConfig = { Unit as TConfig },
     crossinline body: PluginBuilder<TConfig>.(TConfig) -> TPlugin,
 ): ApplicationPlugin<TConfig, TPlugin> =
     object : ApplicationPlugin<TConfig, TPlugin> {
@@ -186,18 +211,77 @@ inline fun <reified TPlugin : Any, TConfig : Any> createApplicationPlugin(
     }
 
 /**
+ * Resolves the [HookRegistry] for the given pipeline, if available.
+ */
+@PublishedApi
+internal fun resolveHookRegistry(pipeline: PluginPipeline): HookRegistry? =
+    when (pipeline) {
+        is TemporalApplication -> pipeline.hookRegistry
+        is TaskQueueBuilder -> pipeline.hookRegistry
+        else -> null
+    }
+
+/**
+ * Installs all hooks from a [PluginBuilder] into the given pipeline's hook registry.
+ */
+@PublishedApi
+internal fun installHooks(
+    builder: PluginBuilder<*>,
+    pipeline: PluginPipeline,
+) {
+    val hookRegistry = resolveHookRegistry(pipeline) ?: return
+    builder.hooks.forEach { hookHandler ->
+        @Suppress("UNCHECKED_CAST")
+        hookHandler.install(hookRegistry)
+    }
+}
+
+/**
+ * Creates a scoped plugin that can be installed at any pipeline level.
+ *
+ * This is the primary way to create plugins that work at both application
+ * and task queue levels.
+ *
+ * @param name The plugin name (used for the attribute key)
+ * @param createConfiguration Factory for creating the configuration instance
+ * @param body Builder block for configuring hooks and creating the plugin instance
+ * @return A [ScopedPlugin] instance
+ */
+inline fun <reified TPlugin : Any, TConfig : Any> createScopedPlugin(
+    name: String,
+    @Suppress("UNCHECKED_CAST") crossinline createConfiguration: () -> TConfig = { Unit as TConfig },
+    crossinline body: PluginBuilder<TConfig>.(TConfig) -> TPlugin,
+): ScopedPlugin<TConfig, TPlugin> =
+    object : ScopedPlugin<TConfig, TPlugin> {
+        override val key = AttributeKey<TPlugin>(name = name)
+
+        override fun install(
+            pipeline: PluginPipeline,
+            configure: TConfig.() -> Unit,
+        ): TPlugin {
+            val config = createConfiguration().apply(configure)
+            val builder = PluginBuilderImpl(key, pipeline, config)
+            val plugin = body(builder, config)
+
+            installHooks(builder, pipeline)
+
+            return plugin
+        }
+    }
+
+/**
  * Creates a plugin builder for manual plugin creation.
  *
  * This is a lower-level API used when implementing plugins that need more control
- * over the installation process.
+ * over the installation process. Works with any [PluginPipeline] (application or task queue).
  *
- * @param pipeline The application to install into
+ * @param pipeline The pipeline to install into (e.g. [TemporalApplication] or [TaskQueueBuilder])
  * @param config The plugin configuration
  * @param key The plugin key
  * @return A [PluginBuilder] for registering hooks
  */
 fun <TConfig : Any> createPluginBuilder(
-    pipeline: TemporalApplication,
+    pipeline: PluginPipeline,
     config: TConfig,
     key: AttributeKey<*>,
 ): PluginBuilder<TConfig> = PluginBuilderImpl(key, pipeline, config)

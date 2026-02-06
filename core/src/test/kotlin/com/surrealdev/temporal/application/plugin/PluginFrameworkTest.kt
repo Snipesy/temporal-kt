@@ -167,46 +167,28 @@ class PluginFrameworkTest {
 
     /**
      * Plugin instance that can be installed at both application and task queue level.
-     * Used to test override behavior.
+     * Uses [ScopedPlugin] — a single companion object works at every pipeline level.
      */
     class ConfigurablePlugin(
         val name: String,
-        val scope: String, // "app" or "taskqueue"
+        val scope: String,
     ) {
-        companion object {
-            val key = AttributeKey<ConfigurablePlugin>(name = "ConfigurablePlugin")
+        companion object : ScopedPlugin<ConfigurablePluginConfig, ConfigurablePlugin> {
+            override val key = AttributeKey<ConfigurablePlugin>(name = "ConfigurablePlugin")
 
-            /**
-             * Application-level plugin installer.
-             */
-            val AppLevel =
-                object : ApplicationPlugin<ConfigurablePluginConfig, ConfigurablePlugin> {
-                    override val key = ConfigurablePlugin.key
-
-                    override fun install(
-                        pipeline: TemporalApplication,
-                        configure: ConfigurablePluginConfig.() -> Unit,
-                    ): ConfigurablePlugin {
-                        val config = ConfigurablePluginConfig().apply(configure)
-                        return ConfigurablePlugin(config.name, "app")
+            override fun install(
+                pipeline: PluginPipeline,
+                configure: ConfigurablePluginConfig.() -> Unit,
+            ): ConfigurablePlugin {
+                val config = ConfigurablePluginConfig().apply(configure)
+                val scope =
+                    when (pipeline) {
+                        is TemporalApplication -> "app"
+                        is TaskQueueBuilder -> "taskqueue"
+                        else -> "unknown"
                     }
-                }
-
-            /**
-             * Task-queue-level plugin installer.
-             */
-            val TaskQueueLevel =
-                object : TaskQueueScopedPlugin<ConfigurablePluginConfig, ConfigurablePlugin> {
-                    override val key = ConfigurablePlugin.key
-
-                    override fun install(
-                        pipeline: TaskQueueBuilder,
-                        configure: ConfigurablePluginConfig.() -> Unit,
-                    ): ConfigurablePlugin {
-                        val config = ConfigurablePluginConfig().apply(configure)
-                        return ConfigurablePlugin(config.name, "taskqueue")
-                    }
-                }
+                return ConfigurablePlugin(config.name, scope)
+            }
         }
     }
 
@@ -225,7 +207,7 @@ class PluginFrameworkTest {
             }
 
         // Install plugin at application level
-        app.install(ConfigurablePlugin.AppLevel) {
+        app.install(ConfigurablePlugin) {
             name = "app-level-config"
         }
 
@@ -236,7 +218,7 @@ class PluginFrameworkTest {
         }
 
         // The task queue should inherit the plugin from the application
-        val inheritedPlugin = taskQueueBuilder!!.pluginOrNull(ConfigurablePlugin.AppLevel)
+        val inheritedPlugin = taskQueueBuilder!!.pluginOrNull(ConfigurablePlugin)
         assertNotNull(inheritedPlugin, "Task queue should inherit plugin from application")
         assertEquals("app-level-config", inheritedPlugin.name)
         assertEquals("app", inheritedPlugin.scope, "Should be the app-level instance")
@@ -254,7 +236,7 @@ class PluginFrameworkTest {
 
         // Install plugin at application level
         val appPlugin =
-            app.install(ConfigurablePlugin.AppLevel) {
+            app.install(ConfigurablePlugin) {
                 name = "app-level-config"
             }
 
@@ -262,18 +244,18 @@ class PluginFrameworkTest {
         var taskQueueBuilder: TaskQueueBuilder? = null
         app.taskQueue("test-queue") {
             taskQueueBuilder = this
-            install(ConfigurablePlugin.TaskQueueLevel) {
+            install(ConfigurablePlugin) {
                 name = "taskqueue-level-config"
             }
         }
 
         // The task queue should use its local override, not the app-level one
-        val taskQueuePlugin = taskQueueBuilder!!.plugin(ConfigurablePlugin.AppLevel)
+        val taskQueuePlugin = taskQueueBuilder!!.plugin(ConfigurablePlugin)
         assertEquals("taskqueue-level-config", taskQueuePlugin.name)
         assertEquals("taskqueue", taskQueuePlugin.scope, "Should be the task-queue-level instance")
 
         // The app-level plugin should still be the original
-        val appLevelPlugin = app.plugin(ConfigurablePlugin.AppLevel)
+        val appLevelPlugin = app.plugin(ConfigurablePlugin)
         assertSame(appPlugin, appLevelPlugin)
         assertEquals("app-level-config", appLevelPlugin.name)
     }
@@ -289,7 +271,7 @@ class PluginFrameworkTest {
             }
 
         // Install plugin at application level
-        app.install(ConfigurablePlugin.AppLevel) {
+        app.install(ConfigurablePlugin) {
             name = "app-level"
         }
 
@@ -303,21 +285,21 @@ class PluginFrameworkTest {
         var taskQueueWithOverride: TaskQueueBuilder? = null
         app.taskQueue("queue-with-override") {
             taskQueueWithOverride = this
-            install(ConfigurablePlugin.TaskQueueLevel) {
+            install(ConfigurablePlugin) {
                 name = "taskqueue-level"
             }
         }
 
         // Application has plugin locally
-        assertTrue(app.hasPluginLocally(ConfigurablePlugin.AppLevel))
+        assertTrue(app.hasPluginLocally(ConfigurablePlugin))
 
         // Task queue without override: pluginOrNull returns inherited, hasPluginLocally returns false
-        assertNotNull(taskQueueWithoutOverride!!.pluginOrNull(ConfigurablePlugin.AppLevel))
-        assertFalse(taskQueueWithoutOverride!!.hasPluginLocally(ConfigurablePlugin.AppLevel))
+        assertNotNull(taskQueueWithoutOverride!!.pluginOrNull(ConfigurablePlugin))
+        assertFalse(taskQueueWithoutOverride!!.hasPluginLocally(ConfigurablePlugin))
 
         // Task queue with override: both return true
-        assertNotNull(taskQueueWithOverride!!.pluginOrNull(ConfigurablePlugin.AppLevel))
-        assertTrue(taskQueueWithOverride!!.hasPluginLocally(ConfigurablePlugin.TaskQueueLevel))
+        assertNotNull(taskQueueWithOverride!!.pluginOrNull(ConfigurablePlugin))
+        assertTrue(taskQueueWithOverride!!.hasPluginLocally(ConfigurablePlugin))
     }
 
     @Test
@@ -331,26 +313,26 @@ class PluginFrameworkTest {
             }
 
         // Install plugin at application level
-        app.install(ConfigurablePlugin.AppLevel) {
+        app.install(ConfigurablePlugin) {
             name = "first"
         }
 
         // Installing again at application level should throw
         assertThrows<DuplicatePluginException> {
-            app.install(ConfigurablePlugin.AppLevel) {
+            app.install(ConfigurablePlugin) {
                 name = "second"
             }
         }
 
         // Similarly for task queue level
         app.taskQueue("test-queue") {
-            install(ConfigurablePlugin.TaskQueueLevel) {
+            install(ConfigurablePlugin) {
                 name = "first-in-queue"
             }
 
             // Installing again at same task queue level should throw
             assertThrows<DuplicatePluginException> {
-                install(ConfigurablePlugin.TaskQueueLevel) {
+                install(ConfigurablePlugin) {
                     name = "second-in-queue"
                 }
             }
@@ -374,8 +356,8 @@ class PluginFrameworkTest {
         }
 
         // Both levels should return null
-        assertNull(app.pluginOrNull(ConfigurablePlugin.AppLevel))
-        assertNull(taskQueueBuilder!!.pluginOrNull(ConfigurablePlugin.AppLevel))
+        assertNull(app.pluginOrNull(ConfigurablePlugin))
+        assertNull(taskQueueBuilder!!.pluginOrNull(ConfigurablePlugin))
     }
 
     @Test
@@ -396,11 +378,11 @@ class PluginFrameworkTest {
 
         // Both levels should throw
         assertThrows<MissingPluginException> {
-            app.plugin(ConfigurablePlugin.AppLevel)
+            app.plugin(ConfigurablePlugin)
         }
 
         assertThrows<MissingPluginException> {
-            taskQueueBuilder!!.plugin(ConfigurablePlugin.AppLevel)
+            taskQueueBuilder!!.plugin(ConfigurablePlugin)
         }
     }
 
@@ -415,7 +397,7 @@ class PluginFrameworkTest {
             }
 
         // Install plugin at application level as default
-        app.install(ConfigurablePlugin.AppLevel) {
+        app.install(ConfigurablePlugin) {
             name = "app-default"
         }
 
@@ -429,7 +411,7 @@ class PluginFrameworkTest {
         var queue2: TaskQueueBuilder? = null
         app.taskQueue("queue-2") {
             queue2 = this
-            install(ConfigurablePlugin.TaskQueueLevel) {
+            install(ConfigurablePlugin) {
                 name = "queue-2-custom"
             }
         }
@@ -438,17 +420,96 @@ class PluginFrameworkTest {
         var queue3: TaskQueueBuilder? = null
         app.taskQueue("queue-3") {
             queue3 = this
-            install(ConfigurablePlugin.TaskQueueLevel) {
+            install(ConfigurablePlugin) {
                 name = "queue-3-custom"
             }
         }
 
         // Verify each queue has the expected plugin configuration
-        assertEquals("app-default", queue1!!.plugin(ConfigurablePlugin.AppLevel).name)
-        assertEquals("queue-2-custom", queue2!!.plugin(ConfigurablePlugin.AppLevel).name)
-        assertEquals("queue-3-custom", queue3!!.plugin(ConfigurablePlugin.AppLevel).name)
+        assertEquals("app-default", queue1!!.plugin(ConfigurablePlugin).name)
+        assertEquals("queue-2-custom", queue2!!.plugin(ConfigurablePlugin).name)
+        assertEquals("queue-3-custom", queue3!!.plugin(ConfigurablePlugin).name)
 
         // Verify app-level is unchanged
-        assertEquals("app-default", app.plugin(ConfigurablePlugin.AppLevel).name)
+        assertEquals("app-default", app.plugin(ConfigurablePlugin).name)
+    }
+
+    @Test
+    fun `scoped plugin can be installed directly at task queue level`() {
+        val app =
+            TemporalApplication {
+                connection {
+                    target = "http://localhost:7233"
+                    namespace = "test"
+                }
+            }
+
+        // Install scoped plugin directly on task queue (no app-level install)
+        var taskQueueBuilder: TaskQueueBuilder? = null
+        app.taskQueue("test-queue") {
+            taskQueueBuilder = this
+            install(ConfigurablePlugin) {
+                name = "tq-only"
+            }
+        }
+
+        val tqPlugin = taskQueueBuilder!!.plugin(ConfigurablePlugin)
+        assertEquals("tq-only", tqPlugin.name)
+        assertEquals("taskqueue", tqPlugin.scope)
+
+        // App level should not have it
+        assertNull(app.pluginOrNull(ConfigurablePlugin))
+    }
+
+    @Test
+    fun `scoped plugin installed at app detects correct scope`() {
+        val app =
+            TemporalApplication {
+                connection {
+                    target = "http://localhost:7233"
+                    namespace = "test"
+                }
+            }
+
+        app.install(ConfigurablePlugin) {
+            name = "app-scoped"
+        }
+
+        val plugin = app.plugin(ConfigurablePlugin)
+        assertEquals("app-scoped", plugin.name)
+        assertEquals("app", plugin.scope)
+    }
+
+    @Test
+    fun `scoped plugin at task queue overrides app-level scoped plugin`() {
+        val app =
+            TemporalApplication {
+                connection {
+                    target = "http://localhost:7233"
+                    namespace = "test"
+                }
+            }
+
+        app.install(ConfigurablePlugin) {
+            name = "app-default"
+        }
+
+        var taskQueueBuilder: TaskQueueBuilder? = null
+        app.taskQueue("test-queue") {
+            taskQueueBuilder = this
+            install(ConfigurablePlugin) {
+                name = "tq-override"
+            }
+        }
+
+        // Task queue sees its own override
+        val tqPlugin = taskQueueBuilder!!.plugin(ConfigurablePlugin)
+        assertEquals("tq-override", tqPlugin.name)
+        assertEquals("taskqueue", tqPlugin.scope)
+
+        // App still sees original
+        val appPlugin = app.plugin(ConfigurablePlugin)
+        assertEquals("app-default", appPlugin.name)
+        assertEquals("app", appPlugin.scope)
     }
 }

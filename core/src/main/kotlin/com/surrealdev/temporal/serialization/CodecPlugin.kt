@@ -1,8 +1,8 @@
 package com.surrealdev.temporal.serialization
 
 import com.surrealdev.temporal.annotation.TemporalDsl
-import com.surrealdev.temporal.application.TemporalApplication
-import com.surrealdev.temporal.application.plugin.ApplicationPlugin
+import com.surrealdev.temporal.application.plugin.PluginPipeline
+import com.surrealdev.temporal.application.plugin.ScopedPlugin
 import com.surrealdev.temporal.application.plugin.pluginOrNull
 import com.surrealdev.temporal.serialization.codec.ChainedCodec
 import com.surrealdev.temporal.serialization.codec.CompressionCodec
@@ -13,7 +13,7 @@ import com.surrealdev.temporal.util.AttributeKey
  */
 class CodecPluginInstance internal constructor(
     /**
-     * The configured [PayloadCodec] for the application.
+     * The configured [PayloadCodec] for this pipeline.
      */
     val codec: PayloadCodec,
 )
@@ -133,6 +133,10 @@ class CodecPluginConfig {
  * Codecs transform payloads after serialization (encode) and before deserialization (decode).
  * Common use cases include compression and encryption.
  *
+ * This is a [ScopedPlugin] and can be installed at both the application level and the
+ * task queue level. A task-queue-level install overrides the application-level codec
+ * for that queue only.
+ *
  * Pipeline:
  * ```
  * OUTBOUND: Object -> [PayloadSerializer] -> Payload -> [PayloadCodec.encode] -> Temporal Server
@@ -145,30 +149,27 @@ class CodecPluginConfig {
  *     connection { ... }
  * }
  *
- * // Simple compression
+ * // Application-level (default for all task queues)
  * app.install(CodecPlugin) {
  *     compression(threshold = 1024)
  * }
  *
- * // Chained codecs (compression then encryption)
- * app.install(CodecPlugin) {
- *     chained {
- *         compression()
- *         codec(myEncryptionCodec)
+ * // Task-queue-level override
+ * app.taskQueue("encrypted-queue") {
+ *     install(CodecPlugin) {
+ *         chained {
+ *             compression()
+ *             codec(myEncryptionCodec)
+ *         }
  *     }
- * }
- *
- * // Serialization is configured separately
- * app.install(SerializationPlugin) {
- *     json { ignoreUnknownKeys = true }
  * }
  * ```
  */
-object CodecPlugin : ApplicationPlugin<CodecPluginConfig, CodecPluginInstance> {
+object CodecPlugin : ScopedPlugin<CodecPluginConfig, CodecPluginInstance> {
     override val key: AttributeKey<CodecPluginInstance> = AttributeKey(name = "PayloadCodec")
 
     override fun install(
-        pipeline: TemporalApplication,
+        pipeline: PluginPipeline,
         configure: CodecPluginConfig.() -> Unit,
     ): CodecPluginInstance {
         val config = CodecPluginConfig().apply(configure)
@@ -177,6 +178,9 @@ object CodecPlugin : ApplicationPlugin<CodecPluginConfig, CodecPluginInstance> {
 }
 
 /**
- * Gets the configured [PayloadCodec] from the application, or null if not installed.
+ * Gets the configured [PayloadCodec] from this pipeline, or null if not installed.
+ *
+ * For [com.surrealdev.temporal.application.TaskQueueBuilder], this performs hierarchical lookup
+ * (task queue first, then parent application).
  */
-fun TemporalApplication.payloadCodecOrNull(): PayloadCodec? = pluginOrNull(CodecPlugin)?.codec
+fun PluginPipeline.payloadCodecOrNull(): PayloadCodec? = pluginOrNull(CodecPlugin)?.codec

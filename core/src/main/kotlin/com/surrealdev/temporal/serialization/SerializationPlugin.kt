@@ -1,8 +1,8 @@
 package com.surrealdev.temporal.serialization
 
 import com.surrealdev.temporal.annotation.TemporalDsl
-import com.surrealdev.temporal.application.TemporalApplication
-import com.surrealdev.temporal.application.plugin.ApplicationPlugin
+import com.surrealdev.temporal.application.plugin.PluginPipeline
+import com.surrealdev.temporal.application.plugin.ScopedPlugin
 import com.surrealdev.temporal.application.plugin.pluginOrNull
 import com.surrealdev.temporal.serialization.converter.ByteArrayPayloadConverter
 import com.surrealdev.temporal.serialization.converter.JsonPayloadConverter
@@ -21,32 +21,26 @@ import kotlinx.serialization.json.JsonBuilder
  * `[NullPayloadConverter, JsonPayloadConverter]`. This follows the Temporal SDK convention
  * where each converter handles a specific encoding format.
  *
+ * This is a [ScopedPlugin] and can be installed at both the application level and the
+ * task queue level. A task-queue-level install overrides the application-level serializer
+ * for that queue only.
+ *
  * Usage:
  * ```kotlin
  * val app = TemporalApplication {
  *     connection { ... }
  * }
  *
+ * // Application-level (default for all task queues)
  * app.install(SerializationPlugin) {
- *     // Use default JSON settings (creates [Null, JSON] chain)
  *     json()
+ * }
  *
- *     // Or customize JSON
- *     json {
- *         prettyPrint = false
- *         ignoreUnknownKeys = true
- *         encodeDefaults = true
+ * // Task-queue-level override
+ * app.taskQueue("special-queue") {
+ *     install(SerializationPlugin) {
+ *         json { prettyPrint = true }
  *     }
- *
- *     // Or build an explicit converter chain
- *     converters {
- *         null()
- *         converter(MyProtobufConverter())
- *         json()  // catch-all, should be last
- *     }
- *
- *     // Or use a custom serializer
- *     custom(MyCustomSerializer())
  * }
  * ```
  *
@@ -54,7 +48,7 @@ import kotlinx.serialization.json.JsonBuilder
  */
 class SerializationPluginInstance internal constructor(
     /**
-     * The configured [PayloadSerializer] for the application.
+     * The configured [PayloadSerializer] for this pipeline.
      */
     val serializer: PayloadSerializer,
 )
@@ -179,13 +173,15 @@ class ConverterChainBuilder {
 }
 
 /**
- * Factory for creating the [SerializationPlugin] plugin.
+ * Scoped plugin for configuring payload serialization.
+ *
+ * Can be installed at both the application level and the task queue level.
  */
-object SerializationPlugin : ApplicationPlugin<SerializationPluginConfig, SerializationPluginInstance> {
+object SerializationPlugin : ScopedPlugin<SerializationPluginConfig, SerializationPluginInstance> {
     override val key: AttributeKey<SerializationPluginInstance> = AttributeKey(name = "PayloadSerialization")
 
     override fun install(
-        pipeline: TemporalApplication,
+        pipeline: PluginPipeline,
         configure: SerializationPluginConfig.() -> Unit,
     ): SerializationPluginInstance {
         val config = SerializationPluginConfig().apply(configure)
@@ -194,17 +190,20 @@ object SerializationPlugin : ApplicationPlugin<SerializationPluginConfig, Serial
 }
 
 /**
- * Gets the [PayloadSerializer] from the application's installed plugins.
+ * Gets the [PayloadSerializer] from this pipeline's installed plugins.
+ *
+ * For [com.surrealdev.temporal.application.TaskQueueBuilder], this performs hierarchical lookup
+ * (task queue first, then parent application).
  *
  * If [SerializationPlugin] was not explicitly installed, returns a default
  * [CompositePayloadSerializer] with `[NullPayloadConverter, JsonPayloadConverter]`.
  *
  * @return The configured [PayloadSerializer]
  */
-fun TemporalApplication.payloadSerializer(): PayloadSerializer =
+fun PluginPipeline.payloadSerializer(): PayloadSerializer =
     pluginOrNull(SerializationPlugin)?.serializer ?: CompositePayloadSerializer.default()
 
 /**
  * Gets the [SerializationPluginInstance] if installed, or null.
  */
-fun TemporalApplication.payloadSerializationOrNull(): SerializationPluginInstance? = pluginOrNull(SerializationPlugin)
+fun PluginPipeline.payloadSerializationOrNull(): SerializationPluginInstance? = pluginOrNull(SerializationPlugin)

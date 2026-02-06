@@ -32,7 +32,7 @@ interface PluginPipeline : AttributeScope {
  * @param TConfiguration The configuration type for the plugin
  * @param TPlugin The plugin instance type that is returned after installation
  */
-interface Plugin<TPipeline : PluginPipeline, TConfiguration : Any, TPlugin : Any> {
+interface Plugin<in TPipeline : PluginPipeline, TConfiguration : Any, TPlugin : Any> {
     /**
      * Unique key for identifying this plugin.
      */
@@ -74,3 +74,14 @@ interface ApplicationPlugin<TConfiguration : Any, TPlugin : Any> :
  */
 interface TaskQueueScopedPlugin<TConfiguration : Any, TPlugin : Any> :
     Plugin<TaskQueueBuilder, TConfiguration, TPlugin>
+
+/**
+ * Plugin that can be installed at any pipeline level (application or task queue).
+ *
+ * This follows the Ktor pattern where a plugin declared against the base pipeline type
+ * is installable everywhere via contravariance on [Plugin]'s `TPipeline` parameter.
+ *
+ * @param TConfiguration The configuration type for the plugin
+ * @param TPlugin The plugin instance type
+ */
+interface ScopedPlugin<TConfiguration : Any, TPlugin : Any> : Plugin<PluginPipeline, TConfiguration, TPlugin>
