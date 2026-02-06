@@ -7,7 +7,7 @@ import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.WorkflowRegistration
 import com.surrealdev.temporal.common.toTemporal
-import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
+import com.surrealdev.temporal.serialization.CompositePayloadSerializer
 import com.surrealdev.temporal.serialization.deserialize
 import com.surrealdev.temporal.serialization.serialize
 import com.surrealdev.temporal.testing.ProtoTestHelpers.createActivation
@@ -41,7 +41,7 @@ import kotlin.time.Duration.Companion.seconds
  * 5. Command generation tests: accepted/rejected/completed commands
  */
 class UpdateHandlerTest {
-    private val serializer = KotlinxJsonSerializer()
+    private val serializer = CompositePayloadSerializer.default()
 
     // ================================================================
     // Test Workflow Classes

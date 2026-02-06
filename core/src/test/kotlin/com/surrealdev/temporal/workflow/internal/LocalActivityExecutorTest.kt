@@ -5,7 +5,7 @@ import com.google.protobuf.Timestamp
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.common.toTemporal
-import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
+import com.surrealdev.temporal.serialization.CompositePayloadSerializer
 import com.surrealdev.temporal.testing.ProtoTestHelpers
 import com.surrealdev.temporal.testing.createTestWorkflowExecutor
 import com.surrealdev.temporal.workflow.WorkflowContext
@@ -34,7 +34,7 @@ import kotlin.time.Duration.Companion.seconds
  * - Replay determinism
  */
 class LocalActivityIntegrationTest {
-    private val serializer = KotlinxJsonSerializer()
+    private val serializer = CompositePayloadSerializer.default()
 
     // ================================================================
     // Test Workflows

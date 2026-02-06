@@ -7,7 +7,7 @@ import com.surrealdev.temporal.common.exceptions.ApplicationFailure
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityCancelledException
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityFailureException
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityTimeoutException
-import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
+import com.surrealdev.temporal.serialization.CompositePayloadSerializer
 import com.surrealdev.temporal.workflow.ActivityCancellationType
 import com.surrealdev.temporal.workflow.result
 import coresdk.activity_result.ActivityResult
@@ -27,7 +27,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class RemoteActivityHandleImplTest {
-    private val serializer = KotlinxJsonSerializer()
+    private val serializer = CompositePayloadSerializer.default()
     private val workflowState = WorkflowState("test-run-id")
 
     private fun createHandle(

@@ -8,7 +8,7 @@ import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityCancelledException
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityFailureException
 import com.surrealdev.temporal.common.toTemporal
-import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
+import com.surrealdev.temporal.serialization.CompositePayloadSerializer
 import com.surrealdev.temporal.testing.ProtoTestHelpers.createActivation
 import com.surrealdev.temporal.testing.ProtoTestHelpers.initializeWorkflowJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveActivityJobCancelled
@@ -55,7 +55,7 @@ import kotlin.time.Duration.Companion.seconds
  * Sprint 9: Activation-based unit tests for activity invocation
  */
 class ActivityActivationTest {
-    private val serializer = KotlinxJsonSerializer()
+    private val serializer = CompositePayloadSerializer.default()
 
     // ================================================================
     // Test Data Classes

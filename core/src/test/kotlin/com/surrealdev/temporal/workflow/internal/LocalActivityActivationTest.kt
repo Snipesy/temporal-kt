@@ -7,7 +7,7 @@ import com.surrealdev.temporal.common.exceptions.WorkflowActivityCancelledExcept
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityFailureException
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityTimeoutException
 import com.surrealdev.temporal.common.toTemporal
-import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
+import com.surrealdev.temporal.serialization.CompositePayloadSerializer
 import com.surrealdev.temporal.testing.ProtoTestHelpers.createActivation
 import com.surrealdev.temporal.testing.ProtoTestHelpers.fireTimerJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.initializeWorkflowJob
@@ -47,7 +47,7 @@ import kotlin.time.Duration.Companion.seconds
  * - Command generation for ScheduleLocalActivity
  */
 class LocalActivityActivationTest {
-    private val serializer = KotlinxJsonSerializer()
+    private val serializer = CompositePayloadSerializer.default()
 
     // ================================================================
     // Test Workflows

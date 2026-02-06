@@ -2,7 +2,7 @@ package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityCancelledException
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityFailureException
-import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
+import com.surrealdev.temporal.serialization.CompositePayloadSerializer
 import com.surrealdev.temporal.testing.ProtoTestHelpers.timestamp
 import com.surrealdev.temporal.workflow.ActivityCancellationType
 import com.surrealdev.temporal.workflow.result
@@ -105,7 +105,7 @@ class WorkflowStateTest {
     fun `registerActivity throws ReadOnlyContextException when isReadOnly is true`() {
         val state = WorkflowState("test-run-id")
         state.isReadOnly = true
-        val serializer = KotlinxJsonSerializer()
+        val serializer = CompositePayloadSerializer.default()
 
         val handle =
             RemoteActivityHandleImpl(
@@ -128,7 +128,7 @@ class WorkflowStateTest {
     fun `registerActivity stores handle when isReadOnly is false`() {
         val state = WorkflowState("test-run-id")
         state.isReadOnly = false
-        val serializer = KotlinxJsonSerializer()
+        val serializer = CompositePayloadSerializer.default()
 
         val handle =
             RemoteActivityHandleImpl(
@@ -437,7 +437,7 @@ class WorkflowStateTest {
         runTest {
             val state = WorkflowState("test-run-id")
             state.isReadOnly = false
-            val serializer = KotlinxJsonSerializer()
+            val serializer = CompositePayloadSerializer.default()
 
             val handle =
                 RemoteActivityHandleImpl(
@@ -474,7 +474,7 @@ class WorkflowStateTest {
         runTest {
             val state = WorkflowState("test-run-id")
             state.isReadOnly = false
-            val serializer = KotlinxJsonSerializer()
+            val serializer = CompositePayloadSerializer.default()
 
             val handle =
                 RemoteActivityHandleImpl(
@@ -521,7 +521,7 @@ class WorkflowStateTest {
         runTest {
             val state = WorkflowState("test-run-id")
             state.isReadOnly = false
-            val serializer = KotlinxJsonSerializer()
+            val serializer = CompositePayloadSerializer.default()
 
             val handle =
                 RemoteActivityHandleImpl(
@@ -572,7 +572,7 @@ class WorkflowStateTest {
         runTest {
             val state = WorkflowState("test-run-id")
             state.isReadOnly = false
-            val serializer = KotlinxJsonSerializer()
+            val serializer = CompositePayloadSerializer.default()
 
             val handle =
                 RemoteActivityHandleImpl(
@@ -700,7 +700,7 @@ class WorkflowStateTest {
         runTest {
             val state = WorkflowState("test-run-id")
             state.isReadOnly = false
-            val serializer = KotlinxJsonSerializer()
+            val serializer = CompositePayloadSerializer.default()
 
             // Register various operations
             val timerDeferred = state.registerTimer(1)
@@ -935,7 +935,7 @@ class WorkflowStateTest {
         runTest {
             val state = WorkflowState("test-run")
             state.isReadOnly = false
-            val serializer = KotlinxJsonSerializer()
+            val serializer = CompositePayloadSerializer.default()
 
             val handle =
                 RemoteActivityHandleImpl(
@@ -968,7 +968,7 @@ class WorkflowStateTest {
         runTest {
             val state = WorkflowState("test-run")
             state.isReadOnly = false
-            val serializer = KotlinxJsonSerializer()
+            val serializer = CompositePayloadSerializer.default()
 
             val handle =
                 RemoteActivityHandleImpl(
@@ -1029,7 +1029,7 @@ class WorkflowStateTest {
         runTest {
             val state = WorkflowState("test-run")
             state.isReadOnly = false
-            val serializer = KotlinxJsonSerializer()
+            val serializer = CompositePayloadSerializer.default()
 
             val handle =
                 RemoteActivityHandleImpl(
@@ -1052,7 +1052,7 @@ class WorkflowStateTest {
         runTest {
             val state = WorkflowState("test-run")
             state.isReadOnly = false
-            val serializer = KotlinxJsonSerializer()
+            val serializer = CompositePayloadSerializer.default()
 
             val handle1 =
                 RemoteActivityHandleImpl(

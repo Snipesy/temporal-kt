@@ -54,13 +54,59 @@ install(SerializationPlugin) {
 }
 ```
 
-### Custom Temporal Serializer
+### Converter Chain
 
-Implement `PayloadSerializer` for other formats. Use `TemporalPayload.create()` to build payloads
-without touching protobuf types directly:
+Serialization uses an ordered chain of `PayloadConverter`s, following the Temporal SDK convention:
+- **Serialization**: first-match-wins (converters tried in order)
+- **Deserialization**: encoding-based lookup (payload's `encoding` metadata selects the converter)
+
+The default chain is `[NullPayloadConverter, JsonPayloadConverter]`.
+
+To add custom converters (e.g., protobuf, binary), use the `converters` DSL:
 
 ```kotlin
-class MyProtobufSerializer : PayloadSerializer {
+install(SerializationPlugin) {
+    converters {
+        null()                                   // binary/null
+        byteArray()                              // binary/plain
+        converter(MyProtobufPayloadConverter())  // binary/protobuf
+        json { ignoreUnknownKeys = true }        // json/plain (catch-all, must be last)
+    }
+}
+```
+
+### Custom PayloadConverter
+
+Implement `PayloadConverter` for a specific encoding format. Return `null` from `toPayload()` if
+this converter cannot handle the value — the next converter in the chain will be tried:
+
+```kotlin
+class ProtobufPayloadConverter : PayloadConverter {
+    override val encoding = "binary/protobuf"
+
+    override fun toPayload(typeInfo: KType, value: Any?): TemporalPayload? {
+        if (value !is Message) return null  // Can't handle, skip to next
+        val metadata = mapOf(
+            TemporalPayload.METADATA_ENCODING to TemporalByteString.fromUtf8(encoding),
+        )
+        return TemporalPayload.create(metadata) { stream ->
+            value.writeTo(stream)
+        }
+    }
+
+    override fun fromPayload(typeInfo: KType, payload: TemporalPayload): Any? {
+        // Only called when encoding matches "binary/protobuf"
+        return parseFrom(typeInfo, payload.dataInputStream())
+    }
+}
+```
+
+### Custom PayloadSerializer
+
+For full control, implement `PayloadSerializer` directly. This bypasses the converter chain:
+
+```kotlin
+class MyCustomSerializer : PayloadSerializer {
     override fun serialize(typeInfo: KType, value: Any?): TemporalPayload {
         if (value == null) {
             return TemporalPayload.create(
@@ -70,7 +116,6 @@ class MyProtobufSerializer : PayloadSerializer {
         val metadata = mapOf(
             TemporalPayload.METADATA_ENCODING to TemporalByteString.fromUtf8(TemporalPayload.ENCODING_BINARY),
         )
-        // Write directly to the payload's data stream — no intermediate copies
         return TemporalPayload.create(metadata) { stream ->
             myEncode(value, stream)
         }
@@ -78,7 +123,6 @@ class MyProtobufSerializer : PayloadSerializer {
 
     override fun deserialize(typeInfo: KType, payload: TemporalPayload): Any? {
         if (payload.encoding == TemporalPayload.ENCODING_NULL) return null
-        // Read directly from the payload's data stream
         return myDecode(typeInfo, payload.dataInputStream())
     }
 }
@@ -88,7 +132,7 @@ Install it:
 
 ```kotlin
 install(SerializationPlugin) {
-    custom(MyProtobufSerializer())
+    custom(MyCustomSerializer())
 }
 ```
 

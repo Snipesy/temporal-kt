@@ -6,7 +6,7 @@ import com.surrealdev.temporal.annotation.TemporalDsl
 import com.surrealdev.temporal.client.internal.WorkflowServiceClient
 import com.surrealdev.temporal.common.SearchAttributeEncoder
 import com.surrealdev.temporal.core.TemporalCoreClient
-import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
+import com.surrealdev.temporal.serialization.CompositePayloadSerializer
 import com.surrealdev.temporal.serialization.NoOpCodec
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
@@ -154,7 +154,7 @@ interface TemporalClient {
         fun create(
             coreClient: TemporalCoreClient,
             namespace: String = "default",
-            serializer: PayloadSerializer = KotlinxJsonSerializer.default(),
+            serializer: PayloadSerializer = CompositePayloadSerializer.default(),
             codec: PayloadCodec = NoOpCodec,
         ): TemporalClient {
             val config =
@@ -199,7 +199,7 @@ interface TemporalClient {
          * @return A connected TemporalClient.
          */
         suspend fun connect(
-            serializer: PayloadSerializer = KotlinxJsonSerializer.default(),
+            serializer: PayloadSerializer = CompositePayloadSerializer.default(),
             codec: PayloadCodec = NoOpCodec,
             configure: TemporalClientConfig.() -> Unit,
         ): TemporalClient {

@@ -1,7 +1,7 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.common.TemporalPayload
-import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
+import com.surrealdev.temporal.serialization.CompositePayloadSerializer
 import com.surrealdev.temporal.testing.runWorkflowUnitTest
 import com.surrealdev.temporal.util.Attributes
 import com.surrealdev.temporal.util.SimpleAttributeScope
@@ -31,7 +31,7 @@ import kotlin.time.Instant
  * - Happy Path
  */
 class WorkflowContextImplStartActivityTest {
-    private val serializer = KotlinxJsonSerializer()
+    private val serializer = CompositePayloadSerializer.default()
 
     private fun createContext(): WorkflowContextImpl {
         val state = WorkflowState("test-run-id")

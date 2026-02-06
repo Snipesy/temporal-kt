@@ -4,7 +4,7 @@ import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.toTemporal
-import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
+import com.surrealdev.temporal.serialization.CompositePayloadSerializer
 import com.surrealdev.temporal.testing.ProtoTestHelpers.createActivation
 import com.surrealdev.temporal.testing.ProtoTestHelpers.initializeWorkflowJob
 import com.surrealdev.temporal.testing.createTestWorkflowExecutor
@@ -36,7 +36,7 @@ import kotlin.time.Duration.Companion.seconds
  * - Determinism across replay
  */
 class ContinueAsNewActivationTest {
-    private val serializer = KotlinxJsonSerializer()
+    private val serializer = CompositePayloadSerializer.default()
 
     // ================================================================
     // Test Data Classes

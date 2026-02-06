@@ -1,6 +1,6 @@
 package com.surrealdev.temporal.workflow.internal
 
-import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
+import com.surrealdev.temporal.serialization.CompositePayloadSerializer
 import com.surrealdev.temporal.testing.ProtoTestHelpers.createActivation
 import com.surrealdev.temporal.testing.ProtoTestHelpers.initializeWorkflowJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.queryWorkflowJob
@@ -75,7 +75,7 @@ class QueryBehaviorTest {
                         seq = 1,
                         activityType = "Test::run",
                         state = state,
-                        serializer = KotlinxJsonSerializer(),
+                        serializer = CompositePayloadSerializer.default(),
                         cancellationType = com.surrealdev.temporal.workflow.ActivityCancellationType.TRY_CANCEL,
                     )
                 state.registerActivity(1, handle)

@@ -1,7 +1,7 @@
 package com.surrealdev.temporal.testing
 
 import com.surrealdev.temporal.application.TemporalApplication
-import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
+import com.surrealdev.temporal.serialization.CompositePayloadSerializer
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.util.AttributeScope
 import com.surrealdev.temporal.util.Attributes
@@ -29,7 +29,7 @@ internal fun createStubApplication(): TemporalApplication =
  *
  * @param runId The workflow run ID
  * @param methodInfo The workflow method info
- * @param serializer Optional serializer (defaults to KotlinxJsonSerializer)
+ * @param serializer Optional serializer (defaults to CompositePayloadSerializer)
  * @param taskQueue Optional task queue name (defaults to "test-task-queue")
  * @param namespace Optional namespace (defaults to "default")
  * @param taskQueueScope Optional task queue scope (defaults to simple scope with stub app as parent)
@@ -38,7 +38,7 @@ internal fun createStubApplication(): TemporalApplication =
 internal fun createTestWorkflowExecutor(
     runId: String = "test-run-id",
     methodInfo: WorkflowMethodInfo,
-    serializer: PayloadSerializer = KotlinxJsonSerializer(),
+    serializer: PayloadSerializer = CompositePayloadSerializer.default(),
     taskQueue: String = "test-task-queue",
     namespace: String = "default",
     taskQueueScope: AttributeScope =

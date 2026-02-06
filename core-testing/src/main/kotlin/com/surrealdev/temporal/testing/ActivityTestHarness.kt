@@ -8,7 +8,7 @@ import com.surrealdev.temporal.annotation.TemporalDsl
 import com.surrealdev.temporal.application.plugin.PluginPipeline
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.exceptions.ActivityCancelledException
-import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
+import com.surrealdev.temporal.serialization.CompositePayloadSerializer
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.serialization.deserialize
 import com.surrealdev.temporal.util.AttributeScope
@@ -91,9 +91,9 @@ import kotlin.time.Instant
 class ActivityTestHarness(
     /**
      * The serializer used for heartbeat detail serialization.
-     * Defaults to [KotlinxJsonSerializer].
+t     * Defaults to [CompositePayloadSerializer].
      */
-    val serializer: PayloadSerializer = KotlinxJsonSerializer(),
+    val serializer: PayloadSerializer = CompositePayloadSerializer.default(),
 ) : PluginPipeline {
     private val heartbeatsList = mutableListOf<Any?>()
     private var cancellationRequested = false

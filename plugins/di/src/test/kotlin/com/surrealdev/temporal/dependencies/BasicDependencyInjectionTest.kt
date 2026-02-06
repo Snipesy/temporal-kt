@@ -7,7 +7,7 @@ import com.surrealdev.temporal.application.TemporalApplication
 import com.surrealdev.temporal.application.taskQueue
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
-import com.surrealdev.temporal.serialization.KotlinxJsonSerializer
+import com.surrealdev.temporal.serialization.CompositePayloadSerializer
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.util.AttributeScope
 import com.surrealdev.temporal.util.Attributes
@@ -879,7 +879,7 @@ class BasicDependencyInjectionTest {
         override val isWorkflowContext: Boolean = true
 
         // Required WorkflowContext properties
-        override val serializer: PayloadSerializer = KotlinxJsonSerializer()
+        override val serializer: PayloadSerializer = CompositePayloadSerializer.default()
         override val info: WorkflowInfo =
             WorkflowInfo(
                 workflowId = "test-workflow-id",
@@ -981,7 +981,7 @@ class BasicDependencyInjectionTest {
         override val isWorkflowContext: Boolean = false
 
         // Required ActivityContext properties
-        override val serializer: PayloadSerializer = KotlinxJsonSerializer()
+        override val serializer: PayloadSerializer = CompositePayloadSerializer.default()
         override val info: ActivityInfo =
             ActivityInfo(
                 activityId = "test-activity-id",

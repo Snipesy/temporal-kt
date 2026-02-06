@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.surrealdev.temporal.serialization.CompositePayloadSerializer
 import com.surrealdev.temporal.testing.ProtoTestHelpers.cancelWorkflowJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.createActivation
 import com.surrealdev.temporal.testing.ProtoTestHelpers.fireTimerJob
@@ -92,9 +93,7 @@ class WorkflowActivationProcessingTest {
                     seq = 2,
                     activityType = "Test::run",
                     state = state,
-                    serializer =
-                        com.surrealdev.temporal.serialization
-                            .KotlinxJsonSerializer(),
+                    serializer = CompositePayloadSerializer.default(),
                     cancellationType = com.surrealdev.temporal.workflow.ActivityCancellationType.TRY_CANCEL,
                 )
             state.registerActivity(2, activityHandle)
