@@ -34,7 +34,7 @@ class MyActivityImpl : MyActivity {
 }
 
 fun TemporalApplication.myMainModule() {
-    install(PayloadSerialization) { json() }
+    install(SerializationPlugin) { json() }
     taskQueue("my-task-queue") {
         workflow<MyWorkflowImpl>()
         activity(MyActivityImpl())

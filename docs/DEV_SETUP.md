@@ -73,7 +73,7 @@ class MyActivity {
 }
 
 fun TemporalApplication.module() {
-    install(PayloadSerialization) { json() }
+    install(SerializationPlugin) { json() }
     taskQueue("my-queue") {
         workflow<MyWorkflow>()
         activity(MyActivity())
@@ -87,7 +87,7 @@ Temporal TKT-0003 is currently not implemented, and will require Kotlin FIR inte
 
 ```kotlin
 fun TemporalApplication.module() {
-    install(PayloadSerialization) { json() }
+    install(SerializationPlugin) { json() }
     taskQueue("my-queue") {
         workflow<WorkflowArg>("MyWorkflow") { arg ->
             val greeting = activity<String>("MyActivity") { name ->

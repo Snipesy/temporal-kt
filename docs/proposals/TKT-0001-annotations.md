@@ -27,7 +27,7 @@ class MyActivity {
 }
 
 fun TemporalApplication.myMainModule() {
-    install(PayloadSerialization) {
+    install(SerializationPlugin) {
         json {
             prettyPrint = true
             encodeDefaults = true

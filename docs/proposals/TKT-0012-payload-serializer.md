@@ -18,7 +18,7 @@ avoiding type erasure issues.
 
 ```kotlin
 fun TemporalApplication.module() {
-    install(PayloadSerialization) {
+    install(SerializationPlugin) {
         json()  // kotlinx.serialization JSON (default)
     }
 }
@@ -29,7 +29,7 @@ fun TemporalApplication.module() {
 ### JSON (Default)
 
 ```kotlin
-install(PayloadSerialization) {
+install(SerializationPlugin) {
     json {
         prettyPrint = false
         encodeDefaults = true
@@ -67,7 +67,7 @@ class MessagePackSerializer : PayloadSerializer {
 }
 
 // Usage
-install(PayloadSerialization) {
+install(SerializationPlugin) {
     custom(MessagePackSerializer())
 }
 ```
@@ -75,7 +75,7 @@ install(PayloadSerialization) {
 ## Contextual Serializers (kotlinx)
 
 ```kotlin
-install(PayloadSerialization) {
+install(SerializationPlugin) {
     json {
         serializersModule = SerializersModule {
             contextual(UUID::class, UUIDSerializer)

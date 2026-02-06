@@ -101,15 +101,15 @@ val codec = ChainedCodec(listOf(
 
 ```kotlin
 fun TemporalApplication.module() {
-    install(PayloadCodecPlugin) {
-        codec = EncryptionCodec(
+    install(CodecPlugin) {
+        custom(EncryptionCodec(
             keyId = "production-key",
             keyProvider = { kmsClient.getKey("production-key") }
-        )
+        ))
     }
 
     // Or with chaining
-    install(PayloadCodecPlugin) {
+    install(CodecPlugin) {
         chained {
             compression(threshold = 512)
             codec(EncryptionCodec(keyId = "production-key") { kmsClient.getKey(it) })
@@ -135,8 +135,8 @@ fun TemporalApplication.module() {
 ```kotlin
 @Test
 fun `test workflow with encryption`() = testTemporalApplication {
-    install(PayloadCodecPlugin) {
-        codec = EncryptionCodec(keyId = "test-key") { testKey }
+    install(CodecPlugin) {
+        custom(EncryptionCodec(keyId = "test-key") { testKey })
     }
 
     application {

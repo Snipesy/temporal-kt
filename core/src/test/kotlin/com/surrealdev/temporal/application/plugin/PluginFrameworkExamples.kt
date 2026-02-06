@@ -154,8 +154,8 @@ object PluginFrameworkExamples {
             logActivityTasks = false
         }
 
-        // Install PayloadSerialization using new framework
-        app.install(com.surrealdev.temporal.serialization.PayloadSerialization) {
+        // Install SerializationPlugin using new framework
+        app.install(com.surrealdev.temporal.serialization.SerializationPlugin) {
             json {
                 prettyPrint = false
                 ignoreUnknownKeys = true

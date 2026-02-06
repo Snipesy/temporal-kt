@@ -11,7 +11,7 @@ import com.surrealdev.temporal.util.AttributeKey
 /**
  * Plugin instance containing the configured codec.
  */
-class PayloadCodecPluginInstance internal constructor(
+class CodecPluginInstance internal constructor(
     /**
      * The configured [PayloadCodec] for the application.
      */
@@ -52,18 +52,18 @@ class ChainedCodecBuilder {
 }
 
 /**
- * Configuration DSL for [PayloadCodecPlugin].
+ * Configuration DSL for [CodecPlugin].
  *
  * Example with single codec:
  * ```kotlin
- * app.install(PayloadCodecPlugin) {
+ * app.install(CodecPlugin) {
  *     compression(threshold = 1024)
  * }
  * ```
  *
  * Example with chained codecs:
  * ```kotlin
- * app.install(PayloadCodecPlugin) {
+ * app.install(CodecPlugin) {
  *     chained {
  *         compression()
  *         codec(myEncryptionCodec)
@@ -73,17 +73,14 @@ class ChainedCodecBuilder {
  *
  * Example with custom codec:
  * ```kotlin
- * app.install(PayloadCodecPlugin) {
- *     codec = myCustomCodec
+ * app.install(CodecPlugin) {
+ *     custom(myCustomCodec)
  * }
  * ```
  */
 @TemporalDsl
-class PayloadCodecConfig {
-    /**
-     * The codec to use. Can be set directly or configured via DSL methods.
-     */
-    var codec: PayloadCodec? = null
+class CodecPluginConfig {
+    private var codec: PayloadCodec? = null
 
     /**
      * Configures GZIP compression codec.
@@ -95,6 +92,15 @@ class PayloadCodecConfig {
      */
     fun compression(threshold: Int = 256) {
         codec = CompressionCodec(threshold = threshold)
+    }
+
+    /**
+     * Use a custom [PayloadCodec] implementation.
+     *
+     * @param customCodec The custom codec to use
+     */
+    fun custom(customCodec: PayloadCodec) {
+        codec = customCodec
     }
 
     /**
@@ -115,9 +121,9 @@ class PayloadCodecConfig {
         codec = ChainedCodecBuilder().apply(configure).build()
     }
 
-    internal fun build(): PayloadCodecPluginInstance {
+    internal fun build(): CodecPluginInstance {
         val effectiveCodec = codec ?: NoOpCodec
-        return PayloadCodecPluginInstance(effectiveCodec)
+        return CodecPluginInstance(effectiveCodec)
     }
 }
 
@@ -140,12 +146,12 @@ class PayloadCodecConfig {
  * }
  *
  * // Simple compression
- * app.install(PayloadCodecPlugin) {
+ * app.install(CodecPlugin) {
  *     compression(threshold = 1024)
  * }
  *
  * // Chained codecs (compression then encryption)
- * app.install(PayloadCodecPlugin) {
+ * app.install(CodecPlugin) {
  *     chained {
  *         compression()
  *         codec(myEncryptionCodec)
@@ -153,19 +159,19 @@ class PayloadCodecConfig {
  * }
  *
  * // Serialization is configured separately
- * app.install(PayloadSerialization) {
+ * app.install(SerializationPlugin) {
  *     json { ignoreUnknownKeys = true }
  * }
  * ```
  */
-object PayloadCodecPlugin : ApplicationPlugin<PayloadCodecConfig, PayloadCodecPluginInstance> {
-    override val key: AttributeKey<PayloadCodecPluginInstance> = AttributeKey(name = "PayloadCodec")
+object CodecPlugin : ApplicationPlugin<CodecPluginConfig, CodecPluginInstance> {
+    override val key: AttributeKey<CodecPluginInstance> = AttributeKey(name = "PayloadCodec")
 
     override fun install(
         pipeline: TemporalApplication,
-        configure: PayloadCodecConfig.() -> Unit,
-    ): PayloadCodecPluginInstance {
-        val config = PayloadCodecConfig().apply(configure)
+        configure: CodecPluginConfig.() -> Unit,
+    ): CodecPluginInstance {
+        val config = CodecPluginConfig().apply(configure)
         return config.build()
     }
 }
@@ -173,4 +179,4 @@ object PayloadCodecPlugin : ApplicationPlugin<PayloadCodecConfig, PayloadCodecPl
 /**
  * Gets the configured [PayloadCodec] from the application, or null if not installed.
  */
-fun TemporalApplication.payloadCodecOrNull(): PayloadCodec? = pluginOrNull(PayloadCodecPlugin)?.codec
+fun TemporalApplication.payloadCodecOrNull(): PayloadCodec? = pluginOrNull(CodecPlugin)?.codec

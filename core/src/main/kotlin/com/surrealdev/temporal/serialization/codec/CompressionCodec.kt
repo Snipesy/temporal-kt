@@ -24,7 +24,7 @@ private val ENCODING_GZIP_BYTES = TemporalByteString.fromUtf8(ENCODING_GZIP)
  *
  * Usage:
  * ```kotlin
- * app.install(PayloadCodecPlugin) {
+ * app.install(CodecPlugin) {
  *     compression(threshold = 1024)  // Only compress payloads > 1KB
  * }
  * ```

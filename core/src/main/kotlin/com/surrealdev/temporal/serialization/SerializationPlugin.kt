@@ -20,7 +20,7 @@ import kotlinx.serialization.json.JsonBuilder
  *     connection { ... }
  * }
  *
- * app.install(PayloadSerialization) {
+ * app.install(SerializationPlugin) {
  *     // Use default JSON settings
  *     json()
  *
@@ -38,7 +38,7 @@ import kotlinx.serialization.json.JsonBuilder
  *
  * If not installed, a default [KotlinxJsonSerializer] with sensible defaults is used.
  */
-class PayloadSerializationPlugin internal constructor(
+class SerializationPluginInstance internal constructor(
     /**
      * The configured [PayloadSerializer] for the application.
      */
@@ -46,10 +46,10 @@ class PayloadSerializationPlugin internal constructor(
 )
 
 /**
- * Configuration DSL for [PayloadSerialization].
+ * Configuration DSL for [SerializationPlugin].
  */
 @TemporalDsl
-class PayloadSerializationConfig {
+class SerializationPluginConfig {
     private var serializer: PayloadSerializer? = null
 
     /**
@@ -90,24 +90,24 @@ class PayloadSerializationConfig {
         TODO("Composite serializer support")
     }
 
-    internal fun build(): PayloadSerializationPlugin {
+    internal fun build(): SerializationPluginInstance {
         // If no serializer was configured, use defaults
         val effectiveSerializer = serializer ?: KotlinxJsonSerializer.default()
-        return PayloadSerializationPlugin(effectiveSerializer)
+        return SerializationPluginInstance(effectiveSerializer)
     }
 }
 
 /**
- * Factory for creating the [PayloadSerialization] plugin.
+ * Factory for creating the [SerializationPlugin] plugin.
  */
-object PayloadSerialization : ApplicationPlugin<PayloadSerializationConfig, PayloadSerializationPlugin> {
-    override val key: AttributeKey<PayloadSerializationPlugin> = AttributeKey(name = "PayloadSerialization")
+object SerializationPlugin : ApplicationPlugin<SerializationPluginConfig, SerializationPluginInstance> {
+    override val key: AttributeKey<SerializationPluginInstance> = AttributeKey(name = "PayloadSerialization")
 
     override fun install(
         pipeline: TemporalApplication,
-        configure: PayloadSerializationConfig.() -> Unit,
-    ): PayloadSerializationPlugin {
-        val config = PayloadSerializationConfig().apply(configure)
+        configure: SerializationPluginConfig.() -> Unit,
+    ): SerializationPluginInstance {
+        val config = SerializationPluginConfig().apply(configure)
         return config.build()
     }
 }
@@ -115,14 +115,14 @@ object PayloadSerialization : ApplicationPlugin<PayloadSerializationConfig, Payl
 /**
  * Gets the [PayloadSerializer] from the application's installed plugins.
  *
- * If [PayloadSerialization] was not explicitly installed, returns a default serializer.
+ * If [SerializationPlugin] was not explicitly installed, returns a default serializer.
  *
  * @return The configured [PayloadSerializer]
  */
 fun TemporalApplication.payloadSerializer(): PayloadSerializer =
-    pluginOrNull(PayloadSerialization)?.serializer ?: KotlinxJsonSerializer.default()
+    pluginOrNull(SerializationPlugin)?.serializer ?: KotlinxJsonSerializer.default()
 
 /**
- * Gets the [PayloadSerializationPlugin] if installed, or null.
+ * Gets the [SerializationPluginInstance] if installed, or null.
  */
-fun TemporalApplication.payloadSerializationOrNull(): PayloadSerializationPlugin? = pluginOrNull(PayloadSerialization)
+fun TemporalApplication.payloadSerializationOrNull(): SerializationPluginInstance? = pluginOrNull(SerializationPlugin)

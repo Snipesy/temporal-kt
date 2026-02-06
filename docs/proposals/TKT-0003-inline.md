@@ -5,7 +5,7 @@ inline them with their usage.
 
 ```kotlin
 fun TemporalApplication.myMainModule() {
-    install(PayloadSerialization) {
+    install(SerializationPlugin) {
         json {
             prettyPrint = true
             encodeDefaults = true
@@ -87,7 +87,7 @@ And the actual application module would register these generated classes instead
 ```kotlin
 // During Compilation
 fun TemporalApplication.myMainModule() {
-    install(PayloadSerialization) {
+    install(SerializationPlugin) {
         json {
             prettyPrint = true
             encodeDefaults = true

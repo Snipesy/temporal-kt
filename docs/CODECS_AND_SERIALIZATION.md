@@ -15,7 +15,7 @@ By default, Temporal-Kt uses kotlinx.serialization with JSON. No configuration r
 ### Configure JSON
 
 ```kotlin
-install(PayloadSerialization) {
+install(SerializationPlugin) {
     json {
         prettyPrint = true
         ignoreUnknownKeys = true
@@ -47,7 +47,7 @@ val module = SerializersModule {
     contextual(UUID::class, UUIDSerializer)
 }
 
-install(PayloadSerialization) {
+install(SerializationPlugin) {
     json {
         serializersModule = module
     }
@@ -87,7 +87,7 @@ class MyProtobufSerializer : PayloadSerializer {
 Install it:
 
 ```kotlin
-install(PayloadSerialization) {
+install(SerializationPlugin) {
     custom(MyProtobufSerializer())
 }
 ```
@@ -101,7 +101,7 @@ Codecs transform payloads after serialization. Use them for compression or encry
 Compress large payloads with GZIP:
 
 ```kotlin
-install(PayloadCodecPlugin) {
+install(CodecPlugin) {
     compression(threshold = 1024)  // Only compress payloads > 1KB
 }
 ```
@@ -145,8 +145,8 @@ class EncryptionCodec(private val keyProvider: KeyProvider) : PayloadCodec {
 Install it:
 
 ```kotlin
-install(PayloadCodecPlugin) {
-    codec = EncryptionCodec(keyProvider)
+install(CodecPlugin) {
+    custom(EncryptionCodec(keyProvider))
 }
 ```
 
@@ -155,7 +155,7 @@ install(PayloadCodecPlugin) {
 Chain multiple codecs together. Order matters—encode applies left-to-right, decode applies right-to-left:
 
 ```kotlin
-install(PayloadCodecPlugin) {
+install(CodecPlugin) {
     chained {
         compression(threshold = 512)  // First: compress
         codec(EncryptionCodec(key))   // Then: encrypt
@@ -170,11 +170,11 @@ install(PayloadCodecPlugin) {
 ```kotlin
 fun main() {
     embeddedTemporal(module = {
-        install(PayloadSerialization) {
+        install(SerializationPlugin) {
             json { ignoreUnknownKeys = true }
         }
 
-        install(PayloadCodecPlugin) {
+        install(CodecPlugin) {
             compression(threshold = 1024)
         }
 
@@ -190,11 +190,11 @@ Or in a config-driven module:
 
 ```kotlin
 fun TemporalApplication.ordersModule() {
-    install(PayloadSerialization) {
+    install(SerializationPlugin) {
         json { ignoreUnknownKeys = true }
     }
 
-    install(PayloadCodecPlugin) {
+    install(CodecPlugin) {
         compression(threshold = 1024)
     }
 

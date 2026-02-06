@@ -298,7 +298,7 @@ Organize configuration into reusable modules.
 ```kotlin
 // In ModulesKt.kt
 fun TemporalApplication.ordersModule() {
-    install(PayloadSerialization) {
+    install(SerializationPlugin) {
         json { ignoreUnknownKeys = true }
     }
 
@@ -348,12 +348,12 @@ Install plugins at the application or task queue level.
 ```kotlin
 embeddedTemporal(module = {
     // Application-wide serialization
-    install(PayloadSerialization) {
+    install(SerializationPlugin) {
         json { ignoreUnknownKeys = true }
     }
 
     // Application-wide compression
-    install(PayloadCodecPlugin) {
+    install(CodecPlugin) {
         compression(threshold = 1024)
     }
 
@@ -369,13 +369,13 @@ Task queues can override application-level plugins:
 
 ```kotlin
 embeddedTemporal(module = {
-    install(PayloadSerialization) {
+    install(SerializationPlugin) {
         json { prettyPrint = false }
     }
 
     taskQueue("debug-queue") {
         // Override with pretty printing for this queue only
-        install(PayloadSerialization) {
+        install(SerializationPlugin) {
             json { prettyPrint = true }
         }
         workflow<DebugWorkflow>()

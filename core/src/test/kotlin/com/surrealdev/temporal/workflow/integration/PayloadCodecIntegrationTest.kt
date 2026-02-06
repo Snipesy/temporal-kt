@@ -10,8 +10,8 @@ import com.surrealdev.temporal.application.taskQueue
 import com.surrealdev.temporal.client.startWorkflow
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
+import com.surrealdev.temporal.serialization.CodecPlugin
 import com.surrealdev.temporal.serialization.PayloadCodec
-import com.surrealdev.temporal.serialization.PayloadCodecPlugin
 import com.surrealdev.temporal.serialization.codec.CompressionCodec
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
@@ -171,7 +171,7 @@ class PayloadCodecIntegrationTest {
 
             application {
                 // Install compression codec
-                install(PayloadCodecPlugin) {
+                install(CodecPlugin) {
                     compression(threshold = 100) // Compress payloads > 100 bytes
                 }
 
@@ -216,7 +216,7 @@ class PayloadCodecIntegrationTest {
 
             application {
                 // Install compression codec
-                install(PayloadCodecPlugin) {
+                install(CodecPlugin) {
                     compression(threshold = 100)
                 }
 
@@ -260,7 +260,7 @@ class PayloadCodecIntegrationTest {
             val taskQueue = "test-codec-generate-${UUID.randomUUID()}"
 
             application {
-                install(PayloadCodecPlugin) {
+                install(CodecPlugin) {
                     compression(threshold = 100)
                 }
 
@@ -297,8 +297,8 @@ class PayloadCodecIntegrationTest {
             val recordingCodec = RecordingCodec(CompressionCodec(threshold = 100))
 
             application {
-                install(PayloadCodecPlugin) {
-                    codec = recordingCodec
+                install(CodecPlugin) {
+                    custom(recordingCodec)
                 }
 
                 taskQueue(taskQueue) {
@@ -346,8 +346,8 @@ class PayloadCodecIntegrationTest {
             val recordingCodec = RecordingCodec(CompressionCodec(threshold = 100000))
 
             application {
-                install(PayloadCodecPlugin) {
-                    codec = recordingCodec
+                install(CodecPlugin) {
+                    custom(recordingCodec)
                 }
 
                 taskQueue(taskQueue) {

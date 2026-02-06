@@ -107,7 +107,7 @@ fun TemporalApplication.paymentsModule() {
 
 ```kotlin
 fun TemporalApplication.baseModule() {
-    install(PayloadSerialization) {
+    install(SerializationPlugin) {
         json { prettyPrint = true }
     }
 
