@@ -607,6 +607,20 @@ class ActivityDispatcher(
             }
 
             failureBuilder.setApplicationFailureInfo(appInfoBuilder)
+        } else {
+            // Wrap non-ApplicationFailure exceptions with ApplicationFailureInfo.
+            // This matches Python SDK behavior and ensures the server's retry logic
+            // handles the failure correctly (bare Failures without ApplicationFailureInfo
+            // may not have retry policies applied properly by the server).
+            val appInfoBuilder =
+                ApplicationFailureInfo
+                    .newBuilder()
+                    .setType(
+                        actualException::class.qualifiedName
+                            ?: actualException::class.simpleName
+                            ?: "UnknownException",
+                    ).setNonRetryable(false)
+            failureBuilder.setApplicationFailureInfo(appInfoBuilder)
         }
 
         val failure = failureBuilder.build()
@@ -633,7 +647,12 @@ class ActivityDispatcher(
                 .newBuilder()
                 .setMessage(message)
                 .setSource("Kotlin")
-                .build()
+                .setApplicationFailureInfo(
+                    ApplicationFailureInfo
+                        .newBuilder()
+                        .setType(errorType)
+                        .setNonRetryable(false),
+                ).build()
 
         return activityTaskCompletion {
             this.taskToken = taskToken

@@ -85,10 +85,41 @@ internal suspend fun WorkflowExecutor.buildTerminalCompletion(
             logger.debug("Workflow cancelled")
             buildWorkflowCancellationCompletion()
         } else {
-            logger.info("Workflow failed with exception: {}", e.message, e)
-            buildWorkflowFailureCompletion(e)
+            // If this is a CancellationException from structured concurrency (not a Temporal
+            // cancellation), unwrap to find the root cause. When a child coroutine (e.g., async)
+            // fails, structured concurrency cancels the parent job, producing a
+            // JobCancellationException("Parent job is Cancelling") with the real exception as
+            // a nested cause.
+            val actualException =
+                if (e is kotlinx.coroutines.CancellationException) {
+                    unwrapCancellationException(e)
+                } else {
+                    e
+                }
+            logger.info("Workflow failed with exception: {}", actualException.message, actualException)
+            buildWorkflowFailureCompletion(actualException)
         }
     }
+}
+
+/**
+ * Unwraps a CancellationException to find the non-cancellation root cause.
+ *
+ * When structured concurrency cancels a parent due to a child failure, the exception chain is:
+ * `JobCancellationException("Parent job is Cancelling") → ... → originalException`
+ *
+ * This walks the cause chain and returns the first non-CancellationException, or the
+ * original exception if no other cause is found.
+ */
+private fun unwrapCancellationException(e: Exception): Exception {
+    var current: Throwable? = e.cause
+    while (current != null) {
+        if (current !is kotlinx.coroutines.CancellationException && current is Exception) {
+            return current
+        }
+        current = current.cause
+    }
+    return e
 }
 
 /**
@@ -195,6 +226,20 @@ internal suspend fun WorkflowExecutor.buildWorkflowFailureCompletion(
             appInfoBuilder.setCategory(protoCategory)
         }
 
+        failureBuilder.setApplicationFailureInfo(appInfoBuilder)
+    } else {
+        // Wrap non-ApplicationFailure exceptions with ApplicationFailureInfo.
+        // This matches Python SDK behavior and ensures the server's retry logic
+        // handles the failure correctly (bare Failures without ApplicationFailureInfo
+        // may not have retry policies applied properly by the server).
+        val appInfoBuilder =
+            ApplicationFailureInfo
+                .newBuilder()
+                .setType(
+                    exception::class.qualifiedName
+                        ?: exception::class.simpleName
+                        ?: "UnknownException",
+                ).setNonRetryable(false)
         failureBuilder.setApplicationFailureInfo(appInfoBuilder)
     }
 

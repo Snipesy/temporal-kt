@@ -37,7 +37,7 @@ suspend inline fun <reified R> ChildWorkflowHandle.result(): R {
  * @param R The expected result type
  * @param timeout Maximum time to wait for the workflow to complete
  * @return The deserialized result
- * @throws WorkflowException if the workflow failed
+ * @throws com.surrealdev.temporal.common.exceptions.ClientWorkflowException if the workflow failed
  */
 suspend inline fun <reified R> WorkflowHandle.result(timeout: Duration = Duration.INFINITE): R {
     val payload = resultPayload(timeout)
