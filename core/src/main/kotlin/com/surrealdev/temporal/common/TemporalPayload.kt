@@ -296,3 +296,135 @@ fun TemporalPayloads.toProto(): io.temporal.api.common.v1.Payloads = this.proto
  * Converts list of TemporalPayload to TemporalPayloads.
  */
 fun List<TemporalPayload>.toTemporalPayloads(): TemporalPayloads = TemporalPayloads.of(this)
+
+/**
+ * Represents payloads that have been through [PayloadCodec.encode][com.surrealdev.temporal.serialization.PayloadCodec.encode].
+ *
+ * This is a distinct type from [TemporalPayloads] to provide **compile-time safety**:
+ * if a code path forgets to encode or decode, the type mismatch will cause a compiler error.
+ * This prevents accidental bypasses of codec transformations (compression, encryption, etc.).
+ *
+ * **Usage pattern:**
+ * - Outbound (sending to server): serialize to [TemporalPayloads], then `codec.encode(...)` to get [EncodedTemporalPayloads]
+ * - Inbound (receiving from server): wrap raw proto payloads with [fromProtoPayloadList], then `codec.decode(...)` to get [TemporalPayloads]
+ *
+ * This is a zero-cost `@JvmInline value class` wrapper around Temporal's internal protobuf Payloads message.
+ * At runtime, no allocation occurs — the wrapper is erased and operations go directly to the underlying proto.
+ *
+ * @see TemporalPayloads The unencoded counterpart used before encoding / after decoding
+ * @see com.surrealdev.temporal.serialization.PayloadCodec The codec interface that produces and consumes this type
+ */
+@JvmInline
+value class EncodedTemporalPayloads(
+    @PublishedApi internal val proto: io.temporal.api.common.v1.Payloads,
+) : Iterable<TemporalPayload> {
+    companion object {
+        /** Empty encoded payloads. */
+        val EMPTY: EncodedTemporalPayloads =
+            EncodedTemporalPayloads(
+                io.temporal.api.common.v1.Payloads
+                    .getDefaultInstance(),
+            )
+
+        /**
+         * Creates [EncodedTemporalPayloads] from a list of raw protobuf [Payload][io.temporal.api.common.v1.Payload] objects.
+         *
+         * Use this when receiving payloads from the wire (e.g., from activation jobs or gRPC responses)
+         * that need to be decoded via [PayloadCodec.decode][com.surrealdev.temporal.serialization.PayloadCodec.decode].
+         */
+        fun fromProtoPayloadList(payloads: List<io.temporal.api.common.v1.Payload>): EncodedTemporalPayloads =
+            EncodedTemporalPayloads(
+                io.temporal.api.common.v1.Payloads
+                    .newBuilder()
+                    .addAllPayloads(payloads)
+                    .build(),
+            )
+
+        /**
+         * Creates [EncodedTemporalPayloads] from a list of [TemporalPayload].
+         */
+        @InternalTemporalApi
+        fun of(payloads: List<TemporalPayload>): EncodedTemporalPayloads {
+            val proto =
+                io.temporal.api.common.v1.Payloads
+                    .newBuilder()
+                    .addAllPayloads(payloads.map { it.proto })
+                    .build()
+            return EncodedTemporalPayloads(proto)
+        }
+
+        /**
+         * Creates [EncodedTemporalPayloads] by parsing a serialized protobuf byte array.
+         *
+         * Use this when loading encoded payloads from storage or receiving them over a non-gRPC transport.
+         */
+        fun createFromProtoBytes(data: ByteArray): EncodedTemporalPayloads {
+            val proto =
+                io.temporal.api.common.v1.Payloads
+                    .parseFrom(data)
+            return EncodedTemporalPayloads(proto)
+        }
+
+        /**
+         * Creates [EncodedTemporalPayloads] by parsing a serialized protobuf stream.
+         *
+         * Use this when loading encoded payloads from an [InputStream] without intermediate copies.
+         */
+        fun createFromProtoStream(input: InputStream): EncodedTemporalPayloads {
+            val proto =
+                io.temporal.api.common.v1.Payloads
+                    .parseFrom(input)
+            return EncodedTemporalPayloads(proto)
+        }
+    }
+
+    /** Number of encoded payloads. */
+    val size: Int get() = proto.payloadsCount
+
+    /** Whether this contains no payloads. */
+    val isEmpty: Boolean get() = proto.payloadsCount == 0
+
+    /** Access encoded payloads as a list. */
+    val payloads: List<TemporalPayload>
+        get() = proto.payloadsList.map { TemporalPayload(it) }
+
+    /** Valid indices for this collection. */
+    val indices: IntRange
+        get() = 0 until size
+
+    /** Get the encoded payload at [index] as a [TemporalPayload]. */
+    operator fun get(index: Int): TemporalPayload = TemporalPayload(proto.getPayloads(index))
+
+    override fun toString(): String = "EncodedTemporalPayloads(size=$size)"
+
+    override fun iterator(): Iterator<TemporalPayload> = payloads.iterator()
+
+    /** Serialized protobuf representation as a byte array. */
+    val asByteArray: ByteArray
+        get() = proto.toByteArray()
+
+    /** Size in bytes of the serialized protobuf representation. */
+    val serializedSize: Int
+        get() = proto.serializedSize
+
+    /** Writes the serialized protobuf representation to [output]. */
+    fun writeTo(output: OutputStream) {
+        proto.writeTo(output)
+    }
+}
+
+/**
+ * Converts [EncodedTemporalPayloads] to the underlying protobuf Payloads.
+ *
+ * Use this when you need to pass encoded payloads to protobuf builders (e.g., gRPC requests).
+ * Zero-cost operation — just unwraps the value class.
+ *
+ * @suppress Internal API — do not use directly
+ */
+@InternalTemporalApi
+fun EncodedTemporalPayloads.toProto(): io.temporal.api.common.v1.Payloads = this.proto
+
+/**
+ * Converts list of TemporalPayload to TemporalPayloads.
+ */
+fun List<TemporalPayload>.toEncodedTemporalPayloads(): EncodedTemporalPayloads = EncodedTemporalPayloads.of(this)

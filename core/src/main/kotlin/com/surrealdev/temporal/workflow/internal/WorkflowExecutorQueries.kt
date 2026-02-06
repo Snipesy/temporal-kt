@@ -3,10 +3,9 @@ package com.surrealdev.temporal.workflow.internal
 import com.google.protobuf.ByteString
 import com.google.protobuf.util.JsonFormat
 import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
-import com.surrealdev.temporal.common.toProto
-import com.surrealdev.temporal.common.toTemporal
 import coresdk.workflow_commands.WorkflowCommands
 import io.temporal.api.common.v1.Payload
 import io.temporal.api.failure.v1.Failure
@@ -109,7 +108,6 @@ internal suspend fun WorkflowExecutor.handleQuery(
  * Handles a runtime-registered query handler (specific query type).
  * Runtime handlers receive raw Payloads and return a Payload directly.
  */
-@OptIn(InternalTemporalApi::class)
 private suspend fun WorkflowExecutor.handleRuntimeQuery(
     queryId: String,
     queryType: String,
@@ -118,9 +116,10 @@ private suspend fun WorkflowExecutor.handleRuntimeQuery(
     isDynamic: Boolean,
 ) {
     try {
-        val temporalArgs = TemporalPayloads.of(args.map { it.toTemporal() })
+        val encoded = EncodedTemporalPayloads.fromProtoPayloadList(args)
+        val temporalArgs = codec.decode(encoded)
         val resultPayload = handler(temporalArgs)
-        addSuccessQueryResult(queryId, resultPayload.toProto())
+        addSuccessQueryResult(queryId, codec.encode(TemporalPayloads.of(listOf(resultPayload))).proto.getPayloads(0))
     } catch (e: ReadOnlyContextException) {
         logger.warn("Query handler attempted state mutation: {}", e.message)
         addFailedQueryResult(queryId, "Query attempted state mutation: ${e.message}")
@@ -142,9 +141,10 @@ private suspend fun WorkflowExecutor.handleRuntimeDynamicQuery(
     args: List<Payload>,
 ) {
     try {
-        val temporalArgs = TemporalPayloads.of(args.map { it.toTemporal() })
+        val encoded = EncodedTemporalPayloads.fromProtoPayloadList(args)
+        val temporalArgs = codec.decode(encoded)
         val resultPayload = handler(queryType, temporalArgs)
-        addSuccessQueryResult(queryId, resultPayload.toProto())
+        addSuccessQueryResult(queryId, codec.encode(TemporalPayloads.of(listOf(resultPayload))).proto.getPayloads(0))
     } catch (e: ReadOnlyContextException) {
         logger.warn("Query handler attempted state mutation: {}", e.message)
         addFailedQueryResult(queryId, "Query attempted state mutation: ${e.message}")
@@ -177,12 +177,13 @@ private suspend fun WorkflowExecutor.handleAnnotationQuery(
 
         val result = invokeQueryHandler(handler, args)
 
-        // Serialize the result using the handler's declared return type
+        // Serialize the result using the handler's declared return type, then encode with codec
         val payload =
             if (result == Unit || handler.returnType.classifier == Unit::class) {
                 Payload.getDefaultInstance()
             } else {
-                serializer.serialize(handler.returnType, result).toProto()
+                val serialized = serializer.serialize(handler.returnType, result)
+                codec.encode(TemporalPayloads.of(listOf(serialized))).proto.getPayloads(0)
             }
 
         addSuccessQueryResult(queryId, payload)

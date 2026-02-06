@@ -336,7 +336,7 @@ internal class WorkflowState(
      * Resolves an activity by its sequence number.
      * Delegates to ActivityHandleImpl.resolve() for all exception mapping.
      */
-    fun resolveActivity(
+    suspend fun resolveActivity(
         seq: Int,
         result: ActivityResult.ActivityResolution,
     ) {
@@ -376,7 +376,7 @@ internal class WorkflowState(
      * For backoff resolution, the handle is NOT removed from pending because
      * a new ScheduleLocalActivity command will be sent with a new sequence number.
      */
-    fun resolveLocalActivity(
+    suspend fun resolveLocalActivity(
         seq: Int,
         result: ActivityResult.ActivityResolution,
     ) {
@@ -442,7 +442,7 @@ internal class WorkflowState(
      * Resolves a child workflow start by its sequence number.
      * Called when a ResolveChildWorkflowExecutionStart job is received.
      */
-    fun resolveChildWorkflowStart(
+    suspend fun resolveChildWorkflowStart(
         seq: Int,
         resolution: ResolveChildWorkflowExecutionStart,
     ) {

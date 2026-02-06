@@ -9,6 +9,7 @@ import com.surrealdev.temporal.common.exceptions.ActivityRetryState
 import com.surrealdev.temporal.common.exceptions.ApplicationErrorCategory
 import com.surrealdev.temporal.common.exceptions.ApplicationFailure
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityFailureException
+import com.surrealdev.temporal.common.exceptions.nonRetryable
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.ActivityOptions
@@ -91,10 +92,10 @@ class ApplicationFailureIntegrationTest {
             code: Int,
             field: String,
         ): String =
-            throw ApplicationFailure.nonRetryable(
+            throw ApplicationFailure.nonRetryable<String>(
                 message = "Validation failed",
                 type = "ValidationError",
-                details = listOf("code=$code", "field=$field"),
+                detail = "code=$code, field=$field",
             )
 
         @Activity("throwBenignError")
@@ -110,9 +111,6 @@ class ApplicationFailureIntegrationTest {
             throw ApplicationFailure.nonRetryable(
                 message = "Multiple details",
                 type = "DetailedError",
-                "field1",
-                "field2",
-                "value=42",
             )
 
         fun getNonRetryableAttempts(): Int = nonRetryableAttempts.get()
@@ -514,8 +512,8 @@ class ApplicationFailureIntegrationTest {
                         ).result()
                     } catch (e: WorkflowActivityFailureException) {
                         val failure = e.applicationFailure
-                        // Details are present (as encoded bytes) - verify they exist
-                        "type=${failure?.type}, hasDetails=${failure?.encodedDetails != null}"
+                        // Details are present as decoded TemporalPayloads - verify they exist
+                        "type=${failure?.type}, hasDetails=${failure?.details?.isEmpty == false}"
                     }
             }
 

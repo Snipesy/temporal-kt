@@ -5,6 +5,8 @@ import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.annotation.TemporalDsl
 import com.surrealdev.temporal.client.internal.WorkflowServiceClient
 import com.surrealdev.temporal.common.SearchAttributeEncoder
+import com.surrealdev.temporal.common.toProto
+import com.surrealdev.temporal.common.toTemporal
 import com.surrealdev.temporal.core.TemporalCoreClient
 import com.surrealdev.temporal.serialization.CompositePayloadSerializer
 import com.surrealdev.temporal.serialization.NoOpCodec
@@ -284,6 +286,14 @@ class TemporalClientImpl internal constructor(
         args: Payloads,
         options: WorkflowStartOptions,
     ): WorkflowHandle {
+        // Encode args through codec before sending to server
+        val encodedArgs =
+            if (args.payloadsCount > 0) {
+                codec.encode(args.toTemporal()).toProto()
+            } else {
+                args
+            }
+
         // Build the request
         val requestBuilder =
             StartWorkflowExecutionRequest
@@ -300,7 +310,7 @@ class TemporalClientImpl internal constructor(
                         .newBuilder()
                         .setName(taskQueue)
                         .build(),
-                ).setInput(args)
+                ).setInput(encodedArgs)
                 .setRequestId(UUID.randomUUID().toString())
                 .setWorkflowIdReusePolicy(options.workflowIdReusePolicy.toProto())
                 .setWorkflowIdConflictPolicy(options.workflowIdConflictPolicy.toProto())

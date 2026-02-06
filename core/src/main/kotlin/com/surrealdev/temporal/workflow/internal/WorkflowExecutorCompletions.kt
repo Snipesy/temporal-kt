@@ -10,11 +10,9 @@ import com.surrealdev.temporal.workflow.VersioningIntent
 import coresdk.workflow_commands.WorkflowCommands
 import coresdk.workflow_completion.WorkflowCompletion
 import io.temporal.api.common.v1.Payload
-import io.temporal.api.common.v1.Payloads
 import io.temporal.api.failure.v1.ApplicationFailureInfo
 import io.temporal.api.failure.v1.Failure
 import kotlinx.coroutines.Deferred
-import kotlin.reflect.typeOf
 import kotlin.time.Duration
 import kotlin.time.toJavaDuration
 
@@ -52,7 +50,7 @@ internal suspend fun WorkflowExecutor.buildTerminalCompletion(
                 Payload.getDefaultInstance()
             } else {
                 val serialized = serializer.serialize(returnType, value)
-                codec.encode(TemporalPayloads.of(listOf(serialized)))[0].toProto()
+                codec.encode(TemporalPayloads.of(listOf(serialized))).toProto().getPayloads(0)
             }
 
         // Build completion command
@@ -145,7 +143,7 @@ internal fun WorkflowExecutor.buildFailureCompletion(
  * and category are properly propagated to the Temporal server.
  */
 @OptIn(InternalTemporalApi::class)
-internal fun WorkflowExecutor.buildWorkflowFailureCompletion(
+internal suspend fun WorkflowExecutor.buildWorkflowFailureCompletion(
     exception: Exception,
 ): WorkflowCompletion.WorkflowActivationCompletion {
     val failureBuilder =
@@ -163,18 +161,11 @@ internal fun WorkflowExecutor.buildWorkflowFailureCompletion(
                 .setType(exception.type)
                 .setNonRetryable(exception.isNonRetryable)
 
-        // Serialize string details if present
-        if (exception.details.isNotEmpty()) {
-            val detailsPayloads =
-                exception.details.map { detail ->
-                    serializer.serialize(typeOf<String>(), detail).toProto()
-                }
-            val payloads =
-                Payloads
-                    .newBuilder()
-                    .addAllPayloads(detailsPayloads)
-                    .build()
-            appInfoBuilder.setDetails(payloads)
+        // Serialize details if present (raw details from throw side or pre-decoded payloads)
+        if (exception.rawDetails.isNotEmpty() || !exception.details.isEmpty) {
+            val detailsPayloads = exception.serializeDetails(serializer)
+            val encoded = codec.encode(detailsPayloads)
+            appInfoBuilder.setDetails(encoded.toProto())
         }
 
         // Set next retry delay if specified
@@ -277,7 +268,7 @@ internal suspend fun WorkflowExecutor.buildContinueAsNewCompletion(
     // Serialize and add arguments with their type information, then encode with codec
     exception.typedArgs.forEach { (type, value) ->
         val serialized = serializer.serialize(type, value)
-        val encoded = codec.encode(TemporalPayloads.of(listOf(serialized)))[0].toProto()
+        val encoded = codec.encode(TemporalPayloads.of(listOf(serialized))).toProto().getPayloads(0)
         commandBuilder.addArguments(encoded)
     }
 

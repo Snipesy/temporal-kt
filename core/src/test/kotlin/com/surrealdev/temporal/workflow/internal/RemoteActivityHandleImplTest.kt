@@ -22,7 +22,6 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
-import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -42,6 +41,7 @@ class RemoteActivityHandleImplTest {
             activityType = activityType,
             state = workflowState,
             serializer = serializer,
+            codec = com.surrealdev.temporal.serialization.NoOpCodec,
             cancellationType = cancellationType,
         )
 
@@ -279,31 +279,32 @@ class RemoteActivityHandleImplTest {
         }
 
     @Test
-    fun `exceptionOrNull returns correct exception after failure`() {
-        val handle = createHandle()
+    fun `exceptionOrNull returns correct exception after failure`() =
+        runTest {
+            val handle = createHandle()
 
-        // Initially null
-        assertNull(handle.exceptionOrNull())
+            // Initially null
+            assertNull(handle.exceptionOrNull())
 
-        // Resolve with failed
-        val failure =
-            Failure
-                .newBuilder()
-                .setMessage("Test failure")
-                .setApplicationFailureInfo(
-                    ApplicationFailureInfo
-                        .newBuilder()
-                        .setType("TestError"),
-                ).build()
+            // Resolve with failed
+            val failure =
+                Failure
+                    .newBuilder()
+                    .setMessage("Test failure")
+                    .setApplicationFailureInfo(
+                        ApplicationFailureInfo
+                            .newBuilder()
+                            .setType("TestError"),
+                    ).build()
 
-        handle.resolve(createFailedResolution(failure))
+            handle.resolve(createFailedResolution(failure))
 
-        // Should have exception
-        val exception = handle.exceptionOrNull()
-        assertNotNull(exception)
-        assertTrue(exception is WorkflowActivityFailureException)
-        assertEquals("Test failure", exception?.message)
-    }
+            // Should have exception
+            val exception = handle.exceptionOrNull()
+            assertNotNull(exception)
+            assertTrue(exception is WorkflowActivityFailureException)
+            assertEquals("Test failure", exception?.message)
+        }
 
     @Test
     fun `exceptionOrNull returns null before resolution`() {
@@ -328,6 +329,7 @@ class RemoteActivityHandleImplTest {
                 activityType = "TestActivity::run",
                 state = state,
                 serializer = serializer,
+                codec = com.surrealdev.temporal.serialization.NoOpCodec,
                 cancellationType = ActivityCancellationType.TRY_CANCEL,
             )
 
@@ -356,6 +358,7 @@ class RemoteActivityHandleImplTest {
                 activityType = "TestActivity::run",
                 state = state,
                 serializer = serializer,
+                codec = com.surrealdev.temporal.serialization.NoOpCodec,
                 cancellationType = ActivityCancellationType.TRY_CANCEL,
             )
 
@@ -373,86 +376,97 @@ class RemoteActivityHandleImplTest {
     }
 
     @Test
-    fun `cancel() is no-op if isDone`() {
-        val state = WorkflowState("test-run-id")
-        val handle =
-            RemoteActivityHandleImpl(
-                activityId = "test-activity-id",
-                seq = 1,
-                activityType = "TestActivity::run",
-                state = state,
-                serializer = serializer,
-                cancellationType = ActivityCancellationType.TRY_CANCEL,
-            )
+    fun `cancel() is no-op if isDone`() =
+        runTest {
+            val state = WorkflowState("test-run-id")
+            val handle =
+                RemoteActivityHandleImpl(
+                    activityId = "test-activity-id",
+                    seq = 1,
+                    activityType = "TestActivity::run",
+                    state = state,
+                    serializer = serializer,
+                    codec = com.surrealdev.temporal.serialization.NoOpCodec,
+                    cancellationType = ActivityCancellationType.TRY_CANCEL,
+                )
 
-        // Complete the activity first
-        handle.resolve(createCompletedResolution())
+            // Complete the activity first
+            handle.resolve(createCompletedResolution())
 
-        assertTrue(handle.isDone)
+            assertTrue(handle.isDone)
 
-        // Now try to cancel
-        handle.cancel("after completion")
+            // Now try to cancel
+            handle.cancel("after completion")
 
-        // Should not have any commands
-        assertFalse(state.hasCommands())
+            // Should not have any commands
+            assertFalse(state.hasCommands())
 
-        // Flag should remain false
-        assertFalse(handle.isCancellationRequested)
-    }
+            // Flag should remain false
+            assertFalse(handle.isCancellationRequested)
+        }
 
     // ============================================================================
     // 5. Edge Cases Tests
     // ============================================================================
 
     @Test
-    fun `backoff resolution throws IllegalStateException`() {
-        val handle = createHandle()
+    fun `backoff resolution throws IllegalStateException`() =
+        runTest {
+            val handle = createHandle()
 
-        // Resolve with backoff (invalid for regular activities)
-        val exception =
-            assertThrows(IllegalStateException::class.java) {
-                handle.resolve(createBackoffResolution())
-            }
+            // Resolve with backoff (invalid for regular activities)
+            val exception =
+                try {
+                    handle.resolve(createBackoffResolution())
+                    throw AssertionError("Expected IllegalStateException")
+                } catch (e: IllegalStateException) {
+                    e
+                }
 
-        assertTrue(exception.message!!.contains("Regular activity received DoBackoff"))
-        assertTrue(exception.message!!.contains("activityType=TestActivity::run"))
-        assertTrue(exception.message!!.contains("activityId=test-activity-id"))
-    }
-
-    @Test
-    fun `resolve with unknown status throws IllegalStateException`() {
-        val handle = createHandle()
-
-        // Empty resolution (no status set)
-        val resolution = ActivityResult.ActivityResolution.getDefaultInstance()
-
-        val exception =
-            assertThrows(IllegalStateException::class.java) {
-                handle.resolve(resolution)
-            }
-
-        assertTrue(exception.message!!.contains("Unknown activity resolution status"))
-    }
+            assertTrue(exception.message!!.contains("Regular activity received DoBackoff"))
+            assertTrue(exception.message!!.contains("activityType=TestActivity::run"))
+            assertTrue(exception.message!!.contains("activityId=test-activity-id"))
+        }
 
     @Test
-    fun `retry state mapping covers all cases`() {
-        val handle = createHandle()
+    fun `resolve with unknown status throws IllegalStateException`() =
+        runTest {
+            val handle = createHandle()
 
-        val failure =
-            Failure
-                .newBuilder()
-                .setMessage("Timeout")
-                .setActivityFailureInfo(
-                    ActivityFailureInfo
-                        .newBuilder()
-                        .setRetryState(RetryState.RETRY_STATE_TIMEOUT),
-                ).build()
+            // Empty resolution (no status set)
+            val resolution = ActivityResult.ActivityResolution.getDefaultInstance()
 
-        handle.resolve(createFailedResolution(failure))
+            val exception =
+                try {
+                    handle.resolve(resolution)
+                    throw AssertionError("Expected IllegalStateException")
+                } catch (e: IllegalStateException) {
+                    e
+                }
 
-        val exception = handle.exceptionOrNull() as WorkflowActivityFailureException
-        assertEquals(ActivityRetryState.TIMEOUT, exception.retryState)
-    }
+            assertTrue(exception.message!!.contains("Unknown activity resolution status"))
+        }
+
+    @Test
+    fun `retry state mapping covers all cases`() =
+        runTest {
+            val handle = createHandle()
+
+            val failure =
+                Failure
+                    .newBuilder()
+                    .setMessage("Timeout")
+                    .setActivityFailureInfo(
+                        ActivityFailureInfo
+                            .newBuilder()
+                            .setRetryState(RetryState.RETRY_STATE_TIMEOUT),
+                    ).build()
+
+            handle.resolve(createFailedResolution(failure))
+
+            val exception = handle.exceptionOrNull() as WorkflowActivityFailureException
+            assertEquals(ActivityRetryState.TIMEOUT, exception.retryState)
+        }
 
     @Test
     fun `failure with cause chain is built correctly`() =
@@ -497,37 +511,38 @@ class RemoteActivityHandleImplTest {
         }
 
     @Test
-    fun `multiple retry states map correctly`() {
-        // Test mapping of various retry states
-        val testCases =
-            mapOf(
-                RetryState.RETRY_STATE_IN_PROGRESS to ActivityRetryState.IN_PROGRESS,
-                RetryState.RETRY_STATE_MAXIMUM_ATTEMPTS_REACHED to ActivityRetryState.MAXIMUM_ATTEMPTS_REACHED,
-                RetryState.RETRY_STATE_CANCEL_REQUESTED to ActivityRetryState.CANCEL_REQUESTED,
-            )
+    fun `multiple retry states map correctly`() =
+        runTest {
+            // Test mapping of various retry states
+            val testCases =
+                mapOf(
+                    RetryState.RETRY_STATE_IN_PROGRESS to ActivityRetryState.IN_PROGRESS,
+                    RetryState.RETRY_STATE_MAXIMUM_ATTEMPTS_REACHED to ActivityRetryState.MAXIMUM_ATTEMPTS_REACHED,
+                    RetryState.RETRY_STATE_CANCEL_REQUESTED to ActivityRetryState.CANCEL_REQUESTED,
+                )
 
-        testCases.forEach { (protoState, expectedKotlinState) ->
-            val handle = createHandle()
-            val failure =
-                Failure
-                    .newBuilder()
-                    .setMessage("Test")
-                    .setActivityFailureInfo(
-                        ActivityFailureInfo
-                            .newBuilder()
-                            .setRetryState(protoState),
-                    ).build()
+            testCases.forEach { (protoState, expectedKotlinState) ->
+                val handle = createHandle()
+                val failure =
+                    Failure
+                        .newBuilder()
+                        .setMessage("Test")
+                        .setActivityFailureInfo(
+                            ActivityFailureInfo
+                                .newBuilder()
+                                .setRetryState(protoState),
+                        ).build()
 
-            handle.resolve(createFailedResolution(failure))
+                handle.resolve(createFailedResolution(failure))
 
-            val exception = handle.exceptionOrNull() as WorkflowActivityFailureException
-            assertEquals(
-                expectedKotlinState,
-                exception.retryState,
-                "Failed to map $protoState to $expectedKotlinState",
-            )
+                val exception = handle.exceptionOrNull() as WorkflowActivityFailureException
+                assertEquals(
+                    expectedKotlinState,
+                    exception.retryState,
+                    "Failed to map $protoState to $expectedKotlinState",
+                )
+            }
         }
-    }
 
     // ============================================================================
     // 6. Sprint 3 Code Review Fixes - New Tests
@@ -631,6 +646,7 @@ class RemoteActivityHandleImplTest {
                 activityType = "TestActivity::run",
                 state = state,
                 serializer = serializer,
+                codec = com.surrealdev.temporal.serialization.NoOpCodec,
                 cancellationType = ActivityCancellationType.ABANDON,
             )
 
@@ -655,6 +671,7 @@ class RemoteActivityHandleImplTest {
                 activityType = "TestActivity::run",
                 state = state,
                 serializer = serializer,
+                codec = com.surrealdev.temporal.serialization.NoOpCodec,
                 cancellationType = ActivityCancellationType.TRY_CANCEL,
             )
 
@@ -677,6 +694,7 @@ class RemoteActivityHandleImplTest {
                 activityType = "TestActivity::run",
                 state = state,
                 serializer = serializer,
+                codec = com.surrealdev.temporal.serialization.NoOpCodec,
                 cancellationType = ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
             )
 

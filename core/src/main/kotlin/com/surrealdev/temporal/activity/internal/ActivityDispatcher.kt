@@ -4,13 +4,13 @@ import com.google.protobuf.ByteString
 import com.surrealdev.temporal.activity.EncodedPayloads
 import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.application.DynamicActivityHandler
+import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.exceptions.ActivityCancelledException
 import com.surrealdev.temporal.common.exceptions.ApplicationErrorCategory
 import com.surrealdev.temporal.common.exceptions.ApplicationFailure
 import com.surrealdev.temporal.common.toProto
-import com.surrealdev.temporal.common.toTemporal
 import com.surrealdev.temporal.internal.ZombieEvictionConfig
 import com.surrealdev.temporal.internal.ZombieEvictionManager
 import com.surrealdev.temporal.serialization.PayloadCodec
@@ -23,7 +23,6 @@ import coresdk.activity_result.activityExecutionResult
 import coresdk.activity_result.failure
 import coresdk.activity_result.success
 import coresdk.activity_task.ActivityTaskOuterClass
-import io.temporal.api.common.v1.Payloads
 import io.temporal.api.failure.v1.ApplicationFailureInfo
 import io.temporal.api.failure.v1.Failure
 import kotlinx.coroutines.CancellationException
@@ -35,7 +34,6 @@ import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.reflect.full.callSuspend
-import kotlin.reflect.typeOf
 import kotlin.time.toJavaDuration
 
 /**
@@ -370,9 +368,9 @@ class ActivityDispatcher(
             )
         }
 
-        // Convert proto payloads to TemporalPayload, decode with codec, then deserialize
-        val temporalPayloads = TemporalPayloads.of(payloads.map { it.toTemporal() })
-        val decodedPayloads = codec.decode(temporalPayloads)
+        // Convert proto payloads to EncodedTemporalPayloads, decode with codec, then deserialize
+        val encodedPayloads = EncodedTemporalPayloads.fromProtoPayloadList(payloads)
+        val decodedPayloads = codec.decode(encodedPayloads)
         return decodedPayloads.payloads
             .zip(parameterTypes)
             .map { (payload, type) ->
@@ -448,9 +446,9 @@ class ActivityDispatcher(
         val taskToken = task.taskToken
         val handler = dynamicActivityHandler!!
 
-        // Convert proto payloads to TemporalPayload, then decode with codec
-        val temporalPayloads = TemporalPayloads.of(start.inputList.map { it.toTemporal() })
-        val decodedPayloads = codec.decode(temporalPayloads)
+        // Convert proto payloads to EncodedTemporalPayloads, then decode with codec
+        val codecEncoded = EncodedTemporalPayloads.fromProtoPayloadList(start.inputList)
+        val decodedPayloads = codec.decode(codecEncoded)
         val encodedPayloads = EncodedPayloads(decodedPayloads, serializer)
 
         // Create the activity context
@@ -506,7 +504,7 @@ class ActivityDispatcher(
                     .getDefaultInstance()
             } else {
                 // Encode with codec for consistency, then convert back to proto
-                codec.encode(TemporalPayloads.of(listOf(result)))[0].toProto()
+                codec.encode(TemporalPayloads.of(listOf(result))).toProto().getPayloads(0)
             }
 
         return activityTaskCompletion {
@@ -535,7 +533,7 @@ class ActivityDispatcher(
             } else {
                 // Serialize first, then encode with codec, then convert to proto
                 val serialized = serializer.serialize(returnType, result)
-                codec.encode(TemporalPayloads.of(listOf(serialized)))[0].toProto()
+                codec.encode(TemporalPayloads.of(listOf(serialized))).toProto().getPayloads(0)
             }
 
         return activityTaskCompletion {
@@ -550,7 +548,7 @@ class ActivityDispatcher(
         }
     }
 
-    private fun buildFailureCompletion(
+    private suspend fun buildFailureCompletion(
         taskToken: ByteString,
         exception: Exception,
     ): CoreInterface.ActivityTaskCompletion {
@@ -574,18 +572,11 @@ class ActivityDispatcher(
                     .setType(actualException.type)
                     .setNonRetryable(actualException.isNonRetryable)
 
-            // Serialize string details if present
-            if (actualException.details.isNotEmpty()) {
-                val detailsPayloads =
-                    actualException.details.map { detail ->
-                        serializer.serialize(typeOf<String>(), detail).toProto()
-                    }
-                val payloads =
-                    Payloads
-                        .newBuilder()
-                        .addAllPayloads(detailsPayloads)
-                        .build()
-                appInfoBuilder.setDetails(payloads)
+            // Serialize details if present (raw details from throw side or pre-decoded payloads)
+            if (actualException.rawDetails.isNotEmpty() || !actualException.details.isEmpty) {
+                val detailsPayloads = actualException.serializeDetails(serializer)
+                val encoded = codec.encode(detailsPayloads)
+                appInfoBuilder.setDetails(encoded.toProto())
             }
 
             // Set next retry delay if specified

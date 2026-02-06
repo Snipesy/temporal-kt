@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayloads
 import io.temporal.api.common.v1.Payload
 import kotlin.reflect.full.callSuspend
@@ -56,8 +57,11 @@ internal suspend fun WorkflowExecutor.handleSignal(
 
         else -> {
             // Buffer the signal for later when a handler is registered
+            // Decode eagerly before buffering so handlers get decoded payloads
             logger.debug("No handler found for signal '{}', buffering for later", signalName)
-            ctx?.bufferedSignals?.getOrPut(signalName) { mutableListOf() }?.add(signal)
+            val encoded = EncodedTemporalPayloads.fromProtoPayloadList(inputPayloads)
+            val decodedPayloads = codec.decode(encoded)
+            ctx?.bufferedSignals?.getOrPut(signalName) { mutableListOf() }?.add(decodedPayloads)
         }
     }
 }
@@ -72,13 +76,8 @@ private suspend fun WorkflowExecutor.invokeRuntimeSignalHandler(
     val ctx = (context ?: error("WorkflowContext not initialized")) as WorkflowContextImpl
     ctx.launchHandler {
         try {
-            val payloads =
-                TemporalPayloads(
-                    io.temporal.api.common.v1.Payloads
-                        .newBuilder()
-                        .addAllPayloads(args)
-                        .build(),
-                )
+            val encoded = EncodedTemporalPayloads.fromProtoPayloadList(args)
+            val payloads = codec.decode(encoded)
             handler(payloads)
         } catch (e: Exception) {
             // Signal handlers should not fail the workflow
@@ -99,13 +98,8 @@ private suspend fun WorkflowExecutor.invokeRuntimeDynamicSignalHandler(
     val ctx = (context ?: error("WorkflowContext not initialized")) as WorkflowContextImpl
     ctx.launchHandler {
         try {
-            val payloads =
-                TemporalPayloads(
-                    io.temporal.api.common.v1.Payloads
-                        .newBuilder()
-                        .addAllPayloads(args)
-                        .build(),
-                )
+            val encoded = EncodedTemporalPayloads.fromProtoPayloadList(args)
+            val payloads = codec.decode(encoded)
             handler(signalName, payloads)
         } catch (e: Exception) {
             // Signal handlers should not fail the workflow

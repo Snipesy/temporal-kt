@@ -7,10 +7,14 @@ compression, or custom encoding schemes.
 
 ```kotlin
 interface PayloadCodec {
-    suspend fun encode(payloads: TemporalPayloads): TemporalPayloads
-    suspend fun decode(payloads: TemporalPayloads): TemporalPayloads
+    suspend fun encode(payloads: TemporalPayloads): EncodedTemporalPayloads
+    suspend fun decode(payloads: EncodedTemporalPayloads): TemporalPayloads
 }
 ```
+
+`EncodedTemporalPayloads` is a distinct value class from `TemporalPayloads`, providing compile-time
+safety: any code path that passes unencoded payloads where encoded ones are expected (or vice versa)
+will produce a compiler error.
 
 ## Encryption Codec
 
@@ -26,9 +30,9 @@ class EncryptionCodec(
         private val KEY_ID_KEY = "encryption-key-id"
     }
 
-    override suspend fun encode(payloads: TemporalPayloads): TemporalPayloads {
+    override suspend fun encode(payloads: TemporalPayloads): EncodedTemporalPayloads {
         val key = keyProvider()
-        return TemporalPayloads.of(payloads.payloads.map { payload ->
+        return EncodedTemporalPayloads(TemporalPayloads.of(payloads.payloads.map { payload ->
             val nonce = generateNonce()
             val encrypted = encrypt(payload.data, key, nonce)
 
@@ -37,12 +41,12 @@ class EncryptionCodec(
             meta["encryption-cipher"] = CIPHER_BYTES
             meta[KEY_ID_KEY] = TemporalByteString.fromUtf8(keyId)
             TemporalPayload.create(encrypted, meta)
-        })
+        }).proto)
     }
 
-    override suspend fun decode(payloads: TemporalPayloads): TemporalPayloads {
+    override suspend fun decode(payloads: EncodedTemporalPayloads): TemporalPayloads {
         val key = keyProvider()
-        return TemporalPayloads.of(payloads.payloads.map { payload ->
+        return TemporalPayloads.of(TemporalPayloads(payloads.proto).payloads.map { payload ->
             if (payload.encoding != ENCODING_ENCRYPTED) {
                 return@map payload  // Pass through non-encrypted
             }
@@ -81,12 +85,20 @@ class ChainedCodec(
     private val codecs: List<PayloadCodec>
 ) : PayloadCodec {
 
-    override suspend fun encode(payloads: TemporalPayloads): TemporalPayloads {
-        return codecs.fold(payloads) { p, codec -> codec.encode(p) }
+    override suspend fun encode(payloads: TemporalPayloads): EncodedTemporalPayloads {
+        var result = payloads
+        for (codec in codecs) {
+            result = TemporalPayloads(codec.encode(result).proto)
+        }
+        return EncodedTemporalPayloads(result.proto)
     }
 
-    override suspend fun decode(payloads: TemporalPayloads): TemporalPayloads {
-        return codecs.reversed().fold(payloads) { p, codec -> codec.decode(p) }
+    override suspend fun decode(payloads: EncodedTemporalPayloads): TemporalPayloads {
+        var result = payloads
+        for (codec in codecs.reversed()) {
+            result = EncodedTemporalPayloads(codec.decode(result).proto)
+        }
+        return TemporalPayloads(result.proto)
     }
 }
 
@@ -127,7 +139,9 @@ fun TemporalApplication.module() {
 - `TemporalPayload` - Value class wrapping a single serialized payload. Use `TemporalPayload.create()`
   factories and `payload.encoding`, `payload.data`, `payload.dataSize`, `payload.metadataByteStrings`
   for zero-copy construction and inspection.
-- `TemporalPayloads` - Value class wrapping a list of payloads.
+- `TemporalPayloads` - Value class wrapping a list of **unencoded** payloads (before `encode` / after `decode`).
+- `EncodedTemporalPayloads` - Value class wrapping a list of **encoded** payloads (after `encode` / before `decode`).
+  Distinct from `TemporalPayloads` to provide compile-time safety against missed encode/decode calls.
 - `TemporalByteString` - Zero-cost wrapper around binary data, used for metadata values.
 
 ## Testing with Codecs

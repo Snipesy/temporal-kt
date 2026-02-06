@@ -111,7 +111,11 @@ class PayloadCodecTest {
             val codec = CompressionCodec()
             val payload = createPayload("test", mapOf("encoding" to "binary/other"))
 
-            val decoded = codec.decode(TemporalPayloads.of(listOf(payload)))
+            val decoded =
+                codec.decode(
+                    com.surrealdev.temporal.common
+                        .EncodedTemporalPayloads(TemporalPayloads.of(listOf(payload)).proto),
+                )
             // Should pass through unchanged
             assertEquals(payload, decoded[0])
         }
@@ -123,27 +127,37 @@ class PayloadCodecTest {
 
             val codec1 =
                 object : PayloadCodec {
-                    override suspend fun encode(payloads: TemporalPayloads): TemporalPayloads {
+                    override suspend fun encode(
+                        payloads: TemporalPayloads,
+                    ): com.surrealdev.temporal.common.EncodedTemporalPayloads {
                         order.add("encode-A")
-                        return payloads
+                        return com.surrealdev.temporal.common
+                            .EncodedTemporalPayloads(payloads.proto)
                     }
 
-                    override suspend fun decode(payloads: TemporalPayloads): TemporalPayloads {
+                    override suspend fun decode(
+                        payloads: com.surrealdev.temporal.common.EncodedTemporalPayloads,
+                    ): TemporalPayloads {
                         order.add("decode-A")
-                        return payloads
+                        return TemporalPayloads(payloads.proto)
                     }
                 }
 
             val codec2 =
                 object : PayloadCodec {
-                    override suspend fun encode(payloads: TemporalPayloads): TemporalPayloads {
+                    override suspend fun encode(
+                        payloads: TemporalPayloads,
+                    ): com.surrealdev.temporal.common.EncodedTemporalPayloads {
                         order.add("encode-B")
-                        return payloads
+                        return com.surrealdev.temporal.common
+                            .EncodedTemporalPayloads(payloads.proto)
                     }
 
-                    override suspend fun decode(payloads: TemporalPayloads): TemporalPayloads {
+                    override suspend fun decode(
+                        payloads: com.surrealdev.temporal.common.EncodedTemporalPayloads,
+                    ): TemporalPayloads {
                         order.add("decode-B")
-                        return payloads
+                        return TemporalPayloads(payloads.proto)
                     }
                 }
 
@@ -154,7 +168,10 @@ class PayloadCodecTest {
             assertEquals(listOf("encode-A", "encode-B"), order)
 
             order.clear()
-            chained.decode(TemporalPayloads.of(listOf(payload)))
+            chained.decode(
+                com.surrealdev.temporal.common
+                    .EncodedTemporalPayloads(TemporalPayloads.of(listOf(payload)).proto),
+            )
             assertEquals(listOf("decode-B", "decode-A"), order)
         }
 

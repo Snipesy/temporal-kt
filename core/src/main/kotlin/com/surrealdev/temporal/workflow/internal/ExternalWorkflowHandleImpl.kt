@@ -4,7 +4,7 @@ import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.exceptions.CancelExternalWorkflowFailedException
 import com.surrealdev.temporal.common.exceptions.SignalExternalWorkflowFailedException
-import com.surrealdev.temporal.common.toProto
+import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.workflow.ExternalWorkflowHandle
 import coresdk.common.Common.NamespacedWorkflowExecution
@@ -28,6 +28,7 @@ internal class ExternalWorkflowHandleImpl(
     override val namespace: String,
     private val state: WorkflowState,
     override val serializer: PayloadSerializer,
+    private val codec: PayloadCodec,
 ) : ExternalWorkflowHandle {
     /**
      * Builds the NamespacedWorkflowExecution proto used for targeting this external workflow.
@@ -61,7 +62,7 @@ internal class ExternalWorkflowHandleImpl(
                         .setSeq(signalSeq)
                         .setWorkflowExecution(buildWorkflowExecution())
                         .setSignalName(signalName)
-                        .addAllArgs(args.toProto().payloadsList),
+                        .addAllArgs(codec.encode(args).proto.payloadsList),
                 ).build()
 
         state.addCommand(command)

@@ -143,6 +143,10 @@ CancellationException
 ```kotlin
 import com.surrealdev.temporal.common.exceptions.ApplicationFailure
 import com.surrealdev.temporal.common.exceptions.ApplicationErrorCategory
+// For reified factory methods with typed details:
+import com.surrealdev.temporal.common.exceptions.failure
+import com.surrealdev.temporal.common.exceptions.nonRetryable
+import com.surrealdev.temporal.common.exceptions.failureWithDelay
 ```
 
 ### Factory Methods
@@ -187,7 +191,6 @@ throw ApplicationFailure.failureWithDelay(
 |-----------|------|-------------|
 | `message` | `String` | The error message |
 | `type` | `String` | Error type/category (default: "ApplicationFailure") |
-| `details` | `List<String>` | Additional string details for debugging |
 | `category` | `ApplicationErrorCategory` | Affects logging/metrics behavior |
 | `cause` | `Throwable?` | Optional underlying cause |
 
@@ -236,28 +239,53 @@ startActivity(
 )
 ```
 
-### Details
+### Typed Details
 
-Include additional context as string details:
+Attach any serializable object as a detail using the reified factory methods. Details flow through the full codec pipeline (compression, encryption, etc.) just like all other payloads.
+
+#### Throwing with a typed detail
 
 ```kotlin
-throw ApplicationFailure.nonRetryable(
+data class ValidationDetail(val code: Int, val field: String)
+
+// Retryable with detail
+throw ApplicationFailure.failure<ValidationDetail>(
     message = "Validation failed",
     type = "ValidationError",
-    details = listOf(
-        "field=email",
-        "reason=invalid format",
-        "value=not-an-email",
-    ),
+    detail = ValidationDetail(code = 400, field = "email"),
 )
 
-// Or using vararg syntax
-throw ApplicationFailure.nonRetryable(
-    message = "Multiple validation errors",
+// Non-retryable with detail
+throw ApplicationFailure.nonRetryable<ValidationDetail>(
+    message = "Invalid input",
     type = "ValidationError",
-    "field=email", "field=phone", "field=address",
+    detail = ValidationDetail(code = 422, field = "phone"),
+)
+
+// With retry delay and detail
+throw ApplicationFailure.failureWithDelay<RateLimitInfo>(
+    message = "Rate limited",
+    nextRetryDelay = 30.seconds,
+    type = "RateLimitError",
+    detail = RateLimitInfo(retryAfter = 30),
 )
 ```
+
+#### Reading details on the receive side
+
+Use `detail<T>(serializer)` to deserialize the first detail, or `detailList<T>(serializer)` to deserialize all details:
+
+```kotlin
+catch (e: WorkflowActivityFailureException) {
+    val failure = e.applicationFailure
+    if (failure != null && !failure.details.isEmpty) {
+        val detail = failure.detail<ValidationDetail>(serializer)
+        println("Validation error on field: ${detail?.field}")
+    }
+}
+```
+
+The `serializer` is the same `PayloadSerializer` used by your worker configuration. Inside a workflow, you can access it from the context.
 
 ### Error Category
 
@@ -375,7 +403,11 @@ catch (e: WorkflowActivityFailureException) {
         println("Message: ${failure.message}")
         println("Non-retryable: ${failure.isNonRetryable}")
         println("Category: ${failure.category}")
-        println("Has details: ${failure.encodedDetails != null}")
+        println("Has details: ${!failure.details.isEmpty}")
+
+        // Deserialize typed details if present
+        val detail = failure.detail<MyErrorInfo>(serializer)
+        println("Detail: $detail")
     }
 }
 ```
@@ -626,6 +658,8 @@ class ValidationWorkflow {
 ### Validation Errors (Non-Retryable)
 
 ```kotlin
+data class ValidationErrors(val errors: List<String>)
+
 @Activity("validateOrder")
 fun validateOrder(order: Order): ValidationResult {
     val errors = mutableListOf<String>()
@@ -638,10 +672,10 @@ fun validateOrder(order: Order): ValidationResult {
     }
 
     if (errors.isNotEmpty()) {
-        throw ApplicationFailure.nonRetryable(
+        throw ApplicationFailure.nonRetryable<ValidationErrors>(
             message = "Order validation failed",
             type = "ValidationError",
-            details = errors,
+            detail = ValidationErrors(errors),
         )
     }
 
@@ -717,6 +751,8 @@ fun transferFunds(from: String, to: String, amount: Double): TransferResult {
 ### Partial Progress with Resume
 
 ```kotlin
+data class BatchProgress(val failedAt: Int, val processed: Int, val total: Int)
+
 @Activity("processBatch")
 suspend fun processBatch(items: List<Item>): BatchResult {
     val ctx = activity()
@@ -728,14 +764,14 @@ suspend fun processBatch(items: List<Item>): BatchResult {
             processed.add(item.id)
             ctx.heartbeat(index)
         } catch (e: Exception) {
-            // Include progress in error for debugging
-            throw ApplicationFailure.failure(
+            // Include progress in error as a typed detail
+            throw ApplicationFailure.failure<BatchProgress>(
                 message = "Failed processing item ${item.id}: ${e.message}",
                 type = "ProcessingError",
-                details = listOf(
-                    "failedAt=$index",
-                    "processed=${processed.size}",
-                    "total=${items.size}",
+                detail = BatchProgress(
+                    failedAt = index,
+                    processed = processed.size,
+                    total = items.size,
                 ),
                 cause = e,
             )

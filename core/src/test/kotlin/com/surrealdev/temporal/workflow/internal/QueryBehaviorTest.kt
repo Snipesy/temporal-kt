@@ -76,6 +76,7 @@ class QueryBehaviorTest {
                         activityType = "Test::run",
                         state = state,
                         serializer = CompositePayloadSerializer.default(),
+                        codec = com.surrealdev.temporal.serialization.NoOpCodec,
                         cancellationType = com.surrealdev.temporal.workflow.ActivityCancellationType.TRY_CANCEL,
                     )
                 state.registerActivity(1, handle)

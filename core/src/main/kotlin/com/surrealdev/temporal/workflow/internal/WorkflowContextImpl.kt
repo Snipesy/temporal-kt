@@ -26,7 +26,6 @@ import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.WorkflowInfo
 import coresdk.child_workflow.ChildWorkflow
 import coresdk.workflow_commands.WorkflowCommands
-import io.temporal.api.common.v1.Payloads
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
@@ -140,10 +139,10 @@ internal class WorkflowContextImpl(
 
     /**
      * Buffered signals waiting for handlers to be registered.
-     * Keys are signal names, values are lists of signal inputs.
+     * Keys are signal names, values are lists of decoded payloads.
      */
     internal val bufferedSignals =
-        mutableMapOf<String, MutableList<coresdk.workflow_activation.WorkflowActivationOuterClass.SignalWorkflow>>()
+        mutableMapOf<String, MutableList<TemporalPayloads>>()
 
     /**
      * Runtime-registered named update handlers.
@@ -337,7 +336,7 @@ internal class WorkflowContextImpl(
                 .setActivityId(activityId)
                 .setActivityType(activityType)
                 .setTaskQueue(options.taskQueue ?: info.taskQueue)
-                .addAllArguments(args.toProto().payloadsList)
+                .addAllArguments(codec.encode(args).proto.payloadsList)
 
         // Set optional timeouts
         options.startToCloseTimeout?.let {
@@ -403,6 +402,7 @@ internal class WorkflowContextImpl(
                 activityType = activityType,
                 state = state,
                 serializer = serializer,
+                codec = codec,
                 cancellationType = options.cancellationType,
             )
 
@@ -462,7 +462,7 @@ internal class WorkflowContextImpl(
                 .setActivityId(activityId)
                 .setActivityType(activityType)
                 .setAttempt(1) // Initial attempt is 1
-                .addAllArguments(args.toProto().payloadsList)
+                .addAllArguments(codec.encode(args).proto.payloadsList)
 
         // Set optional timeouts
         options.startToCloseTimeout?.let {
@@ -510,7 +510,7 @@ internal class WorkflowContextImpl(
                 serializer = serializer,
                 options = options,
                 cancellationType = options.cancellationType,
-                arguments = args.toProto().payloadsList,
+                arguments = codec.encode(args).proto.payloadsList,
             )
 
         state.registerLocalActivity(seq, handle)
@@ -650,7 +650,7 @@ internal class WorkflowContextImpl(
                 .setWorkflowId(childWorkflowId)
                 .setWorkflowType(workflowType)
                 .setTaskQueue(options.taskQueue ?: info.taskQueue)
-                .addAllInput(args.toProto().payloadsList)
+                .addAllInput(codec.encode(args).proto.payloadsList)
                 .setParentClosePolicy(options.parentClosePolicy.toProto())
                 .setCancellationType(options.cancellationType.toProto())
 
@@ -691,6 +691,7 @@ internal class WorkflowContextImpl(
                 workflowType = workflowType,
                 state = state,
                 serializer = serializer,
+                codec = codec,
                 cancellationType = options.cancellationType,
             )
 
@@ -733,14 +734,7 @@ internal class WorkflowContextImpl(
             // These tasks are queued to the WorkflowCoroutineDispatcher and will
             // execute during the next processAllWork() call, matching Python SDK behavior
             bufferedSignals.remove(name)?.let { signals ->
-                for (signal in signals) {
-                    val payloads =
-                        TemporalPayloads(
-                            io.temporal.api.common.v1.Payloads
-                                .newBuilder()
-                                .addAllPayloads(signal.inputList)
-                                .build(),
-                        )
+                for (payloads in signals) {
                     launch { handler(payloads) }
                 }
             }
@@ -758,14 +752,7 @@ internal class WorkflowContextImpl(
             // These tasks are queued to the WorkflowCoroutineDispatcher and will
             // execute during the next processAllWork() call, matching Python SDK behavior
             for ((signalName, signals) in bufferedSignals) {
-                for (signal in signals) {
-                    val payloads =
-                        TemporalPayloads(
-                            io.temporal.api.common.v1.Payloads
-                                .newBuilder()
-                                .addAllPayloads(signal.inputList)
-                                .build(),
-                        )
+                for (payloads in signals) {
                     launch { handler(signalName, payloads) }
                 }
             }
@@ -832,6 +819,7 @@ internal class WorkflowContextImpl(
             namespace = info.namespace,
             state = state,
             serializer = serializer,
+            codec = codec,
         )
 
     /**

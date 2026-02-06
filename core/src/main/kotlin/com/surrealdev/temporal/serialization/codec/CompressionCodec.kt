@@ -1,6 +1,6 @@
 package com.surrealdev.temporal.serialization.codec
 
-import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalByteString
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
@@ -34,13 +34,11 @@ private val ENCODING_GZIP_BYTES = TemporalByteString.fromUtf8(ENCODING_GZIP)
 class CompressionCodec(
     private val threshold: Int = 256,
 ) : PayloadCodec {
-    @OptIn(InternalTemporalApi::class)
-    override suspend fun encode(payloads: TemporalPayloads): TemporalPayloads =
-        TemporalPayloads.of(payloads.payloads.map { encodePayload(it) })
+    override suspend fun encode(payloads: TemporalPayloads): EncodedTemporalPayloads =
+        EncodedTemporalPayloads(TemporalPayloads.of(payloads.payloads.map { encodePayload(it) }).proto)
 
-    @OptIn(InternalTemporalApi::class)
-    override suspend fun decode(payloads: TemporalPayloads): TemporalPayloads =
-        TemporalPayloads.of(payloads.payloads.map { decodePayload(it) })
+    override suspend fun decode(payloads: EncodedTemporalPayloads): TemporalPayloads =
+        TemporalPayloads.of(TemporalPayloads(payloads.proto).payloads.map { decodePayload(it) })
 
     private fun encodePayload(payload: TemporalPayload): TemporalPayload {
         // Check if already encoded by this codec (pass through)

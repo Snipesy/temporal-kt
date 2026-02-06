@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.serialization
 
+import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayloads
 
 /**
@@ -9,10 +10,16 @@ import com.surrealdev.temporal.common.TemporalPayloads
  * compression or encryption. They are applied after [PayloadSerializer.serialize]
  * and before [PayloadSerializer.deserialize].
  *
+ * **Type Safety:**
+ * [encode] accepts [TemporalPayloads] (unencoded) and returns [EncodedTemporalPayloads] (encoded).
+ * [decode] accepts [EncodedTemporalPayloads] (encoded) and returns [TemporalPayloads] (unencoded).
+ * These distinct types ensure at compile time that every payload path applies the codec correctly.
+ * Forgetting to encode or decode will produce a type mismatch error.
+ *
  * Pipeline:
  * ```
- * OUTBOUND: Object -> [PayloadSerializer] -> TemporalPayload -> [PayloadCodec.encode] -> Encoded Payload
- * INBOUND:  Encoded Payload -> [PayloadCodec.decode] -> TemporalPayload -> [PayloadSerializer] -> Object
+ * OUTBOUND: Object -> [PayloadSerializer] -> TemporalPayloads -> [PayloadCodec.encode] -> EncodedTemporalPayloads -> wire
+ * INBOUND:  wire -> EncodedTemporalPayloads -> [PayloadCodec.decode] -> TemporalPayloads -> [PayloadSerializer] -> Object
  * ```
  *
  * Implementations should:
@@ -26,19 +33,19 @@ import com.surrealdev.temporal.common.TemporalPayloads
  * class CompressionCodec : PayloadCodec {
  *     private val GZIP_BYTES = TemporalByteString.fromUtf8("binary/gzip")
  *
- *     override suspend fun encode(payloads: TemporalPayloads): TemporalPayloads {
- *         return TemporalPayloads.of(payloads.payloads.map { payload ->
+ *     override suspend fun encode(payloads: TemporalPayloads): EncodedTemporalPayloads {
+ *         return EncodedTemporalPayloads(TemporalPayloads.of(payloads.payloads.map { payload ->
  *             val compressed = gzip(payload.data)
  *             if (compressed.size < payload.dataSize) {
  *                 val meta = payload.metadataByteStrings.toMutableMap()
  *                 meta[TemporalPayload.METADATA_ENCODING] = GZIP_BYTES
  *                 TemporalPayload.create(compressed, meta)
  *             } else payload
- *         })
+ *         }).proto)
  *     }
  *
- *     override suspend fun decode(payloads: TemporalPayloads): TemporalPayloads {
- *         return TemporalPayloads.of(payloads.payloads.map { payload ->
+ *     override suspend fun decode(payloads: EncodedTemporalPayloads): TemporalPayloads {
+ *         return TemporalPayloads.of(TemporalPayloads(payloads.proto).payloads.map { payload ->
  *             if (payload.encoding == "binary/gzip") {
  *                 val meta = payload.metadataByteStrings.toMutableMap()
  *                 meta.remove(TemporalPayload.METADATA_ENCODING)
@@ -58,7 +65,7 @@ interface PayloadCodec {
      * @param payloads The payloads to encode
      * @return The encoded payloads (same count and order as input)
      */
-    suspend fun encode(payloads: TemporalPayloads): TemporalPayloads
+    suspend fun encode(payloads: TemporalPayloads): EncodedTemporalPayloads
 
     /**
      * Decodes a list of payloads (e.g., decompress, decrypt).
@@ -68,7 +75,7 @@ interface PayloadCodec {
      * @param payloads The payloads to decode
      * @return The decoded payloads (same count and order as input)
      */
-    suspend fun decode(payloads: TemporalPayloads): TemporalPayloads
+    suspend fun decode(payloads: EncodedTemporalPayloads): TemporalPayloads
 }
 
 /**
@@ -76,7 +83,8 @@ interface PayloadCodec {
  * Used as a default when no codec is configured.
  */
 object NoOpCodec : PayloadCodec {
-    override suspend fun encode(payloads: TemporalPayloads): TemporalPayloads = payloads
+    override suspend fun encode(payloads: TemporalPayloads): EncodedTemporalPayloads =
+        EncodedTemporalPayloads(payloads.proto)
 
-    override suspend fun decode(payloads: TemporalPayloads): TemporalPayloads = payloads
+    override suspend fun decode(payloads: EncodedTemporalPayloads): TemporalPayloads = TemporalPayloads(payloads.proto)
 }

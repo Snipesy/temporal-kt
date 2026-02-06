@@ -3,6 +3,7 @@ package com.surrealdev.temporal.client
 import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.client.history.WorkflowHistory
 import com.surrealdev.temporal.client.internal.WorkflowServiceClient
+import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.exceptions.ClientWorkflowCancelledException
@@ -14,7 +15,6 @@ import com.surrealdev.temporal.common.exceptions.ClientWorkflowTimedOutException
 import com.surrealdev.temporal.common.exceptions.ClientWorkflowUpdateFailedException
 import com.surrealdev.temporal.common.exceptions.WorkflowTimeoutType
 import com.surrealdev.temporal.common.toProto
-import com.surrealdev.temporal.common.toTemporal
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.workflow.WorkflowHandleBase
@@ -263,8 +263,8 @@ internal class WorkflowHandleImpl(
                 val attrs = event.workflowExecutionCompletedEventAttributes
                 if (attrs.hasResult() && attrs.result.payloadsCount > 0) {
                     val payload = attrs.result.getPayloads(0)
-                    // Convert proto payload to TemporalPayload, then decode with codec
-                    codec.decode(TemporalPayloads.of(listOf(payload.toTemporal())))[0]
+                    // Convert proto payload to EncodedTemporalPayloads, then decode with codec
+                    codec.decode(EncodedTemporalPayloads.fromProtoPayloadList(listOf(payload)))[0]
                 } else {
                     // No result
                     null
@@ -279,7 +279,7 @@ internal class WorkflowHandleImpl(
                     runId = runId,
                     workflowType = null,
                     failure = failure,
-                    cause = failure?.let { buildCause(it) },
+                    cause = failure?.let { buildCause(it, codec) },
                 )
             }
 
@@ -333,7 +333,8 @@ internal class WorkflowHandleImpl(
         signalName: String,
         args: TemporalPayloads,
     ) {
-        val protoPayloads = args.toProto()
+        val encodedArgs = codec.encode(args)
+        val protoPayloads = encodedArgs.toProto()
 
         val request =
             SignalWorkflowExecutionRequest
@@ -362,7 +363,8 @@ internal class WorkflowHandleImpl(
                 .randomUUID()
                 .toString()
 
-        val protoPayloads = args.toProto()
+        val encodedArgs = codec.encode(args)
+        val protoPayloads = encodedArgs.toProto()
 
         val request =
             UpdateWorkflowExecutionRequest
@@ -410,9 +412,8 @@ internal class WorkflowHandleImpl(
                 message = response.outcome.failure.message,
             )
         } else if (response.hasOutcome() && response.outcome.hasSuccess()) {
-            return TemporalPayloads.of(
-                response.outcome.success.payloadsList
-                    .map { it.toTemporal() },
+            return codec.decode(
+                EncodedTemporalPayloads.fromProtoPayloadList(response.outcome.success.payloadsList),
             )
         } else {
             throw ClientWorkflowUpdateFailedException(
@@ -430,7 +431,8 @@ internal class WorkflowHandleImpl(
         queryType: String,
         args: TemporalPayloads,
     ): TemporalPayloads {
-        val protoPayloads = args.toProto()
+        val encodedArgs = codec.encode(args)
+        val protoPayloads = encodedArgs.toProto()
 
         val request =
             QueryWorkflowRequest
@@ -462,7 +464,9 @@ internal class WorkflowHandleImpl(
             )
         }
 
-        return TemporalPayloads.of(response.queryResult.payloadsList.map { it.toTemporal() })
+        return codec.decode(
+            EncodedTemporalPayloads.fromProtoPayloadList(response.queryResult.payloadsList),
+        )
     }
 
     override suspend fun cancel() {

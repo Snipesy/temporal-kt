@@ -140,15 +140,19 @@ class PayloadCodecIntegrationTest {
         val lastEncodedPayloads = AtomicReference<List<TemporalPayload>>(emptyList())
         val lastDecodedPayloads = AtomicReference<List<TemporalPayload>>(emptyList())
 
-        override suspend fun encode(payloads: TemporalPayloads): TemporalPayloads {
+        override suspend fun encode(
+            payloads: TemporalPayloads,
+        ): com.surrealdev.temporal.common.EncodedTemporalPayloads {
             encodeWasCalled.set(true)
             lastEncodedPayloads.set(payloads.payloads)
             return inner.encode(payloads)
         }
 
-        override suspend fun decode(payloads: TemporalPayloads): TemporalPayloads {
+        override suspend fun decode(
+            payloads: com.surrealdev.temporal.common.EncodedTemporalPayloads,
+        ): TemporalPayloads {
             decodeWasCalled.set(true)
-            lastDecodedPayloads.set(payloads.payloads)
+            lastDecodedPayloads.set(TemporalPayloads(payloads.proto).payloads)
             return inner.decode(payloads)
         }
 

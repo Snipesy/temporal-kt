@@ -1,11 +1,12 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityCancelledException
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityException
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityFailureException
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityTimeoutException
-import com.surrealdev.temporal.common.toTemporal
+import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.workflow.ActivityCancellationType
 import com.surrealdev.temporal.workflow.RemoteActivityHandle
@@ -36,6 +37,7 @@ internal class RemoteActivityHandleImpl(
     internal val activityType: String,
     private val state: WorkflowState,
     override val serializer: PayloadSerializer,
+    private val codec: PayloadCodec,
     private val cancellationType: ActivityCancellationType,
 ) : RemoteActivityHandle {
     companion object {
@@ -67,8 +69,10 @@ internal class RemoteActivityHandleImpl(
         // Check if we resolved with an exception
         cachedException?.let { throw it }
 
-        // Return raw payload (deserialization happens via extension function)
-        return payload?.toTemporal()
+        // Decode through codec, then return
+        return payload?.let {
+            codec.decode(EncodedTemporalPayloads.fromProtoPayloadList(listOf(it)))[0]
+        }
     }
 
     override fun cancel(reason: String) {
@@ -139,7 +143,7 @@ internal class RemoteActivityHandleImpl(
      * - Cancelled: Build cancellation exception and complete exceptionally
      * - Backoff: Throw IllegalStateException (should never happen for regular activities)
      */
-    internal fun resolve(result: ActivityResult.ActivityResolution) {
+    internal suspend fun resolve(result: ActivityResult.ActivityResolution) {
         when {
             result.hasCompleted() -> {
                 logger.fine("Activity completed: type=$activityType, id=$activityId, seq=$seq")
@@ -164,7 +168,7 @@ internal class RemoteActivityHandleImpl(
                         message = "Activity was cancelled",
                         cause =
                             if (cancelledFailure != null && cancelledFailure.hasCause()) {
-                                buildCause(cancelledFailure)
+                                buildCause(cancelledFailure, codec)
                             } else {
                                 null
                             },
@@ -196,7 +200,7 @@ internal class RemoteActivityHandleImpl(
      * Builds a WorkflowActivityException from a proto Failure.
      * Returns WorkflowActivityTimeoutException for timeouts, WorkflowActivityFailureException for other failures.
      */
-    private fun buildFailureException(failure: io.temporal.api.failure.v1.Failure): WorkflowActivityException {
+    private suspend fun buildFailureException(failure: io.temporal.api.failure.v1.Failure): WorkflowActivityException {
         // Check for timeout first - should return WorkflowActivityTimeoutException
         if (failure.hasTimeoutFailureInfo()) {
             val timeoutInfo = failure.timeoutFailureInfo
@@ -205,7 +209,7 @@ internal class RemoteActivityHandleImpl(
                 activityId = activityId,
                 timeoutType = mapTimeoutType(timeoutInfo.timeoutType),
                 message = failure.message ?: "Activity timed out",
-                cause = if (failure.hasCause()) buildCause(failure.cause) else null,
+                cause = if (failure.hasCause()) buildCause(failure.cause, codec) else null,
             )
         }
 
@@ -214,10 +218,10 @@ internal class RemoteActivityHandleImpl(
         // This ensures applicationFailure is always findable in the cause chain.
         val cause: Throwable? =
             if (failure.hasApplicationFailureInfo()) {
-                val nestedCause = if (failure.hasCause()) buildCause(failure.cause) else null
-                buildApplicationFailureFromProto(failure, cause = nestedCause)
+                val nestedCause = if (failure.hasCause()) buildCause(failure.cause, codec) else null
+                buildApplicationFailureFromProto(failure, codec, cause = nestedCause)
             } else if (failure.hasCause()) {
-                buildCause(failure.cause)
+                buildCause(failure.cause, codec)
             } else {
                 null
             }

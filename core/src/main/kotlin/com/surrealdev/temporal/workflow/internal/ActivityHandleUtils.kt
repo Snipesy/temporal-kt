@@ -1,10 +1,13 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.common.EncodedTemporalPayloads
+import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.exceptions.ActivityRetryState
 import com.surrealdev.temporal.common.exceptions.ActivityTimeoutType
 import com.surrealdev.temporal.common.exceptions.ApplicationErrorCategory
 import com.surrealdev.temporal.common.exceptions.ApplicationFailure
+import com.surrealdev.temporal.serialization.PayloadCodec
 import io.temporal.api.failure.v1.Failure
 
 /*
@@ -69,42 +72,15 @@ internal fun mapTimeoutType(protoType: io.temporal.api.enums.v1.TimeoutType): Ac
     }
 
 /**
- * Extracts [ApplicationFailure] from the failure or its cause chain.
+ * Builds an [ApplicationFailure] exception from a proto Failure that has ApplicationFailureInfo,
+ * with codec decoding of details.
  *
- * Temporal wraps application failures: ActivityFailureInfo contains ApplicationFailureInfo in cause.
- * This function recursively searches the cause chain up to [maxDepth] levels.
- *
- * @param failure The proto Failure to extract from
- * @param depth Current recursion depth (internal use)
- * @param maxDepth Maximum recursion depth to prevent infinite loops
- * @return The extracted ApplicationFailure, or null if not found
- */
-internal fun extractApplicationFailure(
-    failure: Failure,
-    depth: Int = 0,
-    maxDepth: Int = 10,
-): ApplicationFailure? {
-    if (depth >= maxDepth) return null
-
-    // Check this level
-    if (failure.hasApplicationFailureInfo()) {
-        return buildApplicationFailureFromProto(failure)
-    }
-
-    // Check nested cause
-    return if (failure.hasCause()) {
-        extractApplicationFailure(failure.cause, depth + 1, maxDepth)
-    } else {
-        null
-    }
-}
-
-/**
- * Builds an [ApplicationFailure] exception from a proto Failure that has ApplicationFailureInfo.
+ * This is the primary path used by activity handle implementations where the codec is available.
  */
 @OptIn(InternalTemporalApi::class)
-internal fun buildApplicationFailureFromProto(
+internal suspend fun buildApplicationFailureFromProto(
     failure: Failure,
+    codec: PayloadCodec,
     cause: Throwable? = null,
 ): ApplicationFailure {
     val appInfo = failure.applicationFailureInfo
@@ -118,31 +94,32 @@ internal fun buildApplicationFailureFromProto(
                 ApplicationErrorCategory.UNSPECIFIED
             }
         }
+    val details =
+        if (appInfo.hasDetails()) {
+            codec.decode(EncodedTemporalPayloads(appInfo.details))
+        } else {
+            TemporalPayloads.EMPTY
+        }
     return ApplicationFailure.fromProto(
         type = appInfo.type ?: "UnknownApplicationFailure",
         message = failure.message,
         isNonRetryable = appInfo.nonRetryable,
-        encodedDetails = if (appInfo.hasDetails()) appInfo.details.toByteArray() else null,
+        details = details,
         category = category,
         cause = cause,
     )
 }
 
 /**
- * Recursively builds cause exceptions from proto Failure.
+ * Recursively builds cause exceptions from proto Failure, with codec decoding.
  *
- * Converts the proto Failure cause chain into a Kotlin exception chain.
- * When a node in the chain has [ApplicationFailureInfo], an [ApplicationFailure]
- * exception is returned instead of a generic [RuntimeException].
- * Limits recursion depth to prevent stack overflow.
- *
- * @param failure The proto Failure to convert
- * @param depth Current recursion depth (internal use)
- * @param maxDepth Maximum recursion depth to prevent stack overflow
- * @return A Throwable representing the cause chain
+ * This is the primary path used by activity handle implementations where the codec is available.
+ * When a node in the chain has [ApplicationFailureInfo][io.temporal.api.failure.v1.ApplicationFailureInfo],
+ * details are decoded through the codec.
  */
-internal fun buildCause(
+internal suspend fun buildCause(
     failure: Failure,
+    codec: PayloadCodec,
     depth: Int = 0,
     maxDepth: Int = 20,
 ): Throwable {
@@ -152,14 +129,14 @@ internal fun buildCause(
 
     val nestedCause =
         if (failure.hasCause()) {
-            buildCause(failure.cause, depth + 1, maxDepth)
+            buildCause(failure.cause, codec, depth + 1, maxDepth)
         } else {
             null
         }
 
     // If this failure node has ApplicationFailureInfo, create an ApplicationFailure exception
     if (failure.hasApplicationFailureInfo()) {
-        return buildApplicationFailureFromProto(failure, cause = nestedCause)
+        return buildApplicationFailureFromProto(failure, codec, cause = nestedCause)
     }
 
     return RuntimeException(failure.message ?: "Cause failure", nestedCause)

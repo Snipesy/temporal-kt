@@ -15,6 +15,9 @@ import com.surrealdev.temporal.core.EphemeralServer
 import com.surrealdev.temporal.core.TemporalDevServer
 import com.surrealdev.temporal.core.TemporalRuntime
 import com.surrealdev.temporal.core.TemporalTestServer
+import com.surrealdev.temporal.serialization.NoOpCodec
+import com.surrealdev.temporal.serialization.PayloadCodec
+import com.surrealdev.temporal.serialization.PayloadSerializer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.TestResult
 import kotlinx.coroutines.test.TestScope
@@ -164,6 +167,11 @@ class TemporalTestApplicationBuilder internal constructor(
     /**
      * Gets a workflow client for interacting with Temporal.
      *
+     * This client uses the default [PayloadSerializer] and [PayloadCodec] configured
+     * on the application (via [SerializationPlugin][com.surrealdev.temporal.serialization.SerializationPlugin]
+     * and [CodecPlugin][com.surrealdev.temporal.serialization.CodecPlugin]).
+     * To use a custom serializer or codec, see the overload [client(PayloadSerializer, PayloadCodec)][client].
+     *
      * When using a test server (timeSkipping = true), this returns a [TemporalTestClient]
      * that automatically manages time skipping around workflow result awaits.
      *
@@ -172,7 +180,7 @@ class TemporalTestApplicationBuilder internal constructor(
      *
      * @throws IllegalStateException if [application] hasn't been called
      */
-    suspend fun client(): TemporalClient {
+    fun client(): TemporalClient {
         checkStarted()
 
         // Return cached client if available
@@ -190,6 +198,42 @@ class TemporalTestApplicationBuilder internal constructor(
 
         cachedClient = client
         return client
+    }
+
+    /**
+     * Gets a workflow client with a custom [PayloadSerializer] and/or [PayloadCodec].
+     *
+     * Unlike the no-arg [client], this overload does **not** cache the returned client,
+     * so each call creates a new instance. This allows creating multiple clients with
+     * different serialization configurations in the same test.
+     *
+     * When using a test server (timeSkipping = true), this returns a [TemporalTestClient]
+     * that automatically manages time skipping around workflow result awaits.
+     *
+     * @param serializer The payload serializer to use for encoding/decoding workflow and activity arguments
+     * @param codec The payload codec to use for transforming payloads (e.g., compression, encryption)
+     * @throws IllegalStateException if [application] hasn't been called
+     */
+    fun client(
+        serializer: PayloadSerializer,
+        codec: PayloadCodec = NoOpCodec,
+    ): TemporalClient {
+        checkStarted()
+
+        val coreClient = _application!!.getCoreClient()
+        val baseClient =
+            TemporalClient.create(
+                coreClient = coreClient,
+                namespace = "default",
+                serializer = serializer,
+                codec = codec,
+            ) as TemporalClientImpl
+
+        return if (testServer != null) {
+            TemporalTestClient(baseClient, testServer!!)
+        } else {
+            baseClient
+        }
     }
 
     /**

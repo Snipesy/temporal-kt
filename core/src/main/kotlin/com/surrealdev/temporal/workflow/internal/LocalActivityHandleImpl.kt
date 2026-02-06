@@ -1,12 +1,12 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.google.protobuf.Timestamp
+import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityCancelledException
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityException
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityFailureException
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityTimeoutException
-import com.surrealdev.temporal.common.toTemporal
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.workflow.ActivityCancellationType
 import com.surrealdev.temporal.workflow.LocalActivityHandle
@@ -91,8 +91,10 @@ internal class LocalActivityHandleImpl(
                 // Check if we resolved with an exception
                 cachedException?.let { throw it }
 
-                // Return raw payload (deserialization happens via extension function)
-                return payload?.toTemporal()
+                // Decode through codec, then return
+                return payload?.let {
+                    context.codec.decode(EncodedTemporalPayloads.fromProtoPayloadList(listOf(it)))[0]
+                }
             } catch (e: DoBackoffException) {
                 logger.fine(
                     "Local activity received backoff: type=$activityType, id=$activityId, " +
@@ -279,7 +281,7 @@ internal class LocalActivityHandleImpl(
     /**
      * Resolves the local activity with a failure.
      */
-    internal fun resolveFailed(failure: ActivityResult.Failure) {
+    internal suspend fun resolveFailed(failure: ActivityResult.Failure) {
         logger.warning("Local activity failed: type=$activityType, id=$activityId, seq=$currentSeq")
         isFinallyDone = true
         val exception = buildFailureException(failure.failure)
@@ -290,7 +292,7 @@ internal class LocalActivityHandleImpl(
     /**
      * Resolves the local activity with cancellation.
      */
-    internal fun resolveCancelled(cancellation: ActivityResult.Cancellation) {
+    internal suspend fun resolveCancelled(cancellation: ActivityResult.Cancellation) {
         logger.warning("Local activity cancelled: type=$activityType, id=$activityId, seq=$currentSeq")
         isFinallyDone = true
         val exception =
@@ -300,7 +302,7 @@ internal class LocalActivityHandleImpl(
                 message = "Local activity was cancelled",
                 cause =
                     if (cancellation.hasFailure() && cancellation.failure.hasCause()) {
-                        buildCause(cancellation.failure)
+                        buildCause(cancellation.failure, context.codec)
                     } else {
                         null
                     },
@@ -313,7 +315,8 @@ internal class LocalActivityHandleImpl(
      * Builds a WorkflowActivityException from a proto Failure.
      * Returns WorkflowActivityTimeoutException for timeouts, WorkflowActivityFailureException for other failures.
      */
-    private fun buildFailureException(failure: io.temporal.api.failure.v1.Failure): WorkflowActivityException {
+    private suspend fun buildFailureException(failure: io.temporal.api.failure.v1.Failure): WorkflowActivityException {
+        val codec = context.codec
         // Check for timeout first - should return WorkflowActivityTimeoutException
         if (failure.hasTimeoutFailureInfo()) {
             val timeoutInfo = failure.timeoutFailureInfo
@@ -322,7 +325,7 @@ internal class LocalActivityHandleImpl(
                 activityId = activityId,
                 timeoutType = mapTimeoutType(timeoutInfo.timeoutType),
                 message = failure.message ?: "Local activity timed out",
-                cause = if (failure.hasCause()) buildCause(failure.cause) else null,
+                cause = if (failure.hasCause()) buildCause(failure.cause, codec) else null,
             )
         }
 
@@ -331,10 +334,10 @@ internal class LocalActivityHandleImpl(
         // This ensures applicationFailure is always findable in the cause chain.
         val cause: Throwable? =
             if (failure.hasApplicationFailureInfo()) {
-                val nestedCause = if (failure.hasCause()) buildCause(failure.cause) else null
-                buildApplicationFailureFromProto(failure, cause = nestedCause)
+                val nestedCause = if (failure.hasCause()) buildCause(failure.cause, codec) else null
+                buildApplicationFailureFromProto(failure, codec, cause = nestedCause)
             } else if (failure.hasCause()) {
-                buildCause(failure.cause)
+                buildCause(failure.cause, codec)
             } else {
                 null
             }

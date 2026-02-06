@@ -14,7 +14,7 @@ internal fun WorkflowExecutor.handleChildWorkflowExecution(
     state.resolveChildWorkflowExecution(execution.seq, execution.result)
 }
 
-internal fun WorkflowExecutor.handleChildWorkflowStart(
+internal suspend fun WorkflowExecutor.handleChildWorkflowStart(
     start: coresdk.workflow_activation.WorkflowActivationOuterClass.ResolveChildWorkflowExecutionStart,
 ) {
     val status =

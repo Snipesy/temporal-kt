@@ -114,6 +114,7 @@ class WorkflowStateTest {
                 activityType = "Test::run",
                 state = state,
                 serializer = serializer,
+                codec = com.surrealdev.temporal.serialization.NoOpCodec,
                 cancellationType = ActivityCancellationType.TRY_CANCEL,
             )
 
@@ -137,6 +138,7 @@ class WorkflowStateTest {
                 activityType = "Test::run",
                 state = state,
                 serializer = serializer,
+                codec = com.surrealdev.temporal.serialization.NoOpCodec,
                 cancellationType = ActivityCancellationType.TRY_CANCEL,
             )
 
@@ -446,6 +448,7 @@ class WorkflowStateTest {
                     activityType = "Test::run",
                     state = state,
                     serializer = serializer,
+                    codec = com.surrealdev.temporal.serialization.NoOpCodec,
                     cancellationType = ActivityCancellationType.TRY_CANCEL,
                 )
 
@@ -483,6 +486,7 @@ class WorkflowStateTest {
                     activityType = "Test::run",
                     state = state,
                     serializer = serializer,
+                    codec = com.surrealdev.temporal.serialization.NoOpCodec,
                     cancellationType = ActivityCancellationType.TRY_CANCEL,
                 )
 
@@ -530,6 +534,7 @@ class WorkflowStateTest {
                     activityType = "Test::run",
                     state = state,
                     serializer = serializer,
+                    codec = com.surrealdev.temporal.serialization.NoOpCodec,
                     cancellationType = ActivityCancellationType.TRY_CANCEL,
                 )
 
@@ -553,19 +558,20 @@ class WorkflowStateTest {
         }
 
     @Test
-    fun `resolveActivity handles non-existent activity gracefully`() {
-        val state = WorkflowState("test-run-id")
+    fun `resolveActivity handles non-existent activity gracefully`() =
+        runTest {
+            val state = WorkflowState("test-run-id")
 
-        val completed = ActivityResult.Success.newBuilder().build()
-        val resolution =
-            ActivityResult.ActivityResolution
-                .newBuilder()
-                .setCompleted(completed)
-                .build()
+            val completed = ActivityResult.Success.newBuilder().build()
+            val resolution =
+                ActivityResult.ActivityResolution
+                    .newBuilder()
+                    .setCompleted(completed)
+                    .build()
 
-        // Should not throw for non-existent activity
-        state.resolveActivity(999, resolution)
-    }
+            // Should not throw for non-existent activity
+            state.resolveActivity(999, resolution)
+        }
 
     @Test
     fun `activities cleared on eviction via clear()`() =
@@ -581,6 +587,7 @@ class WorkflowStateTest {
                     activityType = "Test::run",
                     state = state,
                     serializer = serializer,
+                    codec = com.surrealdev.temporal.serialization.NoOpCodec,
                     cancellationType = ActivityCancellationType.TRY_CANCEL,
                 )
 
@@ -711,6 +718,7 @@ class WorkflowStateTest {
                     activityType = "Test::run",
                     state = state,
                     serializer = serializer,
+                    codec = com.surrealdev.temporal.serialization.NoOpCodec,
                     cancellationType = ActivityCancellationType.TRY_CANCEL,
                 )
             state.registerActivity(2, handle)
@@ -944,6 +952,7 @@ class WorkflowStateTest {
                     activityType = "TestActivity::run",
                     state = state,
                     serializer = serializer,
+                    codec = com.surrealdev.temporal.serialization.NoOpCodec,
                     cancellationType = ActivityCancellationType.TRY_CANCEL,
                 )
 
@@ -977,6 +986,7 @@ class WorkflowStateTest {
                     activityType = "TestActivity::run",
                     state = state,
                     serializer = serializer,
+                    codec = com.surrealdev.temporal.serialization.NoOpCodec,
                     cancellationType = ActivityCancellationType.TRY_CANCEL,
                 )
 
@@ -1005,20 +1015,21 @@ class WorkflowStateTest {
         }
 
     @Test
-    fun `resolveActivity handles non-existent activity gracefully - no exception`() {
-        val state = WorkflowState("test-run")
-        state.isReadOnly = false
+    fun `resolveActivity handles non-existent activity gracefully - no exception`() =
+        runTest {
+            val state = WorkflowState("test-run")
+            state.isReadOnly = false
 
-        val completed = ActivityResult.Success.newBuilder().build()
-        val resolution =
-            ActivityResult.ActivityResolution
-                .newBuilder()
-                .setCompleted(completed)
-                .build()
+            val completed = ActivityResult.Success.newBuilder().build()
+            val resolution =
+                ActivityResult.ActivityResolution
+                    .newBuilder()
+                    .setCompleted(completed)
+                    .build()
 
-        // Should not throw for non-existent activity
-        state.resolveActivity(999, resolution)
-    }
+            // Should not throw for non-existent activity
+            state.resolveActivity(999, resolution)
+        }
 
     // ================================================================
     // Cleanup Tests (Sprint 4)
@@ -1038,6 +1049,7 @@ class WorkflowStateTest {
                     activityType = "Test::run",
                     state = state,
                     serializer = serializer,
+                    codec = com.surrealdev.temporal.serialization.NoOpCodec,
                     cancellationType = ActivityCancellationType.TRY_CANCEL,
                 )
 
@@ -1061,6 +1073,7 @@ class WorkflowStateTest {
                     activityType = "Test::run",
                     state = state,
                     serializer = serializer,
+                    codec = com.surrealdev.temporal.serialization.NoOpCodec,
                     cancellationType = ActivityCancellationType.TRY_CANCEL,
                 )
 
@@ -1071,6 +1084,7 @@ class WorkflowStateTest {
                     activityType = "Test::run",
                     state = state,
                     serializer = serializer,
+                    codec = com.surrealdev.temporal.serialization.NoOpCodec,
                     cancellationType = ActivityCancellationType.TRY_CANCEL,
                 )
 

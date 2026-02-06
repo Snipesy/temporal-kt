@@ -116,8 +116,11 @@ object InstantAsLongSerializer : KSerializer<Instant> {
 ## Relationship with PayloadCodec (TKT-0011)
 
 ```
-Object → [PayloadSerializer] → TemporalPayload → [PayloadCodec] → Encoded Payload → Temporal
+Object → [PayloadSerializer] → TemporalPayloads → [PayloadCodec] → EncodedTemporalPayloads → Temporal
 ```
 
-- **PayloadSerializer**: Object <-> TemporalPayload (serialization format)
-- **PayloadCodec**: TemporalPayload <-> TemporalPayload (encryption, compression)
+- **PayloadSerializer**: Object <-> `TemporalPayload` (serialization format)
+- **PayloadCodec**: `TemporalPayloads` -> `EncodedTemporalPayloads` (encode) / `EncodedTemporalPayloads` -> `TemporalPayloads` (decode)
+
+`EncodedTemporalPayloads` is a distinct value class from `TemporalPayloads`, ensuring at compile time
+that every code path applies the codec. See TKT-0011 for details.

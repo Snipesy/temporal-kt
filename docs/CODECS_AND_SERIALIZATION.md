@@ -3,10 +3,12 @@
 Temporal-Kt converts workflow and activity data to Temporal Payloads using a two-stage pipeline:
 
 ```
-Object → [Serializer] → TemporalPayload → [Codec] → Temporal Server
+Object → [Serializer] → TemporalPayloads → [Codec] → EncodedTemporalPayloads → Temporal Server
 ```
 
-**Serializers** convert objects to payloads. **Codecs** transform payloads (compression, encryption).
+**Serializers** convert objects to `TemporalPayload`s. **Codecs** transform payloads (compression, encryption),
+converting `TemporalPayloads` to `EncodedTemporalPayloads`. These are distinct value classes — the compiler
+will catch any code path that forgets to encode or decode.
 
 ## Serialization
 
@@ -152,8 +154,8 @@ install(CodecPlugin) {
 
 ### Custom Codec
 
-Codecs operate on `TemporalPayloads` and use `TemporalPayload`/`TemporalByteString` for
-zero-copy construction:
+Codecs accept `TemporalPayloads` (unencoded) and return `EncodedTemporalPayloads` (encoded) on `encode`,
+and vice versa on `decode`. Use `TemporalPayload`/`TemporalByteString` for zero-copy construction:
 
 ```kotlin
 class EncryptionCodec(private val keyProvider: KeyProvider) : PayloadCodec {
@@ -162,18 +164,18 @@ class EncryptionCodec(private val keyProvider: KeyProvider) : PayloadCodec {
         private val ENCODING_ENCRYPTED_BYTES = TemporalByteString.fromUtf8(ENCODING_ENCRYPTED)
     }
 
-    override suspend fun encode(payloads: TemporalPayloads): TemporalPayloads {
+    override suspend fun encode(payloads: TemporalPayloads): EncodedTemporalPayloads {
         val key = keyProvider.getKey()
-        return TemporalPayloads.of(payloads.payloads.map { payload ->
+        return EncodedTemporalPayloads(TemporalPayloads.of(payloads.payloads.map { payload ->
             val encrypted = encrypt(payload.data, key)
             val newMetadata = payload.metadataByteStrings.toMutableMap()
             newMetadata[TemporalPayload.METADATA_ENCODING] = ENCODING_ENCRYPTED_BYTES
             TemporalPayload.create(encrypted, newMetadata)
-        })
+        }).proto)
     }
 
-    override suspend fun decode(payloads: TemporalPayloads): TemporalPayloads {
-        return TemporalPayloads.of(payloads.payloads.map { payload ->
+    override suspend fun decode(payloads: EncodedTemporalPayloads): TemporalPayloads {
+        return TemporalPayloads.of(TemporalPayloads(payloads.proto).payloads.map { payload ->
             if (payload.encoding != ENCODING_ENCRYPTED) return@map payload
 
             val key = keyProvider.getKey()

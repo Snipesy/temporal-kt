@@ -1,11 +1,11 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.exceptions.SignalExternalWorkflowFailedException
-import com.surrealdev.temporal.common.toProto
-import com.surrealdev.temporal.common.toTemporal
+import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.workflow.ChildWorkflowCancellationType
 import com.surrealdev.temporal.workflow.ChildWorkflowCancelledException
@@ -40,6 +40,7 @@ internal class ChildWorkflowHandleImpl(
     internal val workflowType: String,
     private val state: WorkflowState,
     override val serializer: PayloadSerializer,
+    private val codec: PayloadCodec,
     private val cancellationType: ChildWorkflowCancellationType,
 ) : ChildWorkflowHandle {
     /**
@@ -77,29 +78,33 @@ internal class ChildWorkflowHandleImpl(
         return when {
             result.hasCompleted() -> {
                 val payload = result.completed.result
-                // Return raw payload (deserialization happens via extension function)
+                // Decode through codec, then return
                 if (payload.data.isEmpty) {
                     null
                 } else {
-                    payload.toTemporal()
+                    codec.decode(EncodedTemporalPayloads.fromProtoPayloadList(listOf(payload)))[0]
                 }
             }
 
             result.hasFailed() -> {
                 val failure = result.failed.failure
+                val cause = buildCause(failure, codec)
                 throw ChildWorkflowFailureException(
                     childWorkflowId = workflowId,
                     childWorkflowType = workflowType,
                     failure = failure,
+                    cause = cause,
                 )
             }
 
             result.hasCancelled() -> {
                 val failure = result.cancelled.failure
+                val cause = buildCause(failure, codec)
                 throw ChildWorkflowCancelledException(
                     childWorkflowId = workflowId,
                     childWorkflowType = workflowType,
                     failure = failure,
+                    cause = cause,
                 )
             }
 
@@ -145,7 +150,7 @@ internal class ChildWorkflowHandleImpl(
                         .setSeq(signalSeq)
                         .setChildWorkflowId(workflowId)
                         .setSignalName(signalName)
-                        .addAllArgs(args.toProto().payloadsList),
+                        .addAllArgs(codec.encode(args).proto.payloadsList),
                 ).build()
 
         state.addCommand(command)
@@ -168,7 +173,7 @@ internal class ChildWorkflowHandleImpl(
      * Called by WorkflowState when ResolveChildWorkflowExecutionStart job is received.
      * Resolves the start deferred with success or failure.
      */
-    internal fun resolveStart(resolution: ResolveChildWorkflowExecutionStart) {
+    internal suspend fun resolveStart(resolution: ResolveChildWorkflowExecutionStart) {
         when {
             resolution.hasSucceeded() -> {
                 val runId = resolution.succeeded.runId
@@ -203,11 +208,13 @@ internal class ChildWorkflowHandleImpl(
 
             resolution.hasCancelled() -> {
                 val cancelled = resolution.cancelled
+                val cause = if (cancelled.hasFailure()) buildCause(cancelled.failure, codec) else null
                 val exception =
                     ChildWorkflowCancelledException(
                         childWorkflowId = workflowId,
                         childWorkflowType = workflowType,
                         failure = cancelled.failure,
+                        cause = cause,
                     )
                 startDeferred.completeExceptionally(exception)
                 executionDeferred.completeExceptionally(exception)
