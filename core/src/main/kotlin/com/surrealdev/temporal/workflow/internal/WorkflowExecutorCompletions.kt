@@ -2,15 +2,12 @@ package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.common.TemporalPayloads
-import com.surrealdev.temporal.common.exceptions.ApplicationErrorCategory
-import com.surrealdev.temporal.common.exceptions.ApplicationFailure
 import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.workflow.ContinueAsNewException
 import com.surrealdev.temporal.workflow.VersioningIntent
 import coresdk.workflow_commands.WorkflowCommands
 import coresdk.workflow_completion.WorkflowCompletion
 import io.temporal.api.common.v1.Payload
-import io.temporal.api.failure.v1.ApplicationFailureInfo
 import io.temporal.api.failure.v1.Failure
 import kotlinx.coroutines.Deferred
 import kotlin.time.Duration
@@ -177,73 +174,7 @@ internal fun WorkflowExecutor.buildFailureCompletion(
 internal suspend fun WorkflowExecutor.buildWorkflowFailureCompletion(
     exception: Exception,
 ): WorkflowCompletion.WorkflowActivationCompletion {
-    val failureBuilder =
-        Failure
-            .newBuilder()
-            .setMessage(exception.message ?: exception::class.simpleName ?: "Unknown error")
-            .setStackTrace(exception.stackTraceToString())
-            .setSource("Kotlin")
-
-    // Populate ApplicationFailureInfo if this is an ApplicationFailure
-    if (exception is ApplicationFailure) {
-        val appInfoBuilder =
-            ApplicationFailureInfo
-                .newBuilder()
-                .setType(exception.type)
-                .setNonRetryable(exception.isNonRetryable)
-
-        // Serialize details if present (raw details from throw side or pre-decoded payloads)
-        if (exception.rawDetails.isNotEmpty() || !exception.details.isEmpty) {
-            val detailsPayloads = exception.serializeDetails(serializer)
-            val encoded = codec.encode(detailsPayloads)
-            appInfoBuilder.setDetails(encoded.toProto())
-        }
-
-        // Set next retry delay if specified
-        exception.nextRetryDelay?.let { delay ->
-            val javaDuration = delay.toJavaDuration()
-            val protoDuration =
-                com.google.protobuf.Duration
-                    .newBuilder()
-                    .setSeconds(javaDuration.seconds)
-                    .setNanos(javaDuration.nano)
-                    .build()
-            appInfoBuilder.setNextRetryDelay(protoDuration)
-        }
-
-        // Set error category if not default
-        if (exception.category != ApplicationErrorCategory.UNSPECIFIED) {
-            val protoCategory =
-                when (exception.category) {
-                    ApplicationErrorCategory.UNSPECIFIED -> {
-                        io.temporal.api.enums.v1.ApplicationErrorCategory.APPLICATION_ERROR_CATEGORY_UNSPECIFIED
-                    }
-
-                    ApplicationErrorCategory.BENIGN -> {
-                        io.temporal.api.enums.v1.ApplicationErrorCategory.APPLICATION_ERROR_CATEGORY_BENIGN
-                    }
-                }
-            appInfoBuilder.setCategory(protoCategory)
-        }
-
-        failureBuilder.setApplicationFailureInfo(appInfoBuilder)
-    } else {
-        // Wrap non-ApplicationFailure exceptions with ApplicationFailureInfo.
-        // This matches Python SDK behavior and ensures the server's retry logic
-        // handles the failure correctly (bare Failures without ApplicationFailureInfo
-        // may not have retry policies applied properly by the server).
-        val appInfoBuilder =
-            ApplicationFailureInfo
-                .newBuilder()
-                .setType(
-                    exception::class.qualifiedName
-                        ?: exception::class.simpleName
-                        ?: "UnknownException",
-                ).setNonRetryable(false)
-        failureBuilder.setApplicationFailureInfo(appInfoBuilder)
-    }
-
-    val failure = failureBuilder.build()
+    val failure = buildFailureProto(exception, serializer, codec)
 
     val failCommand =
         WorkflowCommands.WorkflowCommand

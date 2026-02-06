@@ -517,7 +517,7 @@ class ResilientParentWorkflow {
                 options = ChildWorkflowOptions(),
             ).result<String>()
         } catch (e: ChildWorkflowFailureException) {
-            "Child failed: ${e.failure?.message}"
+            "Child failed: ${e.message}"
         }
     }
 }

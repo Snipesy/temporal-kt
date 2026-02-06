@@ -1,7 +1,4 @@
-package com.surrealdev.temporal.workflow
-
-import com.surrealdev.temporal.common.exceptions.ApplicationFailure
-import io.temporal.api.failure.v1.Failure
+package com.surrealdev.temporal.common.exceptions
 
 /**
  * Base exception for child workflow-related errors.
@@ -12,7 +9,7 @@ import io.temporal.api.failure.v1.Failure
 sealed class ChildWorkflowException(
     message: String,
     cause: Throwable? = null,
-) : RuntimeException(message, cause)
+) : TemporalRuntimeException(message, cause)
 
 /**
  * Exception thrown when a child workflow execution fails.
@@ -22,13 +19,12 @@ sealed class ChildWorkflowException(
  *
  * @property childWorkflowId The workflow ID of the child that failed
  * @property childWorkflowType The type of the child workflow
- * @property failure The Temporal failure details, if available
  */
 class ChildWorkflowFailureException(
     val childWorkflowId: String,
     val childWorkflowType: String?,
-    val failure: Failure?,
-    message: String = buildMessage(childWorkflowId, childWorkflowType, failure),
+    failureMessage: String? = null,
+    message: String = buildMessage(childWorkflowId, childWorkflowType, failureMessage),
     cause: Throwable? = null,
 ) : ChildWorkflowException(message, cause) {
     /** The application failure details, if the child workflow failed with an [ApplicationFailure]. */
@@ -42,7 +38,7 @@ class ChildWorkflowFailureException(
         private fun buildMessage(
             childWorkflowId: String,
             childWorkflowType: String?,
-            failure: Failure?,
+            failureMessage: String?,
         ): String =
             buildString {
                 append("Child workflow ")
@@ -50,8 +46,8 @@ class ChildWorkflowFailureException(
                     append("'$childWorkflowType' ")
                 }
                 append("(workflowId=$childWorkflowId) failed")
-                if (failure != null && failure.message.isNotEmpty()) {
-                    append(": ${failure.message}")
+                if (!failureMessage.isNullOrEmpty()) {
+                    append(": $failureMessage")
                 }
             }
     }
@@ -62,20 +58,19 @@ class ChildWorkflowFailureException(
  *
  * @property childWorkflowId The workflow ID of the cancelled child
  * @property childWorkflowType The type of the child workflow, if known
- * @property failure The Temporal cancellation details, if available
  */
 class ChildWorkflowCancelledException(
     val childWorkflowId: String,
     val childWorkflowType: String? = null,
-    val failure: Failure? = null,
-    message: String = buildMessage(childWorkflowId, childWorkflowType, failure),
+    failureMessage: String? = null,
+    message: String = buildMessage(childWorkflowId, childWorkflowType, failureMessage),
     cause: Throwable? = null,
 ) : ChildWorkflowException(message, cause) {
     companion object {
         private fun buildMessage(
             childWorkflowId: String,
             childWorkflowType: String?,
-            failure: Failure?,
+            failureMessage: String?,
         ): String =
             buildString {
                 append("Child workflow ")
@@ -83,8 +78,8 @@ class ChildWorkflowCancelledException(
                     append("'$childWorkflowType' ")
                 }
                 append("(workflowId=$childWorkflowId) was cancelled")
-                if (failure != null && failure.message.isNotEmpty()) {
-                    append(": ${failure.message}")
+                if (!failureMessage.isNullOrEmpty()) {
+                    append(": $failureMessage")
                 }
             }
     }
@@ -100,7 +95,7 @@ class ChildWorkflowCancelledException(
  *
  * @property childWorkflowId The workflow ID that failed to start
  * @property childWorkflowType The type of the child workflow
- * @property cause The reason for the start failure
+ * @property startFailureCause The reason for the start failure
  */
 class ChildWorkflowStartFailureException(
     val childWorkflowId: String,

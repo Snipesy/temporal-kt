@@ -7,8 +7,12 @@ import com.surrealdev.temporal.common.exceptions.ActivityRetryState
 import com.surrealdev.temporal.common.exceptions.ActivityTimeoutType
 import com.surrealdev.temporal.common.exceptions.ApplicationErrorCategory
 import com.surrealdev.temporal.common.exceptions.ApplicationFailure
+import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.serialization.PayloadCodec
+import com.surrealdev.temporal.serialization.PayloadSerializer
+import io.temporal.api.failure.v1.ApplicationFailureInfo
 import io.temporal.api.failure.v1.Failure
+import kotlin.time.toJavaDuration
 
 /*
  * Shared utility functions for activity handle implementations.
@@ -166,3 +170,87 @@ internal fun extractRetryState(failure: Failure): ActivityRetryState =
     } else {
         ActivityRetryState.UNSPECIFIED
     }
+
+/**
+ * Builds a proto [Failure] from an exception, populating [ApplicationFailureInfo] appropriately.
+ *
+ * When the exception is an [ApplicationFailure], the failure type, non-retryable flag, details,
+ * next retry delay, and category are all preserved in the proto. For other exceptions, the proto
+ * is wrapped with a default [ApplicationFailureInfo] (using the exception class name as the type)
+ * to ensure the server's retry logic handles it correctly.
+ *
+ * This is shared by activity and workflow failure completion builders.
+ */
+@InternalTemporalApi
+internal suspend fun buildFailureProto(
+    exception: Throwable,
+    serializer: PayloadSerializer,
+    codec: PayloadCodec,
+): Failure {
+    val failureBuilder =
+        Failure
+            .newBuilder()
+            .setMessage(exception.message ?: exception::class.simpleName ?: "Unknown error")
+            .setStackTrace(exception.stackTraceToString())
+            .setSource("Kotlin")
+
+    if (exception is ApplicationFailure) {
+        val appInfoBuilder =
+            ApplicationFailureInfo
+                .newBuilder()
+                .setType(exception.type)
+                .setNonRetryable(exception.isNonRetryable)
+
+        // Serialize details if present (raw details from throw side or pre-decoded payloads)
+        if (exception.rawDetails.isNotEmpty() || !exception.details.isEmpty) {
+            val detailsPayloads = exception.serializeDetails(serializer)
+            val encoded = codec.encode(detailsPayloads)
+            appInfoBuilder.setDetails(encoded.toProto())
+        }
+
+        // Set next retry delay if specified
+        exception.nextRetryDelay?.let { delay ->
+            val javaDuration = delay.toJavaDuration()
+            val protoDuration =
+                com.google.protobuf.Duration
+                    .newBuilder()
+                    .setSeconds(javaDuration.seconds)
+                    .setNanos(javaDuration.nano)
+                    .build()
+            appInfoBuilder.setNextRetryDelay(protoDuration)
+        }
+
+        // Set error category if not default
+        if (exception.category != ApplicationErrorCategory.UNSPECIFIED) {
+            val protoCategory =
+                when (exception.category) {
+                    ApplicationErrorCategory.UNSPECIFIED -> {
+                        io.temporal.api.enums.v1.ApplicationErrorCategory.APPLICATION_ERROR_CATEGORY_UNSPECIFIED
+                    }
+
+                    ApplicationErrorCategory.BENIGN -> {
+                        io.temporal.api.enums.v1.ApplicationErrorCategory.APPLICATION_ERROR_CATEGORY_BENIGN
+                    }
+                }
+            appInfoBuilder.setCategory(protoCategory)
+        }
+
+        failureBuilder.setApplicationFailureInfo(appInfoBuilder)
+    } else {
+        // Wrap non-ApplicationFailure exceptions with ApplicationFailureInfo.
+        // This matches Python SDK behavior and ensures the server's retry logic
+        // handles the failure correctly (bare Failures without ApplicationFailureInfo
+        // may not have retry policies applied properly by the server).
+        val appInfoBuilder =
+            ApplicationFailureInfo
+                .newBuilder()
+                .setType(
+                    exception::class.qualifiedName
+                        ?: exception::class.simpleName
+                        ?: "UnknownException",
+                ).setNonRetryable(false)
+        failureBuilder.setApplicationFailureInfo(appInfoBuilder)
+    }
+
+    return failureBuilder.build()
+}

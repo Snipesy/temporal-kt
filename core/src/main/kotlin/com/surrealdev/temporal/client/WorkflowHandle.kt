@@ -278,7 +278,7 @@ internal class WorkflowHandleImpl(
                     workflowId = workflowId,
                     runId = runId,
                     workflowType = null,
-                    failure = failure,
+                    failureMessage = failure?.message,
                     cause = failure?.let { buildCause(it, codec) },
                 )
             }

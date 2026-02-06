@@ -1,7 +1,5 @@
 package com.surrealdev.temporal.common.exceptions
 
-import io.temporal.api.failure.v1.Failure
-
 /**
  * Base exception for external workflow operation failures.
  *
@@ -21,25 +19,24 @@ sealed class ExternalWorkflowException(
  *
  * @property targetWorkflowId The workflow ID that was being signaled
  * @property signalName The name of the signal that failed to deliver
- * @property failure The Temporal failure details, if available
  */
 class SignalExternalWorkflowFailedException(
     val targetWorkflowId: String,
     val signalName: String,
-    val failure: Failure?,
-    message: String = buildMessage(targetWorkflowId, signalName, failure),
+    failureMessage: String? = null,
+    message: String = buildMessage(targetWorkflowId, signalName, failureMessage),
 ) : ExternalWorkflowException(message) {
     companion object {
         private fun buildMessage(
             targetWorkflowId: String,
             signalName: String,
-            failure: Failure?,
+            failureMessage: String?,
         ): String =
             buildString {
                 append("Failed to signal workflow (workflowId=$targetWorkflowId) ")
                 append("with signal '$signalName'")
-                if (failure != null && failure.message.isNotEmpty()) {
-                    append(": ${failure.message}")
+                if (!failureMessage.isNullOrEmpty()) {
+                    append(": $failureMessage")
                 }
             }
     }
@@ -52,22 +49,21 @@ class SignalExternalWorkflowFailedException(
  * completed, or when there's a server-side error processing the cancel request.
  *
  * @property targetWorkflowId The workflow ID that was being cancelled
- * @property failure The Temporal failure details, if available
  */
 class CancelExternalWorkflowFailedException(
     val targetWorkflowId: String,
-    val failure: Failure?,
-    message: String = buildMessage(targetWorkflowId, failure),
+    failureMessage: String? = null,
+    message: String = buildMessage(targetWorkflowId, failureMessage),
 ) : ExternalWorkflowException(message) {
     companion object {
         private fun buildMessage(
             targetWorkflowId: String,
-            failure: Failure?,
+            failureMessage: String?,
         ): String =
             buildString {
                 append("Failed to cancel external workflow (workflowId=$targetWorkflowId)")
-                if (failure != null && failure.message.isNotEmpty()) {
-                    append(": ${failure.message}")
+                if (!failureMessage.isNullOrEmpty()) {
+                    append(": $failureMessage")
                 }
             }
     }

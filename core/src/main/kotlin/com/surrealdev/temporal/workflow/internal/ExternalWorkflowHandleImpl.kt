@@ -76,7 +76,7 @@ internal class ExternalWorkflowHandleImpl(
             throw SignalExternalWorkflowFailedException(
                 targetWorkflowId = workflowId,
                 signalName = signalName,
-                failure = failure,
+                failureMessage = failure.message,
             )
         }
     }
@@ -106,7 +106,7 @@ internal class ExternalWorkflowHandleImpl(
         if (failure != null) {
             throw CancelExternalWorkflowFailedException(
                 targetWorkflowId = workflowId,
-                failure = failure,
+                failureMessage = failure.message,
             )
         }
     }

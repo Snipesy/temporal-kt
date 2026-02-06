@@ -76,7 +76,7 @@ enum class ApplicationErrorCategory {
  * ## Inspecting on the Receive Side
  *
  * When catching [WorkflowActivityFailureException] or
- * [com.surrealdev.temporal.workflow.ChildWorkflowFailureException],
+ * [ChildWorkflowFailureException],
  * the [ApplicationFailure] is available via the `applicationFailure` property:
  *
  * ```kotlin

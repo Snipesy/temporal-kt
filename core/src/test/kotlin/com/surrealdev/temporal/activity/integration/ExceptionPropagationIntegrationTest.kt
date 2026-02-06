@@ -6,12 +6,12 @@ import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.taskQueue
 import com.surrealdev.temporal.client.startWorkflow
 import com.surrealdev.temporal.common.exceptions.ApplicationFailure
+import com.surrealdev.temporal.common.exceptions.ChildWorkflowFailureException
 import com.surrealdev.temporal.common.exceptions.ClientWorkflowFailedException
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityFailureException
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.ActivityOptions
-import com.surrealdev.temporal.workflow.ChildWorkflowFailureException
 import com.surrealdev.temporal.workflow.ChildWorkflowOptions
 import com.surrealdev.temporal.workflow.RetryPolicy
 import com.surrealdev.temporal.workflow.WorkflowContext

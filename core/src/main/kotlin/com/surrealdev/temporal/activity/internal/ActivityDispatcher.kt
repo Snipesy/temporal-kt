@@ -9,8 +9,6 @@ import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.exceptions.ActivityCancelledException
-import com.surrealdev.temporal.common.exceptions.ApplicationErrorCategory
-import com.surrealdev.temporal.common.exceptions.ApplicationFailure
 import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.internal.ZombieEvictionConfig
 import com.surrealdev.temporal.internal.ZombieEvictionManager
@@ -18,6 +16,7 @@ import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.serialization.SerializationException
 import com.surrealdev.temporal.util.AttributeScope
+import com.surrealdev.temporal.workflow.internal.buildFailureProto
 import coresdk.CoreInterface
 import coresdk.activityTaskCompletion
 import coresdk.activity_result.activityExecutionResult
@@ -35,7 +34,6 @@ import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.reflect.full.callSuspend
-import kotlin.time.toJavaDuration
 
 /**
  * Tracks a running activity for cancellation purposes.
@@ -581,73 +579,8 @@ class ActivityDispatcher(
 
         logger.info("Activity failed with exception: {}", actualException.message, actualException)
 
-        val failureBuilder =
-            Failure
-                .newBuilder()
-                .setMessage(actualException.message ?: actualException::class.simpleName ?: "Unknown error")
-                .setStackTrace(actualException.stackTraceToString())
-                .setSource("Kotlin")
-
-        // Populate ApplicationFailureInfo if this is an ApplicationFailure
-        if (actualException is ApplicationFailure) {
-            val appInfoBuilder =
-                ApplicationFailureInfo
-                    .newBuilder()
-                    .setType(actualException.type)
-                    .setNonRetryable(actualException.isNonRetryable)
-
-            // Serialize details if present (raw details from throw side or pre-decoded payloads)
-            if (actualException.rawDetails.isNotEmpty() || !actualException.details.isEmpty) {
-                val detailsPayloads = actualException.serializeDetails(serializer)
-                val encoded = codec.encode(detailsPayloads)
-                appInfoBuilder.setDetails(encoded.toProto())
-            }
-
-            // Set next retry delay if specified
-            actualException.nextRetryDelay?.let { delay ->
-                val javaDuration = delay.toJavaDuration()
-                val protoDuration =
-                    com.google.protobuf.Duration
-                        .newBuilder()
-                        .setSeconds(javaDuration.seconds)
-                        .setNanos(javaDuration.nano)
-                        .build()
-                appInfoBuilder.setNextRetryDelay(protoDuration)
-            }
-
-            // Set error category if not default
-            if (actualException.category != ApplicationErrorCategory.UNSPECIFIED) {
-                val protoCategory =
-                    when (actualException.category) {
-                        ApplicationErrorCategory.UNSPECIFIED -> {
-                            io.temporal.api.enums.v1.ApplicationErrorCategory.APPLICATION_ERROR_CATEGORY_UNSPECIFIED
-                        }
-
-                        ApplicationErrorCategory.BENIGN -> {
-                            io.temporal.api.enums.v1.ApplicationErrorCategory.APPLICATION_ERROR_CATEGORY_BENIGN
-                        }
-                    }
-                appInfoBuilder.setCategory(protoCategory)
-            }
-
-            failureBuilder.setApplicationFailureInfo(appInfoBuilder)
-        } else {
-            // Wrap non-ApplicationFailure exceptions with ApplicationFailureInfo.
-            // This matches Python SDK behavior and ensures the server's retry logic
-            // handles the failure correctly (bare Failures without ApplicationFailureInfo
-            // may not have retry policies applied properly by the server).
-            val appInfoBuilder =
-                ApplicationFailureInfo
-                    .newBuilder()
-                    .setType(
-                        actualException::class.qualifiedName
-                            ?: actualException::class.simpleName
-                            ?: "UnknownException",
-                    ).setNonRetryable(false)
-            failureBuilder.setApplicationFailureInfo(appInfoBuilder)
-        }
-
-        val failure = failureBuilder.build()
+        val failure =
+            buildFailureProto(actualException as Exception, serializer, codec)
 
         return activityTaskCompletion {
             this.taskToken = taskToken

@@ -4,15 +4,15 @@ import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
+import com.surrealdev.temporal.common.exceptions.ChildWorkflowCancelledException
+import com.surrealdev.temporal.common.exceptions.ChildWorkflowFailureException
+import com.surrealdev.temporal.common.exceptions.ChildWorkflowStartFailureException
 import com.surrealdev.temporal.common.exceptions.SignalExternalWorkflowFailedException
+import com.surrealdev.temporal.common.exceptions.StartChildWorkflowFailureCause
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.workflow.ChildWorkflowCancellationType
-import com.surrealdev.temporal.workflow.ChildWorkflowCancelledException
-import com.surrealdev.temporal.workflow.ChildWorkflowFailureException
 import com.surrealdev.temporal.workflow.ChildWorkflowHandle
-import com.surrealdev.temporal.workflow.ChildWorkflowStartFailureException
-import com.surrealdev.temporal.workflow.StartChildWorkflowFailureCause
 import coresdk.child_workflow.ChildWorkflow
 import coresdk.workflow_activation.WorkflowActivationOuterClass.ResolveChildWorkflowExecutionStart
 import coresdk.workflow_commands.WorkflowCommands
@@ -92,7 +92,7 @@ internal class ChildWorkflowHandleImpl(
                 throw ChildWorkflowFailureException(
                     childWorkflowId = workflowId,
                     childWorkflowType = workflowType,
-                    failure = failure,
+                    failureMessage = failure.message,
                     cause = cause,
                 )
             }
@@ -103,7 +103,7 @@ internal class ChildWorkflowHandleImpl(
                 throw ChildWorkflowCancelledException(
                     childWorkflowId = workflowId,
                     childWorkflowType = workflowType,
-                    failure = failure,
+                    failureMessage = failure.message,
                     cause = cause,
                 )
             }
@@ -164,7 +164,7 @@ internal class ChildWorkflowHandleImpl(
             throw SignalExternalWorkflowFailedException(
                 targetWorkflowId = workflowId,
                 signalName = signalName,
-                failure = failure,
+                failureMessage = failure.message,
             )
         }
     }
@@ -213,7 +213,7 @@ internal class ChildWorkflowHandleImpl(
                     ChildWorkflowCancelledException(
                         childWorkflowId = workflowId,
                         childWorkflowType = workflowType,
-                        failure = cancelled.failure,
+                        failureMessage = if (cancelled.hasFailure()) cancelled.failure.message else null,
                         cause = cause,
                     )
                 startDeferred.completeExceptionally(exception)

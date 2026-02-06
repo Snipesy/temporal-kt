@@ -5,9 +5,9 @@ import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.taskQueue
 import com.surrealdev.temporal.client.startWorkflow
+import com.surrealdev.temporal.common.exceptions.ChildWorkflowFailureException
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
-import com.surrealdev.temporal.workflow.ChildWorkflowFailureException
 import com.surrealdev.temporal.workflow.ChildWorkflowOptions
 import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.result
@@ -131,7 +131,7 @@ class ChildWorkflowIntegrationTest {
                 startChildWorkflow("FailingChildWorkflow", ChildWorkflowOptions()).result<String>()
                 "Child succeeded unexpectedly"
             } catch (e: ChildWorkflowFailureException) {
-                "Caught child failure: ${e.failure?.message}"
+                "Caught child failure: ${e.message}"
             }
     }
 

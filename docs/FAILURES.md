@@ -98,21 +98,21 @@ RuntimeException
 │   │   ├── SignalExternalWorkflowFailedException          ← signal delivery failed
 │   │   └── CancelExternalWorkflowFailedException          ← cancel request failed
 │   │
-│   └── ClientWorkflowException (sealed)                   [client code - waiting for workflow results]
-│       ├── ClientWorkflowFailedException                  ← workflow execution failed
-│       ├── ClientWorkflowCancelledException               ← workflow was cancelled
-│       ├── ClientWorkflowTerminatedException              ← workflow was terminated
-│       ├── ClientWorkflowTimedOutException                ← workflow execution timed out
-│       ├── ClientWorkflowResultTimeoutException           ← client wait timed out
-│       ├── ClientWorkflowNotFoundException                ← workflow not found
-│       ├── ClientWorkflowAlreadyExistsException           ← workflow ID already exists
-│       ├── ClientWorkflowUpdateFailedException            ← workflow update failed
-│       └── ClientWorkflowQueryRejectedException           ← workflow query rejected
-│
-├── ChildWorkflowException (sealed)                        [workflow code - catching child workflow results]
-│   ├── ChildWorkflowFailureException                      ← child workflow failed
-│   ├── ChildWorkflowCancelledException                    ← child workflow was cancelled
-│   └── ChildWorkflowStartFailureException                 ← child workflow failed to start
+│   ├── ClientWorkflowException (sealed)                   [client code - waiting for workflow results]
+│   │   ├── ClientWorkflowFailedException                  ← workflow execution failed
+│   │   ├── ClientWorkflowCancelledException               ← workflow was cancelled
+│   │   ├── ClientWorkflowTerminatedException              ← workflow was terminated
+│   │   ├── ClientWorkflowTimedOutException                ← workflow execution timed out
+│   │   ├── ClientWorkflowResultTimeoutException           ← client wait timed out
+│   │   ├── ClientWorkflowNotFoundException                ← workflow not found
+│   │   ├── ClientWorkflowAlreadyExistsException           ← workflow ID already exists
+│   │   ├── ClientWorkflowUpdateFailedException            ← workflow update failed
+│   │   └── ClientWorkflowQueryRejectedException           ← workflow query rejected
+│   │
+│   └── ChildWorkflowException (sealed)                    [workflow code - catching child workflow results]
+│       ├── ChildWorkflowFailureException                  ← child workflow failed
+│       ├── ChildWorkflowCancelledException                ← child workflow was cancelled
+│       └── ChildWorkflowStartFailureException             ← child workflow failed to start
 │
 ├── TemporalCoreException                                  [internal - Rust FFI bridge error]
 │
@@ -419,13 +419,13 @@ When a child workflow fails, the workflow receives an exception from the `ChildW
 ### ChildWorkflowException
 
 ```kotlin
-sealed class ChildWorkflowException : RuntimeException  // not yet migrated to TemporalRuntimeException
+sealed class ChildWorkflowException : TemporalRuntimeException
 ```
 
 | Subclass | When | Key Properties |
 |----------|------|----------------|
-| `ChildWorkflowFailureException` | Child workflow execution failed | `childWorkflowId`, `childWorkflowType`, `failure`, `applicationFailure` |
-| `ChildWorkflowCancelledException` | Child workflow was cancelled | `childWorkflowId`, `childWorkflowType`, `failure` |
+| `ChildWorkflowFailureException` | Child workflow execution failed | `childWorkflowId`, `childWorkflowType`, `applicationFailure` |
+| `ChildWorkflowCancelledException` | Child workflow was cancelled | `childWorkflowId`, `childWorkflowType` |
 | `ChildWorkflowStartFailureException` | Child workflow failed to start | `childWorkflowId`, `childWorkflowType`, `startFailureCause` |
 
 ### StartChildWorkflowFailureCause
@@ -469,8 +469,8 @@ sealed class ExternalWorkflowException : TemporalRuntimeException
 
 | Subclass | When | Key Properties |
 |----------|------|----------------|
-| `SignalExternalWorkflowFailedException` | Signal delivery to external workflow failed | `targetWorkflowId`, `signalName`, `failure` |
-| `CancelExternalWorkflowFailedException` | Cancel request to external workflow failed | `targetWorkflowId`, `failure` |
+| `SignalExternalWorkflowFailedException` | Signal delivery to external workflow failed | `targetWorkflowId`, `signalName` |
+| `CancelExternalWorkflowFailedException` | Cancel request to external workflow failed | `targetWorkflowId` |
 
 ### Handling External Workflow Operation Failures
 
@@ -512,7 +512,7 @@ sealed class ClientWorkflowException : TemporalRuntimeException
 
 | Subclass | When | Key Properties |
 |----------|------|----------------|
-| `ClientWorkflowFailedException` | Workflow execution failed | `workflowId`, `runId`, `workflowType`, `failure`, `applicationFailure` |
+| `ClientWorkflowFailedException` | Workflow execution failed | `workflowId`, `runId`, `workflowType`, `applicationFailure` |
 | `ClientWorkflowCancelledException` | Workflow was cancelled | `workflowId`, `runId` |
 | `ClientWorkflowTerminatedException` | Workflow was terminated | `workflowId`, `runId`, `reason` |
 | `ClientWorkflowTimedOutException` | Workflow execution timed out | `workflowId`, `runId`, `timeoutType` |

@@ -1,7 +1,5 @@
 package com.surrealdev.temporal.common.exceptions
 
-import io.temporal.api.failure.v1.Failure
-
 /**
  * Base exception for client workflow errors when waiting for workflow results from the client.
  */
@@ -19,14 +17,13 @@ sealed class ClientWorkflowException(
  * @property workflowId The workflow ID that failed
  * @property runId The run ID of the failed execution
  * @property workflowType The type of workflow that failed
- * @property failure The Temporal failure details, if available
  */
 class ClientWorkflowFailedException(
     val workflowId: String,
     val runId: String?,
     val workflowType: String?,
-    val failure: Failure?,
-    message: String = buildMessage(workflowId, runId, workflowType, failure),
+    failureMessage: String? = null,
+    message: String = buildMessage(workflowId, runId, workflowType, failureMessage),
     cause: Throwable? = null,
 ) : ClientWorkflowException(message, cause) {
     /** The application failure details, if the workflow failed with an [ApplicationFailure]. */
@@ -41,7 +38,7 @@ class ClientWorkflowFailedException(
             workflowId: String,
             runId: String?,
             workflowType: String?,
-            failure: Failure?,
+            failureMessage: String?,
         ): String =
             buildString {
                 append("Workflow ")
@@ -53,8 +50,8 @@ class ClientWorkflowFailedException(
                     append(", runId=$runId")
                 }
                 append(") failed")
-                if (failure != null && failure.message.isNotEmpty()) {
-                    append(": ${failure.message}")
+                if (!failureMessage.isNullOrEmpty()) {
+                    append(": $failureMessage")
                 }
             }
     }
