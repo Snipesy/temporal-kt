@@ -28,6 +28,8 @@ import com.surrealdev.temporal.core.TlsOptions
 import com.surrealdev.temporal.core.WorkerConfig
 import com.surrealdev.temporal.internal.ZombieEvictionConfig
 import com.surrealdev.temporal.serialization.NoOpCodec
+import com.surrealdev.temporal.serialization.PayloadCodec
+import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.serialization.payloadCodecOrNull
 import com.surrealdev.temporal.serialization.payloadSerializer
 import com.surrealdev.temporal.util.Attributes
@@ -213,8 +215,8 @@ open class TemporalApplication internal constructor(
                     coreWorker = coreWorker,
                     config = taskQueueConfig,
                     parentContext = coroutineContext,
-                    serializer = payloadSerializer(),
-                    codec = payloadCodecOrNull() ?: NoOpCodec,
+                    serializer = taskQueueConfig.serializer ?: payloadSerializer(),
+                    codec = taskQueueConfig.codec ?: payloadCodecOrNull() ?: NoOpCodec,
                     namespace = effectiveNamespace,
                     applicationHooks = hookRegistry,
                     application = this,
@@ -486,6 +488,16 @@ internal data class TaskQueueConfig(
      * If null, unregistered activity types will result in an error.
      */
     val dynamicActivityHandler: DynamicActivityHandler? = null,
+    /**
+     * Resolved payload serializer for this task queue.
+     * Resolved during build from the task queue's plugin pipeline (with parent fallback).
+     */
+    val serializer: PayloadSerializer? = null,
+    /**
+     * Resolved payload codec for this task queue.
+     * Resolved during build from the task queue's plugin pipeline (with parent fallback).
+     */
+    val codec: PayloadCodec? = null,
 )
 
 /**

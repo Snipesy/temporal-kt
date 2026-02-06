@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.activity
 
+import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.serialization.PayloadSerializer
@@ -80,6 +81,7 @@ interface ActivityContext :
      *
      * @param details Pre-serialized progress details to record, or null for a simple heartbeat
      */
+    @InternalTemporalApi
     suspend fun heartbeatWithPayload(details: TemporalPayload? = null)
 
     /**

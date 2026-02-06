@@ -5,10 +5,11 @@ import com.surrealdev.temporal.activity.ActivityContext
 import com.surrealdev.temporal.activity.ActivityInfo
 import com.surrealdev.temporal.activity.ActivityWorkflowInfo
 import com.surrealdev.temporal.activity.HeartbeatDetails
+import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayload
+import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.exceptions.ActivityCancelledException
-import com.surrealdev.temporal.common.toProto
-import com.surrealdev.temporal.common.toTemporal
+import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.util.AttributeScope
 import com.surrealdev.temporal.util.Attributes
@@ -31,9 +32,11 @@ internal class ActivityContextImpl(
     private val taskToken: ByteString,
     private val taskQueue: String,
     override val serializer: PayloadSerializer,
-    private val heartbeatFn: suspend (ByteString, io.temporal.api.common.v1.Payload?) -> Unit,
+    private val codec: PayloadCodec,
+    private val heartbeatFn: suspend (ByteString, EncodedTemporalPayloads?) -> Unit,
     override val parentScope: AttributeScope,
     private val parentCoroutineContext: CoroutineContext,
+    private val decodedHeartbeatDetails: HeartbeatDetails? = null,
 ) : ActivityContext,
     ExecutionScope {
     // Activity executions have their own attributes (currently empty, for future use)
@@ -55,7 +58,15 @@ internal class ActivityContextImpl(
         // Check cancellation before heartbeating
         cancellationException?.let { throw it }
 
-        heartbeatFn(taskToken, details?.toProto())
+        val encoded =
+            if (details != null) {
+                // Encode the heartbeat payload through the codec before sending
+                codec.encode(TemporalPayloads.of(listOf(details)))
+            } else {
+                null
+            }
+
+        heartbeatFn(taskToken, encoded)
 
         // Check cancellation after heartbeating (in case it was set during the call)
         cancellationException?.let { throw it }
@@ -97,12 +108,6 @@ internal class ActivityContextImpl(
                 null
             }
 
-        // Wrap heartbeat details from previous attempt for lazy deserialization
-        val heartbeatDetails: HeartbeatDetails? =
-            start.heartbeatDetailsList.firstOrNull()?.let { payload ->
-                HeartbeatDetails(payload.toTemporal(), serializer)
-            }
-
         return ActivityInfo(
             activityId = start.activityId,
             activityType = start.activityType,
@@ -110,7 +115,7 @@ internal class ActivityContextImpl(
             attempt = start.attempt,
             startTime = startedTime,
             deadline = deadline,
-            heartbeatDetails = heartbeatDetails,
+            heartbeatDetails = decodedHeartbeatDetails,
             workflowInfo =
                 ActivityWorkflowInfo(
                     workflowId = workflowExecution.workflowId,

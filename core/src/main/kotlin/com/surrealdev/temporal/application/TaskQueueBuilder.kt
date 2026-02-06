@@ -7,6 +7,8 @@ import com.surrealdev.temporal.application.plugin.HookRegistry
 import com.surrealdev.temporal.application.plugin.HookRegistryImpl
 import com.surrealdev.temporal.application.plugin.PluginPipeline
 import com.surrealdev.temporal.internal.ZombieEvictionConfig
+import com.surrealdev.temporal.serialization.payloadCodecOrNull
+import com.surrealdev.temporal.serialization.payloadSerializer
 import com.surrealdev.temporal.util.AttributeScope
 import com.surrealdev.temporal.util.Attributes
 import io.temporal.api.common.v1.Payload
@@ -303,5 +305,7 @@ class TaskQueueBuilder internal constructor(
             zombieEviction = zombieEviction,
             forceExitTimeout = forceExitTimeout,
             dynamicActivityHandler = dynamicActivityHandler,
+            serializer = payloadSerializer(),
+            codec = payloadCodecOrNull(),
         )
 }

@@ -19,6 +19,8 @@ import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskContext
 import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskFailed
 import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskFailedContext
 import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskStarted
+import com.surrealdev.temporal.common.EncodedTemporalPayloads
+import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.core.TemporalWorker
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
@@ -28,7 +30,6 @@ import com.surrealdev.temporal.workflow.internal.WorkflowRegistry
 import coresdk.activityHeartbeat
 import coresdk.activity_task.ActivityTaskOuterClass
 import coresdk.workflow_activation.WorkflowActivationOuterClass
-import io.temporal.api.common.v1.Payload
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CompletableJob
@@ -223,13 +224,13 @@ internal class ManagedWorker(
      */
     private fun recordActivityHeartbeat(
         taskToken: ByteString,
-        details: Payload?,
+        details: EncodedTemporalPayloads?,
     ) {
         val heartbeat =
             activityHeartbeat {
                 this.taskToken = taskToken
                 if (details != null) {
-                    this.details += details
+                    this.details += details.toProto().payloadsList
                 }
             }
         coreWorker.recordActivityHeartbeat(heartbeat)

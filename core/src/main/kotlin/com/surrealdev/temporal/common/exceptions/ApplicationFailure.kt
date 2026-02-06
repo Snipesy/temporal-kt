@@ -148,6 +148,26 @@ class ApplicationFailure private constructor(
     }
 
     /**
+     * Deserializes the detail payload at [index] to the specified type.
+     *
+     * @param index The zero-based index of the detail to deserialize.
+     * @return The deserialized detail, or null if [index] is out of bounds.
+     */
+    inline fun <reified T> detail(
+        index: Int,
+        serializer: PayloadSerializer,
+    ): T? {
+        if (index !in details.indices) return null
+        return serializer.deserialize(typeOf<T>(), details[index]) as T
+    }
+
+    /**
+     * Returns the number of detail payloads attached to this failure.
+     */
+    val detailSize: Int
+        get() = details.size
+
+    /**
      * Deserializes all detail payloads to a list of the specified type.
      *
      * @return A list of deserialized details.
@@ -182,7 +202,10 @@ class ApplicationFailure private constructor(
         )
 
         /**
-         * Creates a retryable application failure with pre-serialized details.
+         * Creates a retryable application failure with pre-serialized detail payloads.
+         *
+         * Prefer the reified extension [ApplicationFailure.Companion.failure] with a `detail`
+         * parameter instead, which handles serialization automatically through the codec pipeline.
          *
          * @param message The error message
          * @param type The failure type/category (defaults to "ApplicationFailure")
@@ -235,7 +258,10 @@ class ApplicationFailure private constructor(
         )
 
         /**
-         * Creates a non-retryable application failure with pre-serialized details.
+         * Creates a non-retryable application failure with pre-serialized detail payloads.
+         *
+         * Prefer the reified extension [ApplicationFailure.Companion.nonRetryable] with a `detail`
+         * parameter instead, which handles serialization automatically through the codec pipeline.
          *
          * @param message The error message
          * @param type The failure type/category (defaults to "ApplicationFailure")
@@ -245,7 +271,7 @@ class ApplicationFailure private constructor(
          */
         @JvmStatic
         @InternalTemporalApi
-        fun nonRetryable(
+        fun nonRetryableWithPayloads(
             message: String,
             type: String = "ApplicationFailure",
             details: TemporalPayloads,
@@ -289,7 +315,10 @@ class ApplicationFailure private constructor(
         )
 
         /**
-         * Creates a retryable failure with explicit next retry delay and pre-serialized details.
+         * Creates a retryable failure with explicit next retry delay and pre-serialized detail payloads.
+         *
+         * Prefer the reified extension [ApplicationFailure.Companion.failureWithDelay] with a `detail`
+         * parameter instead, which handles serialization automatically through the codec pipeline.
          *
          * @param message The error message
          * @param nextRetryDelay The delay before the next retry attempt
@@ -300,7 +329,7 @@ class ApplicationFailure private constructor(
          */
         @JvmStatic
         @InternalTemporalApi
-        fun failureWithDelay(
+        fun failureWithDelayWithPayloads(
             message: String,
             nextRetryDelay: Duration,
             type: String = "ApplicationFailure",
@@ -347,7 +376,7 @@ class ApplicationFailure private constructor(
          * from Temporal's proto [io.temporal.api.failure.v1.ApplicationFailureInfo].
          */
         @InternalTemporalApi
-        fun fromProto(
+        fun fromProtoWithPayloads(
             type: String,
             message: String?,
             isNonRetryable: Boolean,
@@ -373,7 +402,8 @@ class ApplicationFailure private constructor(
  * Creates a retryable application failure with a single typed detail.
  *
  * The detail value will be serialized at the outbound boundary using the
- * configured [PayloadSerializer] and encoded through the [PayloadCodec].
+ * configured [PayloadSerializer] and encoded through the [com.surrealdev.temporal.serialization.PayloadCodec].
+ * This is the recommended way to attach typed details to a failure.
  *
  * ```kotlin
  * throw ApplicationFailure.failure<ErrorInfo>(
@@ -382,6 +412,13 @@ class ApplicationFailure private constructor(
  *     detail = ErrorInfo(code = 400, field = "email"),
  * )
  * ```
+ *
+ * @param T The type of the detail value
+ * @param message The error message
+ * @param type The failure type/category (defaults to "ApplicationFailure")
+ * @param detail The typed detail value to attach to the failure
+ * @param category Error category affecting logging and metrics
+ * @param cause Optional cause exception
  */
 inline fun <reified T> ApplicationFailure.Companion.failure(
     message: String,
@@ -402,6 +439,10 @@ inline fun <reified T> ApplicationFailure.Companion.failure(
 /**
  * Creates a non-retryable application failure with a single typed detail.
  *
+ * The detail value will be serialized at the outbound boundary using the
+ * configured [PayloadSerializer] and encoded through the [com.surrealdev.temporal.serialization.PayloadCodec].
+ * This is the recommended way to attach typed details to a non-retryable failure.
+ *
  * ```kotlin
  * throw ApplicationFailure.nonRetryable<ErrorInfo>(
  *     message = "Invalid input",
@@ -409,6 +450,13 @@ inline fun <reified T> ApplicationFailure.Companion.failure(
  *     detail = ErrorInfo(code = 400, field = "email"),
  * )
  * ```
+ *
+ * @param T The type of the detail value
+ * @param message The error message
+ * @param type The failure type/category (defaults to "ApplicationFailure")
+ * @param detail The typed detail value to attach to the failure
+ * @param category Error category affecting logging and metrics
+ * @param cause Optional cause exception
  */
 inline fun <reified T> ApplicationFailure.Companion.nonRetryable(
     message: String,
@@ -428,6 +476,27 @@ inline fun <reified T> ApplicationFailure.Companion.nonRetryable(
 
 /**
  * Creates a retryable failure with explicit next retry delay and a single typed detail.
+ *
+ * The detail value will be serialized at the outbound boundary using the
+ * configured [PayloadSerializer] and encoded through the [com.surrealdev.temporal.serialization.PayloadCodec].
+ * This is the recommended way to attach typed details to a delayed-retry failure.
+ *
+ * ```kotlin
+ * throw ApplicationFailure.failureWithDelay<ErrorInfo>(
+ *     message = "Rate limited",
+ *     nextRetryDelay = 30.seconds,
+ *     type = "RateLimitError",
+ *     detail = ErrorInfo(code = 429, retryAfter = 30),
+ * )
+ * ```
+ *
+ * @param T The type of the detail value
+ * @param message The error message
+ * @param nextRetryDelay The delay before the next retry attempt, overriding the retry policy backoff
+ * @param type The failure type/category (defaults to "ApplicationFailure")
+ * @param detail The typed detail value to attach to the failure
+ * @param category Error category affecting logging and metrics
+ * @param cause Optional cause exception
  */
 inline fun <reified T> ApplicationFailure.Companion.failureWithDelay(
     message: String,

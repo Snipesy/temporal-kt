@@ -2,6 +2,7 @@ package com.surrealdev.temporal.activity.internal
 
 import com.google.protobuf.ByteString
 import com.surrealdev.temporal.activity.EncodedPayloads
+import com.surrealdev.temporal.activity.HeartbeatDetails
 import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.application.DynamicActivityHandler
 import com.surrealdev.temporal.common.EncodedTemporalPayloads
@@ -67,7 +68,7 @@ class ActivityDispatcher(
     private val codec: PayloadCodec,
     private val taskQueue: String,
     maxConcurrent: Int,
-    private val heartbeatFn: suspend (ByteString, io.temporal.api.common.v1.Payload?) -> Unit = { _, _ -> },
+    private val heartbeatFn: suspend (ByteString, EncodedTemporalPayloads?) -> Unit = { _, _ -> },
     /**
      * The task queue scope for hierarchical attribute lookup.
      * Its parentScope should be the application.
@@ -306,6 +307,10 @@ class ActivityDispatcher(
             )
         }
 
+        // Decode heartbeat details from previous attempt (if any) through the codec.
+        // This must happen here because codec.decode() is suspend but ActivityInfo is built lazily.
+        val decodedHeartbeatDetails = decodeHeartbeatDetails(start)
+
         // Create the activity context
         // The taskQueueScope provides hierarchical attribute lookup (taskQueue -> application)
         val context =
@@ -314,9 +319,11 @@ class ActivityDispatcher(
                 taskToken = taskToken,
                 taskQueue = taskQueue,
                 serializer = serializer,
+                codec = codec,
                 heartbeatFn = heartbeatFn,
                 parentScope = taskQueueScope,
                 parentCoroutineContext = currentCoroutineContext(),
+                decodedHeartbeatDetails = decodedHeartbeatDetails,
             )
 
         // Track this activity for cancellation
@@ -355,6 +362,18 @@ class ActivityDispatcher(
             // Always clean up tracking
             runningActivities.remove(taskToken)
         }
+    }
+
+    /**
+     * Decodes heartbeat details from a previous activity attempt through the codec.
+     * Returns null if there are no heartbeat details.
+     */
+    private suspend fun decodeHeartbeatDetails(start: ActivityTaskOuterClass.Start): HeartbeatDetails? {
+        val firstPayload = start.heartbeatDetailsList.firstOrNull() ?: return null
+        val encoded = EncodedTemporalPayloads.fromProtoPayloadList(listOf(firstPayload))
+        val decoded = codec.decode(encoded)
+        val decodedPayload = decoded.payloads.firstOrNull() ?: return null
+        return HeartbeatDetails(decodedPayload, serializer)
     }
 
     @OptIn(InternalTemporalApi::class)
@@ -451,6 +470,9 @@ class ActivityDispatcher(
         val decodedPayloads = codec.decode(codecEncoded)
         val encodedPayloads = EncodedPayloads(decodedPayloads, serializer)
 
+        // Decode heartbeat details from previous attempt (if any) through the codec
+        val decodedHeartbeatDetails = decodeHeartbeatDetails(start)
+
         // Create the activity context
         val context =
             ActivityContextImpl(
@@ -458,9 +480,11 @@ class ActivityDispatcher(
                 taskToken = taskToken,
                 taskQueue = taskQueue,
                 serializer = serializer,
+                codec = codec,
                 heartbeatFn = heartbeatFn,
                 parentScope = taskQueueScope,
                 parentCoroutineContext = currentCoroutineContext(),
+                decodedHeartbeatDetails = decodedHeartbeatDetails,
             )
 
         // Track this activity for cancellation

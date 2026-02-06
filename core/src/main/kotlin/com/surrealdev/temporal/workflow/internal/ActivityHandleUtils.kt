@@ -100,7 +100,7 @@ internal suspend fun buildApplicationFailureFromProto(
         } else {
             TemporalPayloads.EMPTY
         }
-    return ApplicationFailure.fromProto(
+    return ApplicationFailure.fromProtoWithPayloads(
         type = appInfo.type ?: "UnknownApplicationFailure",
         message = failure.message,
         isNonRetryable = appInfo.nonRetryable,
