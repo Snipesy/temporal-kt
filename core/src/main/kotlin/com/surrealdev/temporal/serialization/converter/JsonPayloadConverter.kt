@@ -2,8 +2,8 @@ package com.surrealdev.temporal.serialization.converter
 
 import com.surrealdev.temporal.common.TemporalByteString
 import com.surrealdev.temporal.common.TemporalPayload
+import com.surrealdev.temporal.common.exceptions.PayloadSerializationException
 import com.surrealdev.temporal.serialization.PayloadConverter
-import com.surrealdev.temporal.serialization.SerializationException
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromStream
@@ -38,7 +38,7 @@ class JsonPayloadConverter(
                 json.encodeToStream(json.serializersModule.serializer(typeInfo), value!!, stream)
             }
         } catch (e: Exception) {
-            throw SerializationException(
+            throw PayloadSerializationException(
                 "Failed to serialize value of type $typeInfo to JSON: ${e.message}",
                 e,
             )
@@ -52,7 +52,7 @@ class JsonPayloadConverter(
             @OptIn(ExperimentalSerializationApi::class)
             json.decodeFromStream(json.serializersModule.serializer(typeInfo), payload.dataInputStream())
         } catch (e: Exception) {
-            throw SerializationException(
+            throw PayloadSerializationException(
                 "Failed to deserialize JSON to type $typeInfo: ${e.message}",
                 e,
             )

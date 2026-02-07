@@ -1,6 +1,7 @@
 package com.surrealdev.temporal.serialization
 
 import com.surrealdev.temporal.common.TemporalPayload
+import com.surrealdev.temporal.common.exceptions.PayloadSerializationException
 import kotlin.reflect.KType
 import kotlin.reflect.typeOf as kotlinTypeOf
 
@@ -47,7 +48,7 @@ interface PayloadSerializer {
      * @param typeInfo Type information for the value
      * @param value The value to serialize (may be null)
      * @return A [TemporalPayload] containing the serialized data and metadata
-     * @throws SerializationException if serialization fails
+     * @throws PayloadSerializationException if serialization fails
      */
     fun serialize(
         typeInfo: KType,
@@ -60,7 +61,7 @@ interface PayloadSerializer {
      * @param typeInfo Type information for the expected return type
      * @param payload The payload to deserialize
      * @return The deserialized value (may be null if the type is nullable)
-     * @throws SerializationException if deserialization fails
+     * @throws PayloadSerializationException if deserialization fails
      */
     fun deserialize(
         typeInfo: KType,
@@ -78,11 +79,3 @@ inline fun <reified T> PayloadSerializer.serialize(value: T): TemporalPayload = 
  */
 inline fun <reified T> PayloadSerializer.deserialize(payload: TemporalPayload): T =
     deserialize(typeOf<T>(), payload) as T
-
-/**
- * Exception thrown when serialization or deserialization fails.
- */
-class SerializationException(
-    message: String,
-    cause: Throwable? = null,
-) : RuntimeException(message, cause)

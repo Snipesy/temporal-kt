@@ -2,6 +2,7 @@ package com.surrealdev.temporal.serialization
 
 import com.surrealdev.temporal.common.TemporalByteString
 import com.surrealdev.temporal.common.TemporalPayload
+import com.surrealdev.temporal.common.exceptions.PayloadSerializationException
 import com.surrealdev.temporal.serialization.converter.ByteArrayPayloadConverter
 import com.surrealdev.temporal.serialization.converter.JsonPayloadConverter
 import com.surrealdev.temporal.serialization.converter.NullPayloadConverter
@@ -189,7 +190,7 @@ class CompositePayloadSerializerTest {
             )
 
         val ex =
-            assertFailsWith<SerializationException> {
+            assertFailsWith<PayloadSerializationException> {
                 serializer.deserialize(typeOf<String>(), payload)
             }
         assertTrue(ex.message!!.contains("binary/protobuf"))
@@ -211,7 +212,7 @@ class CompositePayloadSerializerTest {
         val serializer = CompositePayloadSerializer(emptyList())
         val payload = TemporalPayload.create(byteArrayOf(1, 2, 3), emptyMap<String, TemporalByteString>())
 
-        assertFailsWith<SerializationException> {
+        assertFailsWith<PayloadSerializationException> {
             serializer.deserialize(typeOf<String>(), payload)
         }
     }
@@ -221,7 +222,7 @@ class CompositePayloadSerializerTest {
         // Empty chain — nothing can serialize
         val serializer = CompositePayloadSerializer(emptyList())
 
-        assertFailsWith<SerializationException> {
+        assertFailsWith<PayloadSerializationException> {
             serializer.serialize(typeOf<String>(), "hello")
         }
     }
@@ -231,7 +232,7 @@ class CompositePayloadSerializerTest {
         val serializer = CompositePayloadSerializer.default()
         val nullPayload = serializer.serialize(typeOf<String?>(), null)
 
-        assertFailsWith<SerializationException> {
+        assertFailsWith<PayloadSerializationException> {
             serializer.deserialize(typeOf<String>(), nullPayload)
         }
     }

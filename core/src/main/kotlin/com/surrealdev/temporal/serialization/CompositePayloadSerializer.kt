@@ -1,6 +1,7 @@
 package com.surrealdev.temporal.serialization
 
 import com.surrealdev.temporal.common.TemporalPayload
+import com.surrealdev.temporal.common.exceptions.PayloadSerializationException
 import com.surrealdev.temporal.serialization.converter.JsonPayloadConverter
 import com.surrealdev.temporal.serialization.converter.NullPayloadConverter
 import kotlin.reflect.KType
@@ -45,7 +46,7 @@ class CompositePayloadSerializer(
             val payload = converter.toPayload(typeInfo, value)
             if (payload != null) return payload
         }
-        throw SerializationException("No converter could serialize value of type $typeInfo")
+        throw PayloadSerializationException("No converter could serialize value of type $typeInfo")
     }
 
     override fun deserialize(
@@ -58,10 +59,12 @@ class CompositePayloadSerializer(
         val converter =
             if (encoding != null) {
                 convertersByEncoding[encoding]
-                    ?: throw SerializationException("No converter registered for encoding: $encoding")
+                    ?: throw PayloadSerializationException("No converter registered for encoding: $encoding")
             } else {
                 converters.lastOrNull()
-                    ?: throw SerializationException("No converters configured and payload has no encoding metadata")
+                    ?: throw PayloadSerializationException(
+                        "No converters configured and payload has no encoding metadata",
+                    )
             }
         return converter.fromPayload(typeInfo, payload)
     }

@@ -89,6 +89,10 @@ RuntimeException
 │   │
 │   ├── ApplicationFailure                                 [common - throw & receive side]
 │   │
+│   ├── PayloadSerializationException                      [serialization - payload serialize/deserialize failures]
+│   │
+│   ├── PayloadCodecException                              [codec - payload encode/decode failures]
+│   │
 │   ├── WorkflowActivityException (sealed)                 [workflow code - catching activity results]
 │   │   ├── WorkflowActivityFailureException               ← activity failed with error
 │   │   ├── WorkflowActivityTimeoutException               ← activity timed out
@@ -499,6 +503,66 @@ catch (e: ExternalWorkflowException) {
     }
 }
 ```
+
+## Payload Serialization and Codec Exceptions
+
+These exceptions occur during payload processing and extend `TemporalRuntimeException`.
+
+### PayloadSerializationException
+
+Thrown when `PayloadSerializer` implementations fail to serialize or deserialize payloads.
+
+**Common causes:**
+- Type not registered with the serializer
+- Malformed payload data
+- Type mismatch between expected and actual types
+- Missing required fields during deserialization
+
+```kotlin
+import com.surrealdev.temporal.common.exceptions.PayloadSerializationException
+
+// Thrown by PayloadSerializer implementations
+try {
+    val payload = serializer.serialize(typeOf<MyClass>(), value)
+} catch (e: PayloadSerializationException) {
+    println("Failed to serialize: ${e.message}")
+}
+
+try {
+    val result = serializer.deserialize<MyClass>(payload)
+} catch (e: PayloadSerializationException) {
+    println("Failed to deserialize: ${e.message}")
+}
+```
+
+### PayloadCodecException
+
+Thrown when `PayloadCodec` implementations fail to encode or decode payloads. Codecs handle payload transformations like compression, encryption, or custom encoding.
+
+**Common causes:**
+- Encryption/decryption key mismatch
+- Corrupted compressed data
+- Codec configuration error
+- Unsupported encoding format
+
+```kotlin
+import com.surrealdev.temporal.common.exceptions.PayloadCodecException
+
+// Thrown by PayloadCodec implementations
+try {
+    val encoded = codec.encode(payloads)
+} catch (e: PayloadCodecException) {
+    println("Failed to encode: ${e.message}")
+}
+
+try {
+    val decoded = codec.decode(encodedPayloads)
+} catch (e: PayloadCodecException) {
+    println("Failed to decode: ${e.message}")
+}
+```
+
+**Note:** These exceptions are typically internal to the SDK and indicate infrastructure issues rather than business logic errors. In most cases, they will be wrapped in higher-level exceptions (like `WorkflowActivityFailureException` or `ClientWorkflowFailedException`) before reaching your code.
 
 ## Client-Side Exceptions
 

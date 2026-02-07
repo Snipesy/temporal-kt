@@ -9,12 +9,12 @@ import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.exceptions.ActivityCancelledException
+import com.surrealdev.temporal.common.exceptions.PayloadSerializationException
 import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.internal.ZombieEvictionConfig
 import com.surrealdev.temporal.internal.ZombieEvictionManager
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
-import com.surrealdev.temporal.serialization.SerializationException
 import com.surrealdev.temporal.util.AttributeScope
 import com.surrealdev.temporal.workflow.internal.buildFailureProto
 import coresdk.CoreInterface
@@ -333,7 +333,7 @@ class ActivityDispatcher(
             val args =
                 try {
                     deserializeArguments(start.inputList, methodInfo.parameterTypes)
-                } catch (e: SerializationException) {
+                } catch (e: PayloadSerializationException) {
                     return buildFailureCompletion(
                         taskToken,
                         "ARGUMENT_DESERIALIZATION_FAILED",
@@ -380,7 +380,7 @@ class ActivityDispatcher(
         parameterTypes: List<kotlin.reflect.KType>,
     ): Array<Any?> {
         if (payloads.size != parameterTypes.size) {
-            throw SerializationException(
+            throw PayloadSerializationException(
                 "Argument count mismatch: expected ${parameterTypes.size}, got ${payloads.size}",
             )
         }

@@ -2,8 +2,8 @@ package com.surrealdev.temporal.serialization.converter
 
 import com.surrealdev.temporal.common.TemporalByteString
 import com.surrealdev.temporal.common.TemporalPayload
+import com.surrealdev.temporal.common.exceptions.PayloadSerializationException
 import com.surrealdev.temporal.serialization.PayloadConverter
-import com.surrealdev.temporal.serialization.SerializationException
 import kotlin.reflect.KType
 
 private val NULL_METADATA =
@@ -32,7 +32,7 @@ object NullPayloadConverter : PayloadConverter {
         payload: TemporalPayload,
     ): Any? {
         if (!typeInfo.isMarkedNullable) {
-            throw SerializationException(
+            throw PayloadSerializationException(
                 "Cannot deserialize null payload to non-nullable type $typeInfo",
             )
         }
