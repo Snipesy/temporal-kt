@@ -11,6 +11,7 @@ import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.exceptions.ActivityCancelledException
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
+import com.surrealdev.temporal.serialization.safeEncode
 import com.surrealdev.temporal.util.AttributeScope
 import com.surrealdev.temporal.util.Attributes
 import com.surrealdev.temporal.util.ExecutionScope
@@ -61,7 +62,7 @@ internal class ActivityContextImpl(
         val encoded =
             if (details != null) {
                 // Encode the heartbeat payload through the codec before sending
-                codec.encode(TemporalPayloads.of(listOf(details)))
+                codec.safeEncode(TemporalPayloads.of(listOf(details)))
             } else {
                 null
             }

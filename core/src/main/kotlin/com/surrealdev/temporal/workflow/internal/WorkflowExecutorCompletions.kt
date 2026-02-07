@@ -1,8 +1,10 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
-import com.surrealdev.temporal.common.TemporalPayloads
+import com.surrealdev.temporal.common.exceptions.PayloadProcessingException
 import com.surrealdev.temporal.common.toProto
+import com.surrealdev.temporal.serialization.safeEncodeSingle
+import com.surrealdev.temporal.serialization.safeSerialize
 import com.surrealdev.temporal.workflow.ContinueAsNewException
 import com.surrealdev.temporal.workflow.VersioningIntent
 import coresdk.workflow_commands.WorkflowCommands
@@ -43,11 +45,18 @@ internal suspend fun WorkflowExecutor.buildTerminalCompletion(
 
         // Serialize the result, then encode with codec
         val resultPayload =
-            if (methodInfo.returnType.classifier == Unit::class) {
-                Payload.getDefaultInstance()
-            } else {
-                val serialized = serializer.serialize(returnType, value)
-                codec.encode(TemporalPayloads.of(listOf(serialized))).toProto().getPayloads(0)
+            try {
+                if (methodInfo.returnType.classifier == Unit::class) {
+                    Payload.getDefaultInstance()
+                } else {
+                    val serialized = serializer.safeSerialize(returnType, value)
+                    codec.safeEncodeSingle(serialized)
+                }
+            } catch (e: PayloadProcessingException) {
+                // Codec/serialization error during result encoding - return task failure (retryable)
+                // instead of workflow failure (permanent). Server can retry with same history.
+                logger.warn("Failed to encode/serialize workflow result: {}", e.message, e)
+                return buildFailureCompletion(e)
             }
 
         // Build completion command
@@ -76,6 +85,12 @@ internal suspend fun WorkflowExecutor.buildTerminalCompletion(
         // Handle continue-as-new (this is not an error, it's a control flow mechanism)
         logger.debug("Workflow requested continue-as-new")
         buildContinueAsNewCompletion(e)
+    } catch (e: PayloadProcessingException) {
+        // Codec/serialization infrastructure error during workflow execution (e.g., codec service
+        // down, rate limited, temporary key issue). These are transient failures.
+        // Return task failure (retryable) so server can retry the workflow task.
+        logger.warn("Workflow task failed due to payload processing error: {}", e.message, e)
+        buildFailureCompletion(e)
     } catch (e: Exception) {
         // Check if this is a cancellation with the cancel flag set
         if (state.cancelRequested && e is kotlinx.coroutines.CancellationException) {
@@ -242,10 +257,17 @@ internal suspend fun WorkflowExecutor.buildContinueAsNewCompletion(
             .setTaskQueue(options.taskQueue ?: taskQueue)
 
     // Serialize and add arguments with their type information, then encode with codec
-    exception.typedArgs.forEach { (type, value) ->
-        val serialized = serializer.serialize(type, value)
-        val encoded = codec.encode(TemporalPayloads.of(listOf(serialized))).toProto().getPayloads(0)
-        commandBuilder.addArguments(encoded)
+    // If encoding fails, return task failure (retryable) instead of workflow failure (permanent)
+    try {
+        exception.typedArgs.forEach { (type, value) ->
+            val serialized = serializer.safeSerialize(type, value)
+            val encoded = codec.safeEncodeSingle(serialized)
+            commandBuilder.addArguments(encoded)
+        }
+    } catch (e: PayloadProcessingException) {
+        // Codec/serialization error during continue-as-new argument encoding - return task failure (retryable)
+        logger.warn("Failed to process continue-as-new arguments: {}", e.message, e)
+        return buildFailureCompletion(e)
     }
 
     // Set optional fields if provided

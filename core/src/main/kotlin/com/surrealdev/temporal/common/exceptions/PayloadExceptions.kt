@@ -1,6 +1,26 @@
 package com.surrealdev.temporal.common.exceptions
 
 /**
+ * Base exception for all payload processing failures (serialization and codec).
+ *
+ * This sealed class allows catching both [PayloadSerializationException] and
+ * [PayloadCodecException] with a single catch block when the distinction
+ * between serialization and codec errors is not important.
+ *
+ * ```kotlin
+ * try {
+ *     // encode/decode/serialize/deserialize
+ * } catch (e: PayloadProcessingException) {
+ *     // Handles both codec and serialization failures
+ * }
+ * ```
+ */
+sealed class PayloadProcessingException(
+    message: String,
+    cause: Throwable? = null,
+) : TemporalRuntimeException(message, cause)
+
+/**
  * Exception thrown when payload serialization or deserialization fails.
  *
  * This exception is thrown by [com.surrealdev.temporal.serialization.PayloadSerializer]
@@ -16,7 +36,7 @@ package com.surrealdev.temporal.common.exceptions
 class PayloadSerializationException(
     message: String,
     cause: Throwable? = null,
-) : TemporalRuntimeException(message, cause)
+) : PayloadProcessingException(message, cause)
 
 /**
  * Exception thrown when payload codec encoding or decoding fails.
@@ -34,4 +54,4 @@ class PayloadSerializationException(
 class PayloadCodecException(
     message: String,
     cause: Throwable? = null,
-) : TemporalRuntimeException(message, cause)
+) : PayloadProcessingException(message, cause)

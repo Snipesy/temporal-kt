@@ -5,6 +5,8 @@ import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.exceptions.WorkflowCancelledException
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
+import com.surrealdev.temporal.serialization.safeDecode
+import com.surrealdev.temporal.serialization.safeDeserialize
 import com.surrealdev.temporal.util.AttributeScope
 import com.surrealdev.temporal.workflow.WorkflowInfo
 import coresdk.workflow_activation.WorkflowActivationOuterClass.InitializeWorkflow
@@ -639,11 +641,11 @@ internal class WorkflowExecutor(
     ): Array<Any?> {
         // Decode with codec first, then deserialize
         val encodedPayloads = EncodedTemporalPayloads.fromProtoPayloadList(payloads)
-        val decodedPayloads = codec.decode(encodedPayloads)
+        val decodedPayloads = codec.safeDecode(encodedPayloads)
         return decodedPayloads.payloads
             .zip(parameterTypes)
             .map { (payload, type) ->
-                serializer.deserialize(type, payload)
+                serializer.safeDeserialize(type, payload)
             }.toTypedArray()
     }
 

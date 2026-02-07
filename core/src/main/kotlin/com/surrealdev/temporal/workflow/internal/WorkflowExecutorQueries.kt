@@ -6,6 +6,9 @@ import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
+import com.surrealdev.temporal.serialization.safeDecode
+import com.surrealdev.temporal.serialization.safeEncodeSingle
+import com.surrealdev.temporal.serialization.safeSerialize
 import coresdk.workflow_commands.WorkflowCommands
 import io.temporal.api.common.v1.Payload
 import io.temporal.api.failure.v1.Failure
@@ -117,9 +120,9 @@ private suspend fun WorkflowExecutor.handleRuntimeQuery(
 ) {
     try {
         val encoded = EncodedTemporalPayloads.fromProtoPayloadList(args)
-        val temporalArgs = codec.decode(encoded)
+        val temporalArgs = codec.safeDecode(encoded)
         val resultPayload = handler(temporalArgs)
-        addSuccessQueryResult(queryId, codec.encode(TemporalPayloads.of(listOf(resultPayload))).proto.getPayloads(0))
+        addSuccessQueryResult(queryId, codec.safeEncodeSingle(resultPayload))
     } catch (e: ReadOnlyContextException) {
         logger.warn("Query handler attempted state mutation: {}", e.message)
         addFailedQueryResult(queryId, "Query attempted state mutation: ${e.message}")
@@ -142,9 +145,9 @@ private suspend fun WorkflowExecutor.handleRuntimeDynamicQuery(
 ) {
     try {
         val encoded = EncodedTemporalPayloads.fromProtoPayloadList(args)
-        val temporalArgs = codec.decode(encoded)
+        val temporalArgs = codec.safeDecode(encoded)
         val resultPayload = handler(queryType, temporalArgs)
-        addSuccessQueryResult(queryId, codec.encode(TemporalPayloads.of(listOf(resultPayload))).proto.getPayloads(0))
+        addSuccessQueryResult(queryId, codec.safeEncodeSingle(resultPayload))
     } catch (e: ReadOnlyContextException) {
         logger.warn("Query handler attempted state mutation: {}", e.message)
         addFailedQueryResult(queryId, "Query attempted state mutation: ${e.message}")
@@ -182,8 +185,8 @@ private suspend fun WorkflowExecutor.handleAnnotationQuery(
             if (result == Unit || handler.returnType.classifier == Unit::class) {
                 Payload.getDefaultInstance()
             } else {
-                val serialized = serializer.serialize(handler.returnType, result)
-                codec.encode(TemporalPayloads.of(listOf(serialized))).proto.getPayloads(0)
+                val serialized = serializer.safeSerialize(handler.returnType, result)
+                codec.safeEncodeSingle(serialized)
             }
 
         addSuccessQueryResult(queryId, payload)

@@ -1,13 +1,13 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.google.protobuf.Timestamp
-import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityCancelledException
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityException
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityFailureException
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityTimeoutException
 import com.surrealdev.temporal.serialization.PayloadSerializer
+import com.surrealdev.temporal.serialization.safeDecodeSingle
 import com.surrealdev.temporal.workflow.ActivityCancellationType
 import com.surrealdev.temporal.workflow.LocalActivityHandle
 import com.surrealdev.temporal.workflow.LocalActivityOptions
@@ -93,7 +93,7 @@ internal class LocalActivityHandleImpl(
 
                 // Decode through codec, then return
                 return payload?.let {
-                    context.codec.decode(EncodedTemporalPayloads.fromProtoPayloadList(listOf(it)))[0]
+                    context.codec.safeDecodeSingle(it)
                 }
             } catch (e: DoBackoffException) {
                 logger.fine(
@@ -173,8 +173,8 @@ internal class LocalActivityHandleImpl(
      * 1. Schedule a timer for the backoff duration
      * 2. Reschedule the local activity with a NEW sequence number
      *
-     * CRITICAL: A new sequence number must be used because each ScheduleLocalActivity
-     * is a distinct command that requires its own identifier.
+     * A new sequence number must be used because each ScheduleLocalActivity
+     * s a distinct command that requires its own identifier.
      *
      * @param backoff The DoBackoff message from Core SDK containing attempt and timing info
      */
@@ -185,7 +185,6 @@ internal class LocalActivityHandleImpl(
                 "backoffDuration=${backoff.backoffDuration.seconds}s",
         )
 
-        // Get NEW sequence number - critical!
         val newSeq = state.nextSeq()
 
         // Create exception with backoff info for control flow

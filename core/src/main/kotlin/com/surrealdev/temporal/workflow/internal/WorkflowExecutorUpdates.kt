@@ -1,7 +1,10 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.common.EncodedTemporalPayloads
-import com.surrealdev.temporal.common.TemporalPayloads
+import com.surrealdev.temporal.common.exceptions.PayloadProcessingException
+import com.surrealdev.temporal.serialization.safeDecode
+import com.surrealdev.temporal.serialization.safeEncodeSingle
+import com.surrealdev.temporal.serialization.safeSerialize
 import coresdk.workflow_commands.WorkflowCommands
 import io.temporal.api.common.v1.Payload
 import io.temporal.api.failure.v1.Failure
@@ -107,7 +110,7 @@ private suspend fun WorkflowExecutor.invokeRuntimeUpdateHandler(
         try {
             // Decode proto payloads through codec
             val encoded = EncodedTemporalPayloads.fromProtoPayloadList(args)
-            val payloads = codec.decode(encoded)
+            val payloads = codec.safeDecode(encoded)
 
             // Run validator if requested (in read-only mode)
             if (runValidator && handler.validator != null) {
@@ -128,7 +131,7 @@ private suspend fun WorkflowExecutor.invokeRuntimeUpdateHandler(
             // Encode result through codec and complete
             addUpdateCompletedCommand(
                 protocolInstanceId,
-                codec.encode(TemporalPayloads.of(listOf(resultPayload))).proto.getPayloads(0),
+                codec.safeEncodeSingle(resultPayload),
             )
         } catch (e: ReadOnlyContextException) {
             logger.warn("Update validator attempted state mutation: {}", e.message)
@@ -160,7 +163,7 @@ private suspend fun WorkflowExecutor.invokeRuntimeDynamicUpdateHandler(
         try {
             // Decode proto payloads through codec
             val encoded = EncodedTemporalPayloads.fromProtoPayloadList(args)
-            val payloads = codec.decode(encoded)
+            val payloads = codec.safeDecode(encoded)
 
             // Run validator if requested (in read-only mode)
             if (runValidator && handler.validator != null) {
@@ -181,7 +184,7 @@ private suspend fun WorkflowExecutor.invokeRuntimeDynamicUpdateHandler(
             // Encode result through codec and complete
             addUpdateCompletedCommand(
                 protocolInstanceId,
-                codec.encode(TemporalPayloads.of(listOf(resultPayload))).proto.getPayloads(0),
+                codec.safeEncodeSingle(resultPayload),
             )
         } catch (e: ReadOnlyContextException) {
             logger.warn("Update validator attempted state mutation: {}", e.message)
@@ -210,18 +213,17 @@ private suspend fun WorkflowExecutor.invokeAnnotationUpdateHandler(
     val ctx = (context ?: error("WorkflowContext not initialized")) as WorkflowContextImpl
     val method = handler.handlerMethod
 
-    // Deserialize arguments outside launch (doesn't need workflow dispatcher)
-    val args =
-        if (isDynamic) {
-            val remainingParamTypes = handler.parameterTypes.drop(1)
-            val deserializedArgs = deserializeArguments(update.inputList, remainingParamTypes)
-            arrayOf(update.name, *deserializedArgs)
-        } else {
-            deserializeArguments(update.inputList, handler.parameterTypes)
-        }
-
     ctx.launchHandler {
         try {
+            // Deserialize arguments (codec decode -> serializer deserialize)
+            val args =
+                if (isDynamic) {
+                    val remainingParamTypes = handler.parameterTypes.drop(1)
+                    val deserializedArgs = deserializeArguments(update.inputList, remainingParamTypes)
+                    arrayOf(update.name, *deserializedArgs)
+                } else {
+                    deserializeArguments(update.inputList, handler.parameterTypes)
+                }
             // Run validator if requested (in read-only mode)
             if (runValidator && handler.validatorMethod != null) {
                 state.isReadOnly = true
@@ -256,12 +258,17 @@ private suspend fun WorkflowExecutor.invokeAnnotationUpdateHandler(
                 if (result == Unit || handler.returnType.classifier == Unit::class) {
                     Payload.getDefaultInstance()
                 } else {
-                    val serialized = serializer.serialize(handler.returnType, result)
-                    codec.encode(TemporalPayloads.of(listOf(serialized))).proto.getPayloads(0)
+                    val serialized = serializer.safeSerialize(handler.returnType, result)
+                    codec.safeEncodeSingle(serialized)
                 }
 
             // Complete with result
             addUpdateCompletedCommand(protocolInstanceId, resultPayload)
+        } catch (e: PayloadProcessingException) {
+            // Codec/serialization error during update argument processing - reject update
+            // Unlike signals, updates can report errors back to caller via rejection
+            logger.warn("Update handler payload processing failed for '{}': {}", update.name, e.message)
+            addUpdateRejectedCommand(protocolInstanceId, "Failed to process update arguments: ${e.message}")
         } catch (e: ReadOnlyContextException) {
             logger.warn("Update validator attempted state mutation: {}", e.message)
             addUpdateRejectedCommand(protocolInstanceId, "Validator attempted state mutation: ${e.message}")

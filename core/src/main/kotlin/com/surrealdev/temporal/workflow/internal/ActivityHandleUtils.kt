@@ -7,12 +7,18 @@ import com.surrealdev.temporal.common.exceptions.ActivityRetryState
 import com.surrealdev.temporal.common.exceptions.ActivityTimeoutType
 import com.surrealdev.temporal.common.exceptions.ApplicationErrorCategory
 import com.surrealdev.temporal.common.exceptions.ApplicationFailure
+import com.surrealdev.temporal.common.exceptions.PayloadProcessingException
 import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
+import com.surrealdev.temporal.serialization.safeDecode
+import com.surrealdev.temporal.serialization.safeEncode
 import io.temporal.api.failure.v1.ApplicationFailureInfo
 import io.temporal.api.failure.v1.Failure
+import org.slf4j.LoggerFactory
 import kotlin.time.toJavaDuration
+
+private val logger = LoggerFactory.getLogger("com.surrealdev.temporal.workflow.internal.ActivityHandleUtils")
 
 /*
  * Shared utility functions for activity handle implementations.
@@ -100,7 +106,7 @@ internal suspend fun buildApplicationFailureFromProto(
         }
     val details =
         if (appInfo.hasDetails()) {
-            codec.decode(EncodedTemporalPayloads(appInfo.details))
+            codec.safeDecode(EncodedTemporalPayloads(appInfo.details))
         } else {
             TemporalPayloads.EMPTY
         }
@@ -203,9 +209,16 @@ internal suspend fun buildFailureProto(
 
         // Serialize details if present (raw details from throw side or pre-decoded payloads)
         if (exception.rawDetails.isNotEmpty() || !exception.details.isEmpty) {
-            val detailsPayloads = exception.serializeDetails(serializer)
-            val encoded = codec.encode(detailsPayloads)
-            appInfoBuilder.setDetails(encoded.toProto())
+            try {
+                val detailsPayloads = exception.serializeDetails(serializer)
+                val encoded = codec.safeEncode(detailsPayloads)
+                appInfoBuilder.setDetails(encoded.toProto())
+            } catch (e: PayloadProcessingException) {
+                // Codec/serialization failed while encoding exception details - proceed without
+                // details rather than masking the original exception. The type, message, and
+                // nonRetryable flag are more important than the details.
+                logger.warn("Failed to process ApplicationFailure details, omitting details: {}", e.message)
+            }
         }
 
         // Set next retry delay if specified

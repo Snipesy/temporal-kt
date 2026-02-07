@@ -7,14 +7,17 @@ import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.application.DynamicActivityHandler
 import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayload
-import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.exceptions.ActivityCancelledException
+import com.surrealdev.temporal.common.exceptions.PayloadProcessingException
 import com.surrealdev.temporal.common.exceptions.PayloadSerializationException
-import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.internal.ZombieEvictionConfig
 import com.surrealdev.temporal.internal.ZombieEvictionManager
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
+import com.surrealdev.temporal.serialization.safeDecode
+import com.surrealdev.temporal.serialization.safeDeserialize
+import com.surrealdev.temporal.serialization.safeEncodeSingle
+import com.surrealdev.temporal.serialization.safeSerialize
 import com.surrealdev.temporal.util.AttributeScope
 import com.surrealdev.temporal.workflow.internal.buildFailureProto
 import coresdk.CoreInterface
@@ -329,15 +332,16 @@ class ActivityDispatcher(
         runningActivities[taskToken] = runningActivity
 
         try {
-            // Deserialize arguments
+            // Deserialize arguments (codec decode -> serializer deserialize)
             val args =
                 try {
                     deserializeArguments(start.inputList, methodInfo.parameterTypes)
-                } catch (e: PayloadSerializationException) {
+                } catch (e: PayloadProcessingException) {
+                    // Codec/serialization error - activity task can be retried
                     return buildFailureCompletion(
                         taskToken,
-                        "ARGUMENT_DESERIALIZATION_FAILED",
-                        "Failed to deserialize activity arguments: ${e.message}",
+                        "ARGUMENT_PROCESSING_FAILED",
+                        "Failed to process activity arguments: ${e.message}",
                     )
                 }
 
@@ -369,7 +373,7 @@ class ActivityDispatcher(
     private suspend fun decodeHeartbeatDetails(start: ActivityTaskOuterClass.Start): HeartbeatDetails? {
         val firstPayload = start.heartbeatDetailsList.firstOrNull() ?: return null
         val encoded = EncodedTemporalPayloads.fromProtoPayloadList(listOf(firstPayload))
-        val decoded = codec.decode(encoded)
+        val decoded = codec.safeDecode(encoded)
         val decodedPayload = decoded.payloads.firstOrNull() ?: return null
         return HeartbeatDetails(decodedPayload, serializer)
     }
@@ -387,11 +391,11 @@ class ActivityDispatcher(
 
         // Convert proto payloads to EncodedTemporalPayloads, decode with codec, then deserialize
         val encodedPayloads = EncodedTemporalPayloads.fromProtoPayloadList(payloads)
-        val decodedPayloads = codec.decode(encodedPayloads)
+        val decodedPayloads = codec.safeDecode(encodedPayloads)
         return decodedPayloads.payloads
             .zip(parameterTypes)
             .map { (payload, type) ->
-                serializer.deserialize(type, payload)
+                serializer.safeDeserialize(type, payload)
             }.toTypedArray()
     }
 
@@ -465,7 +469,7 @@ class ActivityDispatcher(
 
         // Convert proto payloads to EncodedTemporalPayloads, then decode with codec
         val codecEncoded = EncodedTemporalPayloads.fromProtoPayloadList(start.inputList)
-        val decodedPayloads = codec.decode(codecEncoded)
+        val decodedPayloads = codec.safeDecode(codecEncoded)
         val encodedPayloads = EncodedPayloads(decodedPayloads, serializer)
 
         // Decode heartbeat details from previous attempt (if any) through the codec
@@ -526,7 +530,7 @@ class ActivityDispatcher(
                     .getDefaultInstance()
             } else {
                 // Encode with codec for consistency, then convert back to proto
-                codec.encode(TemporalPayloads.of(listOf(result))).toProto().getPayloads(0)
+                codec.safeEncodeSingle(result)
             }
 
         return activityTaskCompletion {
@@ -548,14 +552,24 @@ class ActivityDispatcher(
         returnType: kotlin.reflect.KType,
     ): CoreInterface.ActivityTaskCompletion {
         val resultPayload =
-            if (result == Unit || returnType.classifier == Unit::class) {
-                // For Unit return type, we don't serialize the result
-                io.temporal.api.common.v1.Payload
-                    .getDefaultInstance()
-            } else {
-                // Serialize first, then encode with codec, then convert to proto
-                val serialized = serializer.serialize(returnType, result)
-                codec.encode(TemporalPayloads.of(listOf(serialized))).toProto().getPayloads(0)
+            try {
+                if (result == Unit || returnType.classifier == Unit::class) {
+                    // For Unit return type, we don't serialize the result
+                    io.temporal.api.common.v1.Payload
+                        .getDefaultInstance()
+                } else {
+                    // Serialize first, then encode with codec, then convert to proto
+                    val serialized = serializer.safeSerialize(returnType, result)
+                    codec.safeEncodeSingle(serialized)
+                }
+            } catch (e: PayloadProcessingException) {
+                // Codec/serialization error during result processing - return failure so activity can be retried
+                logger.warn("Failed to process activity result: {}", e.message, e)
+                return buildFailureCompletion(
+                    taskToken,
+                    "RESULT_PROCESSING_FAILED",
+                    "Failed to process activity result: ${e.message}",
+                )
             }
 
         return activityTaskCompletion {

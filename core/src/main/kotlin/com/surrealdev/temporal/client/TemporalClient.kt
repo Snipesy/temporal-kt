@@ -12,6 +12,7 @@ import com.surrealdev.temporal.serialization.CompositePayloadSerializer
 import com.surrealdev.temporal.serialization.NoOpCodec
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
+import com.surrealdev.temporal.serialization.safeEncode
 import io.temporal.api.common.v1.Payloads
 import io.temporal.api.common.v1.SearchAttributes
 import io.temporal.api.common.v1.WorkflowType
@@ -289,7 +290,7 @@ class TemporalClientImpl internal constructor(
         // Encode args through codec before sending to server
         val encodedArgs =
             if (args.payloadsCount > 0) {
-                codec.encode(args.toTemporal()).toProto()
+                codec.safeEncode(args.toTemporal()).toProto()
             } else {
                 args
             }

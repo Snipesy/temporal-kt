@@ -9,6 +9,7 @@ import com.surrealdev.temporal.common.exceptions.WorkflowConditionTimeoutExcepti
 import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
+import com.surrealdev.temporal.serialization.safeEncode
 import com.surrealdev.temporal.util.AttributeScope
 import com.surrealdev.temporal.util.Attributes
 import com.surrealdev.temporal.util.ExecutionScope
@@ -336,7 +337,7 @@ internal class WorkflowContextImpl(
                 .setActivityId(activityId)
                 .setActivityType(activityType)
                 .setTaskQueue(options.taskQueue ?: info.taskQueue)
-                .addAllArguments(codec.encode(args).proto.payloadsList)
+                .addAllArguments(codec.safeEncode(args).proto.payloadsList)
 
         // Set optional timeouts
         options.startToCloseTimeout?.let {
@@ -462,7 +463,7 @@ internal class WorkflowContextImpl(
                 .setActivityId(activityId)
                 .setActivityType(activityType)
                 .setAttempt(1) // Initial attempt is 1
-                .addAllArguments(codec.encode(args).proto.payloadsList)
+                .addAllArguments(codec.safeEncode(args).proto.payloadsList)
 
         // Set optional timeouts
         options.startToCloseTimeout?.let {
@@ -510,7 +511,7 @@ internal class WorkflowContextImpl(
                 serializer = serializer,
                 options = options,
                 cancellationType = options.cancellationType,
-                arguments = codec.encode(args).proto.payloadsList,
+                arguments = codec.safeEncode(args).proto.payloadsList,
             )
 
         state.registerLocalActivity(seq, handle)
@@ -650,7 +651,7 @@ internal class WorkflowContextImpl(
                 .setWorkflowId(childWorkflowId)
                 .setWorkflowType(workflowType)
                 .setTaskQueue(options.taskQueue ?: info.taskQueue)
-                .addAllInput(codec.encode(args).proto.payloadsList)
+                .addAllInput(codec.safeEncode(args).proto.payloadsList)
                 .setParentClosePolicy(options.parentClosePolicy.toProto())
                 .setCancellationType(options.cancellationType.toProto())
 

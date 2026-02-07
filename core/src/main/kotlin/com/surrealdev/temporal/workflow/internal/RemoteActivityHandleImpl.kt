@@ -1,6 +1,5 @@
 package com.surrealdev.temporal.workflow.internal
 
-import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityCancelledException
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityException
@@ -8,6 +7,7 @@ import com.surrealdev.temporal.common.exceptions.WorkflowActivityFailureExceptio
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityTimeoutException
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
+import com.surrealdev.temporal.serialization.safeDecodeSingle
 import com.surrealdev.temporal.workflow.ActivityCancellationType
 import com.surrealdev.temporal.workflow.RemoteActivityHandle
 import coresdk.activity_result.ActivityResult
@@ -71,7 +71,7 @@ internal class RemoteActivityHandleImpl(
 
         // Decode through codec, then return
         return payload?.let {
-            codec.decode(EncodedTemporalPayloads.fromProtoPayloadList(listOf(it)))[0]
+            codec.safeDecodeSingle(it)
         }
     }
 

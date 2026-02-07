@@ -17,6 +17,9 @@ import com.surrealdev.temporal.common.exceptions.WorkflowTimeoutType
 import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
+import com.surrealdev.temporal.serialization.safeDecode
+import com.surrealdev.temporal.serialization.safeDecodeSingle
+import com.surrealdev.temporal.serialization.safeEncode
 import com.surrealdev.temporal.workflow.WorkflowHandleBase
 import com.surrealdev.temporal.workflow.internal.buildCause
 import io.temporal.api.common.v1.WorkflowExecution
@@ -264,7 +267,7 @@ internal class WorkflowHandleImpl(
                 if (attrs.hasResult() && attrs.result.payloadsCount > 0) {
                     val payload = attrs.result.getPayloads(0)
                     // Convert proto payload to EncodedTemporalPayloads, then decode with codec
-                    codec.decode(EncodedTemporalPayloads.fromProtoPayloadList(listOf(payload)))[0]
+                    codec.safeDecodeSingle(payload)
                 } else {
                     // No result
                     null
@@ -333,7 +336,7 @@ internal class WorkflowHandleImpl(
         signalName: String,
         args: TemporalPayloads,
     ) {
-        val encodedArgs = codec.encode(args)
+        val encodedArgs = codec.safeEncode(args)
         val protoPayloads = encodedArgs.toProto()
 
         val request =
@@ -363,7 +366,7 @@ internal class WorkflowHandleImpl(
                 .randomUUID()
                 .toString()
 
-        val encodedArgs = codec.encode(args)
+        val encodedArgs = codec.safeEncode(args)
         val protoPayloads = encodedArgs.toProto()
 
         val request =
@@ -412,7 +415,7 @@ internal class WorkflowHandleImpl(
                 message = response.outcome.failure.message,
             )
         } else if (response.hasOutcome() && response.outcome.hasSuccess()) {
-            return codec.decode(
+            return codec.safeDecode(
                 EncodedTemporalPayloads.fromProtoPayloadList(response.outcome.success.payloadsList),
             )
         } else {
@@ -431,7 +434,7 @@ internal class WorkflowHandleImpl(
         queryType: String,
         args: TemporalPayloads,
     ): TemporalPayloads {
-        val encodedArgs = codec.encode(args)
+        val encodedArgs = codec.safeEncode(args)
         val protoPayloads = encodedArgs.toProto()
 
         val request =
@@ -464,7 +467,7 @@ internal class WorkflowHandleImpl(
             )
         }
 
-        return codec.decode(
+        return codec.safeDecode(
             EncodedTemporalPayloads.fromProtoPayloadList(response.queryResult.payloadsList),
         )
     }

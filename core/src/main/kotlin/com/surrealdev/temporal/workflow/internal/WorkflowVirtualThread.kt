@@ -13,9 +13,6 @@ import java.util.concurrent.ThreadFactory
 
 /**
  * Manages a dedicated virtual thread for a single workflow run.
- *
- * CRITICAL: The same virtual thread is used for ALL activations of a workflow run.
- * This ensures ThreadLocals persist, and enables proper interruption-based cancellation.
  */
 internal class WorkflowVirtualThread(
     private val executor: WorkflowExecutor,

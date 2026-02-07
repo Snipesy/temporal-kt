@@ -1,7 +1,6 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
-import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.exceptions.ChildWorkflowCancelledException
@@ -11,6 +10,8 @@ import com.surrealdev.temporal.common.exceptions.SignalExternalWorkflowFailedExc
 import com.surrealdev.temporal.common.exceptions.StartChildWorkflowFailureCause
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
+import com.surrealdev.temporal.serialization.safeDecodeSingle
+import com.surrealdev.temporal.serialization.safeEncode
 import com.surrealdev.temporal.workflow.ChildWorkflowCancellationType
 import com.surrealdev.temporal.workflow.ChildWorkflowHandle
 import coresdk.child_workflow.ChildWorkflow
@@ -82,7 +83,7 @@ internal class ChildWorkflowHandleImpl(
                 if (payload.data.isEmpty) {
                     null
                 } else {
-                    codec.decode(EncodedTemporalPayloads.fromProtoPayloadList(listOf(payload)))[0]
+                    codec.safeDecodeSingle(payload)
                 }
             }
 
@@ -150,7 +151,7 @@ internal class ChildWorkflowHandleImpl(
                         .setSeq(signalSeq)
                         .setChildWorkflowId(workflowId)
                         .setSignalName(signalName)
-                        .addAllArgs(codec.encode(args).proto.payloadsList),
+                        .addAllArgs(codec.safeEncode(args).proto.payloadsList),
                 ).build()
 
         state.addCommand(command)

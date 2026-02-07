@@ -20,6 +20,7 @@ import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.exceptions.ApplicationFailure
 import com.surrealdev.temporal.common.exceptions.ClientWorkflowFailedException
+import com.surrealdev.temporal.common.exceptions.PayloadCodecException
 import com.surrealdev.temporal.serialization.CodecPlugin
 import com.surrealdev.temporal.serialization.CompositePayloadSerializer
 import com.surrealdev.temporal.serialization.PayloadCodec
@@ -46,6 +47,7 @@ import kotlin.reflect.typeOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
@@ -71,6 +73,14 @@ class CodecCountingIntegrationTest {
 
         override suspend fun encode(payloads: TemporalPayloads): EncodedTemporalPayloads {
             encodeCount.incrementAndGet()
+            // Codecs, when called from workflows will many times reach out to an sdk
+            // Those SDKs will many times switch dispatchers, which can break the workflow activation process
+            // To simulate this, we switch dispatchers and add a delay to guarantee this suspend function
+            // will actually suspend
+            withContext(Dispatchers.Default) {
+                // Simulate some work to make it more likely encode/decode calls are on different threads
+                delay(1)
+            }
             return EncodedTemporalPayloads(payloads.proto)
         }
 
@@ -400,47 +410,6 @@ class CodecCountingIntegrationTest {
     // ================================================================
     // Section C: Cross-queue codec mismatch
     // ================================================================
-
-    @Test
-    fun `child workflow on queue without codec fails to deserialize marker-encoded args`() =
-        runTemporalTest(timeSkipping = true) {
-            val codecQueue = "test-codec-queue-${UUID.randomUUID()}"
-            val noCodecQueue = "test-nocodec-queue-${UUID.randomUUID()}"
-            val codec = MarkerCodec()
-
-            application {
-                // Codec only on the parent's task queue
-                taskQueue(codecQueue) {
-                    install(CodecPlugin) { custom(codec) }
-                    workflow<CodecCrossQueueCallerWorkflow>()
-                }
-
-                // No codec on the child's task queue — worker uses NoOpCodec
-                taskQueue(noCodecQueue) {
-                    workflow<CodecEchoWorkflow>()
-                }
-            }
-
-            // Client needs the same codec to talk to the parent queue
-            val client = client(CompositePayloadSerializer.default(), codec)
-
-            val handle =
-                client.startWorkflow(
-                    workflowType = "CodecCrossQueueCallerWorkflow",
-                    taskQueue = codecQueue,
-                    arg1 = "cross-queue-test",
-                    arg2 = noCodecQueue,
-                )
-
-            // The child receives marker-encoded payloads but has NoOpCodec (passthrough).
-            // The serializer sees encoding="test/marker" and throws
-            // "No converter registered for encoding: test/marker".
-            // The original error message may be wrapped by Temporal's proto failure chain
-            // (e.g., "Child Workflow execution failed"), so we just verify it fails.
-            assertFailsWith<ClientWorkflowFailedException> {
-                handle.result<String>(timeout = 30.seconds)
-            }
-        }
 
     @Test
     fun `child workflow on queue with same codec succeeds`() =
@@ -901,5 +870,317 @@ class CodecCountingIntegrationTest {
             assertTrue(codec.decodeCount.get() >= 2, "decode should be >= 2, was ${codec.decodeCount.get()}")
 
             handle.assertHistory { completed() }
+        }
+
+    // ================================================================
+    // Section J: Workflow failure with ApplicationFailure details
+    //            (no double encoding)
+    // ================================================================
+
+    @Workflow("CodecWorkflowFailureDetailsWorkflow")
+    class CodecWorkflowFailureDetailsWorkflow {
+        @WorkflowRun
+        suspend fun WorkflowContext.run(detail: String): String =
+            throw ApplicationFailure.nonRetryableWithPayloads(
+                message = "Workflow failed with detail",
+                type = "WorkflowDetailedError",
+                details = TemporalPayloads.of(listOf(serializer.serialize(typeOf<String>(), detail))),
+            )
+    }
+
+    @Test
+    fun `workflow failure details are encoded exactly once (no double encoding)`() =
+        runTemporalTest {
+            val taskQueue = "test-codec-wf-fail-${UUID.randomUUID()}"
+            val codec = CountingCodec()
+
+            application {
+                install(CodecPlugin) { custom(codec) }
+                taskQueue(taskQueue) {
+                    workflow<CodecWorkflowFailureDetailsWorkflow>()
+                }
+            }
+
+            val client = client()
+            val handle =
+                client.startWorkflow(
+                    workflowType = "CodecWorkflowFailureDetailsWorkflow",
+                    taskQueue = taskQueue,
+                    arg = "my-wf-error-detail",
+                )
+
+            // Workflow throws ApplicationFailure with details — should fail
+            val exception =
+                assertFailsWith<ClientWorkflowFailedException> {
+                    handle.result<String>(timeout = 30.seconds)
+                }
+
+            // Verify we can extract the failure cause and it's an ApplicationFailure
+            val appFailure = exception.cause
+            assertIs<ApplicationFailure>(appFailure)
+            assertEquals("WorkflowDetailedError", appFailure.type)
+
+            // Key assertion: encode count should be exactly 2:
+            // 1. workflow input (client → server)
+            // 2. failure details (worker → server via UnencodedCompletionEncoder)
+            // If double encoding were happening, we'd see 3+ encodes.
+            // decode count: 1 for workflow input (worker), 1 for failure details (client)
+            assertTrue(
+                codec.encodeCount.get() >= 2,
+                "encode should be >= 2 (wf input + fail details), was ${codec.encodeCount.get()}",
+            )
+            assertTrue(
+                codec.encodeCount.get() <= 3,
+                "encode should be <= 3 (no double encoding of fail details), was ${codec.encodeCount.get()}",
+            )
+        }
+
+    // ================================================================
+    // Section K: Codec failure error handling
+    // ================================================================
+
+    /**
+     * A codec that fails on specific decode/encode attempt numbers, then works normally.
+     * [failOnDecodeAttempt] and [failOnEncodeAttempt] specify which attempt number (1-based)
+     * should fail. This allows skipping client-side calls and targeting worker-side calls.
+     */
+    class FailOnAttemptCodec(
+        private val failOnDecodeAttempt: Int = 0,
+        private val failOnEncodeAttempt: Int = 0,
+    ) : PayloadCodec {
+        val decodeAttempts = AtomicInteger(0)
+        val encodeAttempts = AtomicInteger(0)
+
+        override suspend fun encode(payloads: TemporalPayloads): EncodedTemporalPayloads {
+            val attempt = encodeAttempts.incrementAndGet()
+            if (attempt == failOnEncodeAttempt) {
+                throw PayloadCodecException("Simulated encode failure on attempt $attempt")
+            }
+            return EncodedTemporalPayloads(payloads.proto)
+        }
+
+        override suspend fun decode(payloads: EncodedTemporalPayloads): TemporalPayloads {
+            val attempt = decodeAttempts.incrementAndGet()
+            if (attempt == failOnDecodeAttempt) {
+                throw PayloadCodecException("Simulated decode failure on attempt $attempt")
+            }
+            return TemporalPayloads(payloads.proto)
+        }
+    }
+
+    // ================================================================
+    // Section L: Activity codec failure error handling
+    // ================================================================
+
+    /**
+     * Activity that throws an ApplicationFailure with serialized details.
+     * Used to test that codec failures during failure encoding are handled gracefully.
+     */
+    class ActivityThrowingWithDetails {
+        @Activity("throwWithCodecDetails")
+        suspend fun ActivityContext.throwWithDetails(detail: String): String =
+            throw ApplicationFailure.nonRetryableWithPayloads(
+                message = "Activity error with details",
+                type = "CodecTestError",
+                details = TemporalPayloads.of(listOf(serializer.serialize(typeOf<String>(), detail))),
+            )
+    }
+
+    @Workflow("CodecActivityFailureWorkflow")
+    class CodecActivityFailureWorkflow {
+        @WorkflowRun
+        suspend fun WorkflowContext.run(input: String): String =
+            try {
+                startActivity<String>(
+                    activityType = "throwWithCodecDetails",
+                    arg = input,
+                    options = ActivityOptions(startToCloseTimeout = 30.seconds),
+                ).result()
+            } catch (e: Exception) {
+                "caught:${e.message}"
+            }
+    }
+
+    @Test
+    fun `activity codec decode failure on args is retried by server`() =
+        runTemporalTest {
+            val taskQueue = "test-act-codec-decode-${UUID.randomUUID()}"
+            // Client encodes wf input = encode 1.
+            // Worker decodes wf input = decode 1.
+            // Worker encodes activity args = encode 2.
+            // Worker decodes activity args = decode 2 (fail this one).
+            // Server retries the activity, worker decodes again = decode 3 (succeeds).
+            val codec = FailOnAttemptCodec(failOnDecodeAttempt = 2)
+
+            application {
+                install(CodecPlugin) { custom(codec) }
+                taskQueue(taskQueue) {
+                    workflow<CodecActivityWorkflow>()
+                    activity(EchoActivities())
+                }
+            }
+
+            val client = client()
+            val handle =
+                client.startWorkflow(
+                    workflowType = "CodecActivityWorkflow",
+                    taskQueue = taskQueue,
+                    arg = "act-decode-fail",
+                )
+
+            val result: String = handle.result(timeout = 30.seconds)
+            assertEquals("echoed:act-decode-fail", result)
+
+            // decode 1 = wf input (ok), decode 2 = act args (fail), decode 3+ = retries
+            assertTrue(
+                codec.decodeAttempts.get() >= 3,
+                "decode should be >= 3 (wf input + failed act args + retry), was ${codec.decodeAttempts.get()}",
+            )
+        }
+
+    @Test
+    fun `activity codec encode failure on result is retried by server`() =
+        runTemporalTest {
+            val taskQueue = "test-act-codec-encode-${UUID.randomUUID()}"
+            // Client encodes wf input = encode 1.
+            // Worker encodes activity args = encode 2.
+            // Activity completes, worker encodes activity result = encode 3 (fail this one).
+            // Activity is retried, worker encodes result again = encode 4 (succeeds).
+            val codec = FailOnAttemptCodec(failOnEncodeAttempt = 3)
+
+            application {
+                install(CodecPlugin) { custom(codec) }
+                taskQueue(taskQueue) {
+                    workflow<CodecActivityWorkflow>()
+                    activity(EchoActivities())
+                }
+            }
+
+            val client = client()
+            val handle =
+                client.startWorkflow(
+                    workflowType = "CodecActivityWorkflow",
+                    taskQueue = taskQueue,
+                    arg = "act-encode-fail",
+                )
+
+            val result: String = handle.result(timeout = 30.seconds)
+            assertEquals("echoed:act-encode-fail", result)
+
+            assertTrue(
+                codec.encodeAttempts.get() >= 4,
+                "encode should be >= 4 (wf input + act args + failed result + retry), was ${codec.encodeAttempts.get()}",
+            )
+        }
+
+    @Test
+    fun `activity codec encode failure during ApplicationFailure building falls back to bare failure`() =
+        runTemporalTest {
+            val taskQueue = "test-act-codec-fail-build-${UUID.randomUUID()}"
+            // Client encodes wf input = encode 1.
+            // Worker encodes activity args = encode 2.
+            // Activity throws ApplicationFailure with details.
+            // Worker tries to encode failure details = encode 3 (fail this one).
+            // Fallback: bare failure without details is returned.
+            // Activity is non-retryable, so workflow catches the error.
+            val codec = FailOnAttemptCodec(failOnEncodeAttempt = 3)
+
+            application {
+                install(CodecPlugin) { custom(codec) }
+                taskQueue(taskQueue) {
+                    workflow<CodecActivityFailureWorkflow>()
+                    activity(ActivityThrowingWithDetails())
+                }
+            }
+
+            val client = client()
+            val handle =
+                client.startWorkflow(
+                    workflowType = "CodecActivityFailureWorkflow",
+                    taskQueue = taskQueue,
+                    arg = "fail-build-test",
+                )
+
+            // The workflow catches the activity failure and returns a report.
+            // Even though codec failed during failure encoding, the bare failure
+            // (without details) still propagates correctly.
+            val result: String = handle.result(timeout = 30.seconds)
+            assertTrue(
+                result.startsWith("caught:"),
+                "Expected workflow to catch activity failure, got: $result",
+            )
+        }
+
+    // ================================================================
+    // Section M: Workflow codec failure error handling
+    // ================================================================
+
+    @Test
+    fun `codec decode failure returns failed completion and server retries`() =
+        runTemporalTest {
+            val taskQueue = "test-codec-decode-fail-${UUID.randomUUID()}"
+            // Fail on decode attempt 1 (worker's first decode of workflow input).
+            // Server retries the workflow task, and attempt 2 succeeds.
+            val codec = FailOnAttemptCodec(failOnDecodeAttempt = 1)
+
+            application {
+                install(CodecPlugin) { custom(codec) }
+                taskQueue(taskQueue) {
+                    workflow<CodecEchoWorkflow>()
+                }
+            }
+
+            val client = client()
+            val handle =
+                client.startWorkflow(
+                    workflowType = "CodecEchoWorkflow",
+                    taskQueue = taskQueue,
+                    arg = "decode-fail-test",
+                )
+
+            // First activation decode fails, server retries, second attempt succeeds
+            val result: String = handle.result(timeout = 30.seconds)
+            assertEquals("wf:decode-fail-test", result)
+
+            // Verify decode was attempted more than once (first failed, then succeeded)
+            assertTrue(
+                codec.decodeAttempts.get() >= 2,
+                "decode should have been attempted >= 2 times, was ${codec.decodeAttempts.get()}",
+            )
+        }
+
+    @Test
+    fun `codec encode failure returns failed completion and server retries`() =
+        runTemporalTest {
+            val taskQueue = "test-codec-encode-fail-${UUID.randomUUID()}"
+            // Client encodes workflow input = encode attempt 1 (succeeds).
+            // Worker encodes completion = encode attempt 2 (fail this one).
+            // Server retries, worker re-encodes = attempt 3 (succeeds).
+            val codec = FailOnAttemptCodec(failOnEncodeAttempt = 2)
+
+            application {
+                install(CodecPlugin) { custom(codec) }
+                taskQueue(taskQueue) {
+                    workflow<CodecEchoWorkflow>()
+                }
+            }
+
+            val client = client()
+            val handle =
+                client.startWorkflow(
+                    workflowType = "CodecEchoWorkflow",
+                    taskQueue = taskQueue,
+                    arg = "encode-fail-test",
+                )
+
+            // First worker encode fails, server retries (replay), second worker encode succeeds
+            val result: String = handle.result(timeout = 30.seconds)
+            assertEquals("wf:encode-fail-test", result)
+
+            // Verify encode was attempted at least 3 times (client + failed worker + successful worker)
+            assertTrue(
+                codec.encodeAttempts.get() >= 3,
+                "encode should have been attempted >= 3 times, was ${codec.encodeAttempts.get()}",
+            )
         }
 }

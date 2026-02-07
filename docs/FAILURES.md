@@ -89,9 +89,9 @@ RuntimeException
 │   │
 │   ├── ApplicationFailure                                 [common - throw & receive side]
 │   │
-│   ├── PayloadSerializationException                      [serialization - payload serialize/deserialize failures]
-│   │
-│   ├── PayloadCodecException                              [codec - payload encode/decode failures]
+│   ├── PayloadProcessingException (sealed)                [payload processing failures]
+│   │   ├── PayloadSerializationException                  ← payload serialize/deserialize failures
+│   │   └── PayloadCodecException                          ← payload encode/decode failures
 │   │
 │   ├── WorkflowActivityException (sealed)                 [workflow code - catching activity results]
 │   │   ├── WorkflowActivityFailureException               ← activity failed with error
@@ -506,7 +506,22 @@ catch (e: ExternalWorkflowException) {
 
 ## Payload Serialization and Codec Exceptions
 
-These exceptions occur during payload processing and extend `TemporalRuntimeException`.
+These exceptions occur during payload processing. Both extend the sealed `PayloadProcessingException` base class, which in turn extends `TemporalRuntimeException`. This allows catching either type individually or both at once via the shared base.
+
+### PayloadProcessingException (sealed base)
+
+Sealed base class for all payload processing failures. Use this when you want to catch both codec and serialization errors uniformly:
+
+```kotlin
+import com.surrealdev.temporal.common.exceptions.PayloadProcessingException
+
+try {
+    // Any codec or serialization operation
+} catch (e: PayloadProcessingException) {
+    // Handles both PayloadCodecException and PayloadSerializationException
+    println("Payload processing failed: ${e.message}")
+}
+```
 
 ### PayloadSerializationException
 

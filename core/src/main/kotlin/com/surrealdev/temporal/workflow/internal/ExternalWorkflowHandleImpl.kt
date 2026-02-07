@@ -6,6 +6,7 @@ import com.surrealdev.temporal.common.exceptions.CancelExternalWorkflowFailedExc
 import com.surrealdev.temporal.common.exceptions.SignalExternalWorkflowFailedException
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
+import com.surrealdev.temporal.serialization.safeEncode
 import com.surrealdev.temporal.workflow.ExternalWorkflowHandle
 import coresdk.common.Common.NamespacedWorkflowExecution
 import coresdk.workflow_commands.WorkflowCommands
@@ -62,7 +63,7 @@ internal class ExternalWorkflowHandleImpl(
                         .setSeq(signalSeq)
                         .setWorkflowExecution(buildWorkflowExecution())
                         .setSignalName(signalName)
-                        .addAllArgs(codec.encode(args).proto.payloadsList),
+                        .addAllArgs(codec.safeEncode(args).proto.payloadsList),
                 ).build()
 
         state.addCommand(command)

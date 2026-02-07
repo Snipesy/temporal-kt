@@ -257,7 +257,7 @@ class ActivityActivationTest {
                 workflowClass = T::class,
                 instanceFactory = { workflow },
                 parameterTypes = emptyList(),
-                returnType = typeOf<String>(),
+                returnType = runMethod.returnType,
                 hasContextReceiver = true,
                 isSuspend = true,
             )
