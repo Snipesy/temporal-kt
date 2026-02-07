@@ -2,6 +2,7 @@ package com.surrealdev.temporal.testing
 
 import com.surrealdev.temporal.application.TemporalApplication
 import com.surrealdev.temporal.serialization.CompositePayloadSerializer
+import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.util.AttributeScope
 import com.surrealdev.temporal.util.Attributes
@@ -39,6 +40,7 @@ internal fun createTestWorkflowExecutor(
     runId: String = "test-run-id",
     methodInfo: WorkflowMethodInfo,
     serializer: PayloadSerializer = CompositePayloadSerializer.default(),
+    codec: PayloadCodec = com.surrealdev.temporal.serialization.NoOpCodec,
     taskQueue: String = "test-task-queue",
     namespace: String = "default",
     taskQueueScope: AttributeScope =
@@ -52,7 +54,7 @@ internal fun createTestWorkflowExecutor(
         runId = runId,
         methodInfo = methodInfo,
         serializer = serializer,
-        codec = com.surrealdev.temporal.serialization.NoOpCodec,
+        codec = codec,
         taskQueue = taskQueue,
         namespace = namespace,
         taskQueueScope = taskQueueScope,
