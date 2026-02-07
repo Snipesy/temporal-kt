@@ -3,6 +3,7 @@ package com.surrealdev.temporal.common.exceptions
 import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.serialization.PayloadSerializer
+import io.temporal.api.failure.v1.Failure
 import kotlin.reflect.KType
 import kotlin.reflect.typeOf
 import kotlin.time.Duration
@@ -117,6 +118,20 @@ class ApplicationFailure private constructor(
     val category: ApplicationErrorCategory = ApplicationErrorCategory.UNSPECIFIED,
     cause: Throwable? = null,
 ) : TemporalRuntimeException(message, cause) {
+    /**
+     * The underlying proto Failure object, available when this exception was reconstructed
+     * from a remote failure. Null for locally created failures.
+     */
+    @InternalTemporalApi
+    internal var protoFailure: Failure? = null
+
+    /**
+     * The original stack trace from the remote execution environment, or null if this
+     * failure was created locally. Populated when reconstructing failures from proto data.
+     */
+    val originalStackTrace: String?
+        get() = protoFailure?.stackTrace?.ifEmpty { null }
+
     /**
      * Serializes raw details using the provided serializer.
      * Called at the outbound boundary (workflow completion, activity completion)

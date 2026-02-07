@@ -3,8 +3,6 @@ package com.surrealdev.temporal.workflow.internal
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityCancelledException
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityException
-import com.surrealdev.temporal.common.exceptions.WorkflowActivityFailureException
-import com.surrealdev.temporal.common.exceptions.WorkflowActivityTimeoutException
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.serialization.safeDecodeSingle
@@ -196,43 +194,6 @@ internal class RemoteActivityHandleImpl(
         }
     }
 
-    /**
-     * Builds a WorkflowActivityException from a proto Failure.
-     * Returns WorkflowActivityTimeoutException for timeouts, WorkflowActivityFailureException for other failures.
-     */
-    private suspend fun buildFailureException(failure: io.temporal.api.failure.v1.Failure): WorkflowActivityException {
-        // Check for timeout first - should return WorkflowActivityTimeoutException
-        if (failure.hasTimeoutFailureInfo()) {
-            val timeoutInfo = failure.timeoutFailureInfo
-            return WorkflowActivityTimeoutException(
-                activityType = activityType,
-                activityId = activityId,
-                timeoutType = mapTimeoutType(timeoutInfo.timeoutType),
-                message = failure.message ?: "Activity timed out",
-                cause = if (failure.hasCause()) buildCause(failure.cause, codec) else null,
-            )
-        }
-
-        // Build the cause chain. When the root failure has ApplicationFailureInfo,
-        // create an ApplicationFailure exception as the cause (with any nested causes).
-        // This ensures applicationFailure is always findable in the cause chain.
-        val cause: Throwable? =
-            if (failure.hasApplicationFailureInfo()) {
-                val nestedCause = if (failure.hasCause()) buildCause(failure.cause, codec) else null
-                buildApplicationFailureFromProto(failure, codec, cause = nestedCause)
-            } else if (failure.hasCause()) {
-                buildCause(failure.cause, codec)
-            } else {
-                null
-            }
-
-        return WorkflowActivityFailureException(
-            activityType = activityType,
-            activityId = activityId,
-            failureType = determineFailureType(failure),
-            retryState = extractRetryState(failure),
-            message = failure.message ?: "Activity failed",
-            cause = cause,
-        )
-    }
+    private suspend fun buildFailureException(failure: io.temporal.api.failure.v1.Failure): WorkflowActivityException =
+        buildActivityFailureException(failure, codec, activityType, activityId)
 }

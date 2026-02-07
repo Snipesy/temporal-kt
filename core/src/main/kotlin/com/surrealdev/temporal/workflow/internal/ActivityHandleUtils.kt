@@ -8,6 +8,10 @@ import com.surrealdev.temporal.common.exceptions.ActivityTimeoutType
 import com.surrealdev.temporal.common.exceptions.ApplicationErrorCategory
 import com.surrealdev.temporal.common.exceptions.ApplicationFailure
 import com.surrealdev.temporal.common.exceptions.PayloadProcessingException
+import com.surrealdev.temporal.common.exceptions.RemoteException
+import com.surrealdev.temporal.common.exceptions.WorkflowActivityException
+import com.surrealdev.temporal.common.exceptions.WorkflowActivityFailureException
+import com.surrealdev.temporal.common.exceptions.WorkflowActivityTimeoutException
 import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
@@ -110,14 +114,15 @@ internal suspend fun buildApplicationFailureFromProto(
         } else {
             TemporalPayloads.EMPTY
         }
-    return ApplicationFailure.fromProtoWithPayloads(
-        type = appInfo.type ?: "UnknownApplicationFailure",
-        message = failure.message,
-        isNonRetryable = appInfo.nonRetryable,
-        details = details,
-        category = category,
-        cause = cause,
-    )
+    return ApplicationFailure
+        .fromProtoWithPayloads(
+            type = appInfo.type ?: "UnknownApplicationFailure",
+            message = failure.message,
+            isNonRetryable = appInfo.nonRetryable,
+            details = details,
+            category = category,
+            cause = cause,
+        ).also { it.protoFailure = failure }
 }
 
 /**
@@ -149,7 +154,10 @@ internal suspend fun buildCause(
         return buildApplicationFailureFromProto(failure, codec, cause = nestedCause)
     }
 
-    return RuntimeException(failure.message ?: "Cause failure", nestedCause)
+    return RemoteException(
+        message = failure.message ?: "Cause failure",
+        cause = nestedCause,
+    ).also { it.protoFailure = failure }
 }
 
 /**
@@ -178,6 +186,56 @@ internal fun extractRetryState(failure: Failure): ActivityRetryState =
     }
 
 /**
+ * Builds a [WorkflowActivityException] from a proto [Failure].
+ *
+ * Returns [WorkflowActivityTimeoutException] for timeouts,
+ * [WorkflowActivityFailureException] for all other failures.
+ * The cause chain is fully reconstructed through [buildCause] / [buildApplicationFailureFromProto].
+ *
+ * Shared by [RemoteActivityHandleImpl] and [LocalActivityHandleImpl].
+ */
+internal suspend fun buildActivityFailureException(
+    failure: Failure,
+    codec: PayloadCodec,
+    activityType: String,
+    activityId: String,
+): WorkflowActivityException {
+    // Check for timeout first - should return WorkflowActivityTimeoutException
+    if (failure.hasTimeoutFailureInfo()) {
+        val timeoutInfo = failure.timeoutFailureInfo
+        return WorkflowActivityTimeoutException(
+            activityType = activityType,
+            activityId = activityId,
+            timeoutType = mapTimeoutType(timeoutInfo.timeoutType),
+            message = failure.message ?: "Activity timed out",
+            cause = if (failure.hasCause()) buildCause(failure.cause, codec) else null,
+        )
+    }
+
+    // Build the cause chain. When the root failure has ApplicationFailureInfo,
+    // create an ApplicationFailure exception as the cause (with any nested causes).
+    // This ensures applicationFailure is always findable in the cause chain.
+    val cause: Throwable? =
+        if (failure.hasApplicationFailureInfo()) {
+            val nestedCause = if (failure.hasCause()) buildCause(failure.cause, codec) else null
+            buildApplicationFailureFromProto(failure, codec, cause = nestedCause)
+        } else if (failure.hasCause()) {
+            buildCause(failure.cause, codec)
+        } else {
+            null
+        }
+
+    return WorkflowActivityFailureException(
+        activityType = activityType,
+        activityId = activityId,
+        failureType = determineFailureType(failure),
+        retryState = extractRetryState(failure),
+        message = failure.message ?: "Activity failed",
+        cause = cause,
+    )
+}
+
+/**
  * Builds a proto [Failure] from an exception, populating [ApplicationFailureInfo] appropriately.
  *
  * When the exception is an [ApplicationFailure], the failure type, non-retryable flag, details,
@@ -192,6 +250,7 @@ internal suspend fun buildFailureProto(
     exception: Throwable,
     serializer: PayloadSerializer,
     codec: PayloadCodec,
+    depth: Int = 0,
 ): Failure {
     val failureBuilder =
         Failure
@@ -263,6 +322,17 @@ internal suspend fun buildFailureProto(
                         ?: "UnknownException",
                 ).setNonRetryable(false)
         failureBuilder.setApplicationFailureInfo(appInfoBuilder)
+    }
+
+    // Recursively serialize the cause chain
+    if (depth < 20) {
+        exception.cause?.let { cause ->
+            failureBuilder.setCause(buildFailureProto(cause, serializer, codec, depth + 1))
+        }
+    } else {
+        if (exception.cause != null) {
+            logger.warn("Cause chain depth limit (20) reached, truncating remaining causes")
+        }
     }
 
     return failureBuilder.build()

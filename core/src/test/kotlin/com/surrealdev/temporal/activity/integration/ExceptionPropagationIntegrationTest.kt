@@ -182,7 +182,7 @@ class ExceptionPropagationIntegrationTest {
     }
 
     @Test
-    fun `activity exception nested cause is flattened at proto boundary`() =
+    fun `activity exception nested cause is preserved through proto boundary`() =
         runTemporalTest(timeSkipping = true) {
             val taskQueue = "test-excprop-a2-${UUID.randomUUID()}"
             val activities = ExceptionActivities()
@@ -205,8 +205,8 @@ class ExceptionPropagationIntegrationTest {
 
             // Outer message preserved
             assertTrue(result.contains("causeMsg=outer error"), "Outer message lost: $result")
-            // Nested Java cause is NOT preserved through proto serialization
-            assertTrue(result.contains("nestedCause=false"), "Nested cause should be flattened: $result")
+            // Nested Java cause IS preserved through proto serialization (recursive cause chain)
+            assertTrue(result.contains("nestedCause=true"), "Nested cause should be preserved: $result")
 
             handle.assertHistory {
                 completed()

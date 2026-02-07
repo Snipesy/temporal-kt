@@ -88,6 +88,7 @@ RuntimeException
 ├── TemporalRuntimeException (sealed)                      [com.surrealdev.temporal.common.exceptions]
 │   │
 │   ├── ApplicationFailure                                 [common - throw & receive side]
+│   ├── RemoteException                                    [receive side - non-ApplicationFailure remote causes]
 │   │
 │   ├── PayloadProcessingException (sealed)                [payload processing failures]
 │   │   ├── PayloadSerializationException                  ← payload serialize/deserialize failures
