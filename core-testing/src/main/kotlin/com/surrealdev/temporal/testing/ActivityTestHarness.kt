@@ -102,7 +102,7 @@ t     * Defaults to [CompositePayloadSerializer].
 
     /**
      * The harness's own attributes for storing plugin data.
-     * Plugins (like DI) can store configuration here via [install].
+     * Plugins (like DI) can store configuration here.
      */
     override val attributes: Attributes = Attributes(concurrent = false)
 
@@ -219,8 +219,8 @@ t     * Defaults to [CompositePayloadSerializer].
     /**
      * Requests cancellation of the current or next activity execution.
      *
-     * The activity will be notified when it calls [ActivityContext.heartbeat]
-     * or [ActivityContext.ensureNotCancelled].
+     * The activity will be notified when it calls `heartbeat()`
+     * or [ensureNotCancelled][ActivityContext.ensureNotCancelled].
      */
     fun requestCancellation() {
         cancellationRequested = true

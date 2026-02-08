@@ -93,7 +93,7 @@ interface ActivityContext :
     val isCancellationRequested: Boolean
 
     /**
-     * Throws [ActivityCancelledException] if cancellation has been requested.
+     * Throws [com.surrealdev.temporal.common.exceptions.ActivityCancelledException] if cancellation has been requested.
      *
      * Convenience method for activities that want to exit immediately on cancellation.
      */

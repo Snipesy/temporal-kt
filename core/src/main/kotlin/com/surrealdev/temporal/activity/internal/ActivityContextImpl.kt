@@ -76,6 +76,9 @@ internal class ActivityContextImpl(
     override val isCancellationRequested: Boolean
         get() = cancellationException != null
 
+    /**
+     * Throws [com.surrealdev.temporal.common.exceptions.ActivityCancelledException] if cancellation has been requested.
+     */
     override fun ensureNotCancelled() {
         cancellationException?.let { throw it }
     }

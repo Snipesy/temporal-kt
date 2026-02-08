@@ -72,7 +72,7 @@ internal class TimeSkippingStateTracker(
  *
  * Time skipping behavior:
  * - Time skipping starts **locked** (normal real-time behavior)
- * - When [WorkflowHandle.result] is called, time skipping is **unlocked**
+ * - When `result()` is called on a workflow handle, time skipping is **unlocked**
  * - After the result is obtained, time skipping is **locked** again
  *
  * This allows signals, updates, and queries to work normally (time locked),
@@ -131,7 +131,7 @@ class TemporalTestClient internal constructor(
 }
 
 /**
- * A workflow handle wrapper that unlocks time skipping around [result] calls.
+ * A workflow handle wrapper that unlocks time skipping around [resultPayload] calls.
  *
  * This matches the Python SDK's `_TimeSkippingWorkflowHandle` behavior:
  * - Time skipping is unlocked before awaiting the result

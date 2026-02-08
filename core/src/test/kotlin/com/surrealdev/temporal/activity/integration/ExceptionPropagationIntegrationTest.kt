@@ -107,7 +107,7 @@ class ExceptionPropagationIntegrationTest {
                     append("|appFailureType=${e.applicationFailure?.type}")
                     append("|appFailureNR=${e.applicationFailure?.isNonRetryable}")
                     append("|causeType=${e.cause?.let { it::class.simpleName }}")
-                    append("|causeMsg=${e.cause?.message}")
+                    append("|causeMsg=${(e.cause as? ApplicationFailure)?.originalMessage ?: e.cause?.message}")
                     append("|failureType=${e.failureType}")
                     append("|activityType=${e.activityType}")
                 }
@@ -160,6 +160,67 @@ class ExceptionPropagationIntegrationTest {
             }
         }
 
+    // Workflow that captures originalStackTrace and Java stack trace info from activity failure
+    @Workflow("ActivityStackTraceReportWF")
+    class ActivityStackTraceReportWorkflow {
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String =
+            try {
+                startActivity(
+                    activityType = "throwIllegalState",
+                    options =
+                        ActivityOptions(
+                            startToCloseTimeout = 1.minutes,
+                            retryPolicy = RetryPolicy(maximumAttempts = 1),
+                        ),
+                ).result()
+            } catch (e: WorkflowActivityFailureException) {
+                val appFailure = e.applicationFailure
+                buildString {
+                    append("hasOriginalStackTrace=${appFailure?.originalStackTrace != null}")
+                    // Check if Java stack trace references the activity class
+                    val hasActivityFrame =
+                        appFailure?.stackTrace?.any {
+                            it.className.contains("ExceptionActivities")
+                        } ?: false
+                    append("|hasActivityFrame=$hasActivityFrame")
+                }
+            }
+    }
+
+    @Test
+    fun `activity failure has originalStackTrace and Java stack trace references activity class`() =
+        runTemporalTest(timeSkipping = true) {
+            val taskQueue = "test-excprop-a1b-${UUID.randomUUID()}"
+            val activities = ExceptionActivities()
+
+            application {
+                taskQueue(taskQueue) {
+                    workflow<ActivityStackTraceReportWorkflow>()
+                    activity(activities)
+                }
+            }
+
+            val client = client()
+            val handle =
+                client.startWorkflow(
+                    workflowType = "ActivityStackTraceReportWF",
+                    taskQueue = taskQueue,
+                )
+
+            val result = handle.result<String>(timeout = 30.seconds)
+
+            assertTrue(result.contains("hasOriginalStackTrace=true"), "Should have originalStackTrace: $result")
+            assertTrue(
+                result.contains("hasActivityFrame=true"),
+                "Java stack trace should reference activity class: $result",
+            )
+
+            handle.assertHistory {
+                completed()
+            }
+        }
+
     @Workflow("NestedCauseReportWF")
     class NestedCauseReportWorkflow {
         @WorkflowRun
@@ -175,7 +236,7 @@ class ExceptionPropagationIntegrationTest {
                 ).result()
             } catch (e: WorkflowActivityFailureException) {
                 buildString {
-                    append("causeMsg=${e.cause?.message}")
+                    append("causeMsg=${(e.cause as? ApplicationFailure)?.originalMessage ?: e.cause?.message}")
                     append("|nestedCause=${e.cause?.cause != null}")
                 }
             }
@@ -280,7 +341,7 @@ class ExceptionPropagationIntegrationTest {
                     append("hasAppFailure=${appFailure != null}")
                     append("|causeIsAppFailure=${e.cause is ApplicationFailure}")
                     append("|type=${appFailure?.type}")
-                    append("|msg=${appFailure?.message}")
+                    append("|msg=${appFailure?.originalMessage}")
                     append("|nonRetryable=${appFailure?.isNonRetryable}")
                     append("|failureType=${e.failureType}")
                 }
@@ -362,11 +423,21 @@ class ExceptionPropagationIntegrationTest {
             // Regular exceptions are retryable
             assertEquals(false, appFailure.isNonRetryable, "Regular exceptions should be retryable")
             // Original message preserved
-            assertEquals("workflow regular failure", appFailure.message)
+            assertEquals("workflow regular failure", appFailure.originalMessage)
             // Cause is ApplicationFailure (reconstructed from proto with ApplicationFailureInfo)
             assertTrue(exception.cause is ApplicationFailure, "Cause should be ApplicationFailure: ${exception.cause}")
             // Workflow ID populated
             assertTrue(exception.workflowId.isNotEmpty(), "workflowId should be populated")
+
+            // Java stack trace should reference the workflow class, not buildCause
+            val hasWorkflowFrame =
+                appFailure.stackTrace.any {
+                    it.className.contains("ThrowRegularExceptionWorkflow")
+                }
+            assertTrue(
+                hasWorkflowFrame,
+                "Stack trace should reference ThrowRegularExceptionWorkflow, got: ${appFailure.stackTrace.toList()}",
+            )
 
             handle.assertHistory {
                 failed()
@@ -409,10 +480,20 @@ class ExceptionPropagationIntegrationTest {
             val appFailure = exception.applicationFailure
             assertNotNull(appFailure, "Should have applicationFailure")
             assertEquals("WorkflowValidationError", appFailure.type)
-            assertEquals("workflow app failure", appFailure.message)
+            assertEquals("workflow app failure", appFailure.originalMessage)
             assertTrue(appFailure.isNonRetryable)
             // Cause IS ApplicationFailure
             assertTrue(exception.cause is ApplicationFailure, "Cause should be ApplicationFailure")
+
+            // Java stack trace should reference the workflow class, not buildCause
+            val hasWorkflowFrame =
+                appFailure.stackTrace.any {
+                    it.className.contains("ThrowApplicationFailureWorkflow")
+                }
+            assertTrue(
+                hasWorkflowFrame,
+                "Stack trace should reference ThrowApplicationFailureWorkflow, got: ${appFailure.stackTrace.toList()}",
+            )
 
             handle.assertHistory {
                 failed()
@@ -466,7 +547,7 @@ class ExceptionPropagationIntegrationTest {
             val appFailure = exception.applicationFailure
             assertNotNull(appFailure, "Should have applicationFailure from rethrown activity error")
             assertEquals("ValidationError", appFailure.type)
-            assertEquals("validation failed", appFailure.message)
+            assertEquals("validation failed", appFailure.originalMessage)
 
             handle.assertHistory {
                 failed()
@@ -599,7 +680,7 @@ class ExceptionPropagationIntegrationTest {
                         buildString {
                             append("appFailure=${e.applicationFailure != null}")
                             append("|type=${e.applicationFailure?.type}")
-                            append("|msg=${e.applicationFailure?.message}")
+                            append("|msg=${e.applicationFailure?.originalMessage}")
                             append("|nonRetryable=${e.applicationFailure?.isNonRetryable}")
                         }
                     }
@@ -699,7 +780,7 @@ class ExceptionPropagationIntegrationTest {
                         buildString {
                             append("appFailure=${e.applicationFailure != null}")
                             append("|type=${e.applicationFailure?.type}")
-                            append("|msg=${e.applicationFailure?.message}")
+                            append("|msg=${e.applicationFailure?.originalMessage}")
                         }
                     }
             }
@@ -964,7 +1045,7 @@ class ExceptionPropagationIntegrationTest {
                     append("|appFailureType=${e.applicationFailure?.type}")
                     append("|appFailureNR=${e.applicationFailure?.isNonRetryable}")
                     append("|causeType=${e.cause?.let { it::class.simpleName }}")
-                    append("|causeMsg=${e.cause?.message}")
+                    append("|causeMsg=${(e.cause as? ApplicationFailure)?.originalMessage ?: e.cause?.message}")
                 }
             }
     }
@@ -1022,7 +1103,7 @@ class ExceptionPropagationIntegrationTest {
                 buildString {
                     append("hasAppFailure=${appFailure != null}")
                     append("|type=${appFailure?.type}")
-                    append("|msg=${appFailure?.message}")
+                    append("|msg=${appFailure?.originalMessage}")
                     append("|nonRetryable=${appFailure?.isNonRetryable}")
                 }
             }
