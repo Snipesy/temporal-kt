@@ -1,6 +1,7 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.common.exceptions.WorkflowDeadlockException
+import com.surrealdev.temporal.common.failure.FAILURE_SOURCE
 import com.surrealdev.temporal.internal.ZombieEvictionConfig
 import com.surrealdev.temporal.internal.ZombieEvictionManager
 import com.surrealdev.temporal.serialization.PayloadCodec
@@ -289,7 +290,7 @@ internal class WorkflowDispatcher(
             Failure
                 .newBuilder()
                 .setMessage("Workflow type not registered: $workflowType")
-                .setSource("Kotlin")
+                .setSource(FAILURE_SOURCE)
                 .build()
 
         return WorkflowCompletion.WorkflowActivationCompletion
@@ -311,7 +312,7 @@ internal class WorkflowDispatcher(
                 .setMessage(
                     "Workflow not found in cache (may have been unexpectedly evicted). " +
                         "run_id=${activation.runId}",
-                ).setSource("Kotlin")
+                ).setSource(FAILURE_SOURCE)
                 .build()
 
         return WorkflowCompletion.WorkflowActivationCompletion
@@ -332,7 +333,7 @@ internal class WorkflowDispatcher(
             Failure
                 .newBuilder()
                 .setMessage(exception.message ?: "Workflow deadlock detected")
-                .setSource("Kotlin")
+                .setSource(FAILURE_SOURCE)
                 .build()
 
         return WorkflowCompletion.WorkflowActivationCompletion
@@ -350,7 +351,7 @@ internal class WorkflowDispatcher(
             Failure
                 .newBuilder()
                 .setMessage("Worker is shutting down")
-                .setSource("Kotlin")
+                .setSource(FAILURE_SOURCE)
                 .build()
 
         return WorkflowCompletion.WorkflowActivationCompletion

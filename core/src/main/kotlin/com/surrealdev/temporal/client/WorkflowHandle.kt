@@ -14,6 +14,7 @@ import com.surrealdev.temporal.common.exceptions.ClientWorkflowTerminatedExcepti
 import com.surrealdev.temporal.common.exceptions.ClientWorkflowTimedOutException
 import com.surrealdev.temporal.common.exceptions.ClientWorkflowUpdateFailedException
 import com.surrealdev.temporal.common.exceptions.WorkflowTimeoutType
+import com.surrealdev.temporal.common.failure.buildCause
 import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
@@ -21,7 +22,6 @@ import com.surrealdev.temporal.serialization.safeDecode
 import com.surrealdev.temporal.serialization.safeDecodeSingle
 import com.surrealdev.temporal.serialization.safeEncode
 import com.surrealdev.temporal.workflow.WorkflowHandleBase
-import com.surrealdev.temporal.workflow.internal.buildCause
 import io.temporal.api.common.v1.WorkflowExecution
 import io.temporal.api.enums.v1.EventType
 import io.temporal.api.enums.v1.HistoryEventFilterType

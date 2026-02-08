@@ -3,6 +3,9 @@ package com.surrealdev.temporal.workflow.internal
 import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.common.exceptions.ApplicationFailure
 import com.surrealdev.temporal.common.exceptions.RemoteException
+import com.surrealdev.temporal.common.failure.FAILURE_SOURCE
+import com.surrealdev.temporal.common.failure.buildCause
+import com.surrealdev.temporal.common.failure.buildFailureProto
 import com.surrealdev.temporal.serialization.CompositePayloadSerializer
 import com.surrealdev.temporal.serialization.NoOpCodec
 import kotlinx.coroutines.test.runTest
@@ -53,12 +56,12 @@ class CauseChainSerializationTest {
             val reconstructed = buildCause(proto, codec)
             assertIs<ApplicationFailure>(reconstructed)
             assertEquals("OuterType", reconstructed.type)
-            assertEquals("outer error", reconstructed.message)
+            assertEquals("outer error", reconstructed.originalMessage)
 
             val reconstructedCause = reconstructed.cause
             assertIs<ApplicationFailure>(reconstructedCause)
             assertEquals("InnerType", reconstructedCause.type)
-            assertEquals("inner error", reconstructedCause.message)
+            assertEquals("inner error", reconstructedCause.originalMessage)
             assertTrue(reconstructedCause.isNonRetryable)
         }
 
@@ -139,26 +142,56 @@ class CauseChainSerializationTest {
             val reconstructedCause = reconstructed.cause
             assertIs<ApplicationFailure>(reconstructedCause)
             assertEquals("java.lang.IllegalArgumentException", reconstructedCause.type)
-            assertEquals("bad input", reconstructedCause.message)
+            assertEquals("bad input", reconstructedCause.originalMessage)
             assertNotNull(reconstructedCause.originalStackTrace)
         }
 
     @Test
     fun `buildCause creates RemoteException for failure without ApplicationFailureInfo`() =
         runTest {
-            // Manually build a proto Failure without ApplicationFailureInfo
+            // Manually build a proto Failure without ApplicationFailureInfo, with Kotlin source
             val proto =
                 io.temporal.api.failure.v1.Failure
                     .newBuilder()
                     .setMessage("remote error")
-                    .setStackTrace("at com.example.Foo.bar(Foo.kt:42)")
+                    .setStackTrace("com.example.Foo.bar(Foo.kt:42)")
+                    .setSource(FAILURE_SOURCE)
                     .build()
 
             val result = buildCause(proto, codec)
             assertIs<RemoteException>(result)
             assertEquals("remote error", result.message)
-            assertEquals("at com.example.Foo.bar(Foo.kt:42)", result.originalStackTrace)
+            assertEquals("com.example.Foo.bar(Foo.kt:42)", result.originalStackTrace)
             assertNull(result.cause)
+
+            // Java stack trace should be overridden to the remote trace
+            assertTrue(result.stackTrace.isNotEmpty(), "Java stack trace should be overridden")
+            assertEquals("com.example.Foo", result.stackTrace[0].className)
+            assertEquals("bar", result.stackTrace[0].methodName)
+            assertEquals("Foo.kt", result.stackTrace[0].fileName)
+            assertEquals(42, result.stackTrace[0].lineNumber)
+        }
+
+    @Test
+    fun `buildCause does NOT override Java stack trace for non-Kotlin source`() =
+        runTest {
+            // Manually build a proto Failure with a different source
+            val proto =
+                io.temporal.api.failure.v1.Failure
+                    .newBuilder()
+                    .setMessage("remote error")
+                    .setStackTrace("com.example.Foo.bar(Foo.java:42)")
+                    .setSource("JavaSDK")
+                    .build()
+
+            val result = buildCause(proto, codec)
+            assertIs<RemoteException>(result)
+            assertEquals("remote error", result.message)
+
+            // Java stack trace should NOT be overridden (different source)
+            // The stack trace should point to buildCause/test infrastructure, not the remote trace
+            val hasRemoteFrame = result.stackTrace.any { it.className == "com.example.Foo" }
+            assertTrue(!hasRemoteFrame, "Java stack trace should NOT be overridden for non-Kotlin source")
         }
 
     // ================================================================
@@ -183,6 +216,13 @@ class CauseChainSerializationTest {
             val stackTrace = reconstructed.originalStackTrace
             assertNotNull(stackTrace)
             assertTrue(stackTrace.isNotEmpty())
+
+            // Java stack trace should be overridden to contain a frame from this test
+            val hasTestFrame =
+                reconstructed.stackTrace.any {
+                    it.className.contains("CauseChainSerializationTest")
+                }
+            assertTrue(hasTestFrame, "Java stack trace should contain frame from test, not buildCause")
         }
 
     @Test
@@ -193,6 +233,7 @@ class CauseChainSerializationTest {
                     .newBuilder()
                     .setMessage("no stack")
                     .setStackTrace("")
+                    .setSource(FAILURE_SOURCE)
                     .setApplicationFailureInfo(
                         io.temporal.api.failure.v1.ApplicationFailureInfo
                             .newBuilder()
@@ -203,6 +244,121 @@ class CauseChainSerializationTest {
             val reconstructed = buildCause(proto, codec)
             assertIs<ApplicationFailure>(reconstructed)
             assertNull(reconstructed.originalStackTrace)
+
+            // Java stack trace should NOT be overridden (empty remote trace)
+            // The stack trace should point to buildCause/test infrastructure
+            val hasBuildCauseFrame =
+                reconstructed.stackTrace.any {
+                    it.className.contains("FailureConverters") || it.className.contains("CauseChainSerializationTest")
+                }
+            assertTrue(hasBuildCauseFrame, "Java stack trace should not be overridden when remote trace is empty")
+        }
+
+    // ================================================================
+    // Wrapper failure info types are skipped
+    // ================================================================
+
+    @Test
+    fun `buildCause skips childWorkflowExecutionFailureInfo wrapper and returns inner ApplicationFailure`() =
+        runTest {
+            // Build a proto chain that mimics Core SDK wrapping a child workflow failure:
+            // outer: childWorkflowExecutionFailureInfo (wrapper)
+            //   cause: applicationFailureInfo (the real error)
+            val innerFailure =
+                io.temporal.api.failure.v1.Failure
+                    .newBuilder()
+                    .setMessage("child regular failure")
+                    .setStackTrace("com.example.ChildWorkflow.run(ChildWorkflow.kt:10)")
+                    .setSource(FAILURE_SOURCE)
+                    .setApplicationFailureInfo(
+                        io.temporal.api.failure.v1.ApplicationFailureInfo
+                            .newBuilder()
+                            .setType("java.lang.IllegalStateException")
+                            .setNonRetryable(false),
+                    ).build()
+
+            val outerFailure =
+                io.temporal.api.failure.v1.Failure
+                    .newBuilder()
+                    .setMessage("Child Workflow execution failed")
+                    .setChildWorkflowExecutionFailureInfo(
+                        io.temporal.api.failure.v1.ChildWorkflowExecutionFailureInfo
+                            .newBuilder()
+                            .setWorkflowType(
+                                io.temporal.api.common.v1.WorkflowType
+                                    .newBuilder()
+                                    .setName("ChildWorkflowType"),
+                            ),
+                    ).setCause(innerFailure)
+                    .build()
+
+            val result = buildCause(outerFailure, codec)
+
+            // Should skip the wrapper and return the inner ApplicationFailure directly
+            assertIs<ApplicationFailure>(result, "Should be ApplicationFailure, not RemoteException")
+            assertEquals("child regular failure", result.originalMessage)
+            assertEquals("java.lang.IllegalStateException", result.type)
+
+            // No intermediate RemoteException in the chain
+            assertNull(result.cause, "Should not have a nested cause")
+        }
+
+    @Test
+    fun `buildCause skips activityFailureInfo wrapper and returns inner ApplicationFailure`() =
+        runTest {
+            val innerFailure =
+                io.temporal.api.failure.v1.Failure
+                    .newBuilder()
+                    .setMessage("activity error")
+                    .setSource(FAILURE_SOURCE)
+                    .setApplicationFailureInfo(
+                        io.temporal.api.failure.v1.ApplicationFailureInfo
+                            .newBuilder()
+                            .setType("ValidationError")
+                            .setNonRetryable(true),
+                    ).build()
+
+            val outerFailure =
+                io.temporal.api.failure.v1.Failure
+                    .newBuilder()
+                    .setMessage("Activity task failed")
+                    .setActivityFailureInfo(
+                        io.temporal.api.failure.v1.ActivityFailureInfo
+                            .newBuilder()
+                            .setActivityType(
+                                io.temporal.api.common.v1.ActivityType
+                                    .newBuilder()
+                                    .setName("myActivity"),
+                            ),
+                    ).setCause(innerFailure)
+                    .build()
+
+            val result = buildCause(outerFailure, codec)
+
+            assertIs<ApplicationFailure>(result, "Should be ApplicationFailure, not RemoteException")
+            assertEquals("activity error", result.originalMessage)
+            assertEquals("ValidationError", result.type)
+            assertTrue(result.isNonRetryable)
+        }
+
+    @Test
+    fun `buildCause creates RemoteException for wrapper without cause`() =
+        runTest {
+            // Edge case: wrapper failure with no cause (shouldn't happen in practice, but defensive)
+            val wrapperOnly =
+                io.temporal.api.failure.v1.Failure
+                    .newBuilder()
+                    .setMessage("wrapper without cause")
+                    .setChildWorkflowExecutionFailureInfo(
+                        io.temporal.api.failure.v1.ChildWorkflowExecutionFailureInfo
+                            .newBuilder(),
+                    ).build()
+
+            val result = buildCause(wrapperOnly, codec)
+
+            // Without a cause to skip to, falls back to RemoteException
+            assertIs<RemoteException>(result)
+            assertEquals("wrapper without cause", result.message)
         }
 
     // ================================================================

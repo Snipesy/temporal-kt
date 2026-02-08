@@ -2,6 +2,7 @@ package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.exceptions.PayloadProcessingException
+import com.surrealdev.temporal.common.failure.FAILURE_SOURCE
 import com.surrealdev.temporal.serialization.safeDecode
 import com.surrealdev.temporal.serialization.safeEncodeSingle
 import com.surrealdev.temporal.serialization.safeSerialize
@@ -350,7 +351,7 @@ private fun WorkflowExecutor.addUpdateRejectedCommand(
         Failure
             .newBuilder()
             .setMessage(message)
-            .setSource("Kotlin")
+            .setSource(FAILURE_SOURCE)
             .build()
 
     val updateResponse =

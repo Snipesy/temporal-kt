@@ -8,6 +8,7 @@ import com.surrealdev.temporal.common.exceptions.ChildWorkflowFailureException
 import com.surrealdev.temporal.common.exceptions.ChildWorkflowStartFailureException
 import com.surrealdev.temporal.common.exceptions.SignalExternalWorkflowFailedException
 import com.surrealdev.temporal.common.exceptions.StartChildWorkflowFailureCause
+import com.surrealdev.temporal.common.failure.buildCause
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.serialization.safeDecodeSingle

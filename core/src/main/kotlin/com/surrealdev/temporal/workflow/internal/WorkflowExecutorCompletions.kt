@@ -2,6 +2,8 @@ package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.common.exceptions.PayloadProcessingException
+import com.surrealdev.temporal.common.failure.FAILURE_SOURCE
+import com.surrealdev.temporal.common.failure.buildFailureProto
 import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.serialization.safeEncodeSingle
 import com.surrealdev.temporal.serialization.safeSerialize
@@ -164,7 +166,7 @@ internal fun WorkflowExecutor.buildFailureCompletion(
             .newBuilder()
             .setMessage(exception.message ?: exception::class.simpleName ?: "Unknown error")
             .setStackTrace(exception.stackTraceToString())
-            .setSource("Kotlin")
+            .setSource(FAILURE_SOURCE)
             .build()
 
     return WorkflowCompletion.WorkflowActivationCompletion

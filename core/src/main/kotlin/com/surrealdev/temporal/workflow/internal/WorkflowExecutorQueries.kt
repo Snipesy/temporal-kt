@@ -6,6 +6,7 @@ import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
+import com.surrealdev.temporal.common.failure.FAILURE_SOURCE
 import com.surrealdev.temporal.serialization.safeDecode
 import com.surrealdev.temporal.serialization.safeEncodeSingle
 import com.surrealdev.temporal.serialization.safeSerialize
@@ -265,7 +266,7 @@ internal fun WorkflowExecutor.addFailedQueryResult(
         Failure
             .newBuilder()
             .setMessage(errorMessage)
-            .setSource("Kotlin")
+            .setSource(FAILURE_SOURCE)
             .build()
 
     val queryResult =

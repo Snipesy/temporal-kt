@@ -117,7 +117,19 @@ class ApplicationFailure private constructor(
     /** Error category affecting logging and metrics. */
     val category: ApplicationErrorCategory = ApplicationErrorCategory.UNSPECIFIED,
     cause: Throwable? = null,
-) : TemporalRuntimeException(message, cause) {
+) : TemporalRuntimeException(formatMessage(message, type, isNonRetryable), cause) {
+    /**
+     * The raw, undecorated error message. Use this for programmatic access to the
+     * original message without type/retryability decoration.
+     *
+     * [message] (inherited from [Throwable]) returns a decorated string that includes
+     * the [type] and [isNonRetryable] flag for diagnostic purposes (e.g. `printStackTrace()`).
+     * This property returns only the raw message.
+     *
+     * Matches the Java SDK's `getOriginalMessage()` pattern.
+     */
+    val originalMessage: String = message ?: ""
+
     /**
      * The underlying proto Failure object, available when this exception was reconstructed
      * from a remote failure. Null for locally created failures.
@@ -191,6 +203,21 @@ class ApplicationFailure private constructor(
         details.payloads.map { serializer.deserialize(typeOf<T>(), it) as T }
 
     companion object {
+        /**
+         * Formats the display message for [Throwable.getMessage] / [Throwable.toString].
+         * Embeds type and nonRetryable so `printStackTrace()` output is self-describing.
+         * Matches the Java SDK's `ApplicationFailure.getMessage()` format.
+         */
+        private fun formatMessage(
+            message: String?,
+            type: String,
+            isNonRetryable: Boolean,
+        ): String =
+            buildString {
+                if (!message.isNullOrEmpty()) append("message='$message', ")
+                append("type='$type', nonRetryable=$isNonRetryable")
+            }
+
         /**
          * Creates a retryable application failure.
          *

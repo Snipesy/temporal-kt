@@ -4,6 +4,7 @@ import com.google.protobuf.Timestamp
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityCancelledException
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityException
+import com.surrealdev.temporal.common.failure.buildCause
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.serialization.safeDecodeSingle
 import com.surrealdev.temporal.workflow.ActivityCancellationType

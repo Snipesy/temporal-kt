@@ -409,7 +409,7 @@ class ApplicationFailureIntegrationTest {
                         val failure = e.applicationFailure
                         assertNotNull(failure)
                         assertEquals("ValidationError", failure.type)
-                        assertEquals("This error should not be retried", failure.message)
+                        assertEquals("This error should not be retried", failure.originalMessage)
                         assertTrue(failure.isNonRetryable)
                         assertEquals(ActivityRetryState.NON_RETRYABLE_FAILURE, e.retryState)
                         "verified"

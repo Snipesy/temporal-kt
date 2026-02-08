@@ -10,6 +10,8 @@ import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.exceptions.ActivityCancelledException
 import com.surrealdev.temporal.common.exceptions.PayloadProcessingException
 import com.surrealdev.temporal.common.exceptions.PayloadSerializationException
+import com.surrealdev.temporal.common.failure.FAILURE_SOURCE
+import com.surrealdev.temporal.common.failure.buildFailureProto
 import com.surrealdev.temporal.internal.ZombieEvictionConfig
 import com.surrealdev.temporal.internal.ZombieEvictionManager
 import com.surrealdev.temporal.serialization.PayloadCodec
@@ -19,7 +21,6 @@ import com.surrealdev.temporal.serialization.safeDeserialize
 import com.surrealdev.temporal.serialization.safeEncodeSingle
 import com.surrealdev.temporal.serialization.safeSerialize
 import com.surrealdev.temporal.util.AttributeScope
-import com.surrealdev.temporal.workflow.internal.buildFailureProto
 import coresdk.CoreInterface
 import coresdk.activityTaskCompletion
 import coresdk.activity_result.activityExecutionResult
@@ -617,7 +618,7 @@ class ActivityDispatcher(
             Failure
                 .newBuilder()
                 .setMessage(message)
-                .setSource("Kotlin")
+                .setSource(FAILURE_SOURCE)
                 .setApplicationFailureInfo(
                     ApplicationFailureInfo
                         .newBuilder()

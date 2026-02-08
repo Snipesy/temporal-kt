@@ -505,7 +505,7 @@ class RemoteActivityHandleImplTest {
             // The cause is now an ApplicationFailure wrapping the nested cause
             assertNotNull(exception.cause)
             assertTrue(exception.cause is ApplicationFailure)
-            assertEquals("Primary failure", exception.cause?.message)
+            assertEquals("Primary failure", (exception.cause as? ApplicationFailure)?.originalMessage)
             assertNotNull(exception.cause?.cause)
             assertEquals("Root cause", exception.cause?.cause?.message)
         }
