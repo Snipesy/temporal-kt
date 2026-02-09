@@ -27,7 +27,7 @@ suspend inline fun <reified T> WorkflowHandle.query(queryType: String): T {
 }
 
 /**
- * Queries the workflow with a single argument of type [A] and returns the result of type [R].
+ * Queries the workflow with a single argument of type [A] and returns the result of type [T].
  *
  * @param queryType The type of the query to perform.
  * @param arg The argument to send with the query.

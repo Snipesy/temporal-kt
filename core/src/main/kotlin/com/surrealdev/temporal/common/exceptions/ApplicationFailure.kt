@@ -204,7 +204,7 @@ class ApplicationFailure private constructor(
 
     companion object {
         /**
-         * Formats the display message for [Throwable.getMessage] / [Throwable.toString].
+         * Formats the display message for `Throwable.getMessage()` / `Throwable.toString()`.
          * Embeds type and nonRetryable so `printStackTrace()` output is self-describing.
          * Matches the Java SDK's `ApplicationFailure.getMessage()` format.
          */

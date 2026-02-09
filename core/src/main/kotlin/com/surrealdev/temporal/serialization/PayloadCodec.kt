@@ -25,7 +25,7 @@ import com.surrealdev.temporal.common.TemporalPayloads
  * Implementations should:
  * - Return the same number of payloads as input (1:1 mapping)
  * - Set appropriate metadata to identify encoded payloads (e.g., `"encoding": "binary/gzip"`)
- * - Pass through payloads they don't handle (check [TemporalPayload.encoding] before decoding)
+ * - Pass through payloads they don't handle (check `TemporalPayload.encoding` before decoding)
  * - Be thread-safe for concurrent use
  *
  * Example compression codec:

@@ -78,7 +78,7 @@ interface WorkflowHandle : WorkflowHandleBase {
     /**
      * Waits for the workflow to complete and returns its raw result payload.
      *
-     * For typed results, use the [result] extension function instead:
+     * For typed results, use the `result()` extension function instead:
      * ```kotlin
      * val result: String = handle.result()
      * ```
@@ -97,7 +97,7 @@ interface WorkflowHandle : WorkflowHandleBase {
     /**
      * Sends a signal to the workflow.
      *
-     * This method uses raw payloads. You should use associated reified extension functions for type safety [signal].
+     * This method uses raw payloads. You should use associated reified extension functions for type safety like `signal()`.
      *
      *
      * @param signalName The name of the signal to send.
@@ -115,7 +115,7 @@ interface WorkflowHandle : WorkflowHandleBase {
      * Updates are like signals but return a value. They also support
      * validation before the update is accepted.
      *
-     * This method uses raw payloads. You should use associated reified extension functions for type safety [update]
+     * This method uses raw payloads. You should use associated reified extension functions for type safety like `update()`.
      *
      * @param updateName The name of the update to send.
      * @param args Arguments to pass with the update.
@@ -132,7 +132,7 @@ interface WorkflowHandle : WorkflowHandleBase {
      *
      * Queries are read-only and do not affect workflow execution.
      *
-     * This method uses raw payloads. You should use associated reified extension functions for type safety [query]
+     * This method uses raw payloads. You should use associated reified extension functions for type safety like `query()`.
      *
      * @param queryType The type of query to execute.
      * @param args Arguments to pass with the query.

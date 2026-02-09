@@ -183,8 +183,8 @@ internal fun WorkflowExecutor.buildFailureCompletion(
  * Builds a workflow failure completion when the workflow code throws an exception.
  * This creates a FailWorkflowExecution command indicating the workflow failed.
  *
- * When the exception is an [ApplicationFailure], the proto Failure is populated
- * with [ApplicationFailureInfo] so that the failure type, retry policy, details,
+ * When the exception is an [com.surrealdev.temporal.common.exceptions.ApplicationFailure], the proto Failure is populated
+ * with `ApplicationFailureInfo` so that the failure type, retry policy, details,
  * and category are properly propagated to the Temporal server.
  */
 @OptIn(InternalTemporalApi::class)

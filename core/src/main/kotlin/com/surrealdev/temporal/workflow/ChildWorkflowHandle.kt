@@ -38,23 +38,23 @@ interface ChildWorkflowHandle : WorkflowHandleBase {
      * After this method returns, [firstExecutionRunId] is guaranteed to be non-null.
      *
      * @return The run ID of the started child workflow
-     * @throws ChildWorkflowStartFailureException if the child workflow failed to start
-     * @throws ChildWorkflowCancelledException if the start was cancelled
+     * @throws com.surrealdev.temporal.common.exceptions.ChildWorkflowStartFailureException if the child workflow failed to start
+     * @throws com.surrealdev.temporal.common.exceptions.ChildWorkflowCancelledException if the start was cancelled
      */
     suspend fun awaitStart(): String
 
     /**
      * Waits for the child workflow to complete and returns its raw result payload.
      *
-     * For typed results, use the [result] extension function instead:
+     * For typed results, use the `result()` extension function instead:
      * ```kotlin
      * val result: String = handle.result()
      * ```
      *
      * @return The raw payload result of the child workflow, or null if empty
-     * @throws ChildWorkflowFailureException if the child workflow failed
-     * @throws ChildWorkflowCancelledException if the child workflow was cancelled
-     * @throws ChildWorkflowStartFailureException if the child workflow failed to start
+     * @throws com.surrealdev.temporal.common.exceptions.ChildWorkflowFailureException if the child workflow failed
+     * @throws com.surrealdev.temporal.common.exceptions.ChildWorkflowCancelledException if the child workflow was cancelled
+     * @throws com.surrealdev.temporal.common.exceptions.ChildWorkflowStartFailureException if the child workflow failed to start
      */
     suspend fun resultPayload(): com.surrealdev.temporal.common.TemporalPayload?
 
@@ -62,7 +62,7 @@ interface ChildWorkflowHandle : WorkflowHandleBase {
      * Sends a signal to this child workflow.
      *
      * This method uses raw payloads. Use the type-safe extension functions
-     * [signal] for easier usage with automatic serialization.
+     * like `signal()` for easier usage with automatic serialization.
      *
      * @param signalName The name of the signal to send.
      * @param args Arguments to pass with the signal.

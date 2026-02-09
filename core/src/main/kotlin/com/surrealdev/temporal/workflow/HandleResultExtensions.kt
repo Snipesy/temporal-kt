@@ -24,7 +24,9 @@ suspend inline fun <reified R> ActivityHandle.result(): R {
  *
  * @param R The expected result type
  * @return The deserialized result
- * @throws ChildWorkflowException if the child workflow failed
+ * @throws com.surrealdev.temporal.common.exceptions.ChildWorkflowFailureException if the child workflow failed
+ * @throws com.surrealdev.temporal.common.exceptions.ChildWorkflowCancelledException if the child workflow was cancelled
+ * @throws com.surrealdev.temporal.common.exceptions.ChildWorkflowStartFailureException if the child workflow failed to start
  */
 suspend inline fun <reified R> ChildWorkflowHandle.result(): R {
     val payload = resultPayload()

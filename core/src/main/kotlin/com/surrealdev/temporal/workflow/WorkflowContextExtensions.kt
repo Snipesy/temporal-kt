@@ -100,7 +100,7 @@ fun KClass<*>.getWorkflowType(): String {
  * await the result.
  *
  * @param workflowType The child workflow type name
- * @param args Pre-serialized arguments (use [Payloads.newBuilder])
+ * @param args Pre-serialized arguments
  * @param options Configuration for the child workflow
  * @return A handle to the child workflow
  */
