@@ -5,6 +5,7 @@ import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.exceptions.PayloadProcessingException
 import com.surrealdev.temporal.serialization.safeDecode
 import io.temporal.api.common.v1.Payload
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.reflect.full.callSuspend
 
 /*
@@ -87,6 +88,8 @@ private suspend fun WorkflowExecutor.invokeRuntimeSignalHandler(
             val encoded = EncodedTemporalPayloads.fromProtoPayloadList(args)
             val payloads = codec.safeDecode(encoded)
             handler(payloads)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             // Signal handlers should not fail the workflow
             // Log the error but continue
@@ -109,6 +112,8 @@ private suspend fun WorkflowExecutor.invokeRuntimeDynamicSignalHandler(
             val encoded = EncodedTemporalPayloads.fromProtoPayloadList(args)
             val payloads = codec.safeDecode(encoded)
             handler(signalName, payloads)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             // Signal handlers should not fail the workflow
             logger.warn("Dynamic signal handler threw exception: {}", e.message, e)
@@ -164,6 +169,8 @@ private suspend fun WorkflowExecutor.invokeAnnotationSignalHandler(
         } catch (e: java.lang.reflect.InvocationTargetException) {
             val cause = e.targetException ?: e
             logger.warn("Signal handler threw exception: {}", cause.message, cause)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             // Signal handlers should not fail the workflow
             logger.warn("Signal handler threw exception: {}", e.message, e)

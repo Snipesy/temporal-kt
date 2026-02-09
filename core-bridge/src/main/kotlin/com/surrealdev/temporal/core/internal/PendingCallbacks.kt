@@ -1,8 +1,10 @@
 package com.surrealdev.temporal.core.internal
 
+import org.slf4j.LoggerFactory
 import java.lang.foreign.MemorySegment
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -16,9 +18,11 @@ import java.util.concurrent.atomic.AtomicLong
  * after the suspend completes (via ManagedArena or similar patterns). This avoids
  * FFM "session acquired" errors that occur when closing arenas during upcalls.
  *
- * Note: Callbacks are NOT cancellable. The Rust Core SDK always invokes callbacks
- * (even on shutdown), so we wait for callbacks to fire naturally. This ensures
- * awaitEmpty() properly blocks until all native operations complete.
+ * Note: Callbacks are NOT cancellable. For worker poll operations, the Rust Core SDK
+ * guarantees callbacks fire (sending null on shutdown via PollError::ShutDown). For
+ * RPC calls, callbacks fire when the gRPC call completes, but may not fire if the
+ * spawned Tokio task panics or the RPC hangs indefinitely. The awaitEmpty() method
+ * uses a timeout to prevent infinite hangs in such cases.
  *
  * Thread Safety:
  * - Registration uses AtomicLong for ID generation and ConcurrentHashMap for storage
@@ -33,6 +37,8 @@ internal class PendingCallbacks<T> {
     @Volatile
     private var completionLatch: CountDownLatch? = null
     private val latchLock = Any()
+
+    private val logger = LoggerFactory.getLogger(PendingCallbacks::class.java)
 
     /**
      * Registers a callback and returns a context pointer to pass as user_data.
@@ -79,19 +85,36 @@ internal class PendingCallbacks<T> {
     fun isNotEmpty(): Boolean = pending.isNotEmpty()
 
     /**
-     * Blocks until all pending callbacks have been dispatched.
+     * Blocks until all pending callbacks have been dispatched, or until timeout.
      *
      * This is used during shutdown to ensure all native callbacks complete
      * before freeing the native handle they reference.
+     *
+     * While worker poll operations are guaranteed to receive null callbacks
+     * on shutdown (via PollError::ShutDown), RPC calls have no such guarantee. If a
+     * spawned Tokio task panics or an RPC has no timeout and the server is unresponsive,
+     * the callback may never fire. This timeout prevents infinite hangs in such cases.
+     *
+     * @param timeoutSeconds Timeout in seconds (default 60s, longer than typical gRPC timeouts)
+     * @return true if all callbacks completed, false if timeout was reached
      */
-    fun awaitEmpty() {
-        if (pending.isEmpty()) return
+    fun awaitEmpty(timeoutSeconds: Long = 60): Boolean {
+        if (pending.isEmpty()) return true
         synchronized(latchLock) {
-            if (pending.isEmpty()) return
+            if (pending.isEmpty()) return true
             completionLatch = CountDownLatch(1)
         }
         try {
-            completionLatch!!.await()
+            val completed = completionLatch!!.await(timeoutSeconds, TimeUnit.SECONDS)
+            if (!completed) {
+                logger.warn(
+                    "[PendingCallbacks] Timeout after {}s waiting for {} callbacks. " +
+                        "This may indicate a Rust panic or stuck gRPC call.",
+                    timeoutSeconds,
+                    pending.size,
+                )
+            }
+            return completed
         } finally {
             synchronized(latchLock) { completionLatch = null }
         }

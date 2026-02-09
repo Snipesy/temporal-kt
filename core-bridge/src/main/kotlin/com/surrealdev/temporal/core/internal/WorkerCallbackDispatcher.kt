@@ -84,14 +84,18 @@ internal class WorkerCallbackDispatcher(
     }
 
     /**
-     * Blocks until all pending callbacks have been dispatched.
+     * Blocks until all pending callbacks have been dispatched, or until timeout.
      *
      * This must be called BEFORE freeing the native worker handle to ensure
      * all Tokio tasks holding references to the worker have completed.
+     *
+     * @param timeoutSeconds Timeout in seconds (default 60s)
+     * @return true if all callbacks completed, false if timeout was reached
      */
-    fun awaitPendingCallbacks() {
-        pendingPollCallbacks.awaitEmpty()
-        pendingWorkerCallbacks.awaitEmpty()
+    fun awaitPendingCallbacks(timeoutSeconds: Long = 60): Boolean {
+        val pollCompleted = pendingPollCallbacks.awaitEmpty(timeoutSeconds)
+        val workerCompleted = pendingWorkerCallbacks.awaitEmpty(timeoutSeconds)
+        return pollCompleted && workerCompleted
     }
 
     override fun close() {

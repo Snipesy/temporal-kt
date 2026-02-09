@@ -5,6 +5,7 @@ import com.google.protobuf.MessageLite
 import com.surrealdev.temporal.core.internal.FactoryArenaScope
 import com.surrealdev.temporal.core.internal.WorkerCallbackDispatcher
 import kotlinx.coroutines.suspendCancellableCoroutine
+import org.slf4j.LoggerFactory
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
 import kotlin.coroutines.resume
@@ -103,6 +104,8 @@ class TemporalWorker private constructor(
 
     @Volatile
     private var shutdownInitiated = false
+
+    private val logger = LoggerFactory.getLogger(TemporalWorker::class.java)
 
     companion object {
         /**
@@ -370,9 +373,15 @@ class TemporalWorker private constructor(
             closed = true
 
             // MUST await BEFORE freeing - Tokio tasks hold &Worker references to this Box
-            dispatcher.awaitPendingCallbacks()
+            val completed = dispatcher.awaitPendingCallbacks(timeoutSeconds = 60)
+            if (!completed) {
+                logger.warn(
+                    "[TemporalWorker] Timeout waiting for pending callbacks during close(). " +
+                        "Proceeding with cleanup anyway. This may indicate a Rust panic or stuck poll.",
+                )
+            }
 
-            // NOW safe to free - no more callbacks will reference the Worker
+            // NOW safe to free - no more callbacks will reference the Worker (or as safe as we can make it)
             InternalWorker.freeWorker(handle)
 
             dispatcher.close()

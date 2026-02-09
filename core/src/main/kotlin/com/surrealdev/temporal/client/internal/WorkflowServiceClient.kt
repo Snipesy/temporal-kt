@@ -47,10 +47,12 @@ internal class WorkflowServiceClient(
      */
     suspend fun getWorkflowExecutionHistory(
         request: GetWorkflowExecutionHistoryRequest,
+        timeoutMillis: Int = 0,
     ): GetWorkflowExecutionHistoryResponse =
         coreClient.workflowServiceCall(
             rpc = "GetWorkflowExecutionHistory",
             request = request,
+            timeoutMillis = timeoutMillis,
         ) { input -> GetWorkflowExecutionHistoryResponse.parseFrom(input) }
 
     /**
@@ -97,20 +99,30 @@ internal class WorkflowServiceClient(
 
     /**
      * Sends an update to a workflow execution and waits for the result.
+     * This can block for an extended duration while the update handler executes.
      */
-    suspend fun updateWorkflowExecution(request: UpdateWorkflowExecutionRequest): UpdateWorkflowExecutionResponse =
+    suspend fun updateWorkflowExecution(
+        request: UpdateWorkflowExecutionRequest,
+        timeoutMillis: Int = 0,
+    ): UpdateWorkflowExecutionResponse =
         coreClient.workflowServiceCall(
             rpc = "UpdateWorkflowExecution",
             request = request,
+            timeoutMillis = timeoutMillis,
         ) { input -> UpdateWorkflowExecutionResponse.parseFrom(input) }
 
     /**
      * Queries a workflow execution for its current state.
+     * This blocks until a worker picks up and executes the query.
      */
-    suspend fun queryWorkflow(request: QueryWorkflowRequest): QueryWorkflowResponse =
+    suspend fun queryWorkflow(
+        request: QueryWorkflowRequest,
+        timeoutMillis: Int = 0,
+    ): QueryWorkflowResponse =
         coreClient.workflowServiceCall(
             rpc = "QueryWorkflow",
             request = request,
+            timeoutMillis = timeoutMillis,
         ) { input -> QueryWorkflowResponse.parseFrom(input) }
 
     /**

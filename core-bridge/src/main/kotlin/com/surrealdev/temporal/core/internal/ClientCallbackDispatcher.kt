@@ -94,14 +94,18 @@ internal class ClientCallbackDispatcher(
     ): MemorySegment = pendingRpcCallbacks.register(RpcCallbackWrapper(callback, parser))
 
     /**
-     * Blocks until all pending callbacks have been dispatched.
+     * Blocks until all pending callbacks have been dispatched, or until timeout.
      *
      * This must be called BEFORE freeing the native client handle to ensure
      * all Tokio tasks holding references to the client have completed.
+     *
+     * @param timeoutSeconds Timeout in seconds (default 60s)
+     * @return true if all callbacks completed, false if timeout was reached
      */
-    fun awaitPendingCallbacks() {
-        pendingConnectCallbacks.awaitEmpty()
-        pendingRpcCallbacks.awaitEmpty()
+    fun awaitPendingCallbacks(timeoutSeconds: Long = 60): Boolean {
+        val connectCompleted = pendingConnectCallbacks.awaitEmpty(timeoutSeconds)
+        val rpcCompleted = pendingRpcCallbacks.awaitEmpty(timeoutSeconds)
+        return connectCompleted && rpcCompleted
     }
 
     override fun close() {

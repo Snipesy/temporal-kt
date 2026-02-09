@@ -68,7 +68,10 @@ internal abstract class BaseCallbackDispatcher(
 
                 statusCode != 0 -> {
                     resumeWithException(
-                        TemporalCoreException(failureMessage ?: "RPC call failed with status $statusCode"),
+                        TemporalCoreException(
+                            message = failureMessage ?: "RPC call failed with status $statusCode",
+                            statusCode = statusCode,
+                        ),
                     )
                 }
 

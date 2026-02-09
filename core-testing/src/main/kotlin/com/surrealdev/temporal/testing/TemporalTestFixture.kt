@@ -73,6 +73,7 @@ import kotlin.time.Duration.Companion.seconds
 class TemporalTestApplicationBuilder internal constructor(
     private val server: EphemeralServer,
     private val parentCoroutineContext: CoroutineContext,
+    private val namespace: String,
 ) {
     private var _application: TemporalApplication? = null
     private var cachedClient: TemporalClient? = null
@@ -141,7 +142,7 @@ class TemporalTestApplicationBuilder internal constructor(
         val appBuilder = TemporalApplicationBuilder(parentCoroutineContext)
         appBuilder.connection {
             target = "http://${this@TemporalTestApplicationBuilder.server.targetUrl}"
-            namespace = "default"
+            namespace = this@TemporalTestApplicationBuilder.namespace
         }
 
         // Apply deployment options if configured
@@ -224,7 +225,7 @@ class TemporalTestApplicationBuilder internal constructor(
         val baseClient =
             TemporalClient.create(
                 coreClient = coreClient,
-                namespace = "default",
+                namespace = namespace,
                 serializer = serializer,
                 codec = codec,
             ) as TemporalClientImpl
@@ -374,19 +375,25 @@ class TemporalTestApplicationBuilder internal constructor(
  * @param timeSkipping If true, starts a test server that automatically skips time
  *                     when workflows are waiting on timers. This allows tests with
  *                     long timers (hours/days) to complete in milliseconds.
+ * @param namespace The Temporal namespace to use. Defaults to "default".
+ *                  Note: Only supported when timeSkipping = false (dev server). The test server
+ *                  only supports the "default" namespace.
  * @param ip The IP address to bind the server to. Defaults to "127.0.0.1".
  *           Use "0.0.0.0" to allow connections from Docker containers or external hosts.
  *           Note: Only supported when timeSkipping = false (dev server). The test server
  *           does not support custom IP binding.
  * @param searchAttributes Custom search attributes to register with the server.
- * @throws IllegalArgumentException if ip is specified with timeSkipping = true
+ * @throws IllegalArgumentException if namespace is not "default" with timeSkipping = true
+ * @throws IllegalArgumentException if ip is not "127.0.0.1" with timeSkipping = true
  */
 fun runTemporalTest(
     timeSkipping: Boolean = true,
+    namespace: String = "default",
+    timeout: Duration = 60.seconds,
     ip: String = "127.0.0.1",
     searchAttributes: List<SearchAttributeKey<*>> = emptyList(),
     block: suspend TemporalTestApplicationBuilder.() -> Unit,
-): TestResult = runTemporalTest(EmptyCoroutineContext, timeSkipping, ip, searchAttributes, block)
+): TestResult = runTemporalTest(EmptyCoroutineContext, timeSkipping, namespace, timeout, ip, searchAttributes, block)
 
 /**
  * Runs a test with an ephemeral Temporal dev server.
@@ -396,19 +403,23 @@ fun runTemporalTest(
  *
  * @param parentCoroutineContext Additional coroutine context elements
  * @param timeSkipping If true, starts a test server that automatically skips time
+ * @param namespace The Temporal namespace to use. Defaults to "default".
  * @param ip The IP address to bind the server to. Defaults to "127.0.0.1".
  * @param searchAttributes Custom search attributes to register with the server.
  * @param block The test block with application configuration and test code
- * @throws IllegalArgumentException if ip is specified with timeSkipping = true
+ * @throws IllegalArgumentException if namespace is not "default" with timeSkipping = true
+ * @throws IllegalArgumentException if ip is not "127.0.0.1" with timeSkipping = true
  */
 fun runTemporalTest(
     parentCoroutineContext: CoroutineContext,
     timeSkipping: Boolean = true,
+    namespace: String = "default",
+    timeout: Duration = 60.seconds,
     ip: String = "127.0.0.1",
     searchAttributes: List<SearchAttributeKey<*>> = emptyList(),
     block: suspend TemporalTestApplicationBuilder.() -> Unit,
 ): TestResult =
-    runTest(timeout = 60.seconds) {
+    runTest(timeout = timeout) {
         // Use real time dispatcher to avoid virtual time issues with timeouts
         // (similar to Ktor's runTestWithRealTime)
         // if we don't do this then we can run info FFM issues
@@ -416,6 +427,7 @@ fun runTemporalTest(
             runTestApplication(
                 this.coroutineContext + parentCoroutineContext,
                 timeSkipping,
+                namespace,
                 ip,
                 searchAttributes,
                 block,
@@ -431,20 +443,30 @@ fun runTemporalTest(
  *
  * @param parentCoroutineContext Additional coroutine context elements
  * @param timeSkipping If true, starts a test server that automatically skips time
+ * @param namespace The Temporal namespace to use. Defaults to "default".
  * @param ip The IP address to bind the server to. Defaults to "127.0.0.1".
  *           Use "0.0.0.0" to allow connections from Docker containers or external hosts.
  *           Note: Only supported when timeSkipping = false (dev server).
  * @param searchAttributes Custom search attributes to register with the server.
  * @param block The test block with application configuration and test code
+ * @throws IllegalArgumentException if namespace is not "default" with timeSkipping = true
  * @throws IllegalArgumentException if ip is not "127.0.0.1" with timeSkipping = true
  */
 suspend fun TestScope.runTestApplication(
     parentCoroutineContext: CoroutineContext = EmptyCoroutineContext,
     timeSkipping: Boolean = true,
+    namespace: String = "default",
     ip: String = "127.0.0.1",
     searchAttributes: List<SearchAttributeKey<*>> = emptyList(),
     block: suspend TemporalTestApplicationBuilder.() -> Unit,
 ) {
+    // Validate namespace parameter - test server only supports "default" namespace
+    require(!(timeSkipping && namespace != "default")) {
+        "Custom namespace (namespace=$namespace) is not supported with timeSkipping=true. " +
+            "The test server only supports the \"default\" namespace. " +
+            "Use timeSkipping=false with TemporalDevServer for custom namespace support."
+    }
+
     // Validate ip parameter - test server doesn't support custom IP binding
     require(!(timeSkipping && ip != "127.0.0.1")) {
         "Custom IP binding (ip=$ip) is not supported with timeSkipping=true. " +
@@ -477,6 +499,7 @@ suspend fun TestScope.runTestApplication(
                         TemporalTestApplicationBuilder(
                             server = testServer,
                             parentCoroutineContext = effectiveContext,
+                            namespace = namespace,
                         )
                     try {
                         builder.block()
@@ -489,12 +512,14 @@ suspend fun TestScope.runTestApplication(
                 .start(
                     runtime = runtime,
                     ip = ip,
+                    namespace = namespace,
                     searchAttributes = searchAttributePairs,
                 ).use { devServer ->
                     val builder =
                         TemporalTestApplicationBuilder(
                             server = devServer,
                             parentCoroutineContext = effectiveContext,
+                            namespace = namespace,
                         )
                     try {
                         builder.block()

@@ -16,6 +16,7 @@ import io.temporal.api.failure.v1.Failure
 import io.temporal.api.sdk.v1.workflowDefinition
 import io.temporal.api.sdk.v1.workflowInteractionDefinition
 import io.temporal.api.sdk.v1.workflowMetadata
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.reflect.full.callSuspend
 
 /**
@@ -124,6 +125,8 @@ private suspend fun WorkflowExecutor.handleRuntimeQuery(
         val temporalArgs = codec.safeDecode(encoded)
         val resultPayload = handler(temporalArgs)
         addSuccessQueryResult(queryId, codec.safeEncodeSingle(resultPayload))
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: ReadOnlyContextException) {
         logger.warn("Query handler attempted state mutation: {}", e.message)
         addFailedQueryResult(queryId, "Query attempted state mutation: ${e.message}")
@@ -149,6 +152,8 @@ private suspend fun WorkflowExecutor.handleRuntimeDynamicQuery(
         val temporalArgs = codec.safeDecode(encoded)
         val resultPayload = handler(queryType, temporalArgs)
         addSuccessQueryResult(queryId, codec.safeEncodeSingle(resultPayload))
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: ReadOnlyContextException) {
         logger.warn("Query handler attempted state mutation: {}", e.message)
         addFailedQueryResult(queryId, "Query attempted state mutation: ${e.message}")
@@ -191,6 +196,8 @@ private suspend fun WorkflowExecutor.handleAnnotationQuery(
             }
 
         addSuccessQueryResult(queryId, payload)
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: ReadOnlyContextException) {
         logger.warn("Query handler attempted state mutation: {}", e.message, e)
         addFailedQueryResult(queryId, "Query attempted state mutation: ${e.message}")

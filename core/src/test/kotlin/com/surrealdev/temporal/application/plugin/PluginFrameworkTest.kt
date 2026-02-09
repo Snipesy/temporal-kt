@@ -295,11 +295,11 @@ class PluginFrameworkTest {
 
         // Task queue without override: pluginOrNull returns inherited, hasPluginLocally returns false
         assertNotNull(taskQueueWithoutOverride!!.pluginOrNull(ConfigurablePlugin))
-        assertFalse(taskQueueWithoutOverride!!.hasPluginLocally(ConfigurablePlugin))
+        assertFalse(taskQueueWithoutOverride.hasPluginLocally(ConfigurablePlugin))
 
         // Task queue with override: both return true
         assertNotNull(taskQueueWithOverride!!.pluginOrNull(ConfigurablePlugin))
-        assertTrue(taskQueueWithOverride!!.hasPluginLocally(ConfigurablePlugin))
+        assertTrue(taskQueueWithOverride.hasPluginLocally(ConfigurablePlugin))
     }
 
     @Test

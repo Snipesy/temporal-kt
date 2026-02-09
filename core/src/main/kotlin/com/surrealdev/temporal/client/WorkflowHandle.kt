@@ -16,6 +16,7 @@ import com.surrealdev.temporal.common.exceptions.ClientWorkflowUpdateFailedExcep
 import com.surrealdev.temporal.common.exceptions.WorkflowTimeoutType
 import com.surrealdev.temporal.common.failure.buildCause
 import com.surrealdev.temporal.common.toProto
+import com.surrealdev.temporal.core.TemporalCoreException
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.serialization.safeDecode
@@ -27,12 +28,29 @@ import io.temporal.api.enums.v1.EventType
 import io.temporal.api.enums.v1.HistoryEventFilterType
 import io.temporal.api.history.v1.HistoryEvent
 import io.temporal.api.workflowservice.v1.*
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import org.slf4j.LoggerFactory
 import kotlin.time.Duration
-import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 private val logger = LoggerFactory.getLogger(WorkflowHandleImpl::class.java)
+
+/**
+ * Configuration for result long-polling behavior.
+ *
+ * Uses bounded server-side long polling: the server holds the connection open for up to
+ * [longPollTimeout], returning immediately when the workflow closes or when the timeout
+ * expires. This matches the pattern used by all official Temporal SDKs (Go, Java, Python, TS)
+ * while keeping FFM call durations bounded.
+ *
+ * @property longPollTimeout Maximum time per long-poll RPC call. The server holds the connection
+ *   open for up to this duration. When it expires, the client re-issues the poll. Default is 20s,
+ *   yielding ~3 requests/minute steady-state with near-zero result delivery latency.
+ */
+data class ResultPollingConfig(
+    val longPollTimeout: Duration = 20.seconds,
+)
 
 /**
  * Handle to a workflow execution.
@@ -170,26 +188,35 @@ internal class WorkflowHandleImpl(
     private val serviceClient: WorkflowServiceClient,
     override val serializer: PayloadSerializer,
     internal val codec: PayloadCodec,
+    private val pollingConfig: ResultPollingConfig = ResultPollingConfig(),
 ) : WorkflowHandle {
     @OptIn(InternalTemporalApi::class)
     override suspend fun resultPayload(timeout: Duration): TemporalPayload? {
         val startTime = System.currentTimeMillis()
         val timeoutMillis = if (timeout == Duration.INFINITE) Long.MAX_VALUE else timeout.inWholeMilliseconds
+        val longPollTimeoutMillis = pollingConfig.longPollTimeout.inWholeMilliseconds.toInt()
 
         logger.info("[result] Starting to poll for workflow $workflowId (runId=$runId), timeout=$timeout")
 
-        // Poll for workflow completion
+        // Use local variable for runId to avoid mutating handle state during run-following
+        var currentRunId = runId
+        var nextPageToken = com.google.protobuf.ByteString.EMPTY
         var pollCount = 0
         while (true) {
             pollCount++
             val elapsed = System.currentTimeMillis() - startTime
             if (elapsed >= timeoutMillis) {
                 logger.warn("[result] Timeout waiting for workflow $workflowId after ${elapsed}ms")
-                throw ClientWorkflowResultTimeoutException(workflowId, runId)
+                throw ClientWorkflowResultTimeoutException(workflowId, currentRunId)
             }
 
-            logger.debug("[result] Poll #$pollCount for workflow $workflowId (elapsed=${elapsed}ms)")
+            logger.debug(
+                "[result] Long-poll #$pollCount for workflow $workflowId (runId=$currentRunId, elapsed=${elapsed}ms)",
+            )
 
+            // Bounded long poll: server holds connection for up to longPollTimeout,
+            // returning immediately when a close event arrives. The per-RPC timeout
+            // ensures the FFM call duration is bounded.
             val request =
                 GetWorkflowExecutionHistoryRequest
                     .newBuilder()
@@ -198,20 +225,21 @@ internal class WorkflowHandleImpl(
                         WorkflowExecution
                             .newBuilder()
                             .setWorkflowId(workflowId)
-                            .also { if (runId != null) it.setRunId(runId) }
+                            .also { if (currentRunId != null) it.setRunId(currentRunId) }
                             .build(),
                     ).setHistoryEventFilterType(HistoryEventFilterType.HISTORY_EVENT_FILTER_TYPE_CLOSE_EVENT)
-                    .setWaitNewEvent(false) // Don't use long-polling, poll manually for better cancellation
+                    .setWaitNewEvent(true)
+                    .setSkipArchival(true)
+                    .setNextPageToken(nextPageToken)
                     .build()
 
             val response =
-                try {
-                    serviceClient.getWorkflowExecutionHistory(request)
-                } catch (e: Exception) {
-                    logger.warn("[result] Poll failed for workflow $workflowId: ${e.message}")
-                    // If request fails, continue polling
-                    delay(200.milliseconds)
-                    continue
+                boundedPoll("result") {
+                    // Recompute effective timeout each retry, capped to remaining user timeout
+                    val remainingMs = timeoutMillis - (System.currentTimeMillis() - startTime)
+                    if (remainingMs <= 0) throw ClientWorkflowResultTimeoutException(workflowId, currentRunId)
+                    val effectiveTimeoutMillis = longPollTimeoutMillis.toLong().coerceAtMost(remainingMs).toInt()
+                    serviceClient.getWorkflowExecutionHistory(request, timeoutMillis = effectiveTimeoutMillis)
                 }
 
             logger.debug("[result] Got ${response.history.eventsCount} events for workflow $workflowId")
@@ -226,25 +254,83 @@ internal class WorkflowHandleImpl(
                 logger.info(
                     "[result] Found close event ${closeEvent.eventType} for workflow $workflowId after $pollCount polls",
                 )
-                // Update runId if we didn't have it
-                if (runId == null) {
-                    try {
-                        val desc = describe()
-                        runId = desc.runId
-                    } catch (_: Exception) {
-                        // Ignore - we have the result anyway
+                when (val result = handleCloseEvent(closeEvent)) {
+                    is CloseEventResult.Completed -> {
+                        return if (result.payload != null) {
+                            codec.safeDecodeSingle(result.payload)
+                        } else {
+                            null
+                        }
+                    }
+                    is CloseEventResult.Failed -> {
+                        throw ClientWorkflowFailedException(
+                            workflowId = workflowId,
+                            runId = currentRunId,
+                            workflowType = null,
+                            failureMessage = result.failure?.message,
+                            cause = result.failure?.let { buildCause(it, codec) },
+                        )
+                    }
+                    is CloseEventResult.TimedOut -> {
+                        throw ClientWorkflowTimedOutException(
+                            workflowId = workflowId,
+                            runId = currentRunId,
+                            timeoutType = WorkflowTimeoutType.WORKFLOW_EXECUTION_TIMEOUT,
+                        )
+                    }
+                    is CloseEventResult.FollowRun -> {
+                        // Follow continuation without recursion — update local runId and re-poll
+                        currentRunId = result.newRunId
+                        nextPageToken = com.google.protobuf.ByteString.EMPTY
+                        pollCount = 0
+                        continue
                     }
                 }
-                val remainingTimeout = timeout - elapsed.milliseconds
-                return handleCloseEvent(closeEvent, remainingTimeout)
             }
 
-            // No close event yet, wait a bit before polling again
-            delay(200.milliseconds)
+            // Server returned without close event — update page token and re-poll immediately
+            // (no delay needed, the server already held the connection for up to longPollTimeout)
+            val responseToken = response.nextPageToken
+            if (responseToken != null && !responseToken.isEmpty) {
+                nextPageToken = responseToken
+            }
+        }
+    }
+
+    /**
+     * Retries an RPC call on DEADLINE_EXCEEDED, for bounded long-polling of
+     * blocking RPCs (updates, queries). Non-deadline errors are re-thrown immediately.
+     */
+    private suspend fun <T> boundedPoll(
+        operation: String,
+        block: suspend () -> T,
+    ): T {
+        while (true) {
+            // Check for coroutine cancellation before each poll attempt so that
+            // a user-initiated cancel isn't mistaken for an RPC timeout below.
+            currentCoroutineContext().ensureActive()
+            try {
+                return block()
+            } catch (e: TemporalCoreException) {
+                // Rust Core SDK returns CANCELLED (1) for client-side timeout_millis expiry,
+                // and the gRPC server returns DEADLINE_EXCEEDED (4) for server-side deadlines.
+                // Both mean our bounded poll window elapsed — safe to retry.
+                if (e.statusCode == GRPC_CANCELLED || e.statusCode == GRPC_DEADLINE_EXCEEDED) {
+                    logger.debug("[{}] RPC timed out for workflow {}, re-polling", operation, workflowId)
+                    continue
+                }
+                throw e
+            }
         }
     }
 
     companion object {
+        // Rust Core SDK returns CANCELLED (1) for client-side timeout_millis expiry,
+        // while the gRPC server returns DEADLINE_EXCEEDED (4) for server-side deadlines.
+        // Both indicate a bounded poll timeout that should be retried.
+        private const val GRPC_CANCELLED = 1
+        private const val GRPC_DEADLINE_EXCEEDED = 4
+
         private val CLOSE_EVENT_TYPES =
             setOf(
                 EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED,
@@ -256,34 +342,48 @@ internal class WorkflowHandleImpl(
             )
     }
 
-    @OptIn(InternalTemporalApi::class)
-    private suspend fun handleCloseEvent(
-        event: HistoryEvent,
-        remainingTimeout: Duration,
-    ): TemporalPayload? =
+    private sealed class CloseEventResult {
+        data class Completed(
+            val payload: io.temporal.api.common.v1.Payload?,
+        ) : CloseEventResult()
+
+        data class FollowRun(
+            val newRunId: String,
+        ) : CloseEventResult()
+
+        data class Failed(
+            val failure: io.temporal.api.failure.v1.Failure?,
+        ) : CloseEventResult()
+
+        data object TimedOut : CloseEventResult()
+    }
+
+    private fun handleCloseEvent(event: HistoryEvent): CloseEventResult =
         when (event.eventType) {
             EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED -> {
                 val attrs = event.workflowExecutionCompletedEventAttributes
-                if (attrs.hasResult() && attrs.result.payloadsCount > 0) {
-                    val payload = attrs.result.getPayloads(0)
-                    // Convert proto payload to EncodedTemporalPayloads, then decode with codec
-                    codec.safeDecodeSingle(payload)
+                if (attrs.newExecutionRunId.isNotEmpty()) {
+                    logger.info(
+                        "[handleCloseEvent] Workflow $workflowId completed with continuation to runId=${attrs.newExecutionRunId}, following...",
+                    )
+                    CloseEventResult.FollowRun(attrs.newExecutionRunId)
+                } else if (attrs.hasResult() && attrs.result.payloadsCount > 0) {
+                    CloseEventResult.Completed(attrs.result.getPayloads(0))
                 } else {
-                    // No result
-                    null
+                    CloseEventResult.Completed(null)
                 }
             }
 
             EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED -> {
                 val attrs = event.workflowExecutionFailedEventAttributes
-                val failure = if (attrs.hasFailure()) attrs.failure else null
-                throw ClientWorkflowFailedException(
-                    workflowId = workflowId,
-                    runId = runId,
-                    workflowType = null,
-                    failureMessage = failure?.message,
-                    cause = failure?.let { buildCause(it, codec) },
-                )
+                if (attrs.newExecutionRunId.isNotEmpty()) {
+                    logger.info(
+                        "[handleCloseEvent] Workflow $workflowId failed with retry to runId=${attrs.newExecutionRunId}, following...",
+                    )
+                    CloseEventResult.FollowRun(attrs.newExecutionRunId)
+                } else {
+                    CloseEventResult.Failed(if (attrs.hasFailure()) attrs.failure else null)
+                }
             }
 
             EventType.EVENT_TYPE_WORKFLOW_EXECUTION_CANCELED -> {
@@ -300,30 +400,30 @@ internal class WorkflowHandleImpl(
             }
 
             EventType.EVENT_TYPE_WORKFLOW_EXECUTION_TIMED_OUT -> {
-                throw ClientWorkflowTimedOutException(
-                    workflowId = workflowId,
-                    runId = runId,
-                    timeoutType = WorkflowTimeoutType.WORKFLOW_EXECUTION_TIMEOUT,
-                )
+                val attrs = event.workflowExecutionTimedOutEventAttributes
+                if (attrs.newExecutionRunId.isNotEmpty()) {
+                    logger.info(
+                        "[handleCloseEvent] Workflow $workflowId timed out with retry to runId=${attrs.newExecutionRunId}, following...",
+                    )
+                    CloseEventResult.FollowRun(attrs.newExecutionRunId)
+                } else {
+                    CloseEventResult.TimedOut
+                }
             }
 
             EventType.EVENT_TYPE_WORKFLOW_EXECUTION_CONTINUED_AS_NEW -> {
                 val attrs = event.workflowExecutionContinuedAsNewEventAttributes
-                // Follow the continuation and get result from the new run
                 val newRunId = attrs.newExecutionRunId
+                // Defensive check: newExecutionRunId should always be present for continued-as-new
+                if (newRunId.isEmpty()) {
+                    throw IllegalStateException(
+                        "CONTINUED_AS_NEW event missing newExecutionRunId for workflow $workflowId (runId=$runId)",
+                    )
+                }
                 logger.info(
                     "[handleCloseEvent] Workflow $workflowId continued-as-new to runId=$newRunId, following...",
                 )
-                val newHandle =
-                    WorkflowHandleImpl(
-                        workflowId = workflowId,
-                        runId = newRunId,
-                        serviceClient = serviceClient,
-                        serializer = serializer,
-                        codec = codec,
-                    )
-                // Recursively get result from the new run
-                newHandle.resultPayload(remainingTimeout)
+                CloseEventResult.FollowRun(newRunId)
             }
 
             else -> {
@@ -403,7 +503,13 @@ internal class WorkflowHandleImpl(
                         ).build(),
                 ).build()
 
-        val response = serviceClient.updateWorkflowExecution(request)
+        // Bounded poll: the server blocks until the update handler completes, but we
+        // cap each RPC to longPollTimeout and retry with the same updateId (idempotent).
+        val timeoutMillis = pollingConfig.longPollTimeout.inWholeMilliseconds.toInt()
+        val response =
+            boundedPoll("update $updateName") {
+                serviceClient.updateWorkflowExecution(request, timeoutMillis = timeoutMillis)
+            }
 
         // Check for failure
         if (response.hasOutcome() && response.outcome.hasFailure()) {
@@ -455,7 +561,13 @@ internal class WorkflowHandleImpl(
                         .build(),
                 ).build()
 
-        val response = serviceClient.queryWorkflow(request)
+        // Bounded poll: the server blocks until a worker executes the query, but we
+        // cap each RPC to longPollTimeout and retry (queries are idempotent).
+        val timeoutMillis = pollingConfig.longPollTimeout.inWholeMilliseconds.toInt()
+        val response =
+            boundedPoll("query $queryType") {
+                serviceClient.queryWorkflow(request, timeoutMillis = timeoutMillis)
+            }
 
         // Check for query rejected
         if (response.hasQueryRejected()) {

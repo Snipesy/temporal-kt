@@ -22,6 +22,8 @@ internal suspend fun PayloadCodec.safeEncode(payloads: TemporalPayloads): Encode
     lockWorkflowDispatcherIfPresent {
         try {
             this.encode(payloads)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: PayloadCodecException) {
             throw e // Already typed, rethrow as-is
         } catch (e: Exception) {
@@ -43,6 +45,8 @@ internal suspend fun PayloadCodec.safeDecode(payloads: EncodedTemporalPayloads):
     lockWorkflowDispatcherIfPresent {
         try {
             this.decode(payloads)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: PayloadCodecException) {
             throw e // Already typed, rethrow as-is
         } catch (e: Exception) {

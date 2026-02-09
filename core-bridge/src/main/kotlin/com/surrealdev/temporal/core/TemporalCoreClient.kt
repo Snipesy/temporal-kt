@@ -6,6 +6,7 @@ import com.surrealdev.temporal.core.internal.ClientCallbackDispatcher
 import com.surrealdev.temporal.core.internal.ClientTlsOptions
 import com.surrealdev.temporal.core.internal.FactoryArenaScope
 import kotlinx.coroutines.suspendCancellableCoroutine
+import org.slf4j.LoggerFactory
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
 import kotlin.coroutines.resume
@@ -115,6 +116,8 @@ class TemporalCoreClient private constructor(
 ) : AutoCloseable {
     @Volatile
     private var closed = false
+
+    private val logger = LoggerFactory.getLogger(TemporalCoreClient::class.java)
 
     companion object {
         /**
@@ -248,8 +251,9 @@ class TemporalCoreClient private constructor(
     suspend fun <Req : MessageLite, Resp : MessageLite> workflowServiceCall(
         rpc: String,
         request: Req,
+        timeoutMillis: Int = 0,
         parser: (CodedInputStream) -> Resp,
-    ): Resp = rpcCallInternal(InternalClient.RpcService.WORKFLOW, rpc, request, parser)
+    ): Resp = rpcCallInternal(InternalClient.RpcService.WORKFLOW, rpc, request, parser, timeoutMillis)
 
     /**
      * Makes an RPC call to the Temporal test service with zero-copy protobuf serialization and parsing.
@@ -269,8 +273,9 @@ class TemporalCoreClient private constructor(
     suspend fun <Req : MessageLite, Resp : MessageLite> testServiceCall(
         rpc: String,
         request: Req,
+        timeoutMillis: Int = 0,
         parser: (CodedInputStream) -> Resp,
-    ): Resp = rpcCallInternal(InternalClient.RpcService.TEST, rpc, request, parser)
+    ): Resp = rpcCallInternal(InternalClient.RpcService.TEST, rpc, request, parser, timeoutMillis)
 
     // ============================================================
     // Private RPC Helpers
@@ -281,6 +286,7 @@ class TemporalCoreClient private constructor(
         rpc: String,
         request: Req,
         parser: (CodedInputStream) -> Resp,
+        timeoutMillis: Int = 0,
     ): Resp {
         ensureOpen()
         return dispatcher.withManagedArena { arena, continuation ->
@@ -292,6 +298,7 @@ class TemporalCoreClient private constructor(
                 rpc = rpc,
                 request = request,
                 parser = parser,
+                timeoutMillis = timeoutMillis,
             ) { response, statusCode, failureMessage, _ ->
                 with(dispatcher) { continuation.resumeRpcResult(response, statusCode, failureMessage) }
             }
@@ -310,9 +317,15 @@ class TemporalCoreClient private constructor(
             closed = true
 
             // MUST await BEFORE freeing - Tokio tasks hold references to Client
-            dispatcher.awaitPendingCallbacks()
+            val completed = dispatcher.awaitPendingCallbacks(timeoutSeconds = 60)
+            if (!completed) {
+                logger.warn(
+                    "[TemporalCoreClient] Timeout waiting for pending callbacks during close(). " +
+                        "Proceeding with cleanup anyway. This may indicate a Rust panic or stuck gRPC call.",
+                )
+            }
 
-            // NOW safe to free
+            // NOW safe to free (or as safe as we can make it)
             InternalClient.freeClient(handle)
 
             dispatcher.close()

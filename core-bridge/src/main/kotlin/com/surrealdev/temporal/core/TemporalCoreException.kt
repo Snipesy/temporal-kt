@@ -8,12 +8,14 @@ package com.surrealdev.temporal.core
 class TemporalCoreException(
     message: String,
     val errorType: String? = null,
+    val statusCode: Int? = null,
     cause: Throwable? = null,
 ) : RuntimeException(message, cause) {
     override fun toString(): String =
-        if (errorType != null) {
-            "TemporalCoreException[$errorType]: $message"
-        } else {
-            "TemporalCoreException: $message"
+        buildString {
+            append("TemporalCoreException")
+            if (errorType != null) append("[$errorType]")
+            append(": $message")
+            if (statusCode != null) append(" (code=$statusCode)")
         }
 }

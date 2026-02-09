@@ -859,7 +859,7 @@ class ActivityActivationTest {
             // Verify handle is not done before resolution
             val handleSnapshot = workflow.handle
             assertNotNull(handleSnapshot)
-            assertFalse(handleSnapshot!!.isDone)
+            assertFalse(handleSnapshot.isDone)
 
             // Resolve the activity
             executor.activate(
@@ -873,7 +873,7 @@ class ActivityActivationTest {
             // Verify handle is done after resolution
             val handleSnapshotAfter = workflow.handle
             assertNotNull(handleSnapshotAfter)
-            assertTrue(handleSnapshotAfter!!.isDone)
+            assertTrue(handleSnapshotAfter.isDone)
         }
 
     @Test
