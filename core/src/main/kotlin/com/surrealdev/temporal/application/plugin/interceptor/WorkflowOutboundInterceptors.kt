@@ -12,13 +12,12 @@ import kotlin.time.Duration
  * Input for the ScheduleActivity interceptor.
  *
  * Passed through the interceptor chain when a workflow schedules a remote activity.
- * Headers are seeded from [ActivityOptions.headers] and propagated to the proto command.
+ * Headers are available via [ActivityOptions.headers] and propagated to the proto command.
  */
 data class ScheduleActivityInput(
     val activityType: String,
     val args: TemporalPayloads,
     val options: ActivityOptions,
-    val headers: MutableMap<String, TemporalPayload> = mutableMapOf(),
 )
 
 /**
@@ -85,10 +84,9 @@ data class CancelExternalInput(
  * Input for the ContinueAsNew interceptor.
  *
  * Passed through the interceptor chain when a workflow continues as new.
- * Headers are seeded from [ContinueAsNewOptions.headers] and propagated to the proto command.
+ * Headers are available via [ContinueAsNewOptions.headers] and propagated to the proto command.
  */
 data class ContinueAsNewInput(
     val options: ContinueAsNewOptions,
     val args: TemporalPayloads,
-    val headers: MutableMap<String, TemporalPayload> = mutableMapOf(),
 )

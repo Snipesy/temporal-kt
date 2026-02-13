@@ -236,7 +236,6 @@ internal class WorkflowContextImpl(
                 activityType = activityType,
                 args = args,
                 options = options,
-                headers = (options.headers ?: emptyMap()).toMutableMap(),
             )
         val chain = InterceptorChain(interceptorRegistry.scheduleActivity)
         return chain.execute(interceptorInput) { input ->
@@ -392,9 +391,9 @@ internal class WorkflowContextImpl(
         scheduleActivityBuilder.setCancellationType(options.cancellationType.toProto())
         scheduleActivityBuilder.setVersioningIntent(options.versioningIntent.toProto())
 
-        // Set headers from interceptor input (seeded from options.headers, may be modified by interceptors)
-        if (input.headers.isNotEmpty()) {
-            scheduleActivityBuilder.putAllHeaders(input.headers.mapValues { (_, v) -> v.toProto() })
+        // Set headers from options (may be modified by interceptors via input.options)
+        if (!options.headers.isNullOrEmpty()) {
+            scheduleActivityBuilder.putAllHeaders(options.headers.mapValues { (_, v) -> v.toProto() })
         }
 
         // Set eager execution flag
@@ -919,19 +918,11 @@ internal class WorkflowContextImpl(
             ContinueAsNewInput(
                 options = options,
                 args = serializedArgs,
-                headers = (options.headers ?: emptyMap()).toMutableMap(),
             )
         val chain = InterceptorChain(interceptorRegistry.continueAsNew)
         chain.execute(interceptorInput) { input ->
-            // Merge interceptor headers back into options for the exception handler
-            val effectiveOptions =
-                if (input.headers.isNotEmpty()) {
-                    input.options.copy(headers = input.headers)
-                } else {
-                    input.options
-                }
             throw ContinueAsNewException(
-                options = effectiveOptions,
+                options = input.options,
                 typedArgs = typedArgs,
                 serializedArgs = input.args,
             )
