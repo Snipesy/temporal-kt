@@ -12,6 +12,7 @@ import com.surrealdev.temporal.common.exceptions.ChildWorkflowStartFailureExcept
 import com.surrealdev.temporal.common.exceptions.SignalExternalWorkflowFailedException
 import com.surrealdev.temporal.common.exceptions.StartChildWorkflowFailureCause
 import com.surrealdev.temporal.common.failure.buildCause
+import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.serialization.safeDecodeSingle
@@ -153,28 +154,34 @@ internal class ChildWorkflowHandleImpl(
 
         val chain = InterceptorChain(interceptorRegistry.signalExternalWorkflow)
         chain.execute(interceptorInput) { input ->
-            signalInternal(input.signalName, input.args)
+            signalInternal(input)
         }
     }
 
-    private suspend fun signalInternal(
-        signalName: String,
-        args: TemporalPayloads,
-    ) {
+    private suspend fun signalInternal(input: SignalExternalInput) {
         val signalSeq = state.nextSeq()
 
         // Build signal command using child_workflow_id target
+        val signalBuilder =
+            WorkflowCommands.SignalExternalWorkflowExecution
+                .newBuilder()
+                .setSeq(signalSeq)
+                .setChildWorkflowId(workflowId)
+                .setSignalName(input.signalName)
+                .addAllArgs(codec.safeEncode(input.args).proto.payloadsList)
+
+        // Set headers from interceptor input (may be modified by interceptors)
+        if (input.headers.isNotEmpty()) {
+            signalBuilder.putAllHeaders(
+                input.headers.mapValues { (_, v) -> v.toProto() },
+            )
+        }
+
         val command =
             WorkflowCommands.WorkflowCommand
                 .newBuilder()
-                .setSignalExternalWorkflowExecution(
-                    WorkflowCommands.SignalExternalWorkflowExecution
-                        .newBuilder()
-                        .setSeq(signalSeq)
-                        .setChildWorkflowId(workflowId)
-                        .setSignalName(signalName)
-                        .addAllArgs(codec.safeEncode(args).proto.payloadsList),
-                ).build()
+                .setSignalExternalWorkflowExecution(signalBuilder)
+                .build()
 
         state.addCommand(command)
 
@@ -186,7 +193,7 @@ internal class ChildWorkflowHandleImpl(
         if (failure != null) {
             throw SignalExternalWorkflowFailedException(
                 targetWorkflowId = workflowId,
-                signalName = signalName,
+                signalName = input.signalName,
                 failureMessage = failure.message,
             )
         }

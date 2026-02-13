@@ -396,6 +396,15 @@ class TemporalClientImpl internal constructor(
             }
         }
 
+        // Apply headers from interceptor input (may be modified by interceptors)
+        if (input.headers.isNotEmpty()) {
+            requestBuilder.setHeader(
+                io.temporal.api.common.v1.Header
+                    .newBuilder()
+                    .putAllFields(input.headers.mapValues { (_, v) -> v.toProto() }),
+            )
+        }
+
         logger.info(
             "[startWorkflow] Starting workflow type=${input.workflowType}, taskQueue=${input.taskQueue}, workflowId=${input.workflowId}",
         )

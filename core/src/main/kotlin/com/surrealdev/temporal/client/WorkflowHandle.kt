@@ -473,7 +473,7 @@ internal class WorkflowHandleImpl(
         val encodedArgs = codec.safeEncode(input.args)
         val protoPayloads = encodedArgs.toProto()
 
-        val request =
+        val requestBuilder =
             SignalWorkflowExecutionRequest
                 .newBuilder()
                 .setNamespace(serviceClient.namespace)
@@ -485,9 +485,16 @@ internal class WorkflowHandleImpl(
                         .build(),
                 ).setSignalName(input.signalName)
                 .setInput(protoPayloads)
-                .build()
 
-        serviceClient.signalWorkflowExecution(request)
+        if (input.headers.isNotEmpty()) {
+            requestBuilder.setHeader(
+                io.temporal.api.common.v1.Header
+                    .newBuilder()
+                    .putAllFields(input.headers.mapValues { (_, v) -> v.toProto() }),
+            )
+        }
+
+        serviceClient.signalWorkflowExecution(requestBuilder.build())
     }
 
     override suspend fun updateWithPayloads(
@@ -538,7 +545,17 @@ internal class WorkflowHandleImpl(
                                 .newBuilder()
                                 .setName(input.updateName)
                                 .setArgs(protoPayloads)
-                                .build(),
+                                .also { updateInputBuilder ->
+                                    if (input.headers.isNotEmpty()) {
+                                        updateInputBuilder.setHeader(
+                                            io.temporal.api.common.v1.Header
+                                                .newBuilder()
+                                                .putAllFields(
+                                                    input.headers.mapValues { (_, v) -> v.toProto() },
+                                                ),
+                                        )
+                                    }
+                                }.build(),
                         ).build(),
                 ).setWaitPolicy(
                     io.temporal.api.update.v1.WaitPolicy
@@ -601,6 +618,20 @@ internal class WorkflowHandleImpl(
         val encodedArgs = codec.safeEncode(input.args)
         val protoPayloads = encodedArgs.toProto()
 
+        val queryBuilder =
+            io.temporal.api.query.v1.WorkflowQuery
+                .newBuilder()
+                .setQueryType(input.queryType)
+                .setQueryArgs(protoPayloads)
+
+        if (input.headers.isNotEmpty()) {
+            queryBuilder.setHeader(
+                io.temporal.api.common.v1.Header
+                    .newBuilder()
+                    .putAllFields(input.headers.mapValues { (_, v) -> v.toProto() }),
+            )
+        }
+
         val request =
             QueryWorkflowRequest
                 .newBuilder()
@@ -611,13 +642,8 @@ internal class WorkflowHandleImpl(
                         .setWorkflowId(input.workflowId)
                         .also { if (input.runId != null) it.setRunId(input.runId) }
                         .build(),
-                ).setQuery(
-                    io.temporal.api.query.v1.WorkflowQuery
-                        .newBuilder()
-                        .setQueryType(input.queryType)
-                        .setQueryArgs(protoPayloads)
-                        .build(),
-                ).build()
+                ).setQuery(queryBuilder.build())
+                .build()
 
         // Bounded poll: the server blocks until a worker executes the query, but we
         // cap each RPC to longPollTimeout and retry (queries are idempotent).

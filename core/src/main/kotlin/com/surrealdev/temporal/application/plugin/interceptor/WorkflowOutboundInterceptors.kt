@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.application.plugin.interceptor
 
+import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.workflow.ActivityOptions
 import com.surrealdev.temporal.workflow.ChildWorkflowOptions
@@ -11,33 +12,39 @@ import kotlin.time.Duration
  * Input for the ScheduleActivity interceptor.
  *
  * Passed through the interceptor chain when a workflow schedules a remote activity.
+ * Headers are seeded from [ActivityOptions.headers] and propagated to the proto command.
  */
 data class ScheduleActivityInput(
     val activityType: String,
     val args: TemporalPayloads,
     val options: ActivityOptions,
+    val headers: MutableMap<String, TemporalPayload> = mutableMapOf(),
 )
 
 /**
  * Input for the ScheduleLocalActivity interceptor.
  *
  * Passed through the interceptor chain when a workflow schedules a local activity.
+ * Headers are propagated to the proto command.
  */
 data class ScheduleLocalActivityInput(
     val activityType: String,
     val args: TemporalPayloads,
     val options: LocalActivityOptions,
+    val headers: MutableMap<String, TemporalPayload> = mutableMapOf(),
 )
 
 /**
  * Input for the StartChildWorkflow interceptor.
  *
  * Passed through the interceptor chain when a workflow starts a child workflow.
+ * Headers are propagated to the proto command.
  */
 data class StartChildWorkflowInput(
     val workflowType: String,
     val args: TemporalPayloads,
     val options: ChildWorkflowOptions,
+    val headers: MutableMap<String, TemporalPayload> = mutableMapOf(),
 )
 
 /**
@@ -53,12 +60,14 @@ data class SleepInput(
  * Input for the SignalExternalWorkflow interceptor.
  *
  * Passed through the interceptor chain when a workflow signals an external workflow.
+ * Headers are propagated to the proto command.
  */
 data class SignalExternalInput(
     val workflowId: String,
     val runId: String?,
     val signalName: String,
     val args: TemporalPayloads,
+    val headers: MutableMap<String, TemporalPayload> = mutableMapOf(),
 )
 
 /**
@@ -76,8 +85,10 @@ data class CancelExternalInput(
  * Input for the ContinueAsNew interceptor.
  *
  * Passed through the interceptor chain when a workflow continues as new.
+ * Headers are seeded from [ContinueAsNewOptions.headers] and propagated to the proto command.
  */
 data class ContinueAsNewInput(
     val options: ContinueAsNewOptions,
     val args: TemporalPayloads,
+    val headers: MutableMap<String, TemporalPayload> = mutableMapOf(),
 )

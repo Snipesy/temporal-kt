@@ -236,18 +236,18 @@ internal class WorkflowContextImpl(
                 activityType = activityType,
                 args = args,
                 options = options,
+                headers = (options.headers ?: emptyMap()).toMutableMap(),
             )
         val chain = InterceptorChain(interceptorRegistry.scheduleActivity)
         return chain.execute(interceptorInput) { input ->
-            startActivityInternal(input.activityType, input.args, input.options)
+            startActivityInternal(input)
         }
     }
 
-    private suspend fun startActivityInternal(
-        activityType: String,
-        args: TemporalPayloads,
-        options: ActivityOptions,
-    ): RemoteActivityHandle {
+    private suspend fun startActivityInternal(input: ScheduleActivityInput): RemoteActivityHandle {
+        val activityType = input.activityType
+        val args = input.args
+        val options = input.options
         // ========== Section 1: Validation ==========
 
         // 1. Activity type validation
@@ -392,9 +392,9 @@ internal class WorkflowContextImpl(
         scheduleActivityBuilder.setCancellationType(options.cancellationType.toProto())
         scheduleActivityBuilder.setVersioningIntent(options.versioningIntent.toProto())
 
-        // Set headers if provided
-        options.headers?.let {
-            scheduleActivityBuilder.putAllHeaders(it.mapValues { (_, v) -> v.toProto() })
+        // Set headers from interceptor input (seeded from options.headers, may be modified by interceptors)
+        if (input.headers.isNotEmpty()) {
+            scheduleActivityBuilder.putAllHeaders(input.headers.mapValues { (_, v) -> v.toProto() })
         }
 
         // Set eager execution flag
@@ -473,15 +473,14 @@ internal class WorkflowContextImpl(
             )
         val chain = InterceptorChain(interceptorRegistry.scheduleLocalActivity)
         return chain.execute(interceptorInput) { input ->
-            startLocalActivityInternal(input.activityType, input.args, input.options)
+            startLocalActivityInternal(input)
         }
     }
 
-    private suspend fun startLocalActivityInternal(
-        activityType: String,
-        args: TemporalPayloads,
-        options: LocalActivityOptions,
-    ): LocalActivityHandle {
+    private suspend fun startLocalActivityInternal(input: ScheduleLocalActivityInput): LocalActivityHandle {
+        val activityType = input.activityType
+        val args = input.args
+        val options = input.options
         // ========== Section 1: Validation ==========
 
         // Activity type validation
@@ -534,6 +533,11 @@ internal class WorkflowContextImpl(
 
         // Set cancellation type - per proto comment, default to WAIT_CANCELLATION_COMPLETED
         scheduleLocalActivityBuilder.setCancellationType(options.cancellationType.toProto())
+
+        // Set headers from interceptor input (may be modified by interceptors)
+        if (input.headers.isNotEmpty()) {
+            scheduleLocalActivityBuilder.putAllHeaders(input.headers.mapValues { (_, v) -> v.toProto() })
+        }
 
         val command =
             WorkflowCommands.WorkflowCommand
@@ -706,15 +710,14 @@ internal class WorkflowContextImpl(
             )
         val chain = InterceptorChain(interceptorRegistry.startChildWorkflow)
         return chain.execute(interceptorInput) { input ->
-            startChildWorkflowInternal(input.workflowType, input.args, input.options)
+            startChildWorkflowInternal(input)
         }
     }
 
-    private suspend fun startChildWorkflowInternal(
-        workflowType: String,
-        args: TemporalPayloads,
-        options: ChildWorkflowOptions,
-    ): ChildWorkflowHandle {
+    private suspend fun startChildWorkflowInternal(input: StartChildWorkflowInput): ChildWorkflowHandle {
+        val workflowType = input.workflowType
+        val args = input.args
+        val options = input.options
         val seq = state.nextSeq()
         val childWorkflowId = options.workflowId ?: "${info.workflowId}-child-$seq"
 
@@ -750,6 +753,11 @@ internal class WorkflowContextImpl(
                 val encoded = SearchAttributeEncoder.encode(attrs)
                 commandBuilder.putAllSearchAttributes(encoded)
             }
+        }
+
+        // Set headers from interceptor input (may be modified by interceptors)
+        if (input.headers.isNotEmpty()) {
+            commandBuilder.putAllHeaders(input.headers.mapValues { (_, v) -> v.toProto() })
         }
 
         val command =
@@ -911,11 +919,19 @@ internal class WorkflowContextImpl(
             ContinueAsNewInput(
                 options = options,
                 args = serializedArgs,
+                headers = (options.headers ?: emptyMap()).toMutableMap(),
             )
         val chain = InterceptorChain(interceptorRegistry.continueAsNew)
         chain.execute(interceptorInput) { input ->
+            // Merge interceptor headers back into options for the exception handler
+            val effectiveOptions =
+                if (input.headers.isNotEmpty()) {
+                    input.options.copy(headers = input.headers)
+                } else {
+                    input.options
+                }
             throw ContinueAsNewException(
-                options = input.options,
+                options = effectiveOptions,
                 typedArgs = typedArgs,
                 serializedArgs = input.args,
             )
