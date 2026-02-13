@@ -366,12 +366,16 @@ class ActivityDispatcher(
                     headers = start.headerFieldsMap.mapValues { (_, v) -> TemporalPayload(v) },
                 )
 
-            // Invoke the activity method through the interceptor chain
+            // Invoke the activity method through the interceptor chain.
+            // Wrap with withContext(context) so that ActivityContext is available
+            // in the coroutine context for interceptors (e.g., ContextPropagation plugin).
             return try {
                 val chain = InterceptorChain(interceptorRegistry.executeActivity)
                 val result =
-                    chain.execute(interceptorInput) { _ ->
-                        invokeMethod(methodInfo, context, args)
+                    withContext(context) {
+                        chain.execute(interceptorInput) { _ ->
+                            invokeMethod(methodInfo, context, args)
+                        }
                     }
                 buildSuccessCompletion(taskToken, result, methodInfo.returnType)
             } catch (e: ActivityCancelledException) {
