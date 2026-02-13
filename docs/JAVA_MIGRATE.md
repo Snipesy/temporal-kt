@@ -308,7 +308,10 @@ String result = workflow.getGreeting("World");
 
 ```kotlin
 // Kotlin
-val client = TemporalClient.connect("localhost:7233", "default")
+val client = TemporalClient.connect {
+    target = "http://localhost:7233"
+    namespace = "default"
+}
 val handle = client.startWorkflow(
     workflowType = "GreetingWorkflow",
     taskQueue = "my-task-queue",

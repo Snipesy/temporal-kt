@@ -71,6 +71,17 @@ class InterceptorCountingIntegrationTest {
         val executeActivity = AtomicInteger(0)
         val heartbeat = AtomicInteger(0)
 
+        // Client outbound
+        val clientStartWorkflow = AtomicInteger(0)
+        val clientSignalWorkflow = AtomicInteger(0)
+        val clientQueryWorkflow = AtomicInteger(0)
+        val clientStartWorkflowUpdate = AtomicInteger(0)
+        val clientCancelWorkflow = AtomicInteger(0)
+        val clientTerminateWorkflow = AtomicInteger(0)
+        val clientDescribeWorkflow = AtomicInteger(0)
+        val clientListWorkflows = AtomicInteger(0)
+        val clientCountWorkflows = AtomicInteger(0)
+
         fun resetAll() {
             executeWorkflow.set(0)
             handleSignal.set(0)
@@ -83,6 +94,15 @@ class InterceptorCountingIntegrationTest {
             sleep.set(0)
             executeActivity.set(0)
             heartbeat.set(0)
+            clientStartWorkflow.set(0)
+            clientSignalWorkflow.set(0)
+            clientQueryWorkflow.set(0)
+            clientStartWorkflowUpdate.set(0)
+            clientCancelWorkflow.set(0)
+            clientTerminateWorkflow.set(0)
+            clientDescribeWorkflow.set(0)
+            clientListWorkflows.set(0)
+            clientCountWorkflows.set(0)
         }
     }
 
@@ -147,6 +167,53 @@ class InterceptorCountingIntegrationTest {
 
                 onHeartbeat { input, proceed ->
                     counts.heartbeat.incrementAndGet()
+                    proceed(input)
+                }
+            }
+
+            client {
+                onStartWorkflow { input, proceed ->
+                    counts.clientStartWorkflow.incrementAndGet()
+                    proceed(input)
+                }
+
+                onSignalWorkflow { input, proceed ->
+                    counts.clientSignalWorkflow.incrementAndGet()
+                    proceed(input)
+                }
+
+                onQueryWorkflow { input, proceed ->
+                    counts.clientQueryWorkflow.incrementAndGet()
+                    proceed(input)
+                }
+
+                onStartWorkflowUpdate { input, proceed ->
+                    counts.clientStartWorkflowUpdate.incrementAndGet()
+                    proceed(input)
+                }
+
+                onCancelWorkflow { input, proceed ->
+                    counts.clientCancelWorkflow.incrementAndGet()
+                    proceed(input)
+                }
+
+                onTerminateWorkflow { input, proceed ->
+                    counts.clientTerminateWorkflow.incrementAndGet()
+                    proceed(input)
+                }
+
+                onDescribeWorkflow { input, proceed ->
+                    counts.clientDescribeWorkflow.incrementAndGet()
+                    proceed(input)
+                }
+
+                onListWorkflows { input, proceed ->
+                    counts.clientListWorkflows.incrementAndGet()
+                    proceed(input)
+                }
+
+                onCountWorkflows { input, proceed ->
+                    counts.clientCountWorkflows.incrementAndGet()
                     proceed(input)
                 }
             }
@@ -613,5 +680,85 @@ class InterceptorCountingIntegrationTest {
             assertEquals(3, counts.heartbeat.get(), "heartbeat interceptor should be called 3 times")
 
             handle.assertHistory { completed() }
+        }
+
+    @Test
+    fun `client interceptors are invoked for client operations`() =
+        runTemporalTest {
+            val taskQueue = "test-interceptor-client-${UUID.randomUUID()}"
+            counts.resetAll()
+
+            application {
+                install(createCountingPlugin())
+                taskQueue(taskQueue) {
+                    workflow<SignalQueryWorkflow>()
+                    workflow<UpdateWorkflow>()
+                }
+            }
+
+            val client = client()
+
+            // startWorkflow interceptor
+            val handle =
+                client.startWorkflow(
+                    workflowType = "InterceptorSignalQueryWorkflow",
+                    taskQueue = taskQueue,
+                )
+            assertEquals(1, counts.clientStartWorkflow.get(), "clientStartWorkflow interceptor should be called once")
+
+            // signal interceptor
+            handle.signal("addItem", "A")
+            assertEquals(1, counts.clientSignalWorkflow.get(), "clientSignalWorkflow interceptor should be called once")
+
+            // query interceptor
+            pollUntil<Int>(condition = { it >= 1 }) {
+                handle.query("getCount")
+            }
+            assertTrue(
+                counts.clientQueryWorkflow.get() >= 1,
+                "clientQueryWorkflow interceptor should be called at least once",
+            )
+
+            // describe interceptor
+            handle.describe()
+            assertEquals(
+                1,
+                counts.clientDescribeWorkflow.get(),
+                "clientDescribeWorkflow interceptor should be called once",
+            )
+
+            // complete the workflow
+            handle.signal("complete")
+            handle.result<String>(timeout = 30.seconds)
+
+            // Start another workflow for update + terminate tests
+            val updateHandle =
+                client.startWorkflow(
+                    workflowType = "InterceptorUpdateWorkflow",
+                    taskQueue = taskQueue,
+                )
+            assertEquals(
+                2,
+                counts.clientStartWorkflow.get(),
+                "clientStartWorkflow interceptor should be called twice total",
+            )
+
+            // update interceptor
+            val updateResult: String = updateHandle.update("setValue", "test-val")
+            assertEquals("set:test-val", updateResult)
+            assertEquals(
+                1,
+                counts.clientStartWorkflowUpdate.get(),
+                "clientStartWorkflowUpdate interceptor should be called once",
+            )
+
+            // terminate the update workflow
+            updateHandle.signal("complete")
+            updateHandle.terminate("test-terminate")
+            assertEquals(
+                1,
+                counts.clientTerminateWorkflow.get(),
+                "clientTerminateWorkflow interceptor should be called once",
+            )
         }
 }

@@ -4,6 +4,7 @@ import com.surrealdev.temporal.annotation.TemporalDsl
 import com.surrealdev.temporal.application.TaskQueueBuilder
 import com.surrealdev.temporal.application.TemporalApplication
 import com.surrealdev.temporal.application.plugin.interceptor.InterceptorRegistry
+import com.surrealdev.temporal.client.TemporalClientConfig
 import com.surrealdev.temporal.util.AttributeKey
 
 /**
@@ -65,7 +66,10 @@ abstract class PluginBuilder<PluginConfig : Any> internal constructor(
                 }
 
                 else -> {
-                    error("Unknown pipeline type: ${p::class}")
+                    error(
+                        "Cannot access application from ${p::class.simpleName} pipeline. " +
+                            "The application property is only available when installed into a TemporalApplication.",
+                    )
                 }
             }
 
@@ -149,6 +153,20 @@ abstract class PluginBuilder<PluginConfig : Any> internal constructor(
      */
     fun activity(block: ActivityHookBuilder.() -> Unit) {
         ActivityHookBuilder(this, interceptorRegistry).apply(block)
+    }
+
+    /**
+     * Configures client interceptors.
+     *
+     * ```kotlin
+     * client {
+     *     onStartWorkflow { input, proceed -> proceed(input) }
+     *     onSignalWorkflow { input, proceed -> proceed(input) }
+     * }
+     * ```
+     */
+    fun client(block: ClientHookBuilder.() -> Unit) {
+        ClientHookBuilder(this, interceptorRegistry).apply(block)
     }
 }
 
@@ -250,6 +268,7 @@ internal fun resolveInterceptorRegistry(pipeline: PluginPipeline): InterceptorRe
     when (pipeline) {
         is TemporalApplication -> pipeline.interceptorRegistry
         is TaskQueueBuilder -> pipeline.interceptorRegistry
+        is TemporalClientConfig -> pipeline.interceptorRegistry
         else -> null
     }
 
@@ -296,6 +315,17 @@ internal fun installInterceptors(
 
     pipelineRegistry.executeActivity.addAll(builderRegistry.executeActivity)
     pipelineRegistry.heartbeat.addAll(builderRegistry.heartbeat)
+
+    // Client Outbound
+    pipelineRegistry.startWorkflow.addAll(builderRegistry.startWorkflow)
+    pipelineRegistry.signalWorkflow.addAll(builderRegistry.signalWorkflow)
+    pipelineRegistry.queryWorkflow.addAll(builderRegistry.queryWorkflow)
+    pipelineRegistry.startWorkflowUpdate.addAll(builderRegistry.startWorkflowUpdate)
+    pipelineRegistry.cancelWorkflow.addAll(builderRegistry.cancelWorkflow)
+    pipelineRegistry.terminateWorkflow.addAll(builderRegistry.terminateWorkflow)
+    pipelineRegistry.describeWorkflow.addAll(builderRegistry.describeWorkflow)
+    pipelineRegistry.listWorkflows.addAll(builderRegistry.listWorkflows)
+    pipelineRegistry.countWorkflows.addAll(builderRegistry.countWorkflows)
 }
 
 /**

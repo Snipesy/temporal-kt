@@ -3,17 +3,25 @@ package com.surrealdev.temporal.client
 import com.google.protobuf.util.Durations
 import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.annotation.TemporalDsl
+import com.surrealdev.temporal.application.plugin.PluginPipeline
+import com.surrealdev.temporal.application.plugin.interceptor.CountWorkflowsInput
+import com.surrealdev.temporal.application.plugin.interceptor.InterceptorChain
+import com.surrealdev.temporal.application.plugin.interceptor.InterceptorRegistry
+import com.surrealdev.temporal.application.plugin.interceptor.ListWorkflowsInput
+import com.surrealdev.temporal.application.plugin.interceptor.StartWorkflowInput
 import com.surrealdev.temporal.client.internal.WorkflowServiceClient
 import com.surrealdev.temporal.common.SearchAttributeEncoder
+import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.toProto
-import com.surrealdev.temporal.common.toTemporal
 import com.surrealdev.temporal.core.TemporalCoreClient
 import com.surrealdev.temporal.serialization.CompositePayloadSerializer
 import com.surrealdev.temporal.serialization.NoOpCodec
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
+import com.surrealdev.temporal.serialization.payloadCodecOrNull
+import com.surrealdev.temporal.serialization.payloadSerializer
 import com.surrealdev.temporal.serialization.safeEncode
-import io.temporal.api.common.v1.Payloads
+import com.surrealdev.temporal.util.Attributes
 import io.temporal.api.common.v1.SearchAttributes
 import io.temporal.api.common.v1.WorkflowType
 import io.temporal.api.taskqueue.v1.TaskQueue
@@ -78,7 +86,7 @@ interface TemporalClient {
         workflowType: String,
         taskQueue: String,
         workflowId: String,
-        args: Payloads,
+        args: TemporalPayloads,
         options: WorkflowStartOptions,
     ): WorkflowHandle
 
@@ -159,19 +167,21 @@ interface TemporalClient {
             namespace: String = "default",
             serializer: PayloadSerializer = CompositePayloadSerializer.default(),
             codec: PayloadCodec = NoOpCodec,
+            interceptorRegistry: InterceptorRegistry = InterceptorRegistry.EMPTY,
         ): TemporalClient {
             val config =
                 TemporalClientConfig().apply {
                     this.target = coreClient.targetUrl
                     this.namespace = namespace
                 }
-            return TemporalClientImpl(coreClient, config, serializer, codec)
+            return TemporalClientImpl(coreClient, config, serializer, codec, interceptorRegistry)
         }
 
         /**
          * Connects to a Temporal service and returns a client.
          *
          * This is the primary way to create a standalone client for interacting with Temporal.
+         * Plugins can be installed for serialization, codecs, and interceptors.
          *
          * Example with API key:
          * ```kotlin
@@ -182,31 +192,24 @@ interface TemporalClient {
          * }
          * ```
          *
-         * Example with mTLS:
+         * Example with plugins:
          * ```kotlin
          * val client = TemporalClient.connect {
-         *     target = "https://myns.abc123.tmprl.cloud:7233"
-         *     namespace = "myns.abc123"
-         *     tls {
-         *         fromFiles(
-         *             clientCertPath = "/path/to/client.pem",
-         *             clientPrivateKeyPath = "/path/to/client-key.pem",
-         *         )
-         *     }
+         *     target = "localhost:7233"
+         *     install(SerializationPlugin) { json { prettyPrint = true } }
+         *     install(CodecPlugin) { compression() }
+         *     install(MyPlugin) { enabled = true }
          * }
          * ```
          *
-         * @param serializer The payload serializer. Defaults to JSON serializer.
-         * @param codec The payload codec for encryption/compression. Defaults to no-op codec.
-         * @param configure Configuration block for connection settings.
+         * @param configure Configuration block for connection settings and plugin installation.
          * @return A connected TemporalClient.
          */
-        suspend fun connect(
-            serializer: PayloadSerializer = CompositePayloadSerializer.default(),
-            codec: PayloadCodec = NoOpCodec,
-            configure: TemporalClientConfig.() -> Unit,
-        ): TemporalClient {
+        suspend fun connect(configure: TemporalClientConfig.() -> Unit): TemporalClient {
             val config = TemporalClientConfig().apply(configure)
+
+            val serializer = config.payloadSerializer()
+            val codec = config.payloadCodecOrNull() ?: NoOpCodec
 
             val runtime =
                 com.surrealdev.temporal.core.TemporalRuntime
@@ -231,7 +234,14 @@ interface TemporalClient {
                     apiKey = config.apiKey,
                 )
 
-            return ConnectedTemporalClient(coreClient, config, serializer, codec, runtime)
+            return ConnectedTemporalClient(
+                coreClient,
+                config,
+                serializer,
+                codec,
+                runtime,
+                config.interceptorRegistry,
+            )
         }
     }
 }
@@ -246,7 +256,8 @@ private class ConnectedTemporalClient(
     serializer: PayloadSerializer,
     codec: PayloadCodec,
     private val runtime: com.surrealdev.temporal.core.TemporalRuntime,
-) : TemporalClient by TemporalClientImpl(coreClient, config, serializer, codec) {
+    interceptorRegistry: InterceptorRegistry = InterceptorRegistry.EMPTY,
+) : TemporalClient by TemporalClientImpl(coreClient, config, serializer, codec, interceptorRegistry) {
     override suspend fun close() {
         coreClient.close()
         runtime.close()
@@ -277,6 +288,7 @@ class TemporalClientImpl internal constructor(
     private val config: TemporalClientConfig,
     override val serializer: PayloadSerializer,
     internal val codec: PayloadCodec,
+    internal val interceptorRegistry: InterceptorRegistry = InterceptorRegistry.EMPTY,
 ) : TemporalClient {
     internal val serviceClient = WorkflowServiceClient(coreClient, config.namespace)
 
@@ -284,15 +296,30 @@ class TemporalClientImpl internal constructor(
         workflowType: String,
         taskQueue: String,
         workflowId: String,
-        args: Payloads,
+        args: TemporalPayloads,
         options: WorkflowStartOptions,
     ): WorkflowHandle {
+        val input =
+            StartWorkflowInput(
+                workflowType = workflowType,
+                taskQueue = taskQueue,
+                workflowId = workflowId,
+                args = args,
+                options = options,
+            )
+
+        return InterceptorChain(interceptorRegistry.startWorkflow).execute(input) { inp ->
+            doStartWorkflow(inp)
+        }
+    }
+
+    private suspend fun doStartWorkflow(input: StartWorkflowInput): WorkflowHandle {
         // Encode args through codec before sending to server
         val encodedArgs =
-            if (args.payloadsCount > 0) {
-                codec.safeEncode(args.toTemporal()).toProto()
+            if (!input.args.isEmpty) {
+                codec.safeEncode(input.args).toProto()
             } else {
-                args
+                input.args.toProto()
             }
 
         // Build the request
@@ -300,41 +327,41 @@ class TemporalClientImpl internal constructor(
             StartWorkflowExecutionRequest
                 .newBuilder()
                 .setNamespace(config.namespace)
-                .setWorkflowId(workflowId)
+                .setWorkflowId(input.workflowId)
                 .setWorkflowType(
                     WorkflowType
                         .newBuilder()
-                        .setName(workflowType)
+                        .setName(input.workflowType)
                         .build(),
                 ).setTaskQueue(
                     TaskQueue
                         .newBuilder()
-                        .setName(taskQueue)
+                        .setName(input.taskQueue)
                         .build(),
                 ).setInput(encodedArgs)
                 .setRequestId(UUID.randomUUID().toString())
-                .setWorkflowIdReusePolicy(options.workflowIdReusePolicy.toProto())
-                .setWorkflowIdConflictPolicy(options.workflowIdConflictPolicy.toProto())
+                .setWorkflowIdReusePolicy(input.options.workflowIdReusePolicy.toProto())
+                .setWorkflowIdConflictPolicy(input.options.workflowIdConflictPolicy.toProto())
 
         // Apply optional timeouts
-        options.workflowExecutionTimeout?.let {
+        input.options.workflowExecutionTimeout?.let {
             requestBuilder.setWorkflowExecutionTimeout(
                 Durations.fromMillis(it.inWholeMilliseconds),
             )
         }
-        options.workflowRunTimeout?.let {
+        input.options.workflowRunTimeout?.let {
             requestBuilder.setWorkflowRunTimeout(
                 Durations.fromMillis(it.inWholeMilliseconds),
             )
         }
-        options.workflowTaskTimeout?.let {
+        input.options.workflowTaskTimeout?.let {
             requestBuilder.setWorkflowTaskTimeout(
                 Durations.fromMillis(it.inWholeMilliseconds),
             )
         }
 
         // Apply retry policy if specified
-        options.retryPolicy?.let { retryPolicy ->
+        input.options.retryPolicy?.let { retryPolicy ->
             val retryBuilder =
                 io.temporal.api.common.v1.RetryPolicy
                     .newBuilder()
@@ -353,12 +380,12 @@ class TemporalClientImpl internal constructor(
         }
 
         // Apply cron schedule if specified
-        options.cronSchedule?.let {
+        input.options.cronSchedule?.let {
             requestBuilder.setCronSchedule(it)
         }
 
         // Apply search attributes if specified
-        options.searchAttributes?.let { attrs ->
+        input.options.searchAttributes?.let { attrs ->
             if (attrs.isNotEmpty()) {
                 val encoded = SearchAttributeEncoder.encode(attrs)
                 requestBuilder.setSearchAttributes(
@@ -370,19 +397,20 @@ class TemporalClientImpl internal constructor(
         }
 
         logger.info(
-            "[startWorkflow] Starting workflow type=$workflowType, taskQueue=$taskQueue, workflowId=$workflowId",
+            "[startWorkflow] Starting workflow type=${input.workflowType}, taskQueue=${input.taskQueue}, workflowId=${input.workflowId}",
         )
 
         val response = serviceClient.startWorkflowExecution(requestBuilder.build())
 
-        logger.info("[startWorkflow] Workflow started: workflowId=$workflowId, runId=${response.runId}")
+        logger.info("[startWorkflow] Workflow started: workflowId=${input.workflowId}, runId=${response.runId}")
 
         return WorkflowHandleImpl(
-            workflowId = workflowId,
+            workflowId = input.workflowId,
             runId = response.runId,
             serviceClient = serviceClient,
             serializer = serializer,
             codec = codec,
+            interceptorRegistry = interceptorRegistry,
         )
     }
 
@@ -396,18 +424,26 @@ class TemporalClientImpl internal constructor(
             serviceClient = serviceClient,
             serializer = serializer,
             codec = codec,
+            interceptorRegistry = interceptorRegistry,
         )
 
     override suspend fun listWorkflows(
         query: String,
         pageSize: Int,
     ): WorkflowExecutionList {
+        val input = ListWorkflowsInput(query = query, pageSize = pageSize)
+        return InterceptorChain(interceptorRegistry.listWorkflows).execute(input) { inp ->
+            doListWorkflows(inp)
+        }
+    }
+
+    private suspend fun doListWorkflows(input: ListWorkflowsInput): WorkflowExecutionList {
         val request =
             ListWorkflowExecutionsRequest
                 .newBuilder()
                 .setNamespace(config.namespace)
-                .setQuery(query)
-                .setPageSize(pageSize)
+                .setQuery(input.query)
+                .setPageSize(input.pageSize)
                 .build()
 
         val response = serviceClient.listWorkflowExecutions(request)
@@ -442,11 +478,18 @@ class TemporalClientImpl internal constructor(
     }
 
     override suspend fun countWorkflows(query: String): Long {
+        val input = CountWorkflowsInput(query = query)
+        return InterceptorChain(interceptorRegistry.countWorkflows).execute(input) { inp ->
+            doCountWorkflows(inp)
+        }
+    }
+
+    private suspend fun doCountWorkflows(input: CountWorkflowsInput): Long {
         val request =
             CountWorkflowExecutionsRequest
                 .newBuilder()
                 .setNamespace(config.namespace)
-                .setQuery(query)
+                .setQuery(input.query)
                 .build()
 
         return serviceClient.countWorkflowExecutions(request).count
@@ -470,7 +513,7 @@ class TemporalClientImpl internal constructor(
  * ```
  */
 @TemporalDsl
-class TemporalClientConfig {
+class TemporalClientConfig : PluginPipeline {
     /** Target address of the Temporal service (e.g., "localhost:7233" or "https://myns.tmprl.cloud:7233"). */
     var target: String = "http://localhost:7233"
 
@@ -482,6 +525,13 @@ class TemporalClientConfig {
 
     /** API key for Temporal Cloud authentication (alternative to mTLS). */
     var apiKey: String? = null
+
+    // PluginPipeline implementation
+    override val attributes: Attributes = Attributes(concurrent = false)
+    override val parentScope: com.surrealdev.temporal.util.AttributeScope? = null
+
+    /** Interceptor registry for client interceptors installed via plugins. */
+    val interceptorRegistry: InterceptorRegistry = InterceptorRegistry()
 
     /**
      * Configure TLS using a builder.

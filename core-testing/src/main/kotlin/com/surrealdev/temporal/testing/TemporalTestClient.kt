@@ -11,7 +11,6 @@ import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.core.TemporalTestServer
 import com.surrealdev.temporal.serialization.PayloadSerializer
-import io.temporal.api.common.v1.Payloads
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.time.Duration
@@ -92,7 +91,7 @@ class TemporalTestClient internal constructor(
         workflowType: String,
         taskQueue: String,
         workflowId: String,
-        args: Payloads,
+        args: TemporalPayloads,
         options: WorkflowStartOptions,
     ): WorkflowHandle {
         val handle =

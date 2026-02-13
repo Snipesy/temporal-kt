@@ -1,7 +1,6 @@
 package com.surrealdev.temporal.client
 
 import com.surrealdev.temporal.common.TemporalPayloads
-import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.serialization.serialize
 import com.surrealdev.temporal.workflow.getWorkflowType
 import java.util.UUID
@@ -26,7 +25,7 @@ suspend fun TemporalClient.startWorkflow(
         workflowType = workflowType,
         taskQueue = taskQueue,
         workflowId = workflowId,
-        args = TemporalPayloads.EMPTY.toProto(),
+        args = TemporalPayloads.EMPTY,
         options = options,
     )
 
@@ -55,7 +54,7 @@ suspend inline fun <reified T> TemporalClient.startWorkflow(
         workflowType = workflowType,
         taskQueue = taskQueue,
         workflowId = workflowId,
-        args = payloads.toProto(),
+        args = payloads,
         options = options,
     )
 }
@@ -89,7 +88,7 @@ suspend inline fun <reified T1, reified T2> TemporalClient.startWorkflow(
         workflowType = workflowType,
         taskQueue = taskQueue,
         workflowId = workflowId,
-        args = payloads.toProto(),
+        args = payloads,
         options = options,
     )
 }
@@ -127,7 +126,7 @@ suspend inline fun <reified T1, reified T2, reified T3> TemporalClient.startWork
         workflowType = workflowType,
         taskQueue = taskQueue,
         workflowId = workflowId,
-        args = payloads.toProto(),
+        args = payloads,
         options = options,
     )
 }
@@ -169,7 +168,7 @@ suspend inline fun <reified T1, reified T2, reified T3, reified T4> TemporalClie
         workflowType = workflowType,
         taskQueue = taskQueue,
         workflowId = workflowId,
-        args = payloads.toProto(),
+        args = payloads,
         options = options,
     )
 }
@@ -200,7 +199,7 @@ suspend fun TemporalClient.startWorkflow(
         workflowType = workflowClass.getWorkflowType(),
         taskQueue = taskQueue,
         workflowId = workflowId,
-        args = TemporalPayloads.EMPTY.toProto(),
+        args = TemporalPayloads.EMPTY,
         options = options,
     )
 
@@ -229,7 +228,7 @@ suspend inline fun <reified T> TemporalClient.startWorkflow(
         workflowType = workflowClass.getWorkflowType(),
         taskQueue = taskQueue,
         workflowId = workflowId,
-        args = payloads.toProto(),
+        args = payloads,
         options = options,
     )
 }
@@ -263,7 +262,7 @@ suspend inline fun <reified T1, reified T2> TemporalClient.startWorkflow(
         workflowType = workflowClass.getWorkflowType(),
         taskQueue = taskQueue,
         workflowId = workflowId,
-        args = payloads.toProto(),
+        args = payloads,
         options = options,
     )
 }
@@ -301,7 +300,7 @@ suspend inline fun <reified T1, reified T2, reified T3> TemporalClient.startWork
         workflowType = workflowClass.getWorkflowType(),
         taskQueue = taskQueue,
         workflowId = workflowId,
-        args = payloads.toProto(),
+        args = payloads,
         options = options,
     )
 }
@@ -343,7 +342,7 @@ suspend inline fun <reified T1, reified T2, reified T3, reified T4> TemporalClie
         workflowType = workflowClass.getWorkflowType(),
         taskQueue = taskQueue,
         workflowId = workflowId,
-        args = payloads.toProto(),
+        args = payloads,
         options = options,
     )
 }

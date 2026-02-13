@@ -1,5 +1,9 @@
 package com.surrealdev.temporal.application.plugin.interceptor
 
+import com.surrealdev.temporal.client.WorkflowExecutionDescription
+import com.surrealdev.temporal.client.WorkflowExecutionList
+import com.surrealdev.temporal.client.WorkflowHandle
+import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.workflow.ChildWorkflowHandle
 import com.surrealdev.temporal.workflow.LocalActivityHandle
 import com.surrealdev.temporal.workflow.RemoteActivityHandle
@@ -39,6 +43,18 @@ class InterceptorRegistry {
     // ==================== Activity Outbound ====================
 
     val heartbeat = mutableListOf<Interceptor<HeartbeatInput, Unit>>()
+
+    // ==================== Client Outbound ====================
+
+    val startWorkflow = mutableListOf<Interceptor<StartWorkflowInput, WorkflowHandle>>()
+    val signalWorkflow = mutableListOf<Interceptor<SignalWorkflowInput, Unit>>()
+    val queryWorkflow = mutableListOf<Interceptor<QueryWorkflowInput, TemporalPayloads>>()
+    val startWorkflowUpdate = mutableListOf<Interceptor<StartWorkflowUpdateInput, TemporalPayloads>>()
+    val cancelWorkflow = mutableListOf<Interceptor<CancelWorkflowInput, Unit>>()
+    val terminateWorkflow = mutableListOf<Interceptor<TerminateWorkflowInput, Unit>>()
+    val describeWorkflow = mutableListOf<Interceptor<DescribeWorkflowInput, WorkflowExecutionDescription>>()
+    val listWorkflows = mutableListOf<Interceptor<ListWorkflowsInput, WorkflowExecutionList>>()
+    val countWorkflows = mutableListOf<Interceptor<CountWorkflowsInput, Long>>()
 
     /**
      * Creates a new registry that contains interceptors from both this registry (first)
@@ -84,6 +100,26 @@ class InterceptorRegistry {
         // Activity Outbound
         merged.heartbeat.addAll(this.heartbeat)
         merged.heartbeat.addAll(other.heartbeat)
+
+        // Client Outbound
+        merged.startWorkflow.addAll(this.startWorkflow)
+        merged.startWorkflow.addAll(other.startWorkflow)
+        merged.signalWorkflow.addAll(this.signalWorkflow)
+        merged.signalWorkflow.addAll(other.signalWorkflow)
+        merged.queryWorkflow.addAll(this.queryWorkflow)
+        merged.queryWorkflow.addAll(other.queryWorkflow)
+        merged.startWorkflowUpdate.addAll(this.startWorkflowUpdate)
+        merged.startWorkflowUpdate.addAll(other.startWorkflowUpdate)
+        merged.cancelWorkflow.addAll(this.cancelWorkflow)
+        merged.cancelWorkflow.addAll(other.cancelWorkflow)
+        merged.terminateWorkflow.addAll(this.terminateWorkflow)
+        merged.terminateWorkflow.addAll(other.terminateWorkflow)
+        merged.describeWorkflow.addAll(this.describeWorkflow)
+        merged.describeWorkflow.addAll(other.describeWorkflow)
+        merged.listWorkflows.addAll(this.listWorkflows)
+        merged.listWorkflows.addAll(other.listWorkflows)
+        merged.countWorkflows.addAll(this.countWorkflows)
+        merged.countWorkflows.addAll(other.countWorkflows)
 
         return merged
     }

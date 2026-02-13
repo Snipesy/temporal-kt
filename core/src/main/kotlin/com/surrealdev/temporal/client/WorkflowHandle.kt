@@ -1,6 +1,14 @@
 package com.surrealdev.temporal.client
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.application.plugin.interceptor.CancelWorkflowInput
+import com.surrealdev.temporal.application.plugin.interceptor.DescribeWorkflowInput
+import com.surrealdev.temporal.application.plugin.interceptor.InterceptorChain
+import com.surrealdev.temporal.application.plugin.interceptor.InterceptorRegistry
+import com.surrealdev.temporal.application.plugin.interceptor.QueryWorkflowInput
+import com.surrealdev.temporal.application.plugin.interceptor.SignalWorkflowInput
+import com.surrealdev.temporal.application.plugin.interceptor.StartWorkflowUpdateInput
+import com.surrealdev.temporal.application.plugin.interceptor.TerminateWorkflowInput
 import com.surrealdev.temporal.client.history.WorkflowHistory
 import com.surrealdev.temporal.client.internal.WorkflowServiceClient
 import com.surrealdev.temporal.common.EncodedTemporalPayloads
@@ -188,6 +196,7 @@ internal class WorkflowHandleImpl(
     private val serviceClient: WorkflowServiceClient,
     override val serializer: PayloadSerializer,
     internal val codec: PayloadCodec,
+    private val interceptorRegistry: InterceptorRegistry = InterceptorRegistry.EMPTY,
     private val pollingConfig: ResultPollingConfig = ResultPollingConfig(),
 ) : WorkflowHandle {
     override suspend fun resultPayload(timeout: Duration): TemporalPayload? {
@@ -434,7 +443,20 @@ internal class WorkflowHandleImpl(
         signalName: String,
         args: TemporalPayloads,
     ) {
-        val encodedArgs = codec.safeEncode(args)
+        val input =
+            SignalWorkflowInput(
+                workflowId = workflowId,
+                runId = runId,
+                signalName = signalName,
+                args = args,
+            )
+        InterceptorChain(interceptorRegistry.signalWorkflow).execute(input) { inp ->
+            doSignal(inp)
+        }
+    }
+
+    private suspend fun doSignal(input: SignalWorkflowInput) {
+        val encodedArgs = codec.safeEncode(input.args)
         val protoPayloads = encodedArgs.toProto()
 
         val request =
@@ -444,10 +466,10 @@ internal class WorkflowHandleImpl(
                 .setWorkflowExecution(
                     WorkflowExecution
                         .newBuilder()
-                        .setWorkflowId(workflowId)
-                        .also { if (runId != null) it.setRunId(runId) }
+                        .setWorkflowId(input.workflowId)
+                        .also { if (input.runId != null) it.setRunId(input.runId) }
                         .build(),
-                ).setSignalName(signalName)
+                ).setSignalName(input.signalName)
                 .setInput(protoPayloads)
                 .build()
 
@@ -458,12 +480,25 @@ internal class WorkflowHandleImpl(
         updateName: String,
         args: TemporalPayloads,
     ): TemporalPayloads {
+        val input =
+            StartWorkflowUpdateInput(
+                workflowId = workflowId,
+                runId = runId,
+                updateName = updateName,
+                args = args,
+            )
+        return InterceptorChain(interceptorRegistry.startWorkflowUpdate).execute(input) { inp ->
+            doUpdate(inp)
+        }
+    }
+
+    private suspend fun doUpdate(input: StartWorkflowUpdateInput): TemporalPayloads {
         val updateId =
             java.util.UUID
                 .randomUUID()
                 .toString()
 
-        val encodedArgs = codec.safeEncode(args)
+        val encodedArgs = codec.safeEncode(input.args)
         val protoPayloads = encodedArgs.toProto()
 
         val request =
@@ -473,8 +508,8 @@ internal class WorkflowHandleImpl(
                 .setWorkflowExecution(
                     WorkflowExecution
                         .newBuilder()
-                        .setWorkflowId(workflowId)
-                        .also { if (runId != null) it.setRunId(runId) }
+                        .setWorkflowId(input.workflowId)
+                        .also { if (input.runId != null) it.setRunId(input.runId) }
                         .build(),
                 ).setRequest(
                     io.temporal.api.update.v1.Request
@@ -487,7 +522,7 @@ internal class WorkflowHandleImpl(
                         ).setInput(
                             io.temporal.api.update.v1.Input
                                 .newBuilder()
-                                .setName(updateName)
+                                .setName(input.updateName)
                                 .setArgs(protoPayloads)
                                 .build(),
                         ).build(),
@@ -504,16 +539,16 @@ internal class WorkflowHandleImpl(
         // cap each RPC to longPollTimeout and retry with the same updateId (idempotent).
         val timeoutMillis = pollingConfig.longPollTimeout.inWholeMilliseconds.toInt()
         val response =
-            boundedPoll("update $updateName") {
+            boundedPoll("update ${input.updateName}") {
                 serviceClient.updateWorkflowExecution(request, timeoutMillis = timeoutMillis)
             }
 
         // Check for failure
         if (response.hasOutcome() && response.outcome.hasFailure()) {
             throw ClientWorkflowUpdateFailedException(
-                workflowId = workflowId,
-                runId = runId,
-                updateName = updateName,
+                workflowId = input.workflowId,
+                runId = input.runId,
+                updateName = input.updateName,
                 updateId = updateId,
                 message = response.outcome.failure.message,
             )
@@ -523,9 +558,9 @@ internal class WorkflowHandleImpl(
             )
         } else {
             throw ClientWorkflowUpdateFailedException(
-                workflowId = workflowId,
-                runId = runId,
-                updateName = updateName,
+                workflowId = input.workflowId,
+                runId = input.runId,
+                updateName = input.updateName,
                 updateId = updateId,
                 message = "Update failed with unknown outcome",
             )
@@ -536,7 +571,20 @@ internal class WorkflowHandleImpl(
         queryType: String,
         args: TemporalPayloads,
     ): TemporalPayloads {
-        val encodedArgs = codec.safeEncode(args)
+        val input =
+            QueryWorkflowInput(
+                workflowId = workflowId,
+                runId = runId,
+                queryType = queryType,
+                args = args,
+            )
+        return InterceptorChain(interceptorRegistry.queryWorkflow).execute(input) { inp ->
+            doQuery(inp)
+        }
+    }
+
+    private suspend fun doQuery(input: QueryWorkflowInput): TemporalPayloads {
+        val encodedArgs = codec.safeEncode(input.args)
         val protoPayloads = encodedArgs.toProto()
 
         val request =
@@ -546,13 +594,13 @@ internal class WorkflowHandleImpl(
                 .setExecution(
                     WorkflowExecution
                         .newBuilder()
-                        .setWorkflowId(workflowId)
-                        .also { if (runId != null) it.setRunId(runId) }
+                        .setWorkflowId(input.workflowId)
+                        .also { if (input.runId != null) it.setRunId(input.runId) }
                         .build(),
                 ).setQuery(
                     io.temporal.api.query.v1.WorkflowQuery
                         .newBuilder()
-                        .setQueryType(queryType)
+                        .setQueryType(input.queryType)
                         .setQueryArgs(protoPayloads)
                         .build(),
                 ).build()
@@ -561,16 +609,16 @@ internal class WorkflowHandleImpl(
         // cap each RPC to longPollTimeout and retry (queries are idempotent).
         val timeoutMillis = pollingConfig.longPollTimeout.inWholeMilliseconds.toInt()
         val response =
-            boundedPoll("query $queryType") {
+            boundedPoll("query ${input.queryType}") {
                 serviceClient.queryWorkflow(request, timeoutMillis = timeoutMillis)
             }
 
         // Check for query rejected
         if (response.hasQueryRejected()) {
             throw ClientWorkflowQueryRejectedException(
-                workflowId = workflowId,
-                runId = runId,
-                queryType = queryType,
+                workflowId = input.workflowId,
+                runId = input.runId,
+                queryType = input.queryType,
                 status = response.queryRejected.status.name,
             )
         }
@@ -581,6 +629,13 @@ internal class WorkflowHandleImpl(
     }
 
     override suspend fun cancel() {
+        val input = CancelWorkflowInput(workflowId = workflowId, runId = runId)
+        InterceptorChain(interceptorRegistry.cancelWorkflow).execute(input) { inp ->
+            doCancel(inp)
+        }
+    }
+
+    private suspend fun doCancel(input: CancelWorkflowInput) {
         val request =
             RequestCancelWorkflowExecutionRequest
                 .newBuilder()
@@ -588,8 +643,8 @@ internal class WorkflowHandleImpl(
                 .setWorkflowExecution(
                     WorkflowExecution
                         .newBuilder()
-                        .setWorkflowId(workflowId)
-                        .also { if (runId != null) it.setRunId(runId) }
+                        .setWorkflowId(input.workflowId)
+                        .also { if (input.runId != null) it.setRunId(input.runId) }
                         .build(),
                 ).build()
 
@@ -597,6 +652,13 @@ internal class WorkflowHandleImpl(
     }
 
     override suspend fun terminate(reason: String?) {
+        val input = TerminateWorkflowInput(workflowId = workflowId, runId = runId, reason = reason)
+        InterceptorChain(interceptorRegistry.terminateWorkflow).execute(input) { inp ->
+            doTerminate(inp)
+        }
+    }
+
+    private suspend fun doTerminate(input: TerminateWorkflowInput) {
         val request =
             TerminateWorkflowExecutionRequest
                 .newBuilder()
@@ -604,16 +666,23 @@ internal class WorkflowHandleImpl(
                 .setWorkflowExecution(
                     WorkflowExecution
                         .newBuilder()
-                        .setWorkflowId(workflowId)
-                        .also { if (runId != null) it.setRunId(runId) }
+                        .setWorkflowId(input.workflowId)
+                        .also { if (input.runId != null) it.setRunId(input.runId) }
                         .build(),
-                ).also { if (reason != null) it.setReason(reason) }
+                ).also { if (input.reason != null) it.setReason(input.reason) }
                 .build()
 
         serviceClient.terminateWorkflowExecution(request)
     }
 
     override suspend fun describe(): WorkflowExecutionDescription {
+        val input = DescribeWorkflowInput(workflowId = workflowId, runId = runId)
+        return InterceptorChain(interceptorRegistry.describeWorkflow).execute(input) { inp ->
+            doDescribe(inp)
+        }
+    }
+
+    private suspend fun doDescribe(input: DescribeWorkflowInput): WorkflowExecutionDescription {
         val request =
             DescribeWorkflowExecutionRequest
                 .newBuilder()
@@ -621,8 +690,8 @@ internal class WorkflowHandleImpl(
                 .setExecution(
                     WorkflowExecution
                         .newBuilder()
-                        .setWorkflowId(workflowId)
-                        .also { if (runId != null) it.setRunId(runId) }
+                        .setWorkflowId(input.workflowId)
+                        .also { if (input.runId != null) it.setRunId(input.runId) }
                         .build(),
                 ).build()
 

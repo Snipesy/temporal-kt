@@ -352,6 +352,7 @@ open class TemporalApplication internal constructor(
             namespace = clientConfig.namespace,
             serializer = payloadSerializer(),
             codec = payloadCodecOrNull() ?: NoOpCodec,
+            interceptorRegistry = interceptorRegistry,
         )
     }
 
