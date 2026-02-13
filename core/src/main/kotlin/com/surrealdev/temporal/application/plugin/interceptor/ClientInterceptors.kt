@@ -55,6 +55,7 @@ data class StartWorkflowUpdateInput(
 data class CancelWorkflowInput(
     val workflowId: String,
     val runId: String?,
+    val headers: MutableMap<String, TemporalPayload> = mutableMapOf(),
 )
 
 /**
@@ -64,6 +65,7 @@ data class TerminateWorkflowInput(
     val workflowId: String,
     val runId: String?,
     val reason: String?,
+    val headers: MutableMap<String, TemporalPayload> = mutableMapOf(),
 )
 
 /**
@@ -72,6 +74,7 @@ data class TerminateWorkflowInput(
 data class DescribeWorkflowInput(
     val workflowId: String,
     val runId: String?,
+    val headers: MutableMap<String, TemporalPayload> = mutableMapOf(),
 )
 
 /**
@@ -80,6 +83,7 @@ data class DescribeWorkflowInput(
 data class ListWorkflowsInput(
     val query: String,
     val pageSize: Int,
+    val headers: MutableMap<String, TemporalPayload> = mutableMapOf(),
 )
 
 /**
@@ -87,4 +91,24 @@ data class ListWorkflowsInput(
  */
 data class CountWorkflowsInput(
     val query: String,
+    val headers: MutableMap<String, TemporalPayload> = mutableMapOf(),
+)
+
+/**
+ * Input for the FetchWorkflowResult client interceptor.
+ */
+data class FetchWorkflowResultInput(
+    val workflowId: String,
+    val runId: String?,
+    val timeout: kotlin.time.Duration,
+    val headers: MutableMap<String, TemporalPayload> = mutableMapOf(),
+)
+
+/**
+ * Input for the FetchWorkflowHistory client interceptor.
+ */
+data class FetchWorkflowHistoryInput(
+    val workflowId: String,
+    val runId: String?,
+    val headers: MutableMap<String, TemporalPayload> = mutableMapOf(),
 )

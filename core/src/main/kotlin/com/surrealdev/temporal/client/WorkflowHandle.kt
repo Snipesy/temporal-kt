@@ -3,6 +3,8 @@ package com.surrealdev.temporal.client
 import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.application.plugin.interceptor.CancelWorkflowInput
 import com.surrealdev.temporal.application.plugin.interceptor.DescribeWorkflowInput
+import com.surrealdev.temporal.application.plugin.interceptor.FetchWorkflowHistoryInput
+import com.surrealdev.temporal.application.plugin.interceptor.FetchWorkflowResultInput
 import com.surrealdev.temporal.application.plugin.interceptor.InterceptorChain
 import com.surrealdev.temporal.application.plugin.interceptor.InterceptorRegistry
 import com.surrealdev.temporal.application.plugin.interceptor.QueryWorkflowInput
@@ -200,6 +202,18 @@ internal class WorkflowHandleImpl(
     private val pollingConfig: ResultPollingConfig = ResultPollingConfig(),
 ) : WorkflowHandle {
     override suspend fun resultPayload(timeout: Duration): TemporalPayload? {
+        val input =
+            FetchWorkflowResultInput(
+                workflowId = workflowId,
+                runId = runId,
+                timeout = timeout,
+            )
+        return InterceptorChain(interceptorRegistry.fetchWorkflowResult).execute(input) { inp ->
+            doResultPayload(inp.timeout)
+        }
+    }
+
+    private suspend fun doResultPayload(timeout: Duration): TemporalPayload? {
         val startTime = System.currentTimeMillis()
         val timeoutMillis = if (timeout == Duration.INFINITE) Long.MAX_VALUE else timeout.inWholeMilliseconds
         val longPollTimeoutMillis = pollingConfig.longPollTimeout.inWholeMilliseconds.toInt()
@@ -715,6 +729,17 @@ internal class WorkflowHandleImpl(
     }
 
     override suspend fun getHistory(): WorkflowHistory {
+        val input =
+            FetchWorkflowHistoryInput(
+                workflowId = workflowId,
+                runId = runId,
+            )
+        return InterceptorChain(interceptorRegistry.fetchWorkflowHistory).execute(input) { inp ->
+            doGetHistory(inp)
+        }
+    }
+
+    private suspend fun doGetHistory(input: FetchWorkflowHistoryInput): WorkflowHistory {
         val allEvents = mutableListOf<HistoryEvent>()
         var nextPageToken = com.google.protobuf.ByteString.EMPTY
 
@@ -726,8 +751,8 @@ internal class WorkflowHandleImpl(
                     .setExecution(
                         WorkflowExecution
                             .newBuilder()
-                            .setWorkflowId(workflowId)
-                            .also { if (runId != null) it.setRunId(runId) }
+                            .setWorkflowId(input.workflowId)
+                            .also { if (input.runId != null) it.setRunId(input.runId) }
                             .build(),
                     ).setNextPageToken(nextPageToken)
                     .build()
@@ -738,8 +763,8 @@ internal class WorkflowHandleImpl(
         } while (nextPageToken != null && !nextPageToken.isEmpty)
 
         return WorkflowHistory.fromProto(
-            workflowId = workflowId,
-            runId = runId,
+            workflowId = input.workflowId,
+            runId = input.runId,
             history =
                 io.temporal.api.history.v1.History
                     .newBuilder()

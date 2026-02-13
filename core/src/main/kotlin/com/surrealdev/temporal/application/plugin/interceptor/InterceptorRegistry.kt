@@ -3,6 +3,8 @@ package com.surrealdev.temporal.application.plugin.interceptor
 import com.surrealdev.temporal.client.WorkflowExecutionDescription
 import com.surrealdev.temporal.client.WorkflowExecutionList
 import com.surrealdev.temporal.client.WorkflowHandle
+import com.surrealdev.temporal.client.history.WorkflowHistory
+import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.workflow.ChildWorkflowHandle
 import com.surrealdev.temporal.workflow.LocalActivityHandle
@@ -55,6 +57,8 @@ class InterceptorRegistry {
     val describeWorkflow = mutableListOf<Interceptor<DescribeWorkflowInput, WorkflowExecutionDescription>>()
     val listWorkflows = mutableListOf<Interceptor<ListWorkflowsInput, WorkflowExecutionList>>()
     val countWorkflows = mutableListOf<Interceptor<CountWorkflowsInput, Long>>()
+    val fetchWorkflowResult = mutableListOf<Interceptor<FetchWorkflowResultInput, TemporalPayload?>>()
+    val fetchWorkflowHistory = mutableListOf<Interceptor<FetchWorkflowHistoryInput, WorkflowHistory>>()
 
     /**
      * Creates a new registry that contains interceptors from both this registry (first)
@@ -120,6 +124,10 @@ class InterceptorRegistry {
         merged.listWorkflows.addAll(other.listWorkflows)
         merged.countWorkflows.addAll(this.countWorkflows)
         merged.countWorkflows.addAll(other.countWorkflows)
+        merged.fetchWorkflowResult.addAll(this.fetchWorkflowResult)
+        merged.fetchWorkflowResult.addAll(other.fetchWorkflowResult)
+        merged.fetchWorkflowHistory.addAll(this.fetchWorkflowHistory)
+        merged.fetchWorkflowHistory.addAll(other.fetchWorkflowHistory)
 
         return merged
     }

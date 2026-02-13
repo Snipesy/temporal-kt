@@ -307,6 +307,8 @@ client {
     onDescribeWorkflow { input, proceed -> proceed(input) }
     onListWorkflows { input, proceed -> proceed(input) }
     onCountWorkflows { input, proceed -> proceed(input) }
+    onFetchWorkflowResult { input, proceed -> proceed(input) }
+    onFetchWorkflowHistory { input, proceed -> proceed(input) }
 }
 ```
 
@@ -323,6 +325,8 @@ client {
 | `onDescribeWorkflow`     | `DescribeWorkflowInput`     | `workflowId`, `runId`                                   |
 | `onListWorkflows`        | `ListWorkflowsInput`        | `query`, `pageSize`                                     |
 | `onCountWorkflows`       | `CountWorkflowsInput`       | `query`                                                 |
+| `onFetchWorkflowResult`  | `FetchWorkflowResultInput`  | `workflowId`, `runId`, `timeout`                        |
+| `onFetchWorkflowHistory` | `FetchWorkflowHistoryInput` | `workflowId`, `runId`                                   |
 
 ## Standalone Client
 

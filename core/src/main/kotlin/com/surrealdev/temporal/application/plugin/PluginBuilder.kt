@@ -326,6 +326,8 @@ internal fun installInterceptors(
     pipelineRegistry.describeWorkflow.addAll(builderRegistry.describeWorkflow)
     pipelineRegistry.listWorkflows.addAll(builderRegistry.listWorkflows)
     pipelineRegistry.countWorkflows.addAll(builderRegistry.countWorkflows)
+    pipelineRegistry.fetchWorkflowResult.addAll(builderRegistry.fetchWorkflowResult)
+    pipelineRegistry.fetchWorkflowHistory.addAll(builderRegistry.fetchWorkflowHistory)
 }
 
 /**

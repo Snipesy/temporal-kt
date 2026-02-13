@@ -4,6 +4,8 @@ import com.surrealdev.temporal.annotation.TemporalDsl
 import com.surrealdev.temporal.application.plugin.interceptor.CancelWorkflowInput
 import com.surrealdev.temporal.application.plugin.interceptor.CountWorkflowsInput
 import com.surrealdev.temporal.application.plugin.interceptor.DescribeWorkflowInput
+import com.surrealdev.temporal.application.plugin.interceptor.FetchWorkflowHistoryInput
+import com.surrealdev.temporal.application.plugin.interceptor.FetchWorkflowResultInput
 import com.surrealdev.temporal.application.plugin.interceptor.Interceptor
 import com.surrealdev.temporal.application.plugin.interceptor.InterceptorRegistry
 import com.surrealdev.temporal.application.plugin.interceptor.ListWorkflowsInput
@@ -15,6 +17,8 @@ import com.surrealdev.temporal.application.plugin.interceptor.TerminateWorkflowI
 import com.surrealdev.temporal.client.WorkflowExecutionDescription
 import com.surrealdev.temporal.client.WorkflowExecutionList
 import com.surrealdev.temporal.client.WorkflowHandle
+import com.surrealdev.temporal.client.history.WorkflowHistory
+import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
 
 /**
@@ -99,5 +103,19 @@ class ClientHookBuilder internal constructor(
      */
     fun onCountWorkflows(interceptor: Interceptor<CountWorkflowsInput, Long>) {
         interceptorRegistry.countWorkflows.add(interceptor)
+    }
+
+    /**
+     * Intercepts workflow result fetching (awaiting workflow completion).
+     */
+    fun onFetchWorkflowResult(interceptor: Interceptor<FetchWorkflowResultInput, TemporalPayload?>) {
+        interceptorRegistry.fetchWorkflowResult.add(interceptor)
+    }
+
+    /**
+     * Intercepts workflow history fetching.
+     */
+    fun onFetchWorkflowHistory(interceptor: Interceptor<FetchWorkflowHistoryInput, WorkflowHistory>) {
+        interceptorRegistry.fetchWorkflowHistory.add(interceptor)
     }
 }

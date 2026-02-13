@@ -32,6 +32,7 @@ import com.surrealdev.temporal.serialization.NoOpCodec
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.serialization.payloadCodecOrNull
+import com.surrealdev.temporal.serialization.payloadSerializationOrNull
 import com.surrealdev.temporal.serialization.payloadSerializer
 import com.surrealdev.temporal.util.Attributes
 import io.temporal.api.common.v1.Payload
@@ -347,12 +348,24 @@ open class TemporalApplication internal constructor(
                 configure()
             }
 
+        // Use client config's plugins if explicitly installed, else fall back to app-level
+        val serializer =
+            clientConfig.payloadSerializationOrNull()?.serializer
+                ?: payloadSerializer()
+        val codec =
+            clientConfig.payloadCodecOrNull()
+                ?: payloadCodecOrNull()
+                ?: NoOpCodec
+
+        // Merge: app-level interceptors first, then client config interceptors
+        val mergedRegistry = interceptorRegistry.mergeWith(clientConfig.interceptorRegistry)
+
         return TemporalClient.create(
             coreClient = coreClientInstance,
             namespace = clientConfig.namespace,
-            serializer = payloadSerializer(),
-            codec = payloadCodecOrNull() ?: NoOpCodec,
-            interceptorRegistry = interceptorRegistry,
+            serializer = serializer,
+            codec = codec,
+            interceptorRegistry = mergedRegistry,
         )
     }
 
