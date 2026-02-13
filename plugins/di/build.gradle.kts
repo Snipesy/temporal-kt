@@ -3,6 +3,7 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
 plugins {
     id("buildsrc.convention.kotlin-jvm")
     id("buildsrc.convention.maven-publish")
+    alias(libs.plugins.kotlinPluginSerialization)
 }
 
 dependencies {
@@ -12,6 +13,7 @@ dependencies {
     testImplementation(kotlin("test"))
     testImplementation(project(":core-testing"))
     testImplementation(libs.kotlinxCoroutinesTest)
+    testImplementation(libs.slf4jSimple)
 }
 
 mavenPublishing {

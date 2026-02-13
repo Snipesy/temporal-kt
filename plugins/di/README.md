@@ -112,3 +112,126 @@ dependencies {
 val usersDb: Database by workflowDependency("users")
 val ordersDb: Database by workflowDependency("orders")
 ```
+
+## Context Propagation
+
+The `ContextPropagation` plugin propagates typed context values across Temporal service boundaries (client -> workflow -> activity -> child workflow) via Temporal headers. This is useful for propagating things like tenant IDs, request IDs, or authentication context without threading them through every method signature.
+
+TODO: DI is still in development and is not guaranteed to propagate across all boundaries correctly. This means it is currently
+not safe to use in critical scenarios (i.e. tenant isolation or user security).
+
+### Client Side — Attach Context
+
+Register providers on the client to inject context into every outgoing call:
+
+```kotlin
+val client = TemporalClient.connect {
+    install(ContextPropagation) {
+        context("tenantId") { currentTenant() }
+        context("requestId") { UUID.randomUUID().toString() }
+    }
+}
+```
+
+### Application Side — Receive and Forward
+
+On the worker, register which context keys to forward across boundaries:
+
+```kotlin
+val app = embeddedTemporal(
+    module = {
+        install(ContextPropagation) {
+            passThrough("tenantId")                     // forward raw bytes from inbound headers
+            context("serverRegion") { "us-east-1" }     // add new server-side context
+        }
+
+        taskQueue("my-queue") {
+            workflow<MyWorkflow>()
+            activity(MyActivity())
+        }
+    }
+)
+```
+
+### Reading Context in Workflows and Activities
+
+```kotlin
+@Workflow("OrderWorkflow")
+class OrderWorkflow {
+    @WorkflowRun
+    suspend fun WorkflowContext.run(orderId: String): OrderResult {
+        val tenant = context<Tenant>("tenantId")
+
+        // Context is automatically forwarded to activities and child workflows
+        val result = startActivity(
+            activityType = "processOrder",
+            options = ActivityOptions(startToCloseTimeout = 30.seconds),
+            orderId,
+        ).result<OrderResult>()
+
+        return result
+    }
+}
+
+class OrderActivity {
+    @Activity("processOrder")
+    suspend fun ActivityContext.processOrder(orderId: String): OrderResult {
+        val tenant = context<Tenant>("tenantId")  // same value as the workflow
+        // ...
+    }
+}
+```
+
+Context is automatically propagated to:
+- Activities (`startActivity`)
+- Local activities (`startLocalActivity`)
+- Child workflows (`startChildWorkflow`)
+- Continue-as-new (`continueAsNew`)
+- External workflow signals (`signalExternalWorkflow`)
+
+### Provider Behavior and Replay Safety
+
+By default, application-side providers use `ProviderBehavior.SKIP_IF_PRESENT`. This means if an inbound header already exists for a key (e.g., from the client, or from history during replay), the provider lambda is skipped entirely. This prevents non-deterministic providers from causing replay divergence.
+
+```kotlin
+install(ContextPropagation) {
+    // Default: SKIP_IF_PRESENT — safe for replay, client value preserved
+    context("tenantId") { fallbackTenant() }
+
+    // Explicit: ALWAYS_EXECUTE — provider must be deterministic
+    context("serverTimestamp", ProviderBehavior.ALWAYS_EXECUTE) { Instant.now().toString() }
+}
+```
+
+| Behavior | When inbound header exists | When no inbound header | Replay safe? |
+|---|---|---|---|
+| `SKIP_IF_PRESENT` (default) | Use inbound value, skip provider | Execute provider | Yes |
+| `ALWAYS_EXECUTE` | Execute provider, overwrite inbound | Execute provider | Only if deterministic |
+
+### Signal and Update Handling
+
+Context is set once when the workflow starts (`onExecute`). Signals and updates that carry headers with the same keys are validated against the existing context — if the values differ, an error is thrown. Signals and updates that don't carry propagated headers (the typical case) work fine and see the original context.
+
+```kotlin
+@Workflow("MyWorkflow")
+class MyWorkflow {
+    @WorkflowRun
+    suspend fun WorkflowContext.run(): String {
+        val tenant = context<Tenant>("tenantId")
+        awaitCondition { done }
+        return tenant.name
+    }
+
+    @Signal("complete")
+    fun WorkflowContext.complete() {
+        // Signal handlers see the same context set at workflow start
+        val tenant = context<Tenant>("tenantId")
+    }
+
+    @Query("getTenant")
+    fun WorkflowContext.getTenant(): String {
+        val tenant = context<Tenant>("tenantId")
+        return tenant.name
+    }
+}
+```

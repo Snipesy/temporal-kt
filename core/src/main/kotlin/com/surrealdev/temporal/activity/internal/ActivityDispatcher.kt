@@ -521,11 +521,26 @@ class ActivityDispatcher(
         val runningActivity = RunningActivity(job = currentJob, context = context, virtualThread = virtualThread)
         runningActivities[taskToken] = runningActivity
 
+        // Build interceptor input for ExecuteActivity
+        val interceptorInput =
+            ExecuteActivityInput(
+                activityType = start.activityType,
+                activityId = start.activityId,
+                workflowId = start.workflowExecution.workflowId,
+                runId = start.workflowExecution.runId,
+                taskQueue = taskQueue,
+                namespace = start.workflowNamespace,
+                headers = start.headerFieldsMap.mapValues { (_, v) -> TemporalPayload(v) },
+            )
+
         return try {
+            val chain = InterceptorChain(interceptorRegistry.executeActivity)
             val result =
                 withContext(context) {
-                    handler.invoke(context, start.activityType, encodedPayloads)
-                }
+                    chain.execute(interceptorInput) { _ ->
+                        handler.invoke(context, start.activityType, encodedPayloads)
+                    }
+                } as TemporalPayload?
             buildDynamicSuccessCompletion(taskToken, result)
         } catch (e: ActivityCancelledException) {
             buildCancelledCompletion(taskToken)
