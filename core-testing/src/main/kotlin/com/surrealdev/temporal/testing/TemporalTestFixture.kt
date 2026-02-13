@@ -9,6 +9,7 @@ import com.surrealdev.temporal.application.VersioningBehavior
 import com.surrealdev.temporal.application.WorkerDeploymentOptions
 import com.surrealdev.temporal.application.WorkerDeploymentVersion
 import com.surrealdev.temporal.client.TemporalClient
+import com.surrealdev.temporal.client.TemporalClientConfig
 import com.surrealdev.temporal.client.TemporalClientImpl
 import com.surrealdev.temporal.common.SearchAttributeKey
 import com.surrealdev.temporal.core.EphemeralServer
@@ -16,8 +17,9 @@ import com.surrealdev.temporal.core.TemporalDevServer
 import com.surrealdev.temporal.core.TemporalRuntime
 import com.surrealdev.temporal.core.TemporalTestServer
 import com.surrealdev.temporal.serialization.NoOpCodec
-import com.surrealdev.temporal.serialization.PayloadCodec
-import com.surrealdev.temporal.serialization.PayloadSerializer
+import com.surrealdev.temporal.serialization.payloadCodecOrNull
+import com.surrealdev.temporal.serialization.payloadSerializationOrNull
+import com.surrealdev.temporal.serialization.payloadSerializer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.TestResult
 import kotlinx.coroutines.test.TestScope
@@ -168,66 +170,83 @@ class TemporalTestApplicationBuilder internal constructor(
     /**
      * Gets a workflow client for interacting with Temporal.
      *
-     * This client uses the default [PayloadSerializer] and [PayloadCodec] configured
-     * on the application (via [SerializationPlugin][com.surrealdev.temporal.serialization.SerializationPlugin]
-     * and [CodecPlugin][com.surrealdev.temporal.serialization.CodecPlugin]).
-     * To use a custom serializer or codec, see the overload [client(PayloadSerializer, PayloadCodec)][client].
+     * When called without arguments, uses the application's configured serializer, codec,
+     * and interceptors. The no-arg client is cached so multiple calls return the same instance.
+     *
+     * When a [configure] block is provided, creates a new (uncached) client with the given
+     * configuration. This supports the full plugin system (serialization, codecs, interceptors)
+     * just like [TemporalClient.connect], but with connection details pre-configured from
+     * the test server. Plugins installed in the configure block override the application-level
+     * defaults; unset plugins fall back to the application's configuration.
      *
      * When using a test server (timeSkipping = true), this returns a [TemporalTestClient]
      * that automatically manages time skipping around workflow result awaits.
      *
-     * The client is cached, so multiple calls return the same instance. This ensures
-     * all workflow handles share the same time-skipping state tracker.
+     * Example:
+     * ```kotlin
+     * // Default client (cached, uses application config)
+     * val client = client()
      *
+     * // Custom client with plugins (uncached, each call creates a new instance)
+     * val customClient = client {
+     *     install(SerializationPlugin) { json { prettyPrint = true } }
+     *     install(CodecPlugin) { compression() }
+     *     install(MyPlugin) { enabled = true }
+     * }
+     * ```
+     *
+     * @param configure Optional configuration block for plugins and client-level overrides.
+     *                  Connection settings (target, namespace) are pre-set and should not be changed.
      * @throws IllegalStateException if [application] hasn't been called
      */
-    fun client(): TemporalClient {
+    fun client(configure: (TemporalClientConfig.() -> Unit)? = null): TemporalClient {
         checkStarted()
 
-        // Return cached client if available
-        cachedClient?.let { return it }
+        // No-arg path: return cached client using application defaults
+        if (configure == null) {
+            cachedClient?.let { return it }
 
-        val baseClient = _application!!.client()
+            val baseClient = _application!!.client()
 
-        // Wrap in TemporalTestClient if using a test server for time-skipping support
-        val client =
-            if (testServer != null) {
-                TemporalTestClient(baseClient as TemporalClientImpl, testServer!!)
-            } else {
-                baseClient
+            val client =
+                if (testServer != null) {
+                    TemporalTestClient(baseClient as TemporalClientImpl, testServer!!)
+                } else {
+                    baseClient
+                }
+
+            cachedClient = client
+            return client
+        }
+
+        // Configured path: create a new client with plugin support
+        val clientConfig =
+            TemporalClientConfig().apply {
+                target = "http://${this@TemporalTestApplicationBuilder.server.targetUrl}"
+                namespace = this@TemporalTestApplicationBuilder.namespace
+                configure()
             }
 
-        cachedClient = client
-        return client
-    }
+        // Use client config's plugins if explicitly installed, else fall back to app-level
+        val serializer =
+            clientConfig.payloadSerializationOrNull()?.serializer
+                ?: _application!!.payloadSerializer()
+        val codec =
+            clientConfig.payloadCodecOrNull()
+                ?: _application!!.payloadCodecOrNull()
+                ?: NoOpCodec
 
-    /**
-     * Gets a workflow client with a custom [PayloadSerializer] and/or [PayloadCodec].
-     *
-     * Unlike the no-arg [client], this overload does **not** cache the returned client,
-     * so each call creates a new instance. This allows creating multiple clients with
-     * different serialization configurations in the same test.
-     *
-     * When using a test server (timeSkipping = true), this returns a [TemporalTestClient]
-     * that automatically manages time skipping around workflow result awaits.
-     *
-     * @param serializer The payload serializer to use for encoding/decoding workflow and activity arguments
-     * @param codec The payload codec to use for transforming payloads (e.g., compression, encryption)
-     * @throws IllegalStateException if [application] hasn't been called
-     */
-    fun client(
-        serializer: PayloadSerializer,
-        codec: PayloadCodec = NoOpCodec,
-    ): TemporalClient {
-        checkStarted()
+        // Merge: app-level interceptors first, then client config interceptors
+        val mergedRegistry = _application!!.interceptorRegistry.mergeWith(clientConfig.interceptorRegistry)
 
         val coreClient = _application!!.getCoreClient()
         val baseClient =
             TemporalClient.create(
                 coreClient = coreClient,
-                namespace = namespace,
+                namespace = clientConfig.namespace,
                 serializer = serializer,
                 codec = codec,
+                interceptorRegistry = mergedRegistry,
             ) as TemporalClientImpl
 
         return if (testServer != null) {

@@ -429,7 +429,9 @@ class CodecCountingIntegrationTest {
             }
 
             // Client uses parent's codec (same MarkerCodec)
-            val client = client(CompositePayloadSerializer.default(), parentCodec)
+            val client = client {
+                install(CodecPlugin) { custom(parentCodec) }
+            }
 
             val handle =
                 client.startWorkflow(
@@ -473,7 +475,9 @@ class CodecCountingIntegrationTest {
             }
 
             // Codec queue — use a client with the counting codec
-            val codecClient = client(CompositePayloadSerializer.default(), codec)
+            val codecClient = client {
+                install(CodecPlugin) { custom(codec) }
+            }
             val handle1 =
                 codecClient.startWorkflow(
                     workflowType = "CodecEchoWorkflow",
@@ -488,8 +492,8 @@ class CodecCountingIntegrationTest {
             assertTrue(encodeAfterFirst > 0, "codec queue should trigger encode")
             assertTrue(decodeAfterFirst > 0, "codec queue should trigger decode")
 
-            // Plain queue — use a client WITHOUT the codec
-            val plainClient = client(CompositePayloadSerializer.default())
+            // Plain queue — use a client WITHOUT the codec (no plugins, uses app defaults)
+            val plainClient = client { }
             val handle2 =
                 plainClient.startWorkflow(
                     workflowType = "CodecEchoWorkflow",
