@@ -1,6 +1,5 @@
 package com.surrealdev.temporal.client
 
-import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.serialization.serialize
@@ -17,7 +16,6 @@ import kotlin.reflect.KClass
  * @param options Additional workflow options.
  * @return A handle to the started workflow execution.
  */
-@OptIn(InternalTemporalApi::class)
 suspend fun TemporalClient.startWorkflow(
     workflowType: String,
     taskQueue: String,
@@ -43,7 +41,6 @@ suspend fun TemporalClient.startWorkflow(
  * @param options Additional workflow options.
  * @return A handle to the started workflow execution.
  */
-@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T> TemporalClient.startWorkflow(
     workflowType: String,
     taskQueue: String,
@@ -76,7 +73,6 @@ suspend inline fun <reified T> TemporalClient.startWorkflow(
  * @param options Additional workflow options.
  * @return A handle to the started workflow execution.
  */
-@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T1, reified T2> TemporalClient.startWorkflow(
     workflowType: String,
     taskQueue: String,
@@ -113,7 +109,6 @@ suspend inline fun <reified T1, reified T2> TemporalClient.startWorkflow(
  * @param options Additional workflow options.
  * @return A handle to the started workflow execution.
  */
-@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T1, reified T2, reified T3> TemporalClient.startWorkflow(
     workflowType: String,
     taskQueue: String,
@@ -154,7 +149,6 @@ suspend inline fun <reified T1, reified T2, reified T3> TemporalClient.startWork
  * @param options Additional workflow options.
  * @return A handle to the started workflow execution.
  */
-@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T1, reified T2, reified T3, reified T4> TemporalClient.startWorkflow(
     workflowType: String,
     taskQueue: String,
@@ -196,7 +190,6 @@ suspend inline fun <reified T1, reified T2, reified T3, reified T4> TemporalClie
  * @param options Additional workflow options.
  * @return A handle to the started workflow execution.
  */
-@OptIn(InternalTemporalApi::class)
 suspend fun TemporalClient.startWorkflow(
     workflowClass: KClass<*>,
     taskQueue: String,
@@ -222,7 +215,6 @@ suspend fun TemporalClient.startWorkflow(
  * @param options Additional workflow options.
  * @return A handle to the started workflow execution.
  */
-@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T> TemporalClient.startWorkflow(
     workflowClass: KClass<*>,
     taskQueue: String,
@@ -255,7 +247,6 @@ suspend inline fun <reified T> TemporalClient.startWorkflow(
  * @param options Additional workflow options.
  * @return A handle to the started workflow execution.
  */
-@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T1, reified T2> TemporalClient.startWorkflow(
     workflowClass: KClass<*>,
     taskQueue: String,
@@ -292,7 +283,6 @@ suspend inline fun <reified T1, reified T2> TemporalClient.startWorkflow(
  * @param options Additional workflow options.
  * @return A handle to the started workflow execution.
  */
-@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T1, reified T2, reified T3> TemporalClient.startWorkflow(
     workflowClass: KClass<*>,
     taskQueue: String,
@@ -333,7 +323,6 @@ suspend inline fun <reified T1, reified T2, reified T3> TemporalClient.startWork
  * @param options Additional workflow options.
  * @return A handle to the started workflow execution.
  */
-@OptIn(InternalTemporalApi::class)
 suspend inline fun <reified T1, reified T2, reified T3, reified T4> TemporalClient.startWorkflow(
     workflowClass: KClass<*>,
     taskQueue: String,

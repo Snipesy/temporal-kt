@@ -63,7 +63,6 @@ fun parseStackTrace(stackTrace: String): Array<StackTraceElement> =
  *
  * This is the primary path used by activity handle implementations where the codec is available.
  */
-@OptIn(InternalTemporalApi::class)
 internal suspend fun buildApplicationFailureFromProto(
     failure: Failure,
     codec: PayloadCodec,

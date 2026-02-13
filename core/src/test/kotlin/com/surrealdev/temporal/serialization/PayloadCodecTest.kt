@@ -1,7 +1,6 @@
 package com.surrealdev.temporal.serialization
 
 import com.google.protobuf.ByteString
-import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.toTemporal
@@ -14,7 +13,6 @@ import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-@OptIn(InternalTemporalApi::class)
 class PayloadCodecTest {
     private fun createPayload(
         data: String,

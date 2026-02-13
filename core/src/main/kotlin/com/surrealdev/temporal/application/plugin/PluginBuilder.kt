@@ -3,34 +3,37 @@ package com.surrealdev.temporal.application.plugin
 import com.surrealdev.temporal.annotation.TemporalDsl
 import com.surrealdev.temporal.application.TaskQueueBuilder
 import com.surrealdev.temporal.application.TemporalApplication
-import com.surrealdev.temporal.application.plugin.hooks.ActivityTaskContext
-import com.surrealdev.temporal.application.plugin.hooks.ApplicationSetupContext
-import com.surrealdev.temporal.application.plugin.hooks.ApplicationShutdownContext
-import com.surrealdev.temporal.application.plugin.hooks.WorkerStartedContext
-import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskContext
+import com.surrealdev.temporal.application.plugin.interceptor.InterceptorRegistry
 import com.surrealdev.temporal.util.AttributeKey
 
 /**
- * Builder for declaratively configuring plugins with hooks.
+ * Builder for declaratively configuring plugins with hooks and interceptors.
  *
  * The [PluginBuilder] provides a DSL for:
  * - Accessing the application and plugin configuration
- * - Registering lifecycle hooks
+ * - Registering lifecycle hooks via observer pattern
+ * - Registering interceptors via chain-of-responsibility pattern
  * - Building the plugin instance
  *
- * Usage:
+ * **Usage:**
  * ```kotlin
- * val plugin = createApplicationPlugin<MyPlugin>(
- *     name = "MyPlugin",
- *     createConfiguration = { MyConfig() }
- * ) {
- *     onApplicationSetup { context ->
- *         // Initialize plugin
+ * val plugin = createApplicationPlugin<Unit>("MyPlugin") {
+ *     application {
+ *         onSetup { ctx -> ... }
+ *         onShutdown { ctx -> ... }
  *     }
  *
- *     onWorkflowTaskStarted { context ->
- *         // Handle workflow task
+ *     workflow {
+ *         onExecute { input, proceed -> proceed(input) }
+ *         onTaskStarted { ctx -> ... }
  *     }
+ *
+ *     activity {
+ *         onExecute { input, proceed -> proceed(input) }
+ *         onTaskStarted { ctx -> ... }
+ *     }
+ *
+ *     Unit
  * }
  * ```
  */
@@ -77,6 +80,11 @@ abstract class PluginBuilder<PluginConfig : Any> internal constructor(
     val hooks = mutableListOf<HookHandler<*>>()
 
     /**
+     * Internal interceptor registry for interceptors registered by this plugin.
+     */
+    internal val interceptorRegistry = InterceptorRegistry()
+
+    /**
      * Registers a handler for the given hook.
      *
      * @param hook The hook to register for
@@ -89,51 +97,58 @@ abstract class PluginBuilder<PluginConfig : Any> internal constructor(
         hooks.add(HookHandler(hook, handler))
     }
 
-    // Convenience methods for common hooks
+    // ==================== Structured DSL Blocks ====================
 
     /**
-     * Registers a handler for application setup.
+     * Configures application-level hooks (setup, shutdown, worker lifecycle).
      *
-     * Called after the runtime and core client are created but before workers start.
+     * ```kotlin
+     * application {
+     *     onSetup { ctx -> ... }
+     *     onShutdown { ctx -> ... }
+     *     onWorkerStarted { ctx -> ... }
+     *     onWorkerStopped { ctx -> ... }
+     * }
+     * ```
      */
-    fun onApplicationSetup(handler: suspend (ApplicationSetupContext) -> Unit) {
-        on(com.surrealdev.temporal.application.plugin.hooks.ApplicationSetup, handler)
+    fun application(block: ApplicationHookBuilder.() -> Unit) {
+        ApplicationHookBuilder(this).apply(block)
     }
 
     /**
-     * Registers a handler for application shutdown.
+     * Configures workflow interceptors and observer hooks.
      *
-     * Called at the start of the shutdown process before workers are stopped.
+     * ```kotlin
+     * workflow {
+     *     // Interceptors (chain-of-responsibility)
+     *     onExecute { input, proceed -> proceed(input) }
+     *     onHandleSignal { input, proceed -> proceed(input) }
+     *
+     *     // Observer hooks
+     *     onTaskStarted { ctx -> ... }
+     * }
+     * ```
      */
-    fun onApplicationShutdown(handler: suspend (ApplicationShutdownContext) -> Unit) {
-        on(com.surrealdev.temporal.application.plugin.hooks.ApplicationShutdown, handler)
+    fun workflow(block: WorkflowHookBuilder.() -> Unit) {
+        WorkflowHookBuilder(this, interceptorRegistry).apply(block)
     }
 
     /**
-     * Registers a handler for when a worker starts.
+     * Configures activity interceptors and observer hooks.
      *
-     * Called after each worker successfully starts.
-     */
-    fun onWorkerStarted(handler: suspend (WorkerStartedContext) -> Unit) {
-        on(com.surrealdev.temporal.application.plugin.hooks.WorkerStarted, handler)
-    }
-
-    /**
-     * Registers a handler for when a workflow task starts.
+     * ```kotlin
+     * activity {
+     *     // Interceptors (chain-of-responsibility)
+     *     onExecute { input, proceed -> proceed(input) }
+     *     onHeartbeat { input, proceed -> proceed(input) }
      *
-     * Called before dispatching a workflow activation.
+     *     // Observer hooks
+     *     onTaskStarted { ctx -> ... }
+     * }
+     * ```
      */
-    fun onWorkflowTaskStarted(handler: suspend (WorkflowTaskContext) -> Unit) {
-        on(com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskStarted, handler)
-    }
-
-    /**
-     * Registers a handler for when an activity task starts.
-     *
-     * Called before dispatching an activity task.
-     */
-    fun onActivityTaskStarted(handler: suspend (ActivityTaskContext) -> Unit) {
-        on(com.surrealdev.temporal.application.plugin.hooks.ActivityTaskStarted, handler)
+    fun activity(block: ActivityHookBuilder.() -> Unit) {
+        ActivityHookBuilder(this, interceptorRegistry).apply(block)
     }
 }
 
@@ -168,10 +183,13 @@ class PluginBuilderImpl<PluginConfig : Any>(
  *             val plugin = MyPlugin(config)
  *
  *             val builder = createPluginBuilder(pipeline, config, key)
- *             builder.onWorkflowTaskStarted { context ->
- *                 // Handle workflow task
+ *             builder.workflow {
+ *                 onTaskStarted { context ->
+ *                     // Handle workflow task
+ *                 }
  *             }
  *             builder.hooks.forEach { it.install(pipeline.hookRegistry) }
+ *             installInterceptors(builder, pipeline)
  *
  *             return plugin
  *         }
@@ -206,6 +224,9 @@ inline fun <reified TPlugin : Any, TConfig : Any> createApplicationPlugin(
                 hookHandler.install(pipeline.hookRegistry)
             }
 
+            // Merge interceptors into the pipeline's registry
+            installInterceptors(builder, pipeline)
+
             return plugin
         }
     }
@@ -222,6 +243,17 @@ internal fun resolveHookRegistry(pipeline: PluginPipeline): HookRegistry? =
     }
 
 /**
+ * Resolves the [InterceptorRegistry] for the given pipeline, if available.
+ */
+@PublishedApi
+internal fun resolveInterceptorRegistry(pipeline: PluginPipeline): InterceptorRegistry? =
+    when (pipeline) {
+        is TemporalApplication -> pipeline.interceptorRegistry
+        is TaskQueueBuilder -> pipeline.interceptorRegistry
+        else -> null
+    }
+
+/**
  * Installs all hooks from a [PluginBuilder] into the given pipeline's hook registry.
  */
 @PublishedApi
@@ -234,6 +266,36 @@ internal fun installHooks(
         @Suppress("UNCHECKED_CAST")
         hookHandler.install(hookRegistry)
     }
+}
+
+/**
+ * Merges interceptors from a [PluginBuilder] into the pipeline's interceptor registry.
+ */
+@PublishedApi
+internal fun installInterceptors(
+    builder: PluginBuilder<*>,
+    pipeline: PluginPipeline,
+) {
+    val pipelineRegistry = resolveInterceptorRegistry(pipeline) ?: return
+    val builderRegistry = builder.interceptorRegistry
+
+    // Merge all interceptor lists from the builder into the pipeline registry
+    pipelineRegistry.executeWorkflow.addAll(builderRegistry.executeWorkflow)
+    pipelineRegistry.handleSignal.addAll(builderRegistry.handleSignal)
+    pipelineRegistry.handleQuery.addAll(builderRegistry.handleQuery)
+    pipelineRegistry.validateUpdate.addAll(builderRegistry.validateUpdate)
+    pipelineRegistry.executeUpdate.addAll(builderRegistry.executeUpdate)
+
+    pipelineRegistry.scheduleActivity.addAll(builderRegistry.scheduleActivity)
+    pipelineRegistry.scheduleLocalActivity.addAll(builderRegistry.scheduleLocalActivity)
+    pipelineRegistry.startChildWorkflow.addAll(builderRegistry.startChildWorkflow)
+    pipelineRegistry.sleep.addAll(builderRegistry.sleep)
+    pipelineRegistry.signalExternalWorkflow.addAll(builderRegistry.signalExternalWorkflow)
+    pipelineRegistry.cancelExternalWorkflow.addAll(builderRegistry.cancelExternalWorkflow)
+    pipelineRegistry.continueAsNew.addAll(builderRegistry.continueAsNew)
+
+    pipelineRegistry.executeActivity.addAll(builderRegistry.executeActivity)
+    pipelineRegistry.heartbeat.addAll(builderRegistry.heartbeat)
 }
 
 /**
@@ -264,6 +326,7 @@ inline fun <reified TPlugin : Any, TConfig : Any> createScopedPlugin(
             val plugin = body(builder, config)
 
             installHooks(builder, pipeline)
+            installInterceptors(builder, pipeline)
 
             return plugin
         }

@@ -19,6 +19,7 @@ import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskContext
 import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskFailed
 import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskFailedContext
 import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskStarted
+import com.surrealdev.temporal.application.plugin.interceptor.InterceptorRegistry
 import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.core.TemporalWorker
@@ -184,6 +185,11 @@ internal class ManagedWorker(
             parentScope = application,
         )
 
+    // Merge application-level and task-queue-level interceptor registries
+    // Application-level interceptors run first (outermost), task-queue interceptors run after
+    internal val mergedInterceptorRegistry: InterceptorRegistry =
+        application.interceptorRegistry.mergeWith(config.interceptorRegistry)
+
     // Dispatchers with concurrency limits from config
     private val activityDispatcher =
         ActivityDispatcher(
@@ -196,6 +202,7 @@ internal class ManagedWorker(
                 recordActivityHeartbeat(taskToken, details)
             },
             taskQueueScope = taskQueueScope,
+            interceptorRegistry = mergedInterceptorRegistry,
             zombieConfig = config.zombieEviction,
             onFatalError = {
                 val closed =
@@ -354,6 +361,7 @@ internal class ManagedWorker(
                 namespace = namespace,
                 maxConcurrent = config.maxConcurrentWorkflows,
                 taskQueueScope = taskQueueScope,
+                interceptorRegistry = mergedInterceptorRegistry,
                 parentJob = rootExecutorJob,
                 workflowThreadFactory = workflowThreadFactory,
                 deadlockTimeoutMs = config.workflowDeadlockTimeoutMs,

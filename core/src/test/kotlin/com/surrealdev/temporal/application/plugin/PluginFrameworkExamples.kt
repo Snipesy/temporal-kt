@@ -31,32 +31,39 @@ object PluginFrameworkExamples {
                 val builder = createPluginBuilder(pipeline, config, key)
 
                 // Register lifecycle hooks
-                builder.onApplicationSetup { context ->
-                    if (config.logStartup) {
-                        println("Application started: ${context.application}")
+                builder.application {
+                    onSetup { context ->
+                        if (config.logStartup) {
+                            println("Application started: ${context.application}")
+                        }
+                    }
+
+                    onWorkerStarted { context ->
+                        if (config.logWorkerEvents) {
+                            println("Worker started: ${context.taskQueue}")
+                        }
                     }
                 }
 
-                builder.onWorkerStarted { context ->
-                    if (config.logWorkerEvents) {
-                        println("Worker started: ${context.taskQueue}")
+                builder.workflow {
+                    onTaskStarted { context ->
+                        if (config.logWorkflowTasks) {
+                            println("Workflow task started: ${context.runId}")
+                        }
                     }
                 }
 
-                builder.onWorkflowTaskStarted { context ->
-                    if (config.logWorkflowTasks) {
-                        println("Workflow task started: ${context.runId}")
+                builder.activity {
+                    onTaskStarted { context ->
+                        if (config.logActivityTasks) {
+                            println("Activity task started: ${context.activityType}")
+                        }
                     }
                 }
 
-                builder.onActivityTaskStarted { context ->
-                    if (config.logActivityTasks) {
-                        println("Activity task started: ${context.activityType}")
-                    }
-                }
-
-                // Install hooks
+                // Install hooks and interceptors
                 builder.hooks.forEach { it.install(pipeline.hookRegistry) }
+                installInterceptors(builder, pipeline)
 
                 return plugin
             }
@@ -103,16 +110,22 @@ object PluginFrameworkExamples {
                 val plugin = MetricsPlugin(config)
 
                 if (config.enabled) {
-                    onApplicationSetup { _ ->
-                        println("Metrics server starting on port ${config.port}")
+                    application {
+                        onSetup { _ ->
+                            println("Metrics server starting on port ${config.port}")
+                        }
                     }
 
-                    onWorkflowTaskStarted { context ->
-                        context.workflowType?.let { plugin.recordWorkflow(it) }
+                    workflow {
+                        onTaskStarted { context ->
+                            context.workflowType?.let { plugin.recordWorkflow(it) }
+                        }
                     }
 
-                    onActivityTaskStarted { context ->
-                        plugin.recordActivity(context.activityType)
+                    activity {
+                        onTaskStarted { context ->
+                            plugin.recordActivity(context.activityType)
+                        }
                     }
                 }
 
@@ -210,11 +223,14 @@ object PluginFrameworkExamples {
                 val builder = createPluginBuilder(pipeline, config, key)
 
                 // Clear cache on shutdown
-                builder.onApplicationShutdown { _ ->
-                    plugin.clear()
+                builder.application {
+                    onShutdown { _ ->
+                        plugin.clear()
+                    }
                 }
 
                 builder.hooks.forEach { it.install(pipeline.hookRegistry) }
+                installInterceptors(builder, pipeline)
 
                 return plugin
             }

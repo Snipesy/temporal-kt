@@ -1,6 +1,9 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.application.plugin.interceptor.InterceptorChain
+import com.surrealdev.temporal.application.plugin.interceptor.InterceptorRegistry
+import com.surrealdev.temporal.application.plugin.interceptor.SignalExternalInput
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.exceptions.ChildWorkflowCancelledException
@@ -44,6 +47,7 @@ internal class ChildWorkflowHandleImpl(
     override val serializer: PayloadSerializer,
     private val codec: PayloadCodec,
     private val cancellationType: ChildWorkflowCancellationType,
+    private val interceptorRegistry: InterceptorRegistry = InterceptorRegistry.EMPTY,
 ) : ChildWorkflowHandle {
     /**
      * Deferred that completes when the child workflow starts (or fails to start).
@@ -68,7 +72,6 @@ internal class ChildWorkflowHandleImpl(
         return runId
     }
 
-    @OptIn(InternalTemporalApi::class)
     override suspend fun resultPayload(): TemporalPayload? {
         // Wait for start resolution first
         val runId = startDeferred.await()
@@ -131,7 +134,6 @@ internal class ChildWorkflowHandleImpl(
     }
 
     @InternalTemporalApi
-    @OptIn(InternalTemporalApi::class)
     override suspend fun signalWithPayloads(
         signalName: String,
         args: TemporalPayloads,
@@ -140,6 +142,25 @@ internal class ChildWorkflowHandleImpl(
         // This ensures the child exists on the server before we try to signal it
         startDeferred.await()
 
+        // Execute through the interceptor chain
+        val interceptorInput =
+            SignalExternalInput(
+                workflowId = workflowId,
+                runId = firstExecutionRunId,
+                signalName = signalName,
+                args = args,
+            )
+
+        val chain = InterceptorChain(interceptorRegistry.signalExternalWorkflow)
+        chain.execute(interceptorInput) { input ->
+            signalInternal(input.signalName, input.args)
+        }
+    }
+
+    private suspend fun signalInternal(
+        signalName: String,
+        args: TemporalPayloads,
+    ) {
         val signalSeq = state.nextSeq()
 
         // Build signal command using child_workflow_id target

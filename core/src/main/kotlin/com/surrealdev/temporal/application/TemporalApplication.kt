@@ -15,6 +15,7 @@ import com.surrealdev.temporal.application.plugin.hooks.WorkerStarted
 import com.surrealdev.temporal.application.plugin.hooks.WorkerStartedContext
 import com.surrealdev.temporal.application.plugin.hooks.WorkerStopped
 import com.surrealdev.temporal.application.plugin.hooks.WorkerStoppedContext
+import com.surrealdev.temporal.application.plugin.interceptor.InterceptorRegistry
 import com.surrealdev.temporal.application.worker.ManagedWorker
 import com.surrealdev.temporal.client.TemporalClient
 import com.surrealdev.temporal.client.TemporalClientConfig
@@ -115,6 +116,14 @@ open class TemporalApplication internal constructor(
      * Plugins can register hooks via this registry to be notified of lifecycle events.
      */
     val hookRegistry: HookRegistry = HookRegistryImpl()
+
+    /**
+     * Interceptor registry for application-level interceptors.
+     *
+     * Plugins register interceptors via the `workflow {}` and `activity {}` DSL blocks.
+     * These interceptors are merged with task-queue-level interceptors at worker startup.
+     */
+    val interceptorRegistry: InterceptorRegistry = InterceptorRegistry()
 
     private val applicationJob = SupervisorJob(parentCoroutineContext[Job])
 
@@ -449,6 +458,8 @@ internal data class TaskQueueConfig(
     val attributes: Attributes = Attributes(concurrent = false),
     /** Hook registry for task-queue-scoped hooks. */
     val hookRegistry: HookRegistry = HookRegistryImpl(),
+    /** Interceptor registry for task-queue-scoped interceptors. */
+    val interceptorRegistry: InterceptorRegistry = InterceptorRegistry(),
     /**
      * Grace period for shutdown to wait for polling jobs to complete gracefully.
      * After this timeout, polling jobs will be force-canceled.

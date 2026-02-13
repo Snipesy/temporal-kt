@@ -968,6 +968,11 @@ class BasicDependencyInjectionTest {
             workflowId: String,
             runId: String?,
         ): com.surrealdev.temporal.workflow.ExternalWorkflowHandle = TODO("Not needed for DI tests")
+
+        override suspend fun continueAsNewInternal(
+            options: com.surrealdev.temporal.workflow.ContinueAsNewOptions,
+            typedArgs: List<Pair<kotlin.reflect.KType, Any?>>,
+        ): Nothing = TODO("Not needed for DI tests")
     }
 
     /**

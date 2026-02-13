@@ -70,219 +70,221 @@ val OpenTelemetryPlugin =
 
         val spanHolder = SpanContextHolder()
 
+        // ==================== Application Hooks ====================
+
+        application {
+            if (config.enableMetrics) {
+                onWorkerStarted { ctx: WorkerStartedContext ->
+                    metrics?.let { m ->
+                        val attrs =
+                            Attributes.of(
+                                TemporalAttributes.TASK_QUEUE,
+                                ctx.taskQueue,
+                                TemporalAttributes.NAMESPACE,
+                                ctx.namespace,
+                            )
+                        m.workerStartedCounter.add(1, attrs)
+                    }
+                }
+            }
+        }
+
         // ==================== Workflow Hooks ====================
 
-        if (config.enableWorkflowSpans) {
-            onWorkflowTaskStarted { ctx: WorkflowTaskContext ->
-                val span =
-                    tracer
-                        .spanBuilder("temporal.workflow.task")
-                        .setSpanKind(SpanKind.INTERNAL)
-                        .setAttribute(TemporalAttributes.WORKFLOW_TYPE, ctx.workflowType ?: "unknown")
-                        .setAttribute(TemporalAttributes.RUN_ID, ctx.runId)
-                        .setAttribute(TemporalAttributes.TASK_QUEUE, ctx.taskQueue)
-                        .setAttribute(TemporalAttributes.NAMESPACE, ctx.namespace)
-                        .startSpan()
+        workflow {
+            if (config.enableWorkflowSpans) {
+                onTaskStarted { ctx: WorkflowTaskContext ->
+                    val span =
+                        tracer
+                            .spanBuilder("temporal.workflow.task")
+                            .setSpanKind(SpanKind.INTERNAL)
+                            .setAttribute(TemporalAttributes.WORKFLOW_TYPE, ctx.workflowType ?: "unknown")
+                            .setAttribute(TemporalAttributes.RUN_ID, ctx.runId)
+                            .setAttribute(TemporalAttributes.TASK_QUEUE, ctx.taskQueue)
+                            .setAttribute(TemporalAttributes.NAMESPACE, ctx.namespace)
+                            .startSpan()
 
-                spanHolder.putWorkflowSpan(
-                    runId = ctx.runId,
-                    span = span,
-                    workflowType = ctx.workflowType,
-                    taskQueue = ctx.taskQueue,
-                    namespace = ctx.namespace,
-                )
-
-                if (config.enableMdcIntegration) {
-                    TracingMdc.put(span)
-                }
-            }
-
-            on(
-                com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskCompleted,
-            ) { ctx: WorkflowTaskCompletedContext ->
-                val spanWithContext = spanHolder.removeWorkflowSpan(ctx.runId)
-                if (spanWithContext != null) {
-                    val span = spanWithContext.span
-
-                    // Record metrics
-                    metrics?.let { m ->
-                        val attrs =
-                            Attributes.of(
-                                TemporalAttributes.WORKFLOW_TYPE,
-                                spanWithContext.workflowType ?: "unknown",
-                                TemporalAttributes.TASK_QUEUE,
-                                spanWithContext.taskQueue,
-                                TemporalAttributes.NAMESPACE,
-                                spanWithContext.namespace,
-                                TemporalAttributes.STATUS,
-                                TemporalAttributes.STATUS_SUCCESS,
-                            )
-                        m.workflowTaskCounter.add(1, attrs)
-                        m.workflowTaskDuration.record(ctx.duration.inWholeMilliseconds.toDouble(), attrs)
-                    }
+                    spanHolder.putWorkflowSpan(
+                        runId = ctx.runId,
+                        span = span,
+                        workflowType = ctx.workflowType,
+                        taskQueue = ctx.taskQueue,
+                        namespace = ctx.namespace,
+                    )
 
                     if (config.enableMdcIntegration) {
-                        TracingMdc.remove()
+                        TracingMdc.put(span)
                     }
-
-                    span.end()
                 }
-            }
 
-            on(com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskFailed) { ctx: WorkflowTaskFailedContext ->
-                val spanWithContext = spanHolder.removeWorkflowSpan(ctx.runId)
-                if (spanWithContext != null) {
-                    val span = spanWithContext.span
+                onTaskCompleted { ctx: WorkflowTaskCompletedContext ->
+                    val spanWithContext = spanHolder.removeWorkflowSpan(ctx.runId)
+                    if (spanWithContext != null) {
+                        val span = spanWithContext.span
 
-                    span.recordException(ctx.error)
-                    span.setStatus(StatusCode.ERROR, ctx.error.message ?: "Workflow task failed")
+                        // Record metrics
+                        metrics?.let { m ->
+                            val attrs =
+                                Attributes.of(
+                                    TemporalAttributes.WORKFLOW_TYPE,
+                                    spanWithContext.workflowType ?: "unknown",
+                                    TemporalAttributes.TASK_QUEUE,
+                                    spanWithContext.taskQueue,
+                                    TemporalAttributes.NAMESPACE,
+                                    spanWithContext.namespace,
+                                    TemporalAttributes.STATUS,
+                                    TemporalAttributes.STATUS_SUCCESS,
+                                )
+                            m.workflowTaskCounter.add(1, attrs)
+                            m.workflowTaskDuration.record(ctx.duration.inWholeMilliseconds.toDouble(), attrs)
+                        }
 
-                    // Record metrics
-                    metrics?.let { m ->
-                        val attrs =
-                            Attributes.of(
-                                TemporalAttributes.WORKFLOW_TYPE,
-                                spanWithContext.workflowType ?: "unknown",
-                                TemporalAttributes.TASK_QUEUE,
-                                spanWithContext.taskQueue,
-                                TemporalAttributes.NAMESPACE,
-                                spanWithContext.namespace,
-                                TemporalAttributes.STATUS,
-                                TemporalAttributes.STATUS_FAILURE,
-                            )
-                        m.workflowTaskCounter.add(1, attrs)
-                        // Note: duration not available in failed context
+                        if (config.enableMdcIntegration) {
+                            TracingMdc.remove()
+                        }
+
+                        span.end()
                     }
+                }
 
-                    if (config.enableMdcIntegration) {
-                        TracingMdc.remove()
+                onTaskFailed { ctx: WorkflowTaskFailedContext ->
+                    val spanWithContext = spanHolder.removeWorkflowSpan(ctx.runId)
+                    if (spanWithContext != null) {
+                        val span = spanWithContext.span
+
+                        span.recordException(ctx.error)
+                        span.setStatus(StatusCode.ERROR, ctx.error.message ?: "Workflow task failed")
+
+                        // Record metrics
+                        metrics?.let { m ->
+                            val attrs =
+                                Attributes.of(
+                                    TemporalAttributes.WORKFLOW_TYPE,
+                                    spanWithContext.workflowType ?: "unknown",
+                                    TemporalAttributes.TASK_QUEUE,
+                                    spanWithContext.taskQueue,
+                                    TemporalAttributes.NAMESPACE,
+                                    spanWithContext.namespace,
+                                    TemporalAttributes.STATUS,
+                                    TemporalAttributes.STATUS_FAILURE,
+                                )
+                            m.workflowTaskCounter.add(1, attrs)
+                            // Note: duration not available in failed context
+                        }
+
+                        if (config.enableMdcIntegration) {
+                            TracingMdc.remove()
+                        }
+
+                        span.end()
                     }
-
-                    span.end()
                 }
             }
         }
 
         // ==================== Activity Hooks ====================
 
-        if (config.enableActivitySpans) {
-            onActivityTaskStarted { ctx: ActivityTaskContext ->
-                val span =
-                    tracer
-                        .spanBuilder("temporal.activity.execute")
-                        .setSpanKind(SpanKind.INTERNAL)
-                        .setAttribute(TemporalAttributes.ACTIVITY_TYPE, ctx.activityType)
-                        .setAttribute(TemporalAttributes.ACTIVITY_ID, ctx.activityId)
-                        .setAttribute(TemporalAttributes.WORKFLOW_ID, ctx.workflowId)
-                        .setAttribute(TemporalAttributes.RUN_ID, ctx.runId)
-                        .setAttribute(TemporalAttributes.TASK_QUEUE, ctx.taskQueue)
-                        .setAttribute(TemporalAttributes.NAMESPACE, ctx.namespace)
-                        .startSpan()
+        activity {
+            if (config.enableActivitySpans) {
+                onTaskStarted { ctx: ActivityTaskContext ->
+                    val span =
+                        tracer
+                            .spanBuilder("temporal.activity.execute")
+                            .setSpanKind(SpanKind.INTERNAL)
+                            .setAttribute(TemporalAttributes.ACTIVITY_TYPE, ctx.activityType)
+                            .setAttribute(TemporalAttributes.ACTIVITY_ID, ctx.activityId)
+                            .setAttribute(TemporalAttributes.WORKFLOW_ID, ctx.workflowId)
+                            .setAttribute(TemporalAttributes.RUN_ID, ctx.runId)
+                            .setAttribute(TemporalAttributes.TASK_QUEUE, ctx.taskQueue)
+                            .setAttribute(TemporalAttributes.NAMESPACE, ctx.namespace)
+                            .startSpan()
 
-                spanHolder.putActivitySpan(
-                    workflowId = ctx.workflowId,
-                    runId = ctx.runId,
-                    activityId = ctx.activityId,
-                    span = span,
-                    activityType = ctx.activityType,
-                    taskQueue = ctx.taskQueue,
-                    namespace = ctx.namespace,
-                )
-
-                if (config.enableMdcIntegration) {
-                    TracingMdc.put(span)
-                }
-            }
-
-            on(
-                com.surrealdev.temporal.application.plugin.hooks.ActivityTaskCompleted,
-            ) { ctx: ActivityTaskCompletedContext ->
-                // Extract activity info from the context
-                val workflowId = ctx.workflowId
-                val runId = ctx.runId
-                val activityId = ctx.activityId
-
-                val spanWithContext = spanHolder.removeActivitySpan(workflowId, runId, activityId)
-                if (spanWithContext != null) {
-                    val span = spanWithContext.span
-
-                    // Record metrics
-                    metrics?.let { m ->
-                        val attrs =
-                            Attributes.of(
-                                TemporalAttributes.ACTIVITY_TYPE,
-                                spanWithContext.activityType ?: ctx.activityType,
-                                TemporalAttributes.TASK_QUEUE,
-                                spanWithContext.taskQueue,
-                                TemporalAttributes.NAMESPACE,
-                                spanWithContext.namespace,
-                                TemporalAttributes.STATUS,
-                                TemporalAttributes.STATUS_SUCCESS,
-                            )
-                        m.activityTaskCounter.add(1, attrs)
-                        m.activityTaskDuration.record(ctx.duration.inWholeMilliseconds.toDouble(), attrs)
-                    }
+                    spanHolder.putActivitySpan(
+                        workflowId = ctx.workflowId,
+                        runId = ctx.runId,
+                        activityId = ctx.activityId,
+                        span = span,
+                        activityType = ctx.activityType,
+                        taskQueue = ctx.taskQueue,
+                        namespace = ctx.namespace,
+                    )
 
                     if (config.enableMdcIntegration) {
-                        TracingMdc.remove()
+                        TracingMdc.put(span)
                     }
-
-                    span.end()
                 }
-            }
 
-            on(com.surrealdev.temporal.application.plugin.hooks.ActivityTaskFailed) { ctx: ActivityTaskFailedContext ->
-                // Extract activity info from the context
-                val workflowId = ctx.workflowId
-                val runId = ctx.runId
-                val activityId = ctx.activityId
+                onTaskCompleted { ctx: ActivityTaskCompletedContext ->
+                    // Extract activity info from the context
+                    val workflowId = ctx.workflowId
+                    val runId = ctx.runId
+                    val activityId = ctx.activityId
 
-                val spanWithContext = spanHolder.removeActivitySpan(workflowId, runId, activityId)
-                if (spanWithContext != null) {
-                    val span = spanWithContext.span
+                    val spanWithContext = spanHolder.removeActivitySpan(workflowId, runId, activityId)
+                    if (spanWithContext != null) {
+                        val span = spanWithContext.span
 
-                    span.recordException(ctx.error)
-                    span.setStatus(StatusCode.ERROR, ctx.error.message ?: "Activity task failed")
+                        // Record metrics
+                        metrics?.let { m ->
+                            val attrs =
+                                Attributes.of(
+                                    TemporalAttributes.ACTIVITY_TYPE,
+                                    spanWithContext.activityType ?: ctx.activityType,
+                                    TemporalAttributes.TASK_QUEUE,
+                                    spanWithContext.taskQueue,
+                                    TemporalAttributes.NAMESPACE,
+                                    spanWithContext.namespace,
+                                    TemporalAttributes.STATUS,
+                                    TemporalAttributes.STATUS_SUCCESS,
+                                )
+                            m.activityTaskCounter.add(1, attrs)
+                            m.activityTaskDuration.record(ctx.duration.inWholeMilliseconds.toDouble(), attrs)
+                        }
 
-                    // Record metrics
-                    metrics?.let { m ->
-                        val attrs =
-                            Attributes.of(
-                                TemporalAttributes.ACTIVITY_TYPE,
-                                spanWithContext.activityType ?: ctx.activityType,
-                                TemporalAttributes.TASK_QUEUE,
-                                spanWithContext.taskQueue,
-                                TemporalAttributes.NAMESPACE,
-                                spanWithContext.namespace,
-                                TemporalAttributes.STATUS,
-                                TemporalAttributes.STATUS_FAILURE,
-                            )
-                        m.activityTaskCounter.add(1, attrs)
-                        // Note: duration not available in failed context
+                        if (config.enableMdcIntegration) {
+                            TracingMdc.remove()
+                        }
+
+                        span.end()
                     }
-
-                    if (config.enableMdcIntegration) {
-                        TracingMdc.remove()
-                    }
-
-                    span.end()
                 }
-            }
-        }
 
-        // ==================== Worker Hooks ====================
+                onTaskFailed { ctx: ActivityTaskFailedContext ->
+                    // Extract activity info from the context
+                    val workflowId = ctx.workflowId
+                    val runId = ctx.runId
+                    val activityId = ctx.activityId
 
-        if (config.enableMetrics) {
-            onWorkerStarted { ctx: WorkerStartedContext ->
-                metrics?.let { m ->
-                    val attrs =
-                        Attributes.of(
-                            TemporalAttributes.TASK_QUEUE,
-                            ctx.taskQueue,
-                            TemporalAttributes.NAMESPACE,
-                            ctx.namespace,
-                        )
-                    m.workerStartedCounter.add(1, attrs)
+                    val spanWithContext = spanHolder.removeActivitySpan(workflowId, runId, activityId)
+                    if (spanWithContext != null) {
+                        val span = spanWithContext.span
+
+                        span.recordException(ctx.error)
+                        span.setStatus(StatusCode.ERROR, ctx.error.message ?: "Activity task failed")
+
+                        // Record metrics
+                        metrics?.let { m ->
+                            val attrs =
+                                Attributes.of(
+                                    TemporalAttributes.ACTIVITY_TYPE,
+                                    spanWithContext.activityType ?: ctx.activityType,
+                                    TemporalAttributes.TASK_QUEUE,
+                                    spanWithContext.taskQueue,
+                                    TemporalAttributes.NAMESPACE,
+                                    spanWithContext.namespace,
+                                    TemporalAttributes.STATUS,
+                                    TemporalAttributes.STATUS_FAILURE,
+                                )
+                            m.activityTaskCounter.add(1, attrs)
+                            // Note: duration not available in failed context
+                        }
+
+                        if (config.enableMdcIntegration) {
+                            TracingMdc.remove()
+                        }
+
+                        span.end()
+                    }
                 }
             }
         }

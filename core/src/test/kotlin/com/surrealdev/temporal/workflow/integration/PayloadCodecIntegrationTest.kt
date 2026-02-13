@@ -2,7 +2,6 @@ package com.surrealdev.temporal.workflow.integration
 
 import com.surrealdev.temporal.activity.ActivityContext
 import com.surrealdev.temporal.annotation.Activity
-import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.plugin.install
@@ -131,7 +130,6 @@ class PayloadCodecIntegrationTest {
      * A test codec that wraps another codec and records encode/decode calls.
      * Used to verify that the codec is actually being invoked.
      */
-    @OptIn(InternalTemporalApi::class)
     class RecordingCodec(
         private val inner: PayloadCodec,
     ) : PayloadCodec {

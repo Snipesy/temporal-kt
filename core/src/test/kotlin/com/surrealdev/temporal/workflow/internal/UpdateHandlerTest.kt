@@ -1,6 +1,5 @@
 package com.surrealdev.temporal.workflow.internal
 
-import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.annotation.Update
 import com.surrealdev.temporal.annotation.UpdateValidator
 import com.surrealdev.temporal.annotation.Workflow
@@ -764,7 +763,6 @@ class UpdateHandlerTest {
 
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
-            @OptIn(InternalTemporalApi::class)
             setUpdateHandlerWithPayloads(
                 name = "runtimeUpdate",
                 handler = { payloads ->
@@ -787,14 +785,11 @@ class UpdateHandlerTest {
             setUpdateHandlerWithPayloads(
                 "setValue",
                 handler = { payloads ->
-                    @OptIn(InternalTemporalApi::class)
                     val newValue = serializer.deserialize<Int>(payloads[0])
                     value = newValue
-                    @OptIn(InternalTemporalApi::class)
                     serializer.serialize<Int>(value)
                 },
                 validator = { payloads ->
-                    @OptIn(InternalTemporalApi::class)
                     val newValue = serializer.deserialize<Int>(payloads[0])
                     require(newValue >= 0) { "Value must be non-negative" }
                 },

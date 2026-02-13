@@ -38,16 +38,21 @@ class PluginFrameworkTest {
 
                 val builder = createPluginBuilder(pipeline, config, key)
 
-                builder.onApplicationSetup { context ->
-                    plugin.setupCalled.add("setup:${context.application}")
+                builder.application {
+                    onSetup { context ->
+                        plugin.setupCalled.add("setup:${context.application}")
+                    }
                 }
 
-                builder.onWorkflowTaskStarted { context ->
-                    plugin.workflowTasksCalled.add("workflow:${context.runId}")
+                builder.workflow {
+                    onTaskStarted { context ->
+                        plugin.workflowTasksCalled.add("workflow:${context.runId}")
+                    }
                 }
 
-                // Register all hooks
+                // Register all hooks and interceptors
                 builder.hooks.forEach { it.install(pipeline.hookRegistry) }
+                installInterceptors(builder, pipeline)
 
                 return plugin
             }
@@ -140,8 +145,10 @@ class PluginFrameworkTest {
                 name = "MyDSLPlugin",
                 createConfiguration = { MyConfig() },
             ) { config ->
-                onApplicationSetup { _ ->
-                    // Setup logic here
+                application {
+                    onSetup { _ ->
+                        // Setup logic here
+                    }
                 }
 
                 MyPlugin(config.value)

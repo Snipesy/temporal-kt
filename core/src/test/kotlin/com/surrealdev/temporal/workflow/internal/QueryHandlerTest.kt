@@ -1,6 +1,5 @@
 package com.surrealdev.temporal.workflow.internal
 
-import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.annotation.Query
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
@@ -440,7 +439,6 @@ class QueryHandlerTest {
                     .respondToQuery
             assertTrue(queryResult.hasSucceeded())
 
-            @OptIn(InternalTemporalApi::class)
             val result =
                 serializer.deserialize<List<String>>(
                     queryResult.succeeded.response.toTemporal(),
@@ -935,7 +933,6 @@ class QueryHandlerTest {
                     .respondToQuery
             assertTrue(queryResult.hasSucceeded())
 
-            @OptIn(InternalTemporalApi::class)
             val result =
                 serializer.deserialize<List<String>>(
                     queryResult.succeeded.response.toTemporal(),

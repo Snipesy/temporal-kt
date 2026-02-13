@@ -1,10 +1,12 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.surrealdev.temporal.application.plugin.interceptor.HandleSignalInput
+import com.surrealdev.temporal.application.plugin.interceptor.InterceptorChain
 import com.surrealdev.temporal.common.EncodedTemporalPayloads
+import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.exceptions.PayloadProcessingException
 import com.surrealdev.temporal.serialization.safeDecode
-import io.temporal.api.common.v1.Payload
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.reflect.full.callSuspend
 
@@ -30,6 +32,39 @@ internal suspend fun WorkflowExecutor.handleSignal(
 
     logger.debug("Processing signal: name={}, args={}", signalName, inputPayloads.size)
 
+    // Codec-decode args once — used by both interceptors and dispatch handlers
+    val decodedArgs = codec.safeDecode(EncodedTemporalPayloads.fromProtoPayloadList(inputPayloads))
+
+    val interceptorInput =
+        HandleSignalInput(
+            signalName = signalName,
+            args = decodedArgs,
+            runId = runId,
+            workflowType = methodInfo.workflowType,
+            headers = signal.headersMap.takeIf { it.isNotEmpty() }?.mapValues { (_, v) -> TemporalPayload(v) },
+        )
+
+    try {
+        val chain = InterceptorChain(interceptorRegistry.handleSignal)
+        chain.execute(interceptorInput) { input ->
+            dispatchSignal(input.signalName, input.args)
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        // Signal interceptor exceptions should not fail the workflow task.
+        // Signals are fire-and-forget — log and continue.
+        logger.warn("Signal interceptor threw exception for '{}': {}", signalName, e.message, e)
+    }
+}
+
+/**
+ * Internal signal dispatch logic — the terminal handler for the HandleSignal interceptor chain.
+ */
+private suspend fun WorkflowExecutor.dispatchSignal(
+    signalName: String,
+    decodedArgs: TemporalPayloads,
+) {
     val ctx = context
 
     // Check runtime-registered handlers first (they take precedence)
@@ -43,34 +78,26 @@ internal suspend fun WorkflowExecutor.handleSignal(
     // Determine which handler to use
     when {
         runtimeHandler != null -> {
-            invokeRuntimeSignalHandler(runtimeHandler, inputPayloads)
+            invokeRuntimeSignalHandler(runtimeHandler, decodedArgs)
         }
 
         annotationHandler != null -> {
-            invokeAnnotationSignalHandler(annotationHandler, signal, isDynamic = false)
+            invokeAnnotationSignalHandler(annotationHandler, signalName, decodedArgs, isDynamic = false)
         }
 
         runtimeDynamicHandler != null -> {
-            invokeRuntimeDynamicSignalHandler(runtimeDynamicHandler, signalName, inputPayloads)
+            invokeRuntimeDynamicSignalHandler(runtimeDynamicHandler, signalName, decodedArgs)
         }
 
         annotationDynamicHandler != null -> {
-            invokeAnnotationSignalHandler(annotationDynamicHandler, signal, isDynamic = true)
+            invokeAnnotationSignalHandler(annotationDynamicHandler, signalName, decodedArgs, isDynamic = true)
         }
 
         else -> {
             // Buffer the signal for later when a handler is registered
-            // Decode eagerly before buffering so handlers get decoded payloads
+            // Payloads are already decoded so handlers get decoded payloads
             logger.debug("No handler found for signal '{}', buffering for later", signalName)
-            try {
-                val encoded = EncodedTemporalPayloads.fromProtoPayloadList(inputPayloads)
-                val decodedPayloads = codec.safeDecode(encoded)
-                ctx?.bufferedSignals?.getOrPut(signalName) { mutableListOf() }?.add(decodedPayloads)
-            } catch (e: PayloadProcessingException) {
-                // Codec/serialization error during buffered signal decode - log and drop signal
-                // Failing the workflow task would cause infinite retries
-                logger.warn("Failed to decode buffered signal '{}', signal dropped: {}", signalName, e.message)
-            }
+            ctx?.bufferedSignals?.getOrPut(signalName) { mutableListOf() }?.add(decodedArgs)
         }
     }
 }
@@ -80,14 +107,12 @@ internal suspend fun WorkflowExecutor.handleSignal(
  */
 private suspend fun WorkflowExecutor.invokeRuntimeSignalHandler(
     handler: suspend (TemporalPayloads) -> Unit,
-    args: List<Payload>,
+    decodedArgs: TemporalPayloads,
 ) {
     val ctx = (context ?: error("WorkflowContext not initialized")) as WorkflowContextImpl
     ctx.launchHandler {
         try {
-            val encoded = EncodedTemporalPayloads.fromProtoPayloadList(args)
-            val payloads = codec.safeDecode(encoded)
-            handler(payloads)
+            handler(decodedArgs)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -104,14 +129,12 @@ private suspend fun WorkflowExecutor.invokeRuntimeSignalHandler(
 private suspend fun WorkflowExecutor.invokeRuntimeDynamicSignalHandler(
     handler: suspend (signalName: String, args: TemporalPayloads) -> Unit,
     signalName: String,
-    args: List<Payload>,
+    decodedArgs: TemporalPayloads,
 ) {
     val ctx = (context ?: error("WorkflowContext not initialized")) as WorkflowContextImpl
     ctx.launchHandler {
         try {
-            val encoded = EncodedTemporalPayloads.fromProtoPayloadList(args)
-            val payloads = codec.safeDecode(encoded)
-            handler(signalName, payloads)
+            handler(signalName, decodedArgs)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -126,7 +149,8 @@ private suspend fun WorkflowExecutor.invokeRuntimeDynamicSignalHandler(
  */
 private suspend fun WorkflowExecutor.invokeAnnotationSignalHandler(
     handler: SignalHandlerInfo,
-    signal: coresdk.workflow_activation.WorkflowActivationOuterClass.SignalWorkflow,
+    signalName: String,
+    decodedArgs: TemporalPayloads,
     isDynamic: Boolean,
 ) {
     val ctx = (context ?: error("WorkflowContext not initialized")) as WorkflowContextImpl
@@ -134,14 +158,14 @@ private suspend fun WorkflowExecutor.invokeAnnotationSignalHandler(
 
     ctx.launchHandler {
         try {
-            // Deserialize arguments (codec decode -> serializer deserialize)
+            // Deserialize already-decoded arguments
             val args =
                 if (isDynamic) {
                     val remainingParamTypes = handler.parameterTypes.drop(1)
-                    val deserializedArgs = deserializeArguments(signal.inputList, remainingParamTypes)
-                    arrayOf(signal.signalName, *deserializedArgs)
+                    val deserializedArgs = deserializeDecodedArguments(decodedArgs, remainingParamTypes)
+                    arrayOf(signalName, *deserializedArgs)
                 } else {
-                    deserializeArguments(signal.inputList, handler.parameterTypes)
+                    deserializeDecodedArguments(decodedArgs, handler.parameterTypes)
                 }
 
             // Invoke the handler method
@@ -159,11 +183,11 @@ private suspend fun WorkflowExecutor.invokeAnnotationSignalHandler(
                 }
             }
         } catch (e: PayloadProcessingException) {
-            // Codec/serialization error during signal argument decode - log and drop signal
+            // Serialization error during signal argument deserialize - log and drop signal
             // Signals are fire-and-forget; there's no caller to report error to
             logger.warn(
                 "Signal handler payload processing failed for '{}', signal dropped: {}",
-                signal.signalName,
+                signalName,
                 e.message,
             )
         } catch (e: java.lang.reflect.InvocationTargetException) {

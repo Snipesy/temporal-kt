@@ -1,6 +1,10 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.application.plugin.interceptor.CancelExternalInput
+import com.surrealdev.temporal.application.plugin.interceptor.InterceptorChain
+import com.surrealdev.temporal.application.plugin.interceptor.InterceptorRegistry
+import com.surrealdev.temporal.application.plugin.interceptor.SignalExternalInput
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.exceptions.CancelExternalWorkflowFailedException
 import com.surrealdev.temporal.common.exceptions.SignalExternalWorkflowFailedException
@@ -30,6 +34,7 @@ internal class ExternalWorkflowHandleImpl(
     private val state: WorkflowState,
     override val serializer: PayloadSerializer,
     private val codec: PayloadCodec,
+    private val interceptorRegistry: InterceptorRegistry = InterceptorRegistry.EMPTY,
 ) : ExternalWorkflowHandle {
     /**
      * Builds the NamespacedWorkflowExecution proto used for targeting this external workflow.
@@ -48,6 +53,25 @@ internal class ExternalWorkflowHandleImpl(
 
     @InternalTemporalApi
     override suspend fun signalWithPayloads(
+        signalName: String,
+        args: TemporalPayloads,
+    ) {
+        // Execute through the interceptor chain
+        val interceptorInput =
+            SignalExternalInput(
+                workflowId = workflowId,
+                runId = runId,
+                signalName = signalName,
+                args = args,
+            )
+
+        val chain = InterceptorChain(interceptorRegistry.signalExternalWorkflow)
+        chain.execute(interceptorInput) { input ->
+            signalInternal(input.signalName, input.args)
+        }
+    }
+
+    private suspend fun signalInternal(
         signalName: String,
         args: TemporalPayloads,
     ) {
@@ -83,6 +107,21 @@ internal class ExternalWorkflowHandleImpl(
     }
 
     override suspend fun cancel(reason: String) {
+        // Execute through the interceptor chain
+        val interceptorInput =
+            CancelExternalInput(
+                workflowId = workflowId,
+                runId = runId,
+                reason = reason,
+            )
+
+        val chain = InterceptorChain(interceptorRegistry.cancelExternalWorkflow)
+        chain.execute(interceptorInput) { input ->
+            cancelInternal(input.reason)
+        }
+    }
+
+    private suspend fun cancelInternal(reason: String) {
         val cancelSeq = state.nextSeq()
 
         // Build cancel command

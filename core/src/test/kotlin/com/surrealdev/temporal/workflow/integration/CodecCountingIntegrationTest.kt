@@ -3,7 +3,6 @@ package com.surrealdev.temporal.workflow.integration
 import com.surrealdev.temporal.activity.ActivityContext
 import com.surrealdev.temporal.activity.heartbeat
 import com.surrealdev.temporal.annotation.Activity
-import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.annotation.Query
 import com.surrealdev.temporal.annotation.Signal
 import com.surrealdev.temporal.annotation.Update
@@ -99,7 +98,6 @@ class CodecCountingIntegrationTest {
      * A worker WITHOUT this codec sees encoding="test/marker" and the serializer throws
      * "No converter registered for encoding: test/marker".
      */
-    @OptIn(InternalTemporalApi::class)
     class MarkerCodec : PayloadCodec {
         val encodeCount = AtomicInteger(0)
         val decodeCount = AtomicInteger(0)

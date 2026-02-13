@@ -1,6 +1,5 @@
 package com.surrealdev.temporal.workflow.internal
 
-import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.common.exceptions.ApplicationFailure
 import com.surrealdev.temporal.common.exceptions.RemoteException
 import com.surrealdev.temporal.common.failure.FAILURE_SOURCE
@@ -20,7 +19,6 @@ import kotlin.test.assertTrue
  * Tests for recursive cause chain serialization and stack trace preservation
  * through `buildFailureProto` → proto → `buildCause` round-trips.
  */
-@OptIn(InternalTemporalApi::class)
 class CauseChainSerializationTest {
     private val serializer = CompositePayloadSerializer.default()
     private val codec = NoOpCodec

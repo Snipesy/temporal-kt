@@ -1,6 +1,13 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.application.plugin.interceptor.ContinueAsNewInput
+import com.surrealdev.temporal.application.plugin.interceptor.InterceptorChain
+import com.surrealdev.temporal.application.plugin.interceptor.InterceptorRegistry
+import com.surrealdev.temporal.application.plugin.interceptor.ScheduleActivityInput
+import com.surrealdev.temporal.application.plugin.interceptor.ScheduleLocalActivityInput
+import com.surrealdev.temporal.application.plugin.interceptor.SleepInput
+import com.surrealdev.temporal.application.plugin.interceptor.StartChildWorkflowInput
 import com.surrealdev.temporal.common.SearchAttributeEncoder
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
@@ -10,6 +17,7 @@ import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.serialization.safeEncode
+import com.surrealdev.temporal.serialization.safeSerialize
 import com.surrealdev.temporal.util.AttributeScope
 import com.surrealdev.temporal.util.Attributes
 import com.surrealdev.temporal.util.ExecutionScope
@@ -18,6 +26,8 @@ import com.surrealdev.temporal.workflow.ActivityOptions
 import com.surrealdev.temporal.workflow.ChildWorkflowCancellationType
 import com.surrealdev.temporal.workflow.ChildWorkflowHandle
 import com.surrealdev.temporal.workflow.ChildWorkflowOptions
+import com.surrealdev.temporal.workflow.ContinueAsNewException
+import com.surrealdev.temporal.workflow.ContinueAsNewOptions
 import com.surrealdev.temporal.workflow.LocalActivityHandle
 import com.surrealdev.temporal.workflow.LocalActivityOptions
 import com.surrealdev.temporal.workflow.ParentClosePolicy
@@ -35,6 +45,7 @@ import kotlinx.coroutines.slf4j.MDCContext
 import java.util.logging.Logger
 import kotlin.coroutines.ContinuationInterceptor
 import kotlin.coroutines.CoroutineContext
+import kotlin.reflect.KType
 import kotlin.time.Duration
 import kotlin.time.Instant
 import kotlin.time.toJavaDuration
@@ -63,6 +74,7 @@ internal class WorkflowContextImpl(
     parentJob: Job,
     private val handlerJob: Job,
     override val parentScope: AttributeScope,
+    internal val interceptorRegistry: InterceptorRegistry = InterceptorRegistry.EMPTY,
     private val mdcContext: MDCContext? = null,
 ) : WorkflowContext,
     ExecutionScope {
@@ -218,6 +230,24 @@ internal class WorkflowContextImpl(
         ensureOnWorkflowDispatcher("startActivity")
         logger.fine("Starting activity: type=$activityType, options=$options")
 
+        // Execute through the interceptor chain
+        val interceptorInput =
+            ScheduleActivityInput(
+                activityType = activityType,
+                args = args,
+                options = options,
+            )
+        val chain = InterceptorChain(interceptorRegistry.scheduleActivity)
+        return chain.execute(interceptorInput) { input ->
+            startActivityInternal(input.activityType, input.args, input.options)
+        }
+    }
+
+    private suspend fun startActivityInternal(
+        activityType: String,
+        args: TemporalPayloads,
+        options: ActivityOptions,
+    ): RemoteActivityHandle {
         // ========== Section 1: Validation ==========
 
         // 1. Activity type validation
@@ -434,6 +464,24 @@ internal class WorkflowContextImpl(
         ensureOnWorkflowDispatcher("startLocalActivity")
         logger.fine("Starting local activity: type=$activityType, options=$options")
 
+        // Execute through the interceptor chain
+        val interceptorInput =
+            ScheduleLocalActivityInput(
+                activityType = activityType,
+                args = args,
+                options = options,
+            )
+        val chain = InterceptorChain(interceptorRegistry.scheduleLocalActivity)
+        return chain.execute(interceptorInput) { input ->
+            startLocalActivityInternal(input.activityType, input.args, input.options)
+        }
+    }
+
+    private suspend fun startLocalActivityInternal(
+        activityType: String,
+        args: TemporalPayloads,
+        options: LocalActivityOptions,
+    ): LocalActivityHandle {
         // ========== Section 1: Validation ==========
 
         // Activity type validation
@@ -530,6 +578,15 @@ internal class WorkflowContextImpl(
             return
         }
 
+        // Execute through the interceptor chain
+        val interceptorInput = SleepInput(duration = duration)
+        val chain = InterceptorChain(interceptorRegistry.sleep)
+        chain.execute(interceptorInput) { input ->
+            sleepInternal(input.duration)
+        }
+    }
+
+    private suspend fun sleepInternal(duration: Duration) {
         val seq = state.nextSeq()
 
         // Build the StartTimer command using Java builder API
@@ -639,6 +696,25 @@ internal class WorkflowContextImpl(
         options: ChildWorkflowOptions,
     ): ChildWorkflowHandle {
         ensureOnWorkflowDispatcher("startChildWorkflow")
+
+        // Execute through the interceptor chain
+        val interceptorInput =
+            StartChildWorkflowInput(
+                workflowType = workflowType,
+                args = args,
+                options = options,
+            )
+        val chain = InterceptorChain(interceptorRegistry.startChildWorkflow)
+        return chain.execute(interceptorInput) { input ->
+            startChildWorkflowInternal(input.workflowType, input.args, input.options)
+        }
+    }
+
+    private suspend fun startChildWorkflowInternal(
+        workflowType: String,
+        args: TemporalPayloads,
+        options: ChildWorkflowOptions,
+    ): ChildWorkflowHandle {
         val seq = state.nextSeq()
         val childWorkflowId = options.workflowId ?: "${info.workflowId}-child-$seq"
 
@@ -694,6 +770,7 @@ internal class WorkflowContextImpl(
                 serializer = serializer,
                 codec = codec,
                 cancellationType = options.cancellationType,
+                interceptorRegistry = interceptorRegistry,
             )
 
         state.registerChildWorkflow(seq, handle)
@@ -810,6 +887,41 @@ internal class WorkflowContextImpl(
         logger.info("Upserted ${attributes.size} search attributes")
     }
 
+    @InternalTemporalApi
+    override suspend fun continueAsNewInternal(
+        options: ContinueAsNewOptions,
+        typedArgs: List<Pair<KType, Any?>>,
+    ): Nothing {
+        ensureOnWorkflowDispatcher("continueAsNew")
+
+        // Serialize typed args to TemporalPayloads
+        val serializedArgs =
+            if (typedArgs.isEmpty()) {
+                TemporalPayloads.EMPTY
+            } else {
+                val payloads =
+                    typedArgs.map { (type, value) ->
+                        serializer.safeSerialize(type, value)
+                    }
+                TemporalPayloads.of(payloads)
+            }
+
+        // Execute through the interceptor chain
+        val interceptorInput =
+            ContinueAsNewInput(
+                options = options,
+                args = serializedArgs,
+            )
+        val chain = InterceptorChain(interceptorRegistry.continueAsNew)
+        chain.execute(interceptorInput) { input ->
+            throw ContinueAsNewException(
+                options = input.options,
+                typedArgs = typedArgs,
+                serializedArgs = input.args,
+            )
+        }
+    }
+
     override fun getExternalWorkflowHandle(
         workflowId: String,
         runId: String?,
@@ -821,6 +933,7 @@ internal class WorkflowContextImpl(
             state = state,
             serializer = serializer,
             codec = codec,
+            interceptorRegistry = interceptorRegistry,
         )
 
     /**

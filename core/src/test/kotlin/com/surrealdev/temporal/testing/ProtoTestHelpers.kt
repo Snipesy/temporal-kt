@@ -3,7 +3,6 @@ package com.surrealdev.temporal.testing
 import com.google.protobuf.ByteString
 import com.google.protobuf.Duration
 import com.google.protobuf.Timestamp
-import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.toProto
 import coresdk.activity_result.ActivityResult
@@ -36,7 +35,6 @@ import java.util.UUID
  * Factory functions for creating proto objects for testing purposes.
  * These helpers allow creating activation jobs without mocking frameworks.
  */
-@OptIn(InternalTemporalApi::class)
 object ProtoTestHelpers {
     /**
      * Creates a WorkflowActivation with the given jobs.

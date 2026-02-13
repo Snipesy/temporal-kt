@@ -2,7 +2,8 @@ package com.surrealdev.temporal.workflow.internal
 
 import com.google.protobuf.ByteString
 import com.google.protobuf.util.JsonFormat
-import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.application.plugin.interceptor.HandleQueryInput
+import com.surrealdev.temporal.application.plugin.interceptor.InterceptorChain
 import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
@@ -64,7 +65,7 @@ internal suspend fun WorkflowExecutor.handleQuery(
 
     logger.debug("Processing query: id={}, type={}", queryId, queryType)
 
-    // Handle built-in queries first
+    // Handle built-in queries first — these bypass interceptors
     if (queryType == QUERY_TYPE_WORKFLOW_METADATA) {
         handleWorkflowMetadataQuery(queryId)
         return
@@ -74,6 +75,41 @@ internal suspend fun WorkflowExecutor.handleQuery(
         return
     }
 
+    // Codec-decode args once — used by both interceptors and dispatch handlers
+    val decodedArgs = codec.safeDecode(EncodedTemporalPayloads.fromProtoPayloadList(query.argumentsList))
+
+    val interceptorInput =
+        HandleQueryInput(
+            queryId = queryId,
+            queryType = queryType,
+            args = decodedArgs,
+            runId = runId,
+            headers = query.headersMap.takeIf { it.isNotEmpty() }?.mapValues { (_, v) -> TemporalPayload(v) },
+        )
+
+    try {
+        val chain = InterceptorChain(interceptorRegistry.handleQuery)
+        chain.execute(interceptorInput) { input ->
+            dispatchQuery(input.queryId, input.queryType, input.args)
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        // Query interceptor exceptions should not fail the workflow task.
+        // Return a failed query result instead.
+        logger.warn("Query interceptor threw exception for '{}': {}", queryType, e.message, e)
+        addFailedQueryResult(queryId, "Query interceptor failed: ${e.message ?: e::class.simpleName}")
+    }
+}
+
+/**
+ * Internal query dispatch logic — the terminal handler for the HandleQuery interceptor chain.
+ */
+private suspend fun WorkflowExecutor.dispatchQuery(
+    queryId: String,
+    queryType: String,
+    decodedArgs: TemporalPayloads,
+): Any? {
     val ctx = context
 
     // Check runtime-registered handlers first (they take precedence)
@@ -87,19 +123,19 @@ internal suspend fun WorkflowExecutor.handleQuery(
     // Determine which handler to use
     when {
         runtimeHandler != null -> {
-            handleRuntimeQuery(queryId, queryType, runtimeHandler, query.argumentsList, isDynamic = false)
+            handleRuntimeQuery(queryId, queryType, runtimeHandler, decodedArgs, isDynamic = false)
         }
 
         annotationHandler != null -> {
-            handleAnnotationQuery(queryId, queryType, annotationHandler, query, isDynamic = false)
+            handleAnnotationQuery(queryId, queryType, annotationHandler, decodedArgs, isDynamic = false)
         }
 
         runtimeDynamicHandler != null -> {
-            handleRuntimeDynamicQuery(queryId, queryType, runtimeDynamicHandler, query.argumentsList)
+            handleRuntimeDynamicQuery(queryId, queryType, runtimeDynamicHandler, decodedArgs)
         }
 
         annotationDynamicHandler != null -> {
-            handleAnnotationQuery(queryId, queryType, annotationDynamicHandler, query, isDynamic = true)
+            handleAnnotationQuery(queryId, queryType, annotationDynamicHandler, decodedArgs, isDynamic = true)
         }
 
         else -> {
@@ -107,23 +143,23 @@ internal suspend fun WorkflowExecutor.handleQuery(
             addFailedQueryResult(queryId, "Unknown query type: $queryType")
         }
     }
+
+    return Unit
 }
 
 /**
  * Handles a runtime-registered query handler (specific query type).
- * Runtime handlers receive raw Payloads and return a Payload directly.
+ * Runtime handlers receive decoded Payloads and return a Payload directly.
  */
 private suspend fun WorkflowExecutor.handleRuntimeQuery(
     queryId: String,
     queryType: String,
     handler: suspend (TemporalPayloads) -> TemporalPayload,
-    args: List<Payload>,
+    decodedArgs: TemporalPayloads,
     isDynamic: Boolean,
 ) {
     try {
-        val encoded = EncodedTemporalPayloads.fromProtoPayloadList(args)
-        val temporalArgs = codec.safeDecode(encoded)
-        val resultPayload = handler(temporalArgs)
+        val resultPayload = handler(decodedArgs)
         addSuccessQueryResult(queryId, codec.safeEncodeSingle(resultPayload))
     } catch (e: CancellationException) {
         throw e
@@ -138,19 +174,16 @@ private suspend fun WorkflowExecutor.handleRuntimeQuery(
 
 /**
  * Handles a runtime-registered dynamic query handler.
- * Dynamic handlers receive the query type name and raw Payloads, and return a Payload.
+ * Dynamic handlers receive the query type name and decoded Payloads, and return a Payload.
  */
-@OptIn(InternalTemporalApi::class)
 private suspend fun WorkflowExecutor.handleRuntimeDynamicQuery(
     queryId: String,
     queryType: String,
     handler: suspend (queryType: String, args: TemporalPayloads) -> TemporalPayload,
-    args: List<Payload>,
+    decodedArgs: TemporalPayloads,
 ) {
     try {
-        val encoded = EncodedTemporalPayloads.fromProtoPayloadList(args)
-        val temporalArgs = codec.safeDecode(encoded)
-        val resultPayload = handler(queryType, temporalArgs)
+        val resultPayload = handler(queryType, decodedArgs)
         addSuccessQueryResult(queryId, codec.safeEncodeSingle(resultPayload))
     } catch (e: CancellationException) {
         throw e
@@ -170,18 +203,18 @@ private suspend fun WorkflowExecutor.handleAnnotationQuery(
     queryId: String,
     queryType: String,
     handler: QueryHandlerInfo,
-    query: coresdk.workflow_activation.WorkflowActivationOuterClass.QueryWorkflow,
+    decodedArgs: TemporalPayloads,
     isDynamic: Boolean,
 ) {
     try {
-        // For dynamic handlers, the first argument is the query type name
+        // Deserialize already-decoded arguments
         val args =
             if (isDynamic) {
                 val remainingParamTypes = handler.parameterTypes.drop(1)
-                val deserializedArgs = deserializeArguments(query.argumentsList, remainingParamTypes)
+                val deserializedArgs = deserializeDecodedArguments(decodedArgs, remainingParamTypes)
                 arrayOf(queryType, *deserializedArgs)
             } else {
-                deserializeArguments(query.argumentsList, handler.parameterTypes)
+                deserializeDecodedArguments(decodedArgs, handler.parameterTypes)
             }
 
         val result = invokeQueryHandler(handler, args)

@@ -1,10 +1,10 @@
 package com.surrealdev.temporal.workflow.internal
 
-import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.common.exceptions.PayloadProcessingException
 import com.surrealdev.temporal.common.failure.FAILURE_SOURCE
 import com.surrealdev.temporal.common.failure.buildFailureProto
 import com.surrealdev.temporal.common.toProto
+import com.surrealdev.temporal.serialization.safeEncode
 import com.surrealdev.temporal.serialization.safeEncodeSingle
 import com.surrealdev.temporal.serialization.safeSerialize
 import com.surrealdev.temporal.workflow.ContinueAsNewException
@@ -29,7 +29,6 @@ import kotlin.time.toJavaDuration
  * 2. Workflow failure due to an exception
  * 3. Workflow cancellation
  */
-@OptIn(InternalTemporalApi::class)
 internal suspend fun WorkflowExecutor.buildTerminalCompletion(
     result: Deferred<Any?>,
     returnType: kotlin.reflect.KType,
@@ -187,7 +186,6 @@ internal fun WorkflowExecutor.buildFailureCompletion(
  * with `ApplicationFailureInfo` so that the failure type, retry policy, details,
  * and category are properly propagated to the Temporal server.
  */
-@OptIn(InternalTemporalApi::class)
 internal suspend fun WorkflowExecutor.buildWorkflowFailureCompletion(
     exception: Exception,
 ): WorkflowCompletion.WorkflowActivationCompletion {
@@ -245,7 +243,6 @@ internal fun WorkflowExecutor.buildWorkflowCancellationCompletion(): WorkflowCom
  * Builds a continue-as-new completion when the workflow calls continueAsNew().
  * This creates a ContinueAsNewWorkflowExecution command.
  */
-@OptIn(InternalTemporalApi::class)
 internal suspend fun WorkflowExecutor.buildContinueAsNewCompletion(
     exception: ContinueAsNewException,
 ): WorkflowCompletion.WorkflowActivationCompletion {
@@ -258,13 +255,20 @@ internal suspend fun WorkflowExecutor.buildContinueAsNewCompletion(
             .setWorkflowType(options.workflowType ?: methodInfo.workflowType)
             .setTaskQueue(options.taskQueue ?: taskQueue)
 
-    // Serialize and add arguments with their type information, then encode with codec
+    // Serialize and add arguments, then encode with codec
     // If encoding fails, return task failure (retryable) instead of workflow failure (permanent)
     try {
-        exception.typedArgs.forEach { (type, value) ->
-            val serialized = serializer.safeSerialize(type, value)
-            val encoded = codec.safeEncodeSingle(serialized)
-            commandBuilder.addArguments(encoded)
+        if (exception.serializedArgs != null) {
+            // Pre-serialized args (from interceptor chain path)
+            val encoded = codec.safeEncode(exception.serializedArgs)
+            commandBuilder.addAllArguments(encoded.proto.payloadsList)
+        } else {
+            // Typed args (from direct throw path - legacy fallback)
+            exception.typedArgs.forEach { (type, value) ->
+                val serialized = serializer.safeSerialize(type, value)
+                val encoded = codec.safeEncodeSingle(serialized)
+                commandBuilder.addArguments(encoded)
+            }
         }
     } catch (e: PayloadProcessingException) {
         // Codec/serialization error during continue-as-new argument encoding - return task failure (retryable)

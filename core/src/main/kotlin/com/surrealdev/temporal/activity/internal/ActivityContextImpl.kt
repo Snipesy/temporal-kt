@@ -5,6 +5,9 @@ import com.surrealdev.temporal.activity.ActivityContext
 import com.surrealdev.temporal.activity.ActivityInfo
 import com.surrealdev.temporal.activity.ActivityWorkflowInfo
 import com.surrealdev.temporal.activity.HeartbeatDetails
+import com.surrealdev.temporal.application.plugin.interceptor.HeartbeatInput
+import com.surrealdev.temporal.application.plugin.interceptor.InterceptorChain
+import com.surrealdev.temporal.application.plugin.interceptor.InterceptorRegistry
 import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
@@ -36,6 +39,7 @@ internal class ActivityContextImpl(
     private val codec: PayloadCodec,
     private val heartbeatFn: suspend (ByteString, EncodedTemporalPayloads?) -> Unit,
     override val parentScope: AttributeScope,
+    private val interceptorRegistry: InterceptorRegistry = InterceptorRegistry.EMPTY,
     private val parentCoroutineContext: CoroutineContext,
     private val decodedHeartbeatDetails: HeartbeatDetails? = null,
 ) : ActivityContext,
@@ -59,15 +63,25 @@ internal class ActivityContextImpl(
         // Check cancellation before heartbeating
         cancellationException?.let { throw it }
 
-        val encoded =
-            if (details != null) {
-                // Encode the heartbeat payload through the codec before sending
-                codec.safeEncode(TemporalPayloads.of(listOf(details)))
-            } else {
-                null
-            }
+        // Execute through the heartbeat interceptor chain with the raw (pre-encode) payload.
+        // Codec encoding happens in the terminal handler, after interceptors have had a chance
+        // to read/modify the details.
+        val interceptorInput =
+            HeartbeatInput(
+                details = details,
+                activityType = start.activityType,
+            )
 
-        heartbeatFn(taskToken, encoded)
+        val chain = InterceptorChain(interceptorRegistry.heartbeat)
+        chain.execute(interceptorInput) { input ->
+            val encoded =
+                if (input.details != null) {
+                    codec.safeEncode(TemporalPayloads.of(listOf(input.details)))
+                } else {
+                    null
+                }
+            heartbeatFn(taskToken, encoded)
+        }
 
         // Check cancellation after heartbeating (in case it was set during the call)
         cancellationException?.let { throw it }

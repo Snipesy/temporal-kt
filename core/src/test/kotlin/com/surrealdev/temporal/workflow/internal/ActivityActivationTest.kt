@@ -1,7 +1,6 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.google.protobuf.ByteString
-import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.common.TemporalPayload
@@ -282,7 +281,6 @@ class ActivityActivationTest {
         return ExecutorResult(executor, runId, workflow, completion)
     }
 
-    @OptIn(InternalTemporalApi::class)
     private fun createPayload(data: String): TemporalPayload =
         Payload
             .newBuilder()

@@ -190,7 +190,6 @@ internal class WorkflowHandleImpl(
     internal val codec: PayloadCodec,
     private val pollingConfig: ResultPollingConfig = ResultPollingConfig(),
 ) : WorkflowHandle {
-    @OptIn(InternalTemporalApi::class)
     override suspend fun resultPayload(timeout: Duration): TemporalPayload? {
         val startTime = System.currentTimeMillis()
         val timeoutMillis = if (timeout == Duration.INFINITE) Long.MAX_VALUE else timeout.inWholeMilliseconds
@@ -431,7 +430,6 @@ internal class WorkflowHandleImpl(
             }
         }
 
-    @OptIn(InternalTemporalApi::class)
     override suspend fun signalWithPayloads(
         signalName: String,
         args: TemporalPayloads,
@@ -456,7 +454,6 @@ internal class WorkflowHandleImpl(
         serviceClient.signalWorkflowExecution(request)
     }
 
-    @OptIn(InternalTemporalApi::class)
     override suspend fun updateWithPayloads(
         updateName: String,
         args: TemporalPayloads,
@@ -535,7 +532,6 @@ internal class WorkflowHandleImpl(
         }
     }
 
-    @OptIn(InternalTemporalApi::class)
     override suspend fun queryWithPayloads(
         queryType: String,
         args: TemporalPayloads,

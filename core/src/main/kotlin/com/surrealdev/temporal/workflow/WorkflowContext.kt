@@ -7,6 +7,7 @@ import com.surrealdev.temporal.common.TypedSearchAttributes
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import kotlinx.coroutines.CoroutineScope
 import kotlin.coroutines.CoroutineContext
+import kotlin.reflect.KType
 import kotlin.time.Duration
 import kotlin.time.Instant
 
@@ -503,6 +504,21 @@ interface WorkflowContext :
         workflowId: String,
         runId: String? = null,
     ): ExternalWorkflowHandle
+
+    /**
+     * Internal method for continue-as-new that runs through the interceptor chain.
+     *
+     * Extension functions delegate to this method. Do not call directly.
+     *
+     * @param options Configuration for the new execution
+     * @param typedArgs Arguments with their types for serialization
+     * @throws ContinueAsNewException Always
+     */
+    @InternalTemporalApi
+    suspend fun continueAsNewInternal(
+        options: ContinueAsNewOptions,
+        typedArgs: List<Pair<KType, Any?>>,
+    ): Nothing
 }
 
 /**
@@ -794,4 +810,10 @@ class ContinueAsNewException(
     val options: ContinueAsNewOptions,
     /** Arguments for the new execution with their types. */
     val typedArgs: List<Pair<kotlin.reflect.KType, Any?>>,
+    /**
+     * Pre-serialized arguments (set when going through the interceptor chain path).
+     * When non-null, these are used directly instead of serializing [typedArgs].
+     */
+    @InternalTemporalApi
+    val serializedArgs: TemporalPayloads? = null,
 ) : Throwable("Workflow requested continue-as-new")

@@ -5,6 +5,9 @@ import com.surrealdev.temporal.activity.EncodedPayloads
 import com.surrealdev.temporal.activity.HeartbeatDetails
 import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.application.DynamicActivityHandler
+import com.surrealdev.temporal.application.plugin.interceptor.ExecuteActivityInput
+import com.surrealdev.temporal.application.plugin.interceptor.InterceptorChain
+import com.surrealdev.temporal.application.plugin.interceptor.InterceptorRegistry
 import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.exceptions.ActivityCancelledException
@@ -76,6 +79,10 @@ class ActivityDispatcher(
      * Its parentScope should be the application.
      */
     private val taskQueueScope: AttributeScope,
+    /**
+     * Merged interceptor registry for interceptor chain execution.
+     */
+    private val interceptorRegistry: InterceptorRegistry = InterceptorRegistry.EMPTY,
     /**
      * Configuration for zombie thread eviction.
      */
@@ -324,6 +331,7 @@ class ActivityDispatcher(
                 codec = codec,
                 heartbeatFn = heartbeatFn,
                 parentScope = taskQueueScope,
+                interceptorRegistry = interceptorRegistry,
                 parentCoroutineContext = currentCoroutineContext(),
                 decodedHeartbeatDetails = decodedHeartbeatDetails,
             )
@@ -346,9 +354,25 @@ class ActivityDispatcher(
                     )
                 }
 
-            // Invoke the activity method
+            // Build interceptor input for ExecuteActivity
+            val interceptorInput =
+                ExecuteActivityInput(
+                    activityType = activityType,
+                    activityId = start.activityId,
+                    workflowId = start.workflowExecution.workflowId,
+                    runId = start.workflowExecution.runId,
+                    taskQueue = taskQueue,
+                    namespace = start.workflowNamespace,
+                    headers = start.headerFieldsMap.mapValues { (_, v) -> TemporalPayload(v) },
+                )
+
+            // Invoke the activity method through the interceptor chain
             return try {
-                val result = invokeMethod(methodInfo, context, args)
+                val chain = InterceptorChain(interceptorRegistry.executeActivity)
+                val result =
+                    chain.execute(interceptorInput) { _ ->
+                        invokeMethod(methodInfo, context, args)
+                    }
                 buildSuccessCompletion(taskToken, result, methodInfo.returnType)
             } catch (e: ActivityCancelledException) {
                 buildCancelledCompletion(taskToken)
@@ -379,7 +403,6 @@ class ActivityDispatcher(
         return HeartbeatDetails(decodedPayload, serializer)
     }
 
-    @OptIn(InternalTemporalApi::class)
     private suspend fun deserializeArguments(
         payloads: List<io.temporal.api.common.v1.Payload>,
         parameterTypes: List<kotlin.reflect.KType>,
@@ -458,7 +481,6 @@ class ActivityDispatcher(
     /**
      * Invokes the dynamic activity handler for an unregistered activity type.
      */
-    @OptIn(InternalTemporalApi::class)
     private suspend fun invokeDynamicActivity(
         task: ActivityTaskOuterClass.ActivityTask,
         start: ActivityTaskOuterClass.Start,
@@ -486,6 +508,7 @@ class ActivityDispatcher(
                 codec = codec,
                 heartbeatFn = heartbeatFn,
                 parentScope = taskQueueScope,
+                interceptorRegistry = interceptorRegistry,
                 parentCoroutineContext = currentCoroutineContext(),
                 decodedHeartbeatDetails = decodedHeartbeatDetails,
             )
@@ -520,7 +543,6 @@ class ActivityDispatcher(
      * Builds a success completion for dynamic activities.
      * The handler returns a TemporalPayload directly since type info is not available.
      */
-    @OptIn(InternalTemporalApi::class)
     private suspend fun buildDynamicSuccessCompletion(
         taskToken: ByteString,
         result: TemporalPayload?,
@@ -546,7 +568,6 @@ class ActivityDispatcher(
         }
     }
 
-    @OptIn(InternalTemporalApi::class)
     private suspend fun buildSuccessCompletion(
         taskToken: ByteString,
         result: Any?,
