@@ -296,38 +296,7 @@ internal fun installInterceptors(
     pipeline: PluginPipeline,
 ) {
     val pipelineRegistry = resolveInterceptorRegistry(pipeline) ?: return
-    val builderRegistry = builder.interceptorRegistry
-
-    // Merge all interceptor lists from the builder into the pipeline registry
-    pipelineRegistry.executeWorkflow.addAll(builderRegistry.executeWorkflow)
-    pipelineRegistry.handleSignal.addAll(builderRegistry.handleSignal)
-    pipelineRegistry.handleQuery.addAll(builderRegistry.handleQuery)
-    pipelineRegistry.validateUpdate.addAll(builderRegistry.validateUpdate)
-    pipelineRegistry.executeUpdate.addAll(builderRegistry.executeUpdate)
-
-    pipelineRegistry.scheduleActivity.addAll(builderRegistry.scheduleActivity)
-    pipelineRegistry.scheduleLocalActivity.addAll(builderRegistry.scheduleLocalActivity)
-    pipelineRegistry.startChildWorkflow.addAll(builderRegistry.startChildWorkflow)
-    pipelineRegistry.sleep.addAll(builderRegistry.sleep)
-    pipelineRegistry.signalExternalWorkflow.addAll(builderRegistry.signalExternalWorkflow)
-    pipelineRegistry.cancelExternalWorkflow.addAll(builderRegistry.cancelExternalWorkflow)
-    pipelineRegistry.continueAsNew.addAll(builderRegistry.continueAsNew)
-
-    pipelineRegistry.executeActivity.addAll(builderRegistry.executeActivity)
-    pipelineRegistry.heartbeat.addAll(builderRegistry.heartbeat)
-
-    // Client Outbound
-    pipelineRegistry.startWorkflow.addAll(builderRegistry.startWorkflow)
-    pipelineRegistry.signalWorkflow.addAll(builderRegistry.signalWorkflow)
-    pipelineRegistry.queryWorkflow.addAll(builderRegistry.queryWorkflow)
-    pipelineRegistry.startWorkflowUpdate.addAll(builderRegistry.startWorkflowUpdate)
-    pipelineRegistry.cancelWorkflow.addAll(builderRegistry.cancelWorkflow)
-    pipelineRegistry.terminateWorkflow.addAll(builderRegistry.terminateWorkflow)
-    pipelineRegistry.describeWorkflow.addAll(builderRegistry.describeWorkflow)
-    pipelineRegistry.listWorkflows.addAll(builderRegistry.listWorkflows)
-    pipelineRegistry.countWorkflows.addAll(builderRegistry.countWorkflows)
-    pipelineRegistry.fetchWorkflowResult.addAll(builderRegistry.fetchWorkflowResult)
-    pipelineRegistry.fetchWorkflowHistory.addAll(builderRegistry.fetchWorkflowHistory)
+    pipelineRegistry.addAllFrom(builder.interceptorRegistry)
 }
 
 /**

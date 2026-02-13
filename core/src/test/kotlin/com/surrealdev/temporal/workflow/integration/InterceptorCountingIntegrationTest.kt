@@ -81,6 +81,8 @@ class InterceptorCountingIntegrationTest {
         val clientDescribeWorkflow = AtomicInteger(0)
         val clientListWorkflows = AtomicInteger(0)
         val clientCountWorkflows = AtomicInteger(0)
+        val clientFetchWorkflowResult = AtomicInteger(0)
+        val clientFetchWorkflowHistory = AtomicInteger(0)
 
         fun resetAll() {
             executeWorkflow.set(0)
@@ -103,6 +105,8 @@ class InterceptorCountingIntegrationTest {
             clientDescribeWorkflow.set(0)
             clientListWorkflows.set(0)
             clientCountWorkflows.set(0)
+            clientFetchWorkflowResult.set(0)
+            clientFetchWorkflowHistory.set(0)
         }
     }
 
@@ -214,6 +218,16 @@ class InterceptorCountingIntegrationTest {
 
                 onCountWorkflows { input, proceed ->
                     counts.clientCountWorkflows.incrementAndGet()
+                    proceed(input)
+                }
+
+                onFetchWorkflowResult { input, proceed ->
+                    counts.clientFetchWorkflowResult.incrementAndGet()
+                    proceed(input)
+                }
+
+                onFetchWorkflowHistory { input, proceed ->
+                    counts.clientFetchWorkflowHistory.incrementAndGet()
                     proceed(input)
                 }
             }
@@ -682,9 +696,10 @@ class InterceptorCountingIntegrationTest {
             handle.assertHistory { completed() }
         }
 
+    // Temporal Test Server doesnt implement everything yet so timeSkipping = false
     @Test
     fun `client interceptors are invoked for client operations`() =
-        runTemporalTest {
+        runTemporalTest(timeSkipping = false) {
             val taskQueue = "test-interceptor-client-${UUID.randomUUID()}"
             counts.resetAll()
 
@@ -759,6 +774,45 @@ class InterceptorCountingIntegrationTest {
                 1,
                 counts.clientTerminateWorkflow.get(),
                 "clientTerminateWorkflow interceptor should be called once",
+            )
+
+            // Start a third workflow for list/count/fetchResult/fetchHistory tests
+            val handle3 =
+                client.startWorkflow(
+                    workflowType = "InterceptorSignalQueryWorkflow",
+                    taskQueue = taskQueue,
+                )
+
+            // listWorkflows interceptor
+            client.listWorkflows("WorkflowType = 'InterceptorSignalQueryWorkflow'")
+            assertEquals(
+                1,
+                counts.clientListWorkflows.get(),
+                "clientListWorkflows interceptor should be called once",
+            )
+
+            // countWorkflows interceptor
+            client.countWorkflows("WorkflowType = 'InterceptorSignalQueryWorkflow'")
+            assertEquals(
+                1,
+                counts.clientCountWorkflows.get(),
+                "clientCountWorkflows interceptor should be called once",
+            )
+
+            // fetchWorkflowHistory interceptor
+            handle3.getHistory()
+            assertEquals(
+                1,
+                counts.clientFetchWorkflowHistory.get(),
+                "clientFetchWorkflowHistory interceptor should be called once",
+            )
+
+            // fetchWorkflowResult interceptor — complete the workflow first
+            handle3.signal("complete")
+            handle3.result<String>(timeout = 30.seconds)
+            assertTrue(
+                counts.clientFetchWorkflowResult.get() >= 1,
+                "clientFetchWorkflowResult interceptor should be called at least once",
             )
         }
 }

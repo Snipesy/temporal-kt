@@ -61,6 +61,55 @@ class InterceptorRegistry {
     val fetchWorkflowHistory = mutableListOf<Interceptor<FetchWorkflowHistoryInput, WorkflowHistory>>()
 
     /**
+     * Returns all interceptor lists in a fixed order.
+     * Used by [addAllFrom] and [mergeWith] to avoid enumerating every field.
+     */
+    private fun allLists(): List<MutableList<*>> =
+        listOf(
+            // Workflow Inbound
+            executeWorkflow,
+            handleSignal,
+            handleQuery,
+            validateUpdate,
+            executeUpdate,
+            // Workflow Outbound
+            scheduleActivity,
+            scheduleLocalActivity,
+            startChildWorkflow,
+            sleep,
+            signalExternalWorkflow,
+            cancelExternalWorkflow,
+            continueAsNew,
+            // Activity
+            executeActivity,
+            heartbeat,
+            // Client Outbound
+            startWorkflow,
+            signalWorkflow,
+            queryWorkflow,
+            startWorkflowUpdate,
+            cancelWorkflow,
+            terminateWorkflow,
+            describeWorkflow,
+            listWorkflows,
+            countWorkflows,
+            fetchWorkflowResult,
+            fetchWorkflowHistory,
+        )
+
+    /**
+     * Appends all interceptors from [other] into this registry.
+     */
+    @Suppress("UNCHECKED_CAST")
+    fun addAllFrom(other: InterceptorRegistry) {
+        val targetLists = allLists()
+        val sourceLists = other.allLists()
+        for (i in targetLists.indices) {
+            (targetLists[i] as MutableList<Any?>).addAll(sourceLists[i])
+        }
+    }
+
+    /**
      * Creates a new registry that contains interceptors from both this registry (first)
      * and the [other] registry (appended after).
      *
@@ -68,67 +117,8 @@ class InterceptorRegistry {
      */
     fun mergeWith(other: InterceptorRegistry): InterceptorRegistry {
         val merged = InterceptorRegistry()
-
-        // Workflow Inbound
-        merged.executeWorkflow.addAll(this.executeWorkflow)
-        merged.executeWorkflow.addAll(other.executeWorkflow)
-        merged.handleSignal.addAll(this.handleSignal)
-        merged.handleSignal.addAll(other.handleSignal)
-        merged.handleQuery.addAll(this.handleQuery)
-        merged.handleQuery.addAll(other.handleQuery)
-        merged.validateUpdate.addAll(this.validateUpdate)
-        merged.validateUpdate.addAll(other.validateUpdate)
-        merged.executeUpdate.addAll(this.executeUpdate)
-        merged.executeUpdate.addAll(other.executeUpdate)
-
-        // Workflow Outbound
-        merged.scheduleActivity.addAll(this.scheduleActivity)
-        merged.scheduleActivity.addAll(other.scheduleActivity)
-        merged.scheduleLocalActivity.addAll(this.scheduleLocalActivity)
-        merged.scheduleLocalActivity.addAll(other.scheduleLocalActivity)
-        merged.startChildWorkflow.addAll(this.startChildWorkflow)
-        merged.startChildWorkflow.addAll(other.startChildWorkflow)
-        merged.sleep.addAll(this.sleep)
-        merged.sleep.addAll(other.sleep)
-        merged.signalExternalWorkflow.addAll(this.signalExternalWorkflow)
-        merged.signalExternalWorkflow.addAll(other.signalExternalWorkflow)
-        merged.cancelExternalWorkflow.addAll(this.cancelExternalWorkflow)
-        merged.cancelExternalWorkflow.addAll(other.cancelExternalWorkflow)
-        merged.continueAsNew.addAll(this.continueAsNew)
-        merged.continueAsNew.addAll(other.continueAsNew)
-
-        // Activity Inbound
-        merged.executeActivity.addAll(this.executeActivity)
-        merged.executeActivity.addAll(other.executeActivity)
-
-        // Activity Outbound
-        merged.heartbeat.addAll(this.heartbeat)
-        merged.heartbeat.addAll(other.heartbeat)
-
-        // Client Outbound
-        merged.startWorkflow.addAll(this.startWorkflow)
-        merged.startWorkflow.addAll(other.startWorkflow)
-        merged.signalWorkflow.addAll(this.signalWorkflow)
-        merged.signalWorkflow.addAll(other.signalWorkflow)
-        merged.queryWorkflow.addAll(this.queryWorkflow)
-        merged.queryWorkflow.addAll(other.queryWorkflow)
-        merged.startWorkflowUpdate.addAll(this.startWorkflowUpdate)
-        merged.startWorkflowUpdate.addAll(other.startWorkflowUpdate)
-        merged.cancelWorkflow.addAll(this.cancelWorkflow)
-        merged.cancelWorkflow.addAll(other.cancelWorkflow)
-        merged.terminateWorkflow.addAll(this.terminateWorkflow)
-        merged.terminateWorkflow.addAll(other.terminateWorkflow)
-        merged.describeWorkflow.addAll(this.describeWorkflow)
-        merged.describeWorkflow.addAll(other.describeWorkflow)
-        merged.listWorkflows.addAll(this.listWorkflows)
-        merged.listWorkflows.addAll(other.listWorkflows)
-        merged.countWorkflows.addAll(this.countWorkflows)
-        merged.countWorkflows.addAll(other.countWorkflows)
-        merged.fetchWorkflowResult.addAll(this.fetchWorkflowResult)
-        merged.fetchWorkflowResult.addAll(other.fetchWorkflowResult)
-        merged.fetchWorkflowHistory.addAll(this.fetchWorkflowHistory)
-        merged.fetchWorkflowHistory.addAll(other.fetchWorkflowHistory)
-
+        merged.addAllFrom(this)
+        merged.addAllFrom(other)
         return merged
     }
 

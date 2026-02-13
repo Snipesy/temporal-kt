@@ -21,7 +21,6 @@ import com.surrealdev.temporal.common.exceptions.ApplicationFailure
 import com.surrealdev.temporal.common.exceptions.ClientWorkflowFailedException
 import com.surrealdev.temporal.common.exceptions.PayloadCodecException
 import com.surrealdev.temporal.serialization.CodecPlugin
-import com.surrealdev.temporal.serialization.CompositePayloadSerializer
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
@@ -429,9 +428,10 @@ class CodecCountingIntegrationTest {
             }
 
             // Client uses parent's codec (same MarkerCodec)
-            val client = client {
-                install(CodecPlugin) { custom(parentCodec) }
-            }
+            val client =
+                client {
+                    install(CodecPlugin) { custom(parentCodec) }
+                }
 
             val handle =
                 client.startWorkflow(
@@ -475,9 +475,10 @@ class CodecCountingIntegrationTest {
             }
 
             // Codec queue — use a client with the counting codec
-            val codecClient = client {
-                install(CodecPlugin) { custom(codec) }
-            }
+            val codecClient =
+                client {
+                    install(CodecPlugin) { custom(codec) }
+                }
             val handle1 =
                 codecClient.startWorkflow(
                     workflowType = "CodecEchoWorkflow",

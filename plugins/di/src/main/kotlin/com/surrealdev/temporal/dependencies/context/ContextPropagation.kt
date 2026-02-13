@@ -84,7 +84,9 @@ internal sealed class ContextEntry {
      * The value is only deserialized when accessed via `context<T>()`.
      */
     @PublishedApi
-    internal class PassThrough(override val name: String) : ContextEntry()
+    internal class PassThrough(
+        override val name: String,
+    ) : ContextEntry()
 }
 
 // =============================================================================
@@ -166,7 +168,9 @@ class ContextPropagationConfig {
 // Plugin Instance
 // =============================================================================
 
-class ContextPropagationInstance internal constructor(val config: ContextPropagationConfig)
+class ContextPropagationInstance internal constructor(
+    val config: ContextPropagationConfig,
+)
 
 // =============================================================================
 // Plugin Definition
@@ -244,7 +248,10 @@ val ContextPropagation: ScopedPlugin<ContextPropagationConfig, ContextPropagatio
 
         // Helper: merge propagated context into mutable outbound headers.
         // User-provided headers (already in the map) take precedence.
-        fun mergeOutboundHeaders(headers: MutableMap<String, TemporalPayload>, scope: ExecutionScope) {
+        fun mergeOutboundHeaders(
+            headers: MutableMap<String, TemporalPayload>,
+            scope: ExecutionScope,
+        ) {
             val propagated = scope.attributes.getOrNull(PropagatedContextKey) ?: return
             for ((key, value) in propagated.toHeaderMap()) {
                 headers.putIfAbsent(key, value)
@@ -311,7 +318,7 @@ val ContextPropagation: ScopedPlugin<ContextPropagationConfig, ContextPropagatio
                             if (signalValue != existingValue) {
                                 error(
                                     "Signal header '$name' conflicts with existing propagated context. " +
-                                        "Context values are typically set on startWorkflow and must not change."
+                                        "Context values are typically set on startWorkflow and must not change.",
                                 )
                             }
                         }
@@ -353,7 +360,7 @@ val ContextPropagation: ScopedPlugin<ContextPropagationConfig, ContextPropagatio
                             if (updateValue != existingValue) {
                                 error(
                                     "Update header '$name' conflicts with existing propagated context. " +
-                                        "Context values are typically set on startWorkflow and must not change."
+                                        "Context values are typically set on startWorkflow and must not change.",
                                 )
                             }
                         }
@@ -424,8 +431,9 @@ val ContextPropagation: ScopedPlugin<ContextPropagationConfig, ContextPropagatio
 
         activity {
             onExecute { input, proceed ->
-                val scope = currentCoroutineContext()[com.surrealdev.temporal.activity.ActivityContext]
-                    as? ExecutionScope
+                val scope =
+                    currentCoroutineContext()[com.surrealdev.temporal.activity.ActivityContext]
+                        as? ExecutionScope
                 if (scope != null) {
                     val ctx = buildPropagatedContext(input.headers, serializer)
                     scope.attributes.put(PropagatedContextKey, ctx)

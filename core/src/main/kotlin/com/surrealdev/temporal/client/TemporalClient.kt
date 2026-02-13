@@ -195,7 +195,7 @@ interface TemporalClient {
          * Example with plugins:
          * ```kotlin
          * val client = TemporalClient.connect {
-         *     target = "localhost:7233"
+         *     target = "http://localhost:7233"
          *     install(SerializationPlugin) { json { prettyPrint = true } }
          *     install(CodecPlugin) { compression() }
          *     install(MyPlugin) { enabled = true }
@@ -523,7 +523,7 @@ class TemporalClientImpl internal constructor(
  */
 @TemporalDsl
 class TemporalClientConfig : PluginPipeline {
-    /** Target address of the Temporal service (e.g., "localhost:7233" or "https://myns.tmprl.cloud:7233"). */
+    /** Target address of the Temporal service (e.g., "http://localhost:7233" or "https://myns.tmprl.cloud:7233"). */
     var target: String = "http://localhost:7233"
 
     /** Namespace to connect to. */

@@ -16,10 +16,6 @@ import com.surrealdev.temporal.core.EphemeralServer
 import com.surrealdev.temporal.core.TemporalDevServer
 import com.surrealdev.temporal.core.TemporalRuntime
 import com.surrealdev.temporal.core.TemporalTestServer
-import com.surrealdev.temporal.serialization.NoOpCodec
-import com.surrealdev.temporal.serialization.payloadCodecOrNull
-import com.surrealdev.temporal.serialization.payloadSerializationOrNull
-import com.surrealdev.temporal.serialization.payloadSerializer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.TestResult
 import kotlinx.coroutines.test.TestScope
@@ -205,55 +201,25 @@ class TemporalTestApplicationBuilder internal constructor(
         // No-arg path: return cached client using application defaults
         if (configure == null) {
             cachedClient?.let { return it }
-
-            val baseClient = _application!!.client()
-
-            val client =
-                if (testServer != null) {
-                    TemporalTestClient(baseClient as TemporalClientImpl, testServer!!)
-                } else {
-                    baseClient
-                }
-
-            cachedClient = client
-            return client
         }
 
-        // Configured path: create a new client with plugin support
-        val clientConfig =
-            TemporalClientConfig().apply {
-                target = "http://${this@TemporalTestApplicationBuilder.server.targetUrl}"
-                namespace = this@TemporalTestApplicationBuilder.namespace
-                configure()
+        // Delegate to the application's client builder which handles
+        // serializer/codec resolution and interceptor merging.
+        val baseClient = _application!!.client(configure ?: {})
+
+        val client =
+            if (testServer != null) {
+                TemporalTestClient(baseClient as TemporalClientImpl, testServer!!)
+            } else {
+                baseClient
             }
 
-        // Use client config's plugins if explicitly installed, else fall back to app-level
-        val serializer =
-            clientConfig.payloadSerializationOrNull()?.serializer
-                ?: _application!!.payloadSerializer()
-        val codec =
-            clientConfig.payloadCodecOrNull()
-                ?: _application!!.payloadCodecOrNull()
-                ?: NoOpCodec
-
-        // Merge: app-level interceptors first, then client config interceptors
-        val mergedRegistry = _application!!.interceptorRegistry.mergeWith(clientConfig.interceptorRegistry)
-
-        val coreClient = _application!!.getCoreClient()
-        val baseClient =
-            TemporalClient.create(
-                coreClient = coreClient,
-                namespace = clientConfig.namespace,
-                serializer = serializer,
-                codec = codec,
-                interceptorRegistry = mergedRegistry,
-            ) as TemporalClientImpl
-
-        return if (testServer != null) {
-            TemporalTestClient(baseClient, testServer!!)
-        } else {
-            baseClient
+        // Cache only the no-arg client
+        if (configure == null) {
+            cachedClient = client
         }
+
+        return client
     }
 
     /**

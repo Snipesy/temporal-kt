@@ -23,13 +23,15 @@ import com.surrealdev.temporal.workflow.startLocalActivity
 import kotlinx.serialization.Serializable
 import org.junit.jupiter.api.Tag
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import java.util.concurrent.atomic.AtomicInteger
 import kotlin.time.Duration.Companion.seconds
 
 @Serializable
-data class Tenant(val name: String)
+data class Tenant(
+    val name: String,
+)
 
 /**
  * Integration tests for [ContextPropagation] plugin.
@@ -39,7 +41,6 @@ data class Tenant(val name: String)
  */
 @Tag("integration")
 class ContextPropagationIntegrationTest {
-
     // ================================================================
     // Workflows and Activities
     // ================================================================
@@ -68,10 +69,11 @@ class ContextPropagationIntegrationTest {
     class ActivityWorkflow {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
-            val activityResult = startActivity(
-                activityType = "getTenant",
-                options = ActivityOptions(startToCloseTimeout = 30.seconds),
-            ).result<String>()
+            val activityResult =
+                startActivity(
+                    activityType = "getTenant",
+                    options = ActivityOptions(startToCloseTimeout = 30.seconds),
+                ).result<String>()
             val workflowTenant = context<Tenant>("tenant").name
             return "$workflowTenant|$activityResult"
         }
@@ -82,10 +84,11 @@ class ContextPropagationIntegrationTest {
     class ChildCallerWorkflow {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
-            val childResult = startChildWorkflow(
-                "CtxPropEchoWorkflow",
-                options = ChildWorkflowOptions(),
-            ).result<String>()
+            val childResult =
+                startChildWorkflow(
+                    "CtxPropEchoWorkflow",
+                    options = ChildWorkflowOptions(),
+                ).result<String>()
             val myTenant = context<Tenant>("tenant").name
             return "$myTenant|$childResult"
         }
@@ -96,10 +99,11 @@ class ContextPropagationIntegrationTest {
     class LocalActivityWorkflow {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
-            val localResult = startLocalActivity(
-                activityType = "getTenant",
-                options = LocalActivityOptions(startToCloseTimeout = 30.seconds),
-            ).result<String>()
+            val localResult =
+                startLocalActivity(
+                    activityType = "getTenant",
+                    options = LocalActivityOptions(startToCloseTimeout = 30.seconds),
+                ).result<String>()
             val myTenant = context<Tenant>("tenant").name
             return "$myTenant|$localResult"
         }
@@ -154,9 +158,7 @@ class ContextPropagationIntegrationTest {
     @Workflow("CtxPropSourceWorkflow")
     class SourceWorkflow {
         @WorkflowRun
-        suspend fun WorkflowContext.run(): String {
-            return context<String>("source")
-        }
+        suspend fun WorkflowContext.run(): String = context<String>("source")
     }
 
     // ================================================================
@@ -164,377 +166,417 @@ class ContextPropagationIntegrationTest {
     // ================================================================
 
     @Test
-    fun `context propagates from client to workflow`() = runTemporalTest {
-        val taskQueue = "ctx-prop-wf-${UUID.randomUUID()}"
+    fun `context propagates from client to workflow`() =
+        runTemporalTest {
+            val taskQueue = "ctx-prop-wf-${UUID.randomUUID()}"
 
-        application {
-            install(ContextPropagation) {
-                passThrough("tenant")
+            application {
+                install(ContextPropagation) {
+                    passThrough("tenant")
+                }
+                taskQueue(taskQueue) {
+                    workflow<EchoWorkflow>()
+                }
             }
-            taskQueue(taskQueue) {
-                workflow<EchoWorkflow>()
-            }
+
+            val client =
+                client {
+                    install(ContextPropagation) {
+                        context("tenant") { Tenant("acme") }
+                    }
+                }
+
+            val handle =
+                client.startWorkflow(
+                    workflowType = "CtxPropEchoWorkflow",
+                    taskQueue = taskQueue,
+                )
+            val result: String = handle.result(timeout = 30.seconds)
+            assertEquals("acme", result)
         }
-
-        val client = client {
-            install(ContextPropagation) {
-                context("tenant") { Tenant("acme") }
-            }
-        }
-
-        val handle = client.startWorkflow(
-            workflowType = "CtxPropEchoWorkflow",
-            taskQueue = taskQueue,
-        )
-        val result: String = handle.result(timeout = 30.seconds)
-        assertEquals("acme", result)
-    }
 
     @Test
-    fun `context propagates from workflow to activity`() = runTemporalTest {
-        val taskQueue = "ctx-prop-act-${UUID.randomUUID()}"
+    fun `context propagates from workflow to activity`() =
+        runTemporalTest {
+            val taskQueue = "ctx-prop-act-${UUID.randomUUID()}"
 
-        application {
-            install(ContextPropagation) {
-                passThrough("tenant")
+            application {
+                install(ContextPropagation) {
+                    passThrough("tenant")
+                }
+                taskQueue(taskQueue) {
+                    workflow<ActivityWorkflow>()
+                    activity(TenantActivities())
+                }
             }
-            taskQueue(taskQueue) {
-                workflow<ActivityWorkflow>()
-                activity(TenantActivities())
-            }
+
+            val client =
+                client {
+                    install(ContextPropagation) {
+                        context("tenant") { Tenant("acme") }
+                    }
+                }
+
+            val handle =
+                client.startWorkflow(
+                    workflowType = "CtxPropActivityWorkflow",
+                    taskQueue = taskQueue,
+                )
+            val result: String = handle.result(timeout = 30.seconds)
+            assertEquals("acme|acme", result)
         }
-
-        val client = client {
-            install(ContextPropagation) {
-                context("tenant") { Tenant("acme") }
-            }
-        }
-
-        val handle = client.startWorkflow(
-            workflowType = "CtxPropActivityWorkflow",
-            taskQueue = taskQueue,
-        )
-        val result: String = handle.result(timeout = 30.seconds)
-        assertEquals("acme|acme", result)
-    }
 
     @Test
-    fun `context propagates from workflow to child workflow`() = runTemporalTest {
-        val taskQueue = "ctx-prop-child-${UUID.randomUUID()}"
+    fun `context propagates from workflow to child workflow`() =
+        runTemporalTest {
+            val taskQueue = "ctx-prop-child-${UUID.randomUUID()}"
 
-        application {
-            install(ContextPropagation) {
-                passThrough("tenant")
+            application {
+                install(ContextPropagation) {
+                    passThrough("tenant")
+                }
+                taskQueue(taskQueue) {
+                    workflow<ChildCallerWorkflow>()
+                    workflow<EchoWorkflow>()
+                }
             }
-            taskQueue(taskQueue) {
-                workflow<ChildCallerWorkflow>()
-                workflow<EchoWorkflow>()
-            }
+
+            val client =
+                client {
+                    install(ContextPropagation) {
+                        context("tenant") { Tenant("acme") }
+                    }
+                }
+
+            val handle =
+                client.startWorkflow(
+                    workflowType = "CtxPropChildCallerWorkflow",
+                    taskQueue = taskQueue,
+                )
+            val result: String = handle.result(timeout = 30.seconds)
+            assertEquals("acme|acme", result)
         }
-
-        val client = client {
-            install(ContextPropagation) {
-                context("tenant") { Tenant("acme") }
-            }
-        }
-
-        val handle = client.startWorkflow(
-            workflowType = "CtxPropChildCallerWorkflow",
-            taskQueue = taskQueue,
-        )
-        val result: String = handle.result(timeout = 30.seconds)
-        assertEquals("acme|acme", result)
-    }
 
     @Test
-    fun `context propagates from workflow to local activity`() = runTemporalTest {
-        val taskQueue = "ctx-prop-local-${UUID.randomUUID()}"
+    fun `context propagates from workflow to local activity`() =
+        runTemporalTest {
+            val taskQueue = "ctx-prop-local-${UUID.randomUUID()}"
 
-        application {
-            install(ContextPropagation) {
-                passThrough("tenant")
+            application {
+                install(ContextPropagation) {
+                    passThrough("tenant")
+                }
+                taskQueue(taskQueue) {
+                    workflow<LocalActivityWorkflow>()
+                    activity(TenantActivities())
+                }
             }
-            taskQueue(taskQueue) {
-                workflow<LocalActivityWorkflow>()
-                activity(TenantActivities())
-            }
+
+            val client =
+                client {
+                    install(ContextPropagation) {
+                        context("tenant") { Tenant("acme") }
+                    }
+                }
+
+            val handle =
+                client.startWorkflow(
+                    workflowType = "CtxPropLocalActivityWorkflow",
+                    taskQueue = taskQueue,
+                )
+            val result: String = handle.result(timeout = 30.seconds)
+            assertEquals("acme|acme", result)
         }
-
-        val client = client {
-            install(ContextPropagation) {
-                context("tenant") { Tenant("acme") }
-            }
-        }
-
-        val handle = client.startWorkflow(
-            workflowType = "CtxPropLocalActivityWorkflow",
-            taskQueue = taskQueue,
-        )
-        val result: String = handle.result(timeout = 30.seconds)
-        assertEquals("acme|acme", result)
-    }
 
     @Test
-    fun `context is available in query handler`() = runTemporalTest(timeSkipping = false) {
-        val taskQueue = "ctx-prop-query-${UUID.randomUUID()}"
+    fun `context is available in query handler`() =
+        runTemporalTest(timeSkipping = false) {
+            val taskQueue = "ctx-prop-query-${UUID.randomUUID()}"
 
-        application {
-            install(ContextPropagation) {
-                passThrough("tenant")
+            application {
+                install(ContextPropagation) {
+                    passThrough("tenant")
+                }
+                taskQueue(taskQueue) {
+                    workflow<SignalQueryWorkflow>()
+                }
             }
-            taskQueue(taskQueue) {
-                workflow<SignalQueryWorkflow>()
+
+            val client =
+                client {
+                    install(ContextPropagation) {
+                        context("tenant") { Tenant("acme") }
+                    }
+                }
+
+            val handle =
+                client.startWorkflow(
+                    workflowType = "CtxPropSignalQueryWorkflow",
+                    taskQueue = taskQueue,
+                )
+
+            // Poll until the workflow has started and set the tenant
+            var queryResult = ""
+            for (i in 1..50) {
+                try {
+                    queryResult = handle.query<String>("getTenant")
+                    if (queryResult.isNotEmpty()) break
+                } catch (_: Exception) {
+                    // Workflow may not have started yet
+                }
+                kotlinx.coroutines.delay(100)
             }
+            assertEquals("acme", queryResult)
+
+            handle.signal("complete")
+            val result: String = handle.result(timeout = 30.seconds)
+            assertEquals("acme", result)
         }
-
-        val client = client {
-            install(ContextPropagation) {
-                context("tenant") { Tenant("acme") }
-            }
-        }
-
-        val handle = client.startWorkflow(
-            workflowType = "CtxPropSignalQueryWorkflow",
-            taskQueue = taskQueue,
-        )
-
-        // Poll until the workflow has started and set the tenant
-        var queryResult = ""
-        for (i in 1..50) {
-            try {
-                queryResult = handle.query<String>("getTenant")
-                if (queryResult.isNotEmpty()) break
-            } catch (_: Exception) {
-                // Workflow may not have started yet
-            }
-            kotlinx.coroutines.delay(100)
-        }
-        assertEquals("acme", queryResult)
-
-        handle.signal("complete")
-        val result: String = handle.result(timeout = 30.seconds)
-        assertEquals("acme", result)
-    }
 
     @Test
-    fun `application-side provider adds new context alongside passthrough`() = runTemporalTest {
-        val taskQueue = "ctx-prop-multi-${UUID.randomUUID()}"
+    fun `application-side provider adds new context alongside passthrough`() =
+        runTemporalTest {
+            val taskQueue = "ctx-prop-multi-${UUID.randomUUID()}"
 
-        application {
-            install(ContextPropagation) {
-                passThrough("tenant")
-                context("extra") { "server-value" }
+            application {
+                install(ContextPropagation) {
+                    passThrough("tenant")
+                    context("extra") { "server-value" }
+                }
+                taskQueue(taskQueue) {
+                    workflow<MultiContextWorkflow>()
+                }
             }
-            taskQueue(taskQueue) {
-                workflow<MultiContextWorkflow>()
-            }
+
+            val client =
+                client {
+                    install(ContextPropagation) {
+                        context("tenant") { Tenant("acme") }
+                    }
+                }
+
+            val handle =
+                client.startWorkflow(
+                    workflowType = "CtxPropMultiContextWorkflow",
+                    taskQueue = taskQueue,
+                )
+            val result: String = handle.result(timeout = 30.seconds)
+            assertEquals("acme|server-value", result)
         }
-
-        val client = client {
-            install(ContextPropagation) {
-                context("tenant") { Tenant("acme") }
-            }
-        }
-
-        val handle = client.startWorkflow(
-            workflowType = "CtxPropMultiContextWorkflow",
-            taskQueue = taskQueue,
-        )
-        val result: String = handle.result(timeout = 30.seconds)
-        assertEquals("acme|server-value", result)
-    }
 
     // ================================================================
     // ProviderBehavior Tests
     // ================================================================
 
     @Test
-    fun `SKIP_IF_PRESENT preserves client value when app provider has same key`() = runTemporalTest {
-        val taskQueue = "ctx-prop-skip-${UUID.randomUUID()}"
+    fun `SKIP_IF_PRESENT preserves client value when app provider has same key`() =
+        runTemporalTest {
+            val taskQueue = "ctx-prop-skip-${UUID.randomUUID()}"
 
-        application {
-            install(ContextPropagation) {
-                // Default behavior (SKIP_IF_PRESENT): should use the client's value
-                // since the inbound header already contains "source"
-                context("source") { "from-server" }
-            }
-            taskQueue(taskQueue) {
-                workflow<SourceWorkflow>()
-            }
-        }
-
-        val client = client {
-            install(ContextPropagation) {
-                context("source") { "from-client" }
-            }
-        }
-
-        val handle = client.startWorkflow(
-            workflowType = "CtxPropSourceWorkflow",
-            taskQueue = taskQueue,
-        )
-        val result: String = handle.result(timeout = 30.seconds)
-        assertEquals("from-client", result)
-    }
-
-    @Test
-    fun `ALWAYS_EXECUTE overwrites client value when app provider has same key`() = runTemporalTest {
-        val taskQueue = "ctx-prop-always-${UUID.randomUUID()}"
-
-        application {
-            install(ContextPropagation) {
-                context("source", ProviderBehavior.ALWAYS_EXECUTE) { "from-server" }
-            }
-            taskQueue(taskQueue) {
-                workflow<SourceWorkflow>()
-            }
-        }
-
-        val client = client {
-            install(ContextPropagation) {
-                context("source") { "from-client" }
-            }
-        }
-
-        val handle = client.startWorkflow(
-            workflowType = "CtxPropSourceWorkflow",
-            taskQueue = taskQueue,
-        )
-        val result: String = handle.result(timeout = 30.seconds)
-        assertEquals("from-server", result)
-    }
-
-    @Test
-    fun `SKIP_IF_PRESENT still executes provider when no inbound header exists`() = runTemporalTest {
-        val taskQueue = "ctx-prop-skip-new-${UUID.randomUUID()}"
-
-        application {
-            install(ContextPropagation) {
-                passThrough("tenant")
-                // "extra" is not sent by the client, so provider always executes
-                context("extra") { "server-only" }
-            }
-            taskQueue(taskQueue) {
-                workflow<MultiContextWorkflow>()
-            }
-        }
-
-        val client = client {
-            install(ContextPropagation) {
-                context("tenant") { Tenant("acme") }
-                // Note: client does NOT send "extra"
-            }
-        }
-
-        val handle = client.startWorkflow(
-            workflowType = "CtxPropMultiContextWorkflow",
-            taskQueue = taskQueue,
-        )
-        val result: String = handle.result(timeout = 30.seconds)
-        assertEquals("acme|server-only", result)
-    }
-
-    @Test
-    fun `SKIP_IF_PRESENT non-deterministic provider is safe because inbound header wins`() = runTemporalTest {
-        val taskQueue = "ctx-prop-skip-nondet-${UUID.randomUUID()}"
-        val callCount = AtomicInteger(0)
-
-        application {
-            install(ContextPropagation) {
-                // This provider is non-deterministic (returns different values each call).
-                // With SKIP_IF_PRESENT, the inbound header from the client always wins
-                // in buildPropagatedContext, so the non-determinism is safe.
-                context("source") {
-                    "from-server-${callCount.incrementAndGet()}"
+            application {
+                install(ContextPropagation) {
+                    // Default behavior (SKIP_IF_PRESENT): should use the client's value
+                    // since the inbound header already contains "source"
+                    context("source") { "from-server" }
+                }
+                taskQueue(taskQueue) {
+                    workflow<SourceWorkflow>()
                 }
             }
-            taskQueue(taskQueue) {
-                workflow<SourceWorkflow>()
-            }
-        }
 
-        val client = client {
-            install(ContextPropagation) {
-                context("source") { "from-client" }
-            }
-        }
+            val client =
+                client {
+                    install(ContextPropagation) {
+                        context("source") { "from-client" }
+                    }
+                }
 
-        val handle = client.startWorkflow(
-            workflowType = "CtxPropSourceWorkflow",
-            taskQueue = taskQueue,
-        )
-        val result: String = handle.result(timeout = 30.seconds)
-        // Even though the app provider is non-deterministic, SKIP_IF_PRESENT
-        // means the client's stable header value is used
-        assertEquals("from-client", result)
-    }
+            val handle =
+                client.startWorkflow(
+                    workflowType = "CtxPropSourceWorkflow",
+                    taskQueue = taskQueue,
+                )
+            val result: String = handle.result(timeout = 30.seconds)
+            assertEquals("from-client", result)
+        }
 
     @Test
-    fun `context survives timer and replay`() = runTemporalTest {
-        val taskQueue = "ctx-prop-timer-${UUID.randomUUID()}"
+    fun `ALWAYS_EXECUTE overwrites client value when app provider has same key`() =
+        runTemporalTest {
+            val taskQueue = "ctx-prop-always-${UUID.randomUUID()}"
 
-        application {
-            install(ContextPropagation) {
-                passThrough("tenant")
+            application {
+                install(ContextPropagation) {
+                    context("source", ProviderBehavior.ALWAYS_EXECUTE) { "from-server" }
+                }
+                taskQueue(taskQueue) {
+                    workflow<SourceWorkflow>()
+                }
             }
-            taskQueue(taskQueue) {
-                workflow<TimerWorkflow>()
-            }
+
+            val client =
+                client {
+                    install(ContextPropagation) {
+                        context("source") { "from-client" }
+                    }
+                }
+
+            val handle =
+                client.startWorkflow(
+                    workflowType = "CtxPropSourceWorkflow",
+                    taskQueue = taskQueue,
+                )
+            val result: String = handle.result(timeout = 30.seconds)
+            assertEquals("from-server", result)
         }
-
-        val client = client {
-            install(ContextPropagation) {
-                context("tenant") { Tenant("acme") }
-            }
-        }
-
-        val handle = client.startWorkflow(
-            workflowType = "CtxPropTimerWorkflow",
-            taskQueue = taskQueue,
-        )
-        val result: String = handle.result(timeout = 30.seconds)
-        assertEquals("acme|acme", result)
-    }
 
     @Test
-    fun `context available in signal handler after timer`() = runTemporalTest(timeSkipping = false) {
-        val taskQueue = "ctx-prop-sig-timer-${UUID.randomUUID()}"
+    fun `SKIP_IF_PRESENT still executes provider when no inbound header exists`() =
+        runTemporalTest {
+            val taskQueue = "ctx-prop-skip-new-${UUID.randomUUID()}"
 
-        application {
-            install(ContextPropagation) {
-                passThrough("tenant")
+            application {
+                install(ContextPropagation) {
+                    passThrough("tenant")
+                    // "extra" is not sent by the client, so provider always executes
+                    context("extra") { "server-only" }
+                }
+                taskQueue(taskQueue) {
+                    workflow<MultiContextWorkflow>()
+                }
             }
-            taskQueue(taskQueue) {
-                workflow<SignalQueryWorkflow>()
-            }
+
+            val client =
+                client {
+                    install(ContextPropagation) {
+                        context("tenant") { Tenant("acme") }
+                        // Note: client does NOT send "extra"
+                    }
+                }
+
+            val handle =
+                client.startWorkflow(
+                    workflowType = "CtxPropMultiContextWorkflow",
+                    taskQueue = taskQueue,
+                )
+            val result: String = handle.result(timeout = 30.seconds)
+            assertEquals("acme|server-only", result)
         }
 
-        val client = client {
-            install(ContextPropagation) {
-                context("tenant") { Tenant("acme") }
+    @Test
+    fun `SKIP_IF_PRESENT non-deterministic provider is safe because inbound header wins`() =
+        runTemporalTest {
+            val taskQueue = "ctx-prop-skip-nondet-${UUID.randomUUID()}"
+            val callCount = AtomicInteger(0)
+
+            application {
+                install(ContextPropagation) {
+                    // This provider is non-deterministic (returns different values each call).
+                    // With SKIP_IF_PRESENT, the inbound header from the client always wins
+                    // in buildPropagatedContext, so the non-determinism is safe.
+                    context("source") {
+                        "from-server-${callCount.incrementAndGet()}"
+                    }
+                }
+                taskQueue(taskQueue) {
+                    workflow<SourceWorkflow>()
+                }
             }
+
+            val client =
+                client {
+                    install(ContextPropagation) {
+                        context("source") { "from-client" }
+                    }
+                }
+
+            val handle =
+                client.startWorkflow(
+                    workflowType = "CtxPropSourceWorkflow",
+                    taskQueue = taskQueue,
+                )
+            val result: String = handle.result(timeout = 30.seconds)
+            // Even though the app provider is non-deterministic, SKIP_IF_PRESENT
+            // means the client's stable header value is used
+            assertEquals("from-client", result)
         }
 
-        val handle = client.startWorkflow(
-            workflowType = "CtxPropSignalQueryWorkflow",
-            taskQueue = taskQueue,
-        )
+    @Test
+    fun `context survives timer and replay`() =
+        runTemporalTest {
+            val taskQueue = "ctx-prop-timer-${UUID.randomUUID()}"
 
-        // Wait for workflow to start
-        var ready = false
-        for (i in 1..50) {
-            try {
-                val q = handle.query<String>("getTenant")
-                if (q.isNotEmpty()) { ready = true; break }
-            } catch (_: Exception) {}
-            kotlinx.coroutines.delay(100)
+            application {
+                install(ContextPropagation) {
+                    passThrough("tenant")
+                }
+                taskQueue(taskQueue) {
+                    workflow<TimerWorkflow>()
+                }
+            }
+
+            val client =
+                client {
+                    install(ContextPropagation) {
+                        context("tenant") { Tenant("acme") }
+                    }
+                }
+
+            val handle =
+                client.startWorkflow(
+                    workflowType = "CtxPropTimerWorkflow",
+                    taskQueue = taskQueue,
+                )
+            val result: String = handle.result(timeout = 30.seconds)
+            assertEquals("acme|acme", result)
         }
-        check(ready) { "Workflow did not start in time" }
 
-        // Signal without context headers (signal doesn't carry them from client)
-        // The workflow should still have the original context from startWorkflow
-        handle.signal("complete")
-        val result: String = handle.result(timeout = 30.seconds)
-        assertEquals("acme", result)
-    }
+    @Test
+    fun `context available in signal handler after timer`() =
+        runTemporalTest(timeSkipping = false) {
+            val taskQueue = "ctx-prop-sig-timer-${UUID.randomUUID()}"
+
+            application {
+                install(ContextPropagation) {
+                    passThrough("tenant")
+                }
+                taskQueue(taskQueue) {
+                    workflow<SignalQueryWorkflow>()
+                }
+            }
+
+            val client =
+                client {
+                    install(ContextPropagation) {
+                        context("tenant") { Tenant("acme") }
+                    }
+                }
+
+            val handle =
+                client.startWorkflow(
+                    workflowType = "CtxPropSignalQueryWorkflow",
+                    taskQueue = taskQueue,
+                )
+
+            // Wait for workflow to start
+            var ready = false
+            for (i in 1..50) {
+                try {
+                    val q = handle.query<String>("getTenant")
+                    if (q.isNotEmpty()) {
+                        ready = true
+                        break
+                    }
+                } catch (_: Exception) {
+                }
+                kotlinx.coroutines.delay(100)
+            }
+            check(ready) { "Workflow did not start in time" }
+
+            // Signal without context headers (signal doesn't carry them from client)
+            // The workflow should still have the original context from startWorkflow
+            handle.signal("complete")
+            val result: String = handle.result(timeout = 30.seconds)
+            assertEquals("acme", result)
+        }
 }
