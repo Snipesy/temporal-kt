@@ -365,9 +365,7 @@ class TemporalClientImpl internal constructor(
             val retryBuilder =
                 io.temporal.api.common.v1.RetryPolicy
                     .newBuilder()
-            retryPolicy.initialInterval?.let {
-                retryBuilder.setInitialInterval(Durations.fromMillis(it.inWholeMilliseconds))
-            }
+            retryBuilder.setInitialInterval(Durations.fromMillis(retryPolicy.initialInterval.inWholeMilliseconds))
             retryBuilder.setBackoffCoefficient(retryPolicy.backoffCoefficient)
             retryPolicy.maximumInterval?.let {
                 retryBuilder.setMaximumInterval(Durations.fromMillis(it.inWholeMilliseconds))

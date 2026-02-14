@@ -8,6 +8,7 @@ import com.surrealdev.temporal.application.plugin.interceptor.ScheduleActivityIn
 import com.surrealdev.temporal.application.plugin.interceptor.ScheduleLocalActivityInput
 import com.surrealdev.temporal.application.plugin.interceptor.SleepInput
 import com.surrealdev.temporal.application.plugin.interceptor.StartChildWorkflowInput
+import com.surrealdev.temporal.common.RetryPolicy
 import com.surrealdev.temporal.common.SearchAttributeEncoder
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
@@ -1057,7 +1058,7 @@ private fun VersioningIntent.toProto(): coresdk.common.Common.VersioningIntent =
     }
 
 /**
- * Converts domain [RetryPolicy][com.surrealdev.temporal.workflow.RetryPolicy] to protobuf message.
+ * Converts domain [RetryPolicy] to protobuf message.
  *
  * Used for both activity and child workflow retry policies.
  *
@@ -1068,7 +1069,7 @@ private fun VersioningIntent.toProto(): coresdk.common.Common.VersioningIntent =
  * - maximumInterval: Cap on retry delay (optional)
  * - nonRetryableErrorTypes: Error types that should not be retried
  */
-private fun com.surrealdev.temporal.workflow.RetryPolicy.toProto(): io.temporal.api.common.v1.RetryPolicy {
+private fun RetryPolicy.toProto(): io.temporal.api.common.v1.RetryPolicy {
     val retryPolicyBuilder =
         io.temporal.api.common.v1.RetryPolicy
             .newBuilder()

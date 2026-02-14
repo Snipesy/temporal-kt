@@ -3,9 +3,9 @@ package com.surrealdev.temporal.workflow.integration
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.taskQueue
-import com.surrealdev.temporal.client.RetryPolicy
 import com.surrealdev.temporal.client.WorkflowStartOptions
 import com.surrealdev.temporal.client.startWorkflow
+import com.surrealdev.temporal.common.RetryPolicy
 import com.surrealdev.temporal.common.exceptions.ClientWorkflowResultTimeoutException
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext

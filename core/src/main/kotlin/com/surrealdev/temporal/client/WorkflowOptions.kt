@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.client
 
+import com.surrealdev.temporal.common.RetryPolicy
 import com.surrealdev.temporal.common.TypedSearchAttributes
 import kotlin.time.Duration
 import io.temporal.api.enums.v1.WorkflowIdConflictPolicy as ProtoWorkflowIdConflictPolicy
@@ -90,23 +91,6 @@ enum class WorkflowIdConflictPolicy {
             TERMINATE_EXISTING -> ProtoWorkflowIdConflictPolicy.WORKFLOW_ID_CONFLICT_POLICY_TERMINATE_EXISTING
         }
 }
-
-/**
- * Retry policy for workflow or activity execution.
- *
- * @property initialInterval Initial interval between retry attempts.
- * @property backoffCoefficient Coefficient for exponential backoff.
- * @property maximumInterval Maximum interval between retry attempts.
- * @property maximumAttempts Maximum number of retry attempts (0 = unlimited).
- * @property nonRetryableErrorTypes List of error types that should not be retried.
- */
-data class RetryPolicy(
-    val initialInterval: Duration? = null,
-    val backoffCoefficient: Double = 2.0,
-    val maximumInterval: Duration? = null,
-    val maximumAttempts: Int = 0,
-    val nonRetryableErrorTypes: List<String> = emptyList(),
-)
 
 /**
  * Description of a workflow execution's current state.

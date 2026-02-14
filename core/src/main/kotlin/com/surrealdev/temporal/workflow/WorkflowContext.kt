@@ -1,6 +1,7 @@
 package com.surrealdev.temporal.workflow
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.common.RetryPolicy
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.TypedSearchAttributes
@@ -627,22 +628,6 @@ data class ChildWorkflowOptions(
     val cancellationType: ChildWorkflowCancellationType = ChildWorkflowCancellationType.WAIT_CANCELLATION_COMPLETED,
     /** Typed search attributes for the child workflow. */
     val searchAttributes: TypedSearchAttributes? = null,
-)
-
-/**
- * Policy for retrying failed operations.
- */
-data class RetryPolicy(
-    /** Initial backoff duration. */
-    val initialInterval: Duration = Duration.parse("1s"),
-    /** Maximum backoff duration. */
-    val maximumInterval: Duration? = null,
-    /** Backoff multiplier. */
-    val backoffCoefficient: Double = 2.0,
-    /** Maximum number of retry attempts. */
-    val maximumAttempts: Int = 0,
-    /** Error types that should not be retried. */
-    val nonRetryableErrorTypes: List<String> = emptyList(),
 )
 
 /**

@@ -1,6 +1,7 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.google.protobuf.Timestamp
+import com.surrealdev.temporal.common.RetryPolicy
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityCancelledException
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityException
@@ -370,7 +371,7 @@ private fun ActivityCancellationType.toLocalActivityProto(): WorkflowCommands.Ac
 /**
  * Converts domain RetryPolicy to protobuf message.
  */
-private fun com.surrealdev.temporal.workflow.RetryPolicy.toProto(): io.temporal.api.common.v1.RetryPolicy {
+private fun RetryPolicy.toProto(): io.temporal.api.common.v1.RetryPolicy {
     val retryPolicyBuilder =
         io.temporal.api.common.v1.RetryPolicy
             .newBuilder()

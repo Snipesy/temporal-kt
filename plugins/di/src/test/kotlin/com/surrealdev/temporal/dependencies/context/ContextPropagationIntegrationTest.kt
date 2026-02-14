@@ -8,8 +8,10 @@ import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.plugin.install
 import com.surrealdev.temporal.application.taskQueue
+import com.surrealdev.temporal.client.WorkflowStartOptions
 import com.surrealdev.temporal.client.query
 import com.surrealdev.temporal.client.startWorkflow
+import com.surrealdev.temporal.common.RetryPolicy
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.ActivityOptions
 import com.surrealdev.temporal.workflow.ChildWorkflowOptions
@@ -26,6 +28,7 @@ import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.time.Duration.Companion.seconds
 
 @Serializable
@@ -159,6 +162,34 @@ class ContextPropagationIntegrationTest {
     class SourceWorkflow {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String = context<String>("source")
+    }
+
+    /** Workflow that uses contextOrNull to read an optional context entry. */
+    @Workflow("CtxPropContextOrNullWorkflow")
+    class ContextOrNullWorkflow {
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            val tenant = contextOrNull<Tenant>("tenant")
+            val missing = contextOrNull<String>("nonexistent")
+            return "${tenant?.name ?: "none"}|${missing ?: "absent"}"
+        }
+    }
+
+    /** Workflow that reads a null String context value (should fail with checkNotNull). */
+    @Workflow("CtxPropNullStringWorkflow")
+    class NullStringWorkflow {
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String = context<String>("nullValue")
+    }
+
+    /** Workflow that reads a nullable String context value via contextOrNull. */
+    @Workflow("CtxPropNullableStringWorkflow")
+    class NullableStringWorkflow {
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            val value = contextOrNull<String>("nullValue")
+            return "got:$value"
+        }
     }
 
     // ================================================================
@@ -578,5 +609,108 @@ class ContextPropagationIntegrationTest {
             handle.signal("complete")
             val result: String = handle.result(timeout = 30.seconds)
             assertEquals("acme", result)
+        }
+
+    // ================================================================
+    // contextOrNull Tests
+    // ================================================================
+
+    @Test
+    fun `contextOrNull returns value when present and null when missing`() =
+        runTemporalTest {
+            val taskQueue = "ctx-prop-ornull-${UUID.randomUUID()}"
+
+            application {
+                install(ContextPropagation) {
+                    passThrough("tenant")
+                }
+                taskQueue(taskQueue) {
+                    workflow<ContextOrNullWorkflow>()
+                }
+            }
+
+            val client =
+                client {
+                    install(ContextPropagation) {
+                        context("tenant") { Tenant("acme") }
+                    }
+                }
+
+            val handle =
+                client.startWorkflow(
+                    workflowType = "CtxPropContextOrNullWorkflow",
+                    taskQueue = taskQueue,
+                )
+            val result: String = handle.result(timeout = 30.seconds)
+            assertEquals("acme|absent", result)
+        }
+
+    @Test
+    fun `contextOrNull returns null when no context entries defined`() =
+        runTemporalTest {
+            val taskQueue = "ctx-prop-ornull-none-${UUID.randomUUID()}"
+
+            application {
+                install(ContextPropagation) {}
+                taskQueue(taskQueue) {
+                    workflow<ContextOrNullWorkflow>()
+                }
+            }
+
+            val client =
+                client {
+                    install(ContextPropagation) {}
+                }
+
+            val handle =
+                client.startWorkflow(
+                    workflowType = "CtxPropContextOrNullWorkflow",
+                    taskQueue = taskQueue,
+                )
+            val result: String = handle.result(timeout = 30.seconds)
+            assertEquals("none|absent", result)
+        }
+
+    // ================================================================
+    // Null value deserialization bug test
+    // ================================================================
+
+    @Test
+    fun `context with null provider value does not return string null`() =
+        runTemporalTest {
+            val taskQueue = "ctx-prop-null-str-${UUID.randomUUID()}"
+
+            application {
+                install(ContextPropagation) {
+                    passThrough("nullValue")
+                }
+                taskQueue(taskQueue) {
+                    workflow<NullStringWorkflow>()
+                }
+            }
+
+            val client =
+                client {
+                    install(ContextPropagation) {
+                        // omit
+                    }
+                }
+
+            val handle =
+                client.startWorkflow(
+                    workflowType = "CtxPropNullStringWorkflow",
+                    taskQueue = taskQueue,
+                    options =
+                        WorkflowStartOptions(
+                            retryPolicy =
+                                RetryPolicy(
+                                    maximumAttempts = 1,
+                                ),
+                        ),
+                )
+            // Should fail because the deserialized value is null but context<String>() expects non-null
+            assertFailsWith<Exception> {
+                handle.result<String>(timeout = 30.seconds)
+            }
         }
 }

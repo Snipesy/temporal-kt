@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.surrealdev.temporal.common.RetryPolicy
 import com.surrealdev.temporal.common.exceptions.PayloadProcessingException
 import com.surrealdev.temporal.common.failure.FAILURE_SOURCE
 import com.surrealdev.temporal.common.failure.buildFailureProto
@@ -344,9 +345,9 @@ private fun VersioningIntent.toProtoVersioningIntent(): coresdk.common.Common.Ve
     }
 
 /**
- * Converts domain [com.surrealdev.temporal.workflow.RetryPolicy] to protobuf message.
+ * Converts domain [RetryPolicy] to protobuf message.
  */
-private fun com.surrealdev.temporal.workflow.RetryPolicy.toProtoRetryPolicy(): io.temporal.api.common.v1.RetryPolicy {
+private fun RetryPolicy.toProtoRetryPolicy(): io.temporal.api.common.v1.RetryPolicy {
     val retryPolicyBuilder =
         io.temporal.api.common.v1.RetryPolicy
             .newBuilder()

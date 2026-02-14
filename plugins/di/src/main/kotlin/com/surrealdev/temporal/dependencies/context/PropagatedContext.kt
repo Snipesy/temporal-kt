@@ -79,6 +79,35 @@ inline fun <reified T> WorkflowContext.context(name: String): T {
 }
 
 /**
+ * Reads a propagated context value from the workflow's execution scope,
+ * or returns null if the entry was not defined.
+ *
+ * Usage:
+ * ```kotlin
+ * @WorkflowRun
+ * suspend fun WorkflowContext.run(): String {
+ *     val tenant = contextOrNull<Tenant>("tenantId")
+ *     return tenant?.name ?: "unknown"
+ * }
+ * ```
+ *
+ * @param T The expected type of the context value
+ * @param name The context entry name (must match the name used in [ContextPropagationConfig])
+ * @return The deserialized context value, or null if the entry is not present
+ * @throws IllegalStateException if ContextPropagation plugin is not installed
+ */
+inline fun <reified T> WorkflowContext.contextOrNull(name: String): T? {
+    val scope =
+        this as? ExecutionScope
+            ?: error("WorkflowContext does not support context propagation (not an ExecutionScope)")
+    val propagated =
+        scope.attributes.getOrNull(PropagatedContextKey)
+            ?: error("ContextPropagation plugin not installed")
+    val raw = propagated.getRaw(name) ?: return null
+    return serializer.deserialize<T>(raw)
+}
+
+/**
  * Reads a propagated context value from the activity's execution scope.
  *
  * Usage:
@@ -105,5 +134,34 @@ inline fun <reified T> ActivityContext.context(name: String): T {
     val raw =
         propagated.getRaw(name)
             ?: error("No propagated context entry '$name'")
+    return serializer.deserialize<T>(raw)
+}
+
+/**
+ * Reads a propagated context value from the activity's execution scope,
+ * or returns null if the entry was not defined.
+ *
+ * Usage:
+ * ```kotlin
+ * @Activity
+ * suspend fun ActivityContext.process(): String {
+ *     val tenant = contextOrNull<Tenant>("tenantId")
+ *     return tenant?.name ?: "unknown"
+ * }
+ * ```
+ *
+ * @param T The expected type of the context value
+ * @param name The context entry name (must match the name used in [ContextPropagationConfig])
+ * @return The deserialized context value, or null if the entry is not present
+ * @throws IllegalStateException if ContextPropagation plugin is not installed
+ */
+inline fun <reified T> ActivityContext.contextOrNull(name: String): T? {
+    val scope =
+        this as? ExecutionScope
+            ?: error("ActivityContext does not support context propagation (not an ExecutionScope)")
+    val propagated =
+        scope.attributes.getOrNull(PropagatedContextKey)
+            ?: error("ContextPropagation plugin not installed")
+    val raw = propagated.getRaw(name) ?: return null
     return serializer.deserialize<T>(raw)
 }

@@ -2,6 +2,7 @@ package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
+import com.surrealdev.temporal.common.RetryPolicy
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.toTemporal
 import com.surrealdev.temporal.serialization.CompositePayloadSerializer
@@ -9,7 +10,6 @@ import com.surrealdev.temporal.testing.ProtoTestHelpers.createActivation
 import com.surrealdev.temporal.testing.ProtoTestHelpers.initializeWorkflowJob
 import com.surrealdev.temporal.testing.createTestWorkflowExecutor
 import com.surrealdev.temporal.workflow.ContinueAsNewOptions
-import com.surrealdev.temporal.workflow.RetryPolicy
 import com.surrealdev.temporal.workflow.VersioningIntent
 import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.continueAsNew

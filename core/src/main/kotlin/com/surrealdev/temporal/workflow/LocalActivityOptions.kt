@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.workflow
 
+import com.surrealdev.temporal.common.RetryPolicy
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 

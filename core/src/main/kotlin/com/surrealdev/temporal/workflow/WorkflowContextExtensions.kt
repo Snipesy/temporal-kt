@@ -2,6 +2,7 @@ package com.surrealdev.temporal.workflow
 
 import com.surrealdev.temporal.annotation.Activity
 import com.surrealdev.temporal.annotation.Workflow
+import com.surrealdev.temporal.common.RetryPolicy
 import com.surrealdev.temporal.common.SearchAttributesBuilder
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.searchAttributes

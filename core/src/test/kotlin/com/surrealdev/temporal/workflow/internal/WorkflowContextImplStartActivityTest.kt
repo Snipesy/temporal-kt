@@ -1,12 +1,12 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.surrealdev.temporal.common.RetryPolicy
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.serialization.CompositePayloadSerializer
 import com.surrealdev.temporal.testing.runWorkflowUnitTest
 import com.surrealdev.temporal.util.Attributes
 import com.surrealdev.temporal.util.SimpleAttributeScope
 import com.surrealdev.temporal.workflow.ActivityOptions
-import com.surrealdev.temporal.workflow.RetryPolicy
 import com.surrealdev.temporal.workflow.WorkflowInfo
 import com.surrealdev.temporal.workflow.startActivity
 import kotlinx.coroutines.Job
