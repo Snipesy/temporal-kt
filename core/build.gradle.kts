@@ -6,6 +6,13 @@ plugins {
     alias(libs.plugins.kotlinPluginSerialization)
 }
 
+kotlin {
+    @OptIn(org.jetbrains.kotlin.gradle.dsl.abi.ExperimentalAbiValidation::class)
+    abiValidation {
+        enabled.set(true)
+    }
+}
+
 dependencies {
     implementation(project(":core-bridge"))
     api(libs.bundles.kotlinxEcosystem)

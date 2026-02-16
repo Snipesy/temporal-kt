@@ -8,9 +8,10 @@ to the Python SDK than it is to the Java SDK.
 
 ### Prerequisites
 
-- **JDK 21+** (required for Virtual Threads support)
+- **JDK 25+** (Java 25 is needed for stable FFM)
 - **Temporal Server** running locally or remotely
   - For local development: `temporal server start-dev`
+- Your Kotlin Version should match Temporal-Kt's build (functional ABIs between kotlin versions is not currently a priority).
 
 ### Installation
 
