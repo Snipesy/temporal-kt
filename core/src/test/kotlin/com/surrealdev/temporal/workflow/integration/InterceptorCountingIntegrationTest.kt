@@ -768,7 +768,6 @@ class InterceptorCountingIntegrationTest {
             )
 
             // terminate the update workflow
-            updateHandle.signal("complete")
             updateHandle.terminate("test-terminate")
             assertEquals(
                 1,
