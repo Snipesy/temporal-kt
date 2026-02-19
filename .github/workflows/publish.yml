@@ -82,6 +82,7 @@ jobs:
           cache-workspaces: "core-bridge/rust -> target"
           cache-all-crates: true
           cache-on-failure: true
+          rustflags: ""
 
       - name: Install protobuf (Linux)
         if: runner.os == 'Linux'

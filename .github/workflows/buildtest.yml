@@ -29,6 +29,7 @@ jobs:
           cache-workspaces: "core-bridge/rust -> target"
           cache-all-crates: true
           cache-on-failure: true
+          rustflags: ""
 
       - name: Install Protobuf
         run: sudo apt-get install -y protobuf-compiler
