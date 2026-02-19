@@ -127,7 +127,7 @@ class PatchHandlerTest {
                     isReplaying = true,
                 )
 
-            executor.activate(activation)
+            executor.activate(activation).completion
 
             // Patch should be recorded in state
             assertTrue(executor.state.isPatchNotified("my-versioning-patch"))
@@ -154,7 +154,7 @@ class PatchHandlerTest {
                     isReplaying = true,
                 )
 
-            executor.activate(activation)
+            executor.activate(activation).completion
 
             assertTrue(executor.state.isPatchNotified("patch-v1"))
             assertTrue(executor.state.isPatchNotified("patch-v2"))
@@ -182,7 +182,7 @@ class PatchHandlerTest {
                     isReplaying = true,
                 )
 
-            val completion = executor.activate(activation)
+            val completion = executor.activate(activation).completion
 
             // Activation should complete successfully
             assertTrue(completion.hasSuccessful())

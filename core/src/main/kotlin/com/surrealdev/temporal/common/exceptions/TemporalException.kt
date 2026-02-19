@@ -5,6 +5,17 @@ import io.temporal.api.failure.v1.Failure
 import kotlinx.coroutines.CancellationException
 
 /**
+ * Exception thrown when a Temporal service call is rejected due to insufficient permissions.
+ *
+ * This can occur when using Temporal Cloud with an invalid or missing API key,
+ * or when the caller lacks the required namespace permissions.
+ */
+class ClientPermissionDeniedException(
+    message: String = "Permission denied",
+    cause: Throwable? = null,
+) : TemporalRuntimeException(message, cause)
+
+/**
  * Base exception for all Temporal runtime exceptions
  */
 sealed class TemporalRuntimeException(

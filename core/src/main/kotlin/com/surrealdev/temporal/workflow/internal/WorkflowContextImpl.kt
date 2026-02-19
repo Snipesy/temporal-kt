@@ -33,11 +33,13 @@ import com.surrealdev.temporal.workflow.LocalActivityHandle
 import com.surrealdev.temporal.workflow.LocalActivityOptions
 import com.surrealdev.temporal.workflow.ParentClosePolicy
 import com.surrealdev.temporal.workflow.RemoteActivityHandle
+import com.surrealdev.temporal.workflow.SuggestContinueAsNewReason
 import com.surrealdev.temporal.workflow.VersioningIntent
 import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.WorkflowInfo
 import coresdk.child_workflow.ChildWorkflow
 import coresdk.workflow_commands.WorkflowCommands
+import io.temporal.api.common.v1.SearchAttributes
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
@@ -115,6 +117,9 @@ internal class WorkflowContextImpl(
         get() = state.historySizeBytes
 
     override fun isContinueAsNewSuggested(): Boolean = state.continueAsNewSuggested
+
+    override val continueAsNewSuggestedReasons: Set<SuggestContinueAsNewReason>
+        get() = state.suggestContinueAsNewReasons
 
     // Create a child job for this workflow - failures propagate to parent
     internal val job = Job(parentJob)
@@ -751,7 +756,9 @@ internal class WorkflowContextImpl(
         options.searchAttributes?.let { attrs ->
             if (attrs.isNotEmpty()) {
                 val encoded = SearchAttributeEncoder.encode(attrs)
-                commandBuilder.putAllSearchAttributes(encoded)
+                commandBuilder.setSearchAttributes(
+                    SearchAttributes.newBuilder().putAllIndexedFields(encoded).build(),
+                )
             }
         }
 
@@ -887,7 +894,9 @@ internal class WorkflowContextImpl(
                 .setUpsertWorkflowSearchAttributes(
                     WorkflowCommands.UpsertWorkflowSearchAttributes
                         .newBuilder()
-                        .putAllSearchAttributes(encoded),
+                        .setSearchAttributes(
+                            SearchAttributes.newBuilder().putAllIndexedFields(encoded).build(),
+                        ),
                 ).build()
 
         state.addCommand(command)

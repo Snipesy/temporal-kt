@@ -81,4 +81,19 @@ class OpenTelemetryConfig {
      * Default: true
      */
     var enableMetrics: Boolean = true
+
+    /**
+     * Enable Core SDK metrics bridge.
+     *
+     * When true, Core SDK internal metrics (schedule-to-start latency, sticky cache
+     * hit/eviction rates, worker slot usage, etc.) are forwarded through the OTel
+     * pipeline. These metrics are emitted by the Rust Core SDK and cannot be measured
+     * from Kotlin alone.
+     *
+     * Requires [enableMetrics] to also be true. The Meter instance is passed to
+     * the Core runtime at startup.
+     *
+     * Default: true
+     */
+    var enableCoreMetrics: Boolean = true
 }

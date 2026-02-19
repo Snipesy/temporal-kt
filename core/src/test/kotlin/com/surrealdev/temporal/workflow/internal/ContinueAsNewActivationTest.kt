@@ -189,7 +189,7 @@ class ContinueAsNewActivationTest {
                     ),
                 isReplaying = false,
             )
-        val completion = executor.activate(initActivation)
+        val completion = executor.activate(initActivation).completion
 
         return ExecutorResult(executor, runId, workflow, completion)
     }
@@ -407,7 +407,7 @@ class ContinueAsNewActivationTest {
                     jobs = listOf(initializeWorkflowJob(workflowType = "SimpleContinueAsNewWorkflow")),
                     isReplaying = true,
                 )
-            val completion2 = executor2.activate(initActivation2)
+            val completion2 = executor2.activate(initActivation2).completion
 
             val commands2 = getCommandsFromCompletion(completion2)
             val canCommand2 = commands2[0].continueAsNewWorkflowExecution

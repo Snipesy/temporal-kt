@@ -227,7 +227,7 @@ class QueryBehaviorTest {
                     runId = runId,
                     jobs = listOf(initializeWorkflowJob(workflowType = "TestWorkflow")),
                 )
-            executor.activate(initActivation)
+            executor.activate(initActivation).completion
 
             // Process multiple queries in one activation
             val queryActivation =
@@ -240,7 +240,7 @@ class QueryBehaviorTest {
                             queryWorkflowJob(queryType = "query3"),
                         ),
                 )
-            val completion = executor.activate(queryActivation)
+            val completion = executor.activate(queryActivation).completion
 
             // All queries should process successfully in read-only mode
             assertTrue(completion.hasSuccessful())
@@ -259,7 +259,7 @@ class QueryBehaviorTest {
                     runId = runId,
                     jobs = listOf(initializeWorkflowJob(workflowType = "TestWorkflow")),
                 )
-            executor.activate(initActivation)
+            executor.activate(initActivation).completion
 
             // Process query separately
             val queryActivation =
@@ -267,7 +267,7 @@ class QueryBehaviorTest {
                     runId = runId,
                     jobs = listOf(queryWorkflowJob(queryType = "getState")),
                 )
-            val completion = executor.activate(queryActivation)
+            val completion = executor.activate(queryActivation).completion
 
             assertTrue(completion.hasSuccessful())
         }

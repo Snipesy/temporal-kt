@@ -12,7 +12,10 @@ import com.surrealdev.temporal.application.plugin.interceptor.SignalWorkflowInpu
 import com.surrealdev.temporal.application.plugin.interceptor.StartWorkflowUpdateInput
 import com.surrealdev.temporal.application.plugin.interceptor.TerminateWorkflowInput
 import com.surrealdev.temporal.client.history.WorkflowHistory
+import com.surrealdev.temporal.client.internal.GRPC_CANCELLED
+import com.surrealdev.temporal.client.internal.GRPC_DEADLINE_EXCEEDED
 import com.surrealdev.temporal.client.internal.WorkflowServiceClient
+import com.surrealdev.temporal.client.internal.rethrowMapped
 import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
@@ -341,18 +344,12 @@ internal class WorkflowHandleImpl(
                     logger.debug("[{}] RPC timed out for workflow {}, re-polling", operation, workflowId)
                     continue
                 }
-                throw e
+                e.rethrowMapped(workflowId, runId)
             }
         }
     }
 
     companion object {
-        // Rust Core SDK returns CANCELLED (1) for client-side timeout_millis expiry,
-        // while the gRPC server returns DEADLINE_EXCEEDED (4) for server-side deadlines.
-        // Both indicate a bounded poll timeout that should be retried.
-        private const val GRPC_CANCELLED = 1
-        private const val GRPC_DEADLINE_EXCEEDED = 4
-
         private val CLOSE_EVENT_TYPES =
             setOf(
                 EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED,
@@ -494,7 +491,11 @@ internal class WorkflowHandleImpl(
             )
         }
 
-        serviceClient.signalWorkflowExecution(requestBuilder.build())
+        try {
+            serviceClient.signalWorkflowExecution(requestBuilder.build())
+        } catch (e: TemporalCoreException) {
+            e.rethrowMapped(input.workflowId, input.runId)
+        }
     }
 
     override suspend fun updateWithPayloads(
@@ -688,7 +689,11 @@ internal class WorkflowHandleImpl(
                         .build(),
                 ).build()
 
-        serviceClient.requestCancelWorkflowExecution(request)
+        try {
+            serviceClient.requestCancelWorkflowExecution(request)
+        } catch (e: TemporalCoreException) {
+            e.rethrowMapped(input.workflowId, input.runId)
+        }
     }
 
     override suspend fun terminate(reason: String?) {
@@ -712,7 +717,11 @@ internal class WorkflowHandleImpl(
                 ).also { if (input.reason != null) it.setReason(input.reason) }
                 .build()
 
-        serviceClient.terminateWorkflowExecution(request)
+        try {
+            serviceClient.terminateWorkflowExecution(request)
+        } catch (e: TemporalCoreException) {
+            e.rethrowMapped(input.workflowId, input.runId)
+        }
     }
 
     override suspend fun describe(): WorkflowExecutionDescription {
@@ -735,7 +744,12 @@ internal class WorkflowHandleImpl(
                         .build(),
                 ).build()
 
-        val response = serviceClient.describeWorkflowExecution(request)
+        val response =
+            try {
+                serviceClient.describeWorkflowExecution(request)
+            } catch (e: TemporalCoreException) {
+                e.rethrowMapped(input.workflowId, input.runId)
+            }
         val info = response.workflowExecutionInfo
 
         return WorkflowExecutionDescription(
@@ -783,7 +797,12 @@ internal class WorkflowHandleImpl(
                     ).setNextPageToken(nextPageToken)
                     .build()
 
-            val response = serviceClient.getWorkflowExecutionHistory(request)
+            val response =
+                try {
+                    serviceClient.getWorkflowExecutionHistory(request)
+                } catch (e: TemporalCoreException) {
+                    e.rethrowMapped(input.workflowId, input.runId)
+                }
             allEvents.addAll(response.history.eventsList)
             nextPageToken = response.nextPageToken
         } while (nextPageToken != null && !nextPageToken.isEmpty)

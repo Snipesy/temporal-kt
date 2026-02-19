@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.opentelemetry
 
+import com.surrealdev.temporal.application.CoreMetricsMeterKey
 import com.surrealdev.temporal.application.plugin.createApplicationPlugin
 import com.surrealdev.temporal.application.plugin.hooks.ActivityTaskCompletedContext
 import com.surrealdev.temporal.application.plugin.hooks.ActivityTaskContext
@@ -61,14 +62,16 @@ val OpenTelemetryPlugin =
                 otel.getTracer(config.tracerName)
             }
 
-        val metrics: TemporalMetrics? =
-            if (config.enableMetrics) {
-                TemporalMetrics(otel.getMeter(config.tracerName))
-            } else {
-                null
-            }
+        val otelMeter = if (config.enableMetrics) otel.getMeter(config.tracerName) else null
+
+        val metrics: TemporalMetrics? = otelMeter?.let { TemporalMetrics(it) }
 
         val spanHolder = SpanContextHolder()
+
+        // Store the Meter in application attributes for Core metrics bridge
+        if (config.enableCoreMetrics && otelMeter != null) {
+            pipeline.attributes.put(CoreMetricsMeterKey, otelMeter)
+        }
 
         // ==================== Application Hooks ====================
 

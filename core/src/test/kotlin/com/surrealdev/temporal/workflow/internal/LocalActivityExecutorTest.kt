@@ -175,7 +175,7 @@ class LocalActivityIntegrationTest {
                 jobs = listOf(ProtoTestHelpers.initializeWorkflowJob(workflowType = workflowType)),
                 isReplaying = false,
             )
-        val completion = executor.activate(initActivation)
+        val completion = executor.activate(initActivation).completion
 
         return ExecutorResult(executor, runId, workflow, completion)
     }
@@ -229,7 +229,7 @@ class LocalActivityIntegrationTest {
                             ),
                         ),
                 )
-            val resolveCompletion = executor.activate(resolveActivation)
+            val resolveCompletion = executor.activate(resolveActivation).completion
 
             // Verify workflow completed
             assertTrue(resolveCompletion.hasSuccessful())
@@ -256,18 +256,19 @@ class LocalActivityIntegrationTest {
 
             // Resolve first
             var resolveCompletion =
-                executor.activate(
-                    ProtoTestHelpers.createActivation(
-                        runId = runId,
-                        jobs =
-                            listOf(
-                                ProtoTestHelpers.resolveLocalActivityJobCompleted(
-                                    seq = 1,
-                                    result = createPayload("\"A\"").toTemporal(),
+                executor
+                    .activate(
+                        ProtoTestHelpers.createActivation(
+                            runId = runId,
+                            jobs =
+                                listOf(
+                                    ProtoTestHelpers.resolveLocalActivityJobCompleted(
+                                        seq = 1,
+                                        result = createPayload("\"A\"").toTemporal(),
+                                    ),
                                 ),
-                            ),
-                    ),
-                )
+                        ),
+                    ).completion
 
             // Second activity (step2)
             commands = getCommandsFromCompletion(resolveCompletion)
@@ -279,18 +280,19 @@ class LocalActivityIntegrationTest {
 
             // Resolve second
             resolveCompletion =
-                executor.activate(
-                    ProtoTestHelpers.createActivation(
-                        runId = runId,
-                        jobs =
-                            listOf(
-                                ProtoTestHelpers.resolveLocalActivityJobCompleted(
-                                    seq = 2,
-                                    result = createPayload("\"B\"").toTemporal(),
+                executor
+                    .activate(
+                        ProtoTestHelpers.createActivation(
+                            runId = runId,
+                            jobs =
+                                listOf(
+                                    ProtoTestHelpers.resolveLocalActivityJobCompleted(
+                                        seq = 2,
+                                        result = createPayload("\"B\"").toTemporal(),
+                                    ),
                                 ),
-                            ),
-                    ),
-                )
+                        ),
+                    ).completion
 
             // Third activity (step3)
             commands = getCommandsFromCompletion(resolveCompletion)
@@ -302,18 +304,19 @@ class LocalActivityIntegrationTest {
 
             // Resolve third
             resolveCompletion =
-                executor.activate(
-                    ProtoTestHelpers.createActivation(
-                        runId = runId,
-                        jobs =
-                            listOf(
-                                ProtoTestHelpers.resolveLocalActivityJobCompleted(
-                                    seq = 3,
-                                    result = createPayload("\"C\"").toTemporal(),
+                executor
+                    .activate(
+                        ProtoTestHelpers.createActivation(
+                            runId = runId,
+                            jobs =
+                                listOf(
+                                    ProtoTestHelpers.resolveLocalActivityJobCompleted(
+                                        seq = 3,
+                                        result = createPayload("\"C\"").toTemporal(),
+                                    ),
                                 ),
-                            ),
-                    ),
-                )
+                        ),
+                    ).completion
 
             // Workflow should complete
             assertTrue(resolveCompletion.hasSuccessful())
@@ -363,7 +366,7 @@ class LocalActivityIntegrationTest {
                             ),
                         ),
                 )
-            val resolveCompletion = executor.activate(resolveActivation)
+            val resolveCompletion = executor.activate(resolveActivation).completion
 
             // Workflow should complete
             assertTrue(resolveCompletion.hasSuccessful())
@@ -393,20 +396,21 @@ class LocalActivityIntegrationTest {
                     .setSeconds(1000)
                     .build()
             val backoffCompletion =
-                executor.activate(
-                    ProtoTestHelpers.createActivation(
-                        runId = runId,
-                        jobs =
-                            listOf(
-                                ProtoTestHelpers.resolveLocalActivityJobBackoff(
-                                    seq = 1,
-                                    attempt = 2,
-                                    backoffSeconds = 5,
-                                    originalScheduleTime = originalScheduleTime,
+                executor
+                    .activate(
+                        ProtoTestHelpers.createActivation(
+                            runId = runId,
+                            jobs =
+                                listOf(
+                                    ProtoTestHelpers.resolveLocalActivityJobBackoff(
+                                        seq = 1,
+                                        attempt = 2,
+                                        backoffSeconds = 5,
+                                        originalScheduleTime = originalScheduleTime,
+                                    ),
                                 ),
-                            ),
-                    ),
-                )
+                        ),
+                    ).completion
 
             // Should have timer for backoff
             commands = getCommandsFromCompletion(backoffCompletion)
@@ -416,12 +420,13 @@ class LocalActivityIntegrationTest {
 
             // Fire the timer
             val fireTimerCompletion =
-                executor.activate(
-                    ProtoTestHelpers.createActivation(
-                        runId = runId,
-                        jobs = listOf(ProtoTestHelpers.fireTimerJob(seq = timerCmd.startTimer.seq)),
-                    ),
-                )
+                executor
+                    .activate(
+                        ProtoTestHelpers.createActivation(
+                            runId = runId,
+                            jobs = listOf(ProtoTestHelpers.fireTimerJob(seq = timerCmd.startTimer.seq)),
+                        ),
+                    ).completion
 
             // Should have new ScheduleLocalActivity with new seq and attempt=2
             commands = getCommandsFromCompletion(fireTimerCompletion)
@@ -434,18 +439,19 @@ class LocalActivityIntegrationTest {
 
             // Resolve the retry successfully
             val finalCompletion =
-                executor.activate(
-                    ProtoTestHelpers.createActivation(
-                        runId = runId,
-                        jobs =
-                            listOf(
-                                ProtoTestHelpers.resolveLocalActivityJobCompleted(
-                                    seq = retryCmd.seq,
-                                    result = createPayload("\"Success after retry!\"").toTemporal(),
+                executor
+                    .activate(
+                        ProtoTestHelpers.createActivation(
+                            runId = runId,
+                            jobs =
+                                listOf(
+                                    ProtoTestHelpers.resolveLocalActivityJobCompleted(
+                                        seq = retryCmd.seq,
+                                        result = createPayload("\"Success after retry!\"").toTemporal(),
+                                    ),
                                 ),
-                            ),
-                    ),
-                )
+                        ),
+                    ).completion
 
             // Workflow should complete
             assertTrue(finalCompletion.hasSuccessful())

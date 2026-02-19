@@ -387,7 +387,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            val completion = executor.activate(updateActivation)
+            val completion = executor.activate(updateActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val commands = completion.successful.commandsList
@@ -427,7 +427,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            val completion = executor.activate(updateActivation)
+            val completion = executor.activate(updateActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val commands = completion.successful.commandsList
@@ -463,7 +463,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            val completion = executor.activate(updateActivation)
+            val completion = executor.activate(updateActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val completed =
@@ -490,7 +490,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            val completion = executor.activate(updateActivation)
+            val completion = executor.activate(updateActivation).completion
 
             assertTrue(completion.hasSuccessful())
         }
@@ -516,7 +516,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            val completion = executor.activate(updateActivation)
+            val completion = executor.activate(updateActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val completed =
@@ -554,7 +554,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            val completion = executor.activate(updateActivation)
+            val completion = executor.activate(updateActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val completed =
@@ -582,7 +582,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            executor.activate(updateActivation)
+            executor.activate(updateActivation).completion
 
             assertEquals(listOf("specific"), workflow.updates)
         }
@@ -613,7 +613,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            val completion = executor.activate(updateActivation)
+            val completion = executor.activate(updateActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val commands = completion.successful.commandsList
@@ -644,7 +644,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            val completion = executor.activate(updateActivation)
+            val completion = executor.activate(updateActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val commands = completion.successful.commandsList
@@ -680,7 +680,7 @@ class UpdateHandlerTest {
                         ),
                     isReplaying = true,
                 )
-            val completion = executor.activate(updateActivation)
+            val completion = executor.activate(updateActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val commands = completion.successful.commandsList
@@ -711,7 +711,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            val completion = executor.activate(updateActivation)
+            val completion = executor.activate(updateActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val commands = completion.successful.commandsList
@@ -741,7 +741,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            val completion = executor.activate(updateActivation)
+            val completion = executor.activate(updateActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val commands = completion.successful.commandsList
@@ -821,7 +821,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            val completion = executor.activate(updateActivation)
+            val completion = executor.activate(updateActivation).completion
 
             assertTrue(completion.hasSuccessful())
             assertEquals("runtime-value", workflow.runtimeValue)
@@ -849,7 +849,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            val completion1 = executor.activate(validUpdateActivation)
+            val completion1 = executor.activate(validUpdateActivation).completion
             assertTrue(completion1.hasSuccessful())
             val completed =
                 completion1.successful.commandsList
@@ -872,7 +872,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            val completion2 = executor.activate(invalidUpdateActivation)
+            val completion2 = executor.activate(invalidUpdateActivation).completion
             assertTrue(completion2.hasSuccessful())
             val rejected =
                 completion2.successful.commandsList
@@ -912,7 +912,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            val completion = executor.activate(updateActivation)
+            val completion = executor.activate(updateActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val commands = completion.successful.commandsList
@@ -991,7 +991,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            val completion1 = executor.activate(updateActivation)
+            val completion1 = executor.activate(updateActivation).completion
 
             assertTrue(completion1.hasSuccessful(), "Activation should succeed")
             val commands1 = completion1.successful.commandsList
@@ -1020,7 +1020,7 @@ class UpdateHandlerTest {
                             ),
                         ),
                 )
-            val completion2 = executor.activate(resolveActivation)
+            val completion2 = executor.activate(resolveActivation).completion
 
             assertTrue(completion2.hasSuccessful(), "Second activation should succeed")
             val commands2 = completion2.successful.commandsList
@@ -1074,7 +1074,7 @@ class UpdateHandlerTest {
                 runId = runId,
                 jobs = listOf(initializeWorkflowJob(workflowType = workflowType)),
             )
-        executor.activate(initActivation)
+        executor.activate(initActivation).completion
 
         return executor to runId
     }

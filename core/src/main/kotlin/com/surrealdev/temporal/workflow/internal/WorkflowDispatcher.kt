@@ -23,6 +23,19 @@ import java.util.concurrent.ThreadFactory
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
+ * Result of dispatching a workflow activation.
+ *
+ * @property completion The workflow activation completion to send to core
+ * @property fatalError If the activation processing threw a [java.lang.Error], it is captured here.
+ *   The completion should be sent to core first (so the failure is reported to Temporal),
+ *   and then this error should be re-thrown to crash the worker.
+ */
+internal data class WorkflowDispatchResult(
+    val completion: WorkflowCompletion.WorkflowActivationCompletion,
+    val fatalError: Error? = null,
+)
+
+/**
  * Dispatches workflow activations to the appropriate workflow executors.
  *
  * This dispatcher:
@@ -132,7 +145,7 @@ internal class WorkflowDispatcher(
      * @param activation The workflow activation from the Temporal server
      * @return The completion to send back to the server
      */
-    suspend fun dispatch(activation: WorkflowActivation): WorkflowCompletion.WorkflowActivationCompletion {
+    suspend fun dispatch(activation: WorkflowActivation): WorkflowDispatchResult {
         val runId = activation.runId
 
         // Handle eviction (always allowed, even during shutdown)
@@ -148,13 +161,13 @@ internal class WorkflowDispatcher(
                     workflowType = "evicted", // Type unknown at eviction time
                 )
             }
-            return buildEmptyCompletion(runId)
+            return WorkflowDispatchResult(buildEmptyCompletion(runId))
         }
 
         // Reject new work during shutdown
         if (shuttingDown) {
             logger.warn("Rejecting activation during shutdown. run_id={}", runId)
-            return buildShutdownFailure(activation)
+            return WorkflowDispatchResult(buildShutdownFailure(activation))
         }
 
         // Track in-flight dispatch
@@ -163,7 +176,7 @@ internal class WorkflowDispatcher(
             return semaphore.withPermit {
                 // Double-check after acquiring permit
                 if (shuttingDown) {
-                    return buildShutdownFailure(activation)
+                    return WorkflowDispatchResult(buildShutdownFailure(activation))
                 }
                 dispatchInternal(activation)
             }
@@ -172,9 +185,7 @@ internal class WorkflowDispatcher(
         }
     }
 
-    private suspend fun dispatchInternal(
-        activation: WorkflowActivation,
-    ): WorkflowCompletion.WorkflowActivationCompletion {
+    private suspend fun dispatchInternal(activation: WorkflowActivation): WorkflowDispatchResult {
         val runId = activation.runId
         val hasInitJob = activation.jobsList.any { it.hasInitializeWorkflow() }
 
@@ -188,9 +199,9 @@ internal class WorkflowDispatcher(
                             "Workflow may have been unexpectedly evicted from cache.",
                         runId,
                     )
-                    return buildUnexpectedEvictionFailure(activation)
+                    return WorkflowDispatchResult(buildUnexpectedEvictionFailure(activation))
                 }
-                createExecutorEntry(activation) ?: return buildNotFoundFailure(activation)
+                createExecutorEntry(activation) ?: return WorkflowDispatchResult(buildNotFoundFailure(activation))
             }
 
         // Warn if we got an init job for an already-cached workflow (shouldn't happen)
@@ -234,7 +245,7 @@ internal class WorkflowDispatcher(
                 launchTerminationJob(entry.virtualThread, runId, workflowType)
 
                 // Return failure completion to Core SDK (workflow task will retry)
-                return@withLock buildDeadlockFailure(activation, e)
+                return@withLock WorkflowDispatchResult(buildDeadlockFailure(activation, e))
             }
         }
     }
@@ -339,7 +350,7 @@ internal class WorkflowDispatcher(
         val failure =
             Failure
                 .newBuilder()
-                .setMessage(exception.message ?: "Workflow deadlock detected")
+                .setMessage(exception.message)
                 .setSource(FAILURE_SOURCE)
                 .build()
 

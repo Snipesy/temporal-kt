@@ -10,10 +10,12 @@ import com.surrealdev.temporal.application.plugin.interceptor.InterceptorRegistr
 import com.surrealdev.temporal.application.plugin.interceptor.ListWorkflowsInput
 import com.surrealdev.temporal.application.plugin.interceptor.StartWorkflowInput
 import com.surrealdev.temporal.client.internal.WorkflowServiceClient
+import com.surrealdev.temporal.client.internal.rethrowMapped
 import com.surrealdev.temporal.common.SearchAttributeEncoder
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.core.TemporalCoreClient
+import com.surrealdev.temporal.core.TemporalCoreException
 import com.surrealdev.temporal.serialization.CompositePayloadSerializer
 import com.surrealdev.temporal.serialization.NoOpCodec
 import com.surrealdev.temporal.serialization.PayloadCodec
@@ -407,7 +409,12 @@ class TemporalClientImpl internal constructor(
             "[startWorkflow] Starting workflow type=${input.workflowType}, taskQueue=${input.taskQueue}, workflowId=${input.workflowId}",
         )
 
-        val response = serviceClient.startWorkflowExecution(requestBuilder.build())
+        val response =
+            try {
+                serviceClient.startWorkflowExecution(requestBuilder.build())
+            } catch (e: TemporalCoreException) {
+                e.rethrowMapped(workflowId = input.workflowId)
+            }
 
         logger.info("[startWorkflow] Workflow started: workflowId=${input.workflowId}, runId=${response.runId}")
 

@@ -255,6 +255,17 @@ interface WorkflowContext :
     fun isContinueAsNewSuggested(): Boolean
 
     /**
+     * The reasons the server is suggesting this workflow should continue-as-new.
+     *
+     * Empty when the server has not made a suggestion. Non-empty when [isContinueAsNewSuggested]
+     * is `true`, providing more detail about *why* (e.g. history too large, too many updates,
+     * target deployment version changed).
+     *
+     * Note: older server versions may set [isContinueAsNewSuggested] without populating reasons.
+     */
+    val continueAsNewSuggestedReasons: Set<SuggestContinueAsNewReason>
+
+    /**
      * Starts a child workflow and returns a handle to interact with it.
      *
      * This is the low-level method. For easier usage with type inference,
@@ -698,6 +709,29 @@ enum class ActivityCancellationType {
 }
 
 /**
+ * Reason the server is suggesting the workflow should continue-as-new.
+ */
+enum class SuggestContinueAsNewReason {
+    UNSPECIFIED,
+    HISTORY_SIZE_TOO_LARGE,
+    TOO_MANY_HISTORY_EVENTS,
+    TOO_MANY_UPDATES,
+    TARGET_WORKER_DEPLOYMENT_VERSION_CHANGED,
+}
+
+/**
+ * Versioning behavior to apply to the first task of the new run when continuing-as-new.
+ * Only relevant when the current workflow is pinned to a specific deployment version.
+ */
+enum class ContinueAsNewVersioningBehavior {
+    /** Inherit the versioning behavior from the current run (default). */
+    UNSPECIFIED,
+
+    /** The new run will auto-upgrade to the latest deployment version. */
+    AUTO_UPGRADE,
+}
+
+/**
  * Specifies whether an activity should run on a versioned worker.
  */
 enum class VersioningIntent {
@@ -776,6 +810,13 @@ data class ContinueAsNewOptions(
      * Versioning intent for the new execution.
      */
     val versioningIntent: VersioningIntent = VersioningIntent.UNSPECIFIED,
+    /**
+     * Experimental. Versioning behavior for the first task of the new run.
+     * Only has effect when the current workflow is pinned to a specific deployment version.
+     * [ContinueAsNewVersioningBehavior.AUTO_UPGRADE] causes the new run to use the latest version
+     * instead of inheriting the current pinned version.
+     */
+    val initialVersioningBehavior: ContinueAsNewVersioningBehavior = ContinueAsNewVersioningBehavior.UNSPECIFIED,
 )
 
 /**

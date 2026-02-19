@@ -55,7 +55,7 @@ class WorkflowActivationProcessingTest {
                         ),
                 )
 
-            val completion = executor.activate(activation)
+            val completion = executor.activate(activation).completion
 
             // Should return a successful completion (early exit)
             assertTrue(completion.hasSuccessful())
@@ -138,7 +138,7 @@ class WorkflowActivationProcessingTest {
                         ),
                 )
 
-            val completion = executor.activate(activation)
+            val completion = executor.activate(activation).completion
 
             // Should complete successfully
             assertTrue(completion.hasSuccessful())
@@ -451,7 +451,7 @@ class WorkflowActivationProcessingTest {
                     runId = runId,
                     jobs = listOf(initializeWorkflowJob(workflowType = "TestWorkflow")),
                 )
-            executor.activate(initActivation)
+            executor.activate(initActivation).completion
 
             // Then send cancel
             val cancelActivation =
@@ -460,7 +460,7 @@ class WorkflowActivationProcessingTest {
                     jobs = listOf(cancelWorkflowJob()),
                 )
 
-            val completion = executor.activate(cancelActivation)
+            val completion = executor.activate(cancelActivation).completion
 
             // Should complete (cancel request is processed)
             assertTrue(completion.hasSuccessful())
@@ -501,7 +501,7 @@ class WorkflowActivationProcessingTest {
                     jobs = emptyList(),
                 )
 
-            val completion = executor.activate(activation)
+            val completion = executor.activate(activation).completion
 
             assertTrue(completion.hasSuccessful())
             assertEquals(0, completion.successful.commandsCount)

@@ -2,7 +2,6 @@ package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.common.exceptions.WorkflowDeadlockException
 import coresdk.workflow_activation.WorkflowActivationOuterClass.WorkflowActivation
-import coresdk.workflow_completion.WorkflowCompletion.WorkflowActivationCompletion
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.runBlocking
@@ -27,7 +26,7 @@ internal class WorkflowVirtualThread(
      */
     private data class ActivationItem(
         val activation: WorkflowActivation,
-        val completion: CompletableDeferred<WorkflowActivationCompletion>,
+        val completion: CompletableDeferred<WorkflowDispatchResult>,
     )
 
     private sealed class QueueItem {
@@ -105,8 +104,8 @@ internal class WorkflowVirtualThread(
      *
      * @throws com.surrealdev.temporal.common.exceptions.WorkflowDeadlockException if the workflow doesn't yield within deadlockTimeoutMs
      */
-    suspend fun dispatch(activation: WorkflowActivation): WorkflowActivationCompletion {
-        val deferred = CompletableDeferred<WorkflowActivationCompletion>()
+    suspend fun dispatch(activation: WorkflowActivation): WorkflowDispatchResult {
+        val deferred = CompletableDeferred<WorkflowDispatchResult>()
         activationQueue.put(QueueItem.Activation(ActivationItem(activation, deferred)))
 
         return if (deadlockTimeoutMs > 0) {

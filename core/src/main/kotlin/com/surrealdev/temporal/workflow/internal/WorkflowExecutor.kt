@@ -7,6 +7,7 @@ import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.exceptions.WorkflowCancelledException
+import com.surrealdev.temporal.internal.isFatalError
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.serialization.safeDecode
@@ -17,7 +18,6 @@ import coresdk.workflow_activation.WorkflowActivationOuterClass.InitializeWorkfl
 import coresdk.workflow_activation.WorkflowActivationOuterClass.WorkflowActivation
 import coresdk.workflow_activation.WorkflowActivationOuterClass.WorkflowActivationJob
 import coresdk.workflow_commands.WorkflowCommands
-import coresdk.workflow_completion.WorkflowCompletion
 import io.temporal.api.common.v1.Payload
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.Deferred
@@ -211,7 +211,7 @@ internal class WorkflowExecutor(
      * @param activation The activation from the Temporal server
      * @return The completion to send back to the server
      */
-    suspend fun activate(activation: WorkflowActivation): WorkflowCompletion.WorkflowActivationCompletion =
+    suspend fun activate(activation: WorkflowActivation): WorkflowDispatchResult =
         withContext(buildMdcContext() + CoroutineName("WorkflowExecutor-activate")) {
             try {
                 logger.debug(
@@ -228,12 +228,13 @@ internal class WorkflowExecutor(
                     historyLength = activation.historyLength,
                     historySizeBytes = activation.historySizeBytes,
                     continueAsNewSuggested = activation.continueAsNewSuggested,
+                    suggestContinueAsNewReasons = activation.suggestContinueAsNewReasonsList,
                 )
 
                 // Handle eviction early - it must be the only job and should not process other stages
                 if (activation.jobsList.any { it.hasRemoveFromCache() }) {
                     handleEviction()
-                    return@withContext buildSuccessCompletion()
+                    return@withContext WorkflowDispatchResult(buildSuccessCompletion())
                 }
 
                 // Separate jobs into ordered stages following Python SDK pattern for deterministic replay:
@@ -305,9 +306,12 @@ internal class WorkflowExecutor(
                 }
 
                 // Return accumulated commands (query responses only if queries were processed)
-                buildSuccessCompletion()
-            } catch (e: Exception) {
-                buildFailureCompletion(e)
+                WorkflowDispatchResult(buildSuccessCompletion())
+            } catch (e: Throwable) {
+                WorkflowDispatchResult(
+                    completion = buildFailureCompletion(e),
+                    fatalError = if (e.isFatalError()) e as Error else null,
+                )
             }
         }
 

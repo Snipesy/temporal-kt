@@ -34,6 +34,7 @@ import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.serialization.payloadCodecOrNull
 import com.surrealdev.temporal.serialization.payloadSerializationOrNull
 import com.surrealdev.temporal.serialization.payloadSerializer
+import com.surrealdev.temporal.util.AttributeKey
 import com.surrealdev.temporal.util.Attributes
 import io.temporal.api.common.v1.Payload
 import kotlinx.coroutines.CoroutineName
@@ -41,11 +42,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.LoggerFactory
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.CoroutineContext
-import kotlin.time.Duration
-import kotlin.time.Duration.Companion.minutes
+import kotlin.system.exitProcess
 
 /**
  * Handler for dynamic activities - called for activity types not registered statically.
@@ -142,6 +144,9 @@ open class TemporalApplication internal constructor(
     @Volatile
     private var started = false
 
+    private val closeStarted = AtomicBoolean(false)
+    private val fatalShutdownTriggered = AtomicBoolean(false)
+
     /**
      * Starts the application, connecting to Temporal and starting all workers.
      *
@@ -153,8 +158,9 @@ open class TemporalApplication internal constructor(
         check(!started) { "Application already started" }
         started = true
 
-        // Create the runtime
-        val rt = TemporalRuntime.create()
+        // Create the runtime, with Core metrics bridge if OTel plugin provided a Meter
+        val coreMetricsMeter = attributes.getOrNull(CoreMetricsMeterKey)
+        val rt = TemporalRuntime.create(coreMetricsMeter)
         runtime = rt
 
         // Connect to the server with TLS if configured
@@ -263,6 +269,7 @@ open class TemporalApplication internal constructor(
      */
     suspend fun close() {
         if (!started) return
+        if (!closeStarted.compareAndSet(false, true)) return
 
         // Phase 1: Fire shutdown hook
         hookRegistry.call(
@@ -326,6 +333,55 @@ open class TemporalApplication internal constructor(
      */
     suspend fun awaitTermination() {
         applicationJob.join() // JVM is already shutting down, hook is running
+    }
+
+    /**
+     * Returns true if any worker for the given task queue has initiated shutdown.
+     *
+     * This can happen due to fatal errors (java.lang.Error) in activity or workflow
+     * processing, or an explicit stop() call.
+     */
+    fun isWorkerShuttingDown(taskQueue: String): Boolean =
+        closeStarted.get() || workers[taskQueue]?.isShuttingDown == true
+
+    /**
+     * Single entry point for all fatal shutdown paths.
+     *
+     * Executes at most once regardless of concurrent calls. Launches shutdown in a
+     * detached [CoroutineScope] to avoid deadlocks when the caller is inside a polling
+     * loop that [close] needs to join.
+     *
+     * @param errorCode Unique error code for log correlation (e.g. "TKT1209")
+     * @param reason Human-readable description of the fatal condition
+     * @param cause Optional throwable that triggered the fatal shutdown
+     */
+    internal fun fatalShutdown(
+        errorCode: String,
+        reason: String,
+        cause: Throwable? = null,
+    ) {
+        if (!fatalShutdownTriggered.compareAndSet(false, true)) return
+
+        logger.error("[{}] FATAL: {}. Initiating application shutdown.", errorCode, reason, cause)
+
+        // Launch in detached scope — callers may be inside polling loops
+        // that close() needs to join, so we can't block the caller.
+        CoroutineScope(Dispatchers.Default).launch {
+            val timeoutMs = config.shutdown.fatalShutdownTimeoutMs
+            val closed =
+                withTimeoutOrNull(timeoutMs) {
+                    close()
+                    true
+                }
+            if (closed == null) {
+                logger.error(
+                    "[{}] Graceful shutdown timed out after {}ms. Forcing System.exit(1).",
+                    errorCode,
+                    timeoutMs,
+                )
+                exitProcess(1)
+            }
+        }
     }
 
     /**
@@ -425,6 +481,13 @@ data class ShutdownConfig(
      * Additional timeout after force cancellation to wait for cleanup.
      */
     val forceTimeoutMs: Long = 5_000L,
+    /**
+     * Timeout for fatal shutdown (e.g. java.lang.Error, zombie threshold exceeded).
+     * If [TemporalApplication.close] doesn't complete within this time, `System.exit(1)` is called.
+     *
+     * Default: 60 seconds
+     */
+    val fatalShutdownTimeoutMs: Long = 60_000L,
 )
 
 /**
@@ -502,13 +565,6 @@ internal data class TaskQueueConfig(
      */
     val zombieEviction: ZombieEvictionConfig = ZombieEvictionConfig(),
     /**
-     * Timeout for force exit when shutdown is stuck due to stuck threads.
-     * If application.close() doesn't complete within this time, System.exit(1) is called.
-     *
-     * Default: 60 seconds
-     */
-    val forceExitTimeout: Duration = 1.minutes,
-    /**
      * Dynamic activity handler as fallback for unregistered activity types.
      * If null, unregistered activity types will result in an error.
      */
@@ -577,6 +633,17 @@ sealed class ActivityRegistration {
         val handler: DynamicActivityHandler,
     ) : ActivityRegistration()
 }
+
+/**
+ * Attribute key for storing the OTel Meter in application attributes.
+ *
+ * When the OpenTelemetry plugin has `enableCoreMetrics = true`, this key stores
+ * the Meter instance that is used to create the Core metrics bridge at startup.
+ *
+ * Uses `AttributeKey<Any>` to avoid coupling the core module to OTel API types.
+ * The value is cast to `io.opentelemetry.api.metrics.Meter` at the bridge creation site.
+ */
+val CoreMetricsMeterKey = AttributeKey<Any>("CoreMetricsMeter")
 
 /**
  * Registers a task queue with the application.

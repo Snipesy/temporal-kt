@@ -362,7 +362,7 @@ class QueryHandlerTest {
                     runId = runId,
                     jobs = listOf(queryWorkflowJob(queryId = "q1", queryType = "getCounter")),
                 )
-            val completion = executor.activate(queryActivation)
+            val completion = executor.activate(queryActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val commands = completion.successful.commandsList
@@ -393,7 +393,7 @@ class QueryHandlerTest {
                             ),
                         ),
                 )
-            val completion = executor.activate(queryActivation)
+            val completion = executor.activate(queryActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val queryResult =
@@ -430,7 +430,7 @@ class QueryHandlerTest {
                             ),
                         ),
                 )
-            val completion = executor.activate(queryActivation)
+            val completion = executor.activate(queryActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val queryResult =
@@ -456,7 +456,7 @@ class QueryHandlerTest {
                     runId = runId,
                     jobs = listOf(queryWorkflowJob(queryId = "q1", queryType = "getValue")),
                 )
-            val completion = executor.activate(queryActivation)
+            val completion = executor.activate(queryActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val queryResult =
@@ -476,7 +476,7 @@ class QueryHandlerTest {
                     runId = runId,
                     jobs = listOf(queryWorkflowJob(queryId = "q1", queryType = "getInternalValue")),
                 )
-            val completion = executor.activate(queryActivation)
+            val completion = executor.activate(queryActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val queryResult =
@@ -506,7 +506,7 @@ class QueryHandlerTest {
                             ),
                         ),
                 )
-            val completion = executor.activate(queryActivation)
+            val completion = executor.activate(queryActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val queryResult =
@@ -537,7 +537,7 @@ class QueryHandlerTest {
                     runId = runId,
                     jobs = listOf(queryWorkflowJob(queryId = "q1", queryType = "unknownQuery")),
                 )
-            val completion = executor.activate(queryActivation)
+            val completion = executor.activate(queryActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val queryResult =
@@ -557,7 +557,7 @@ class QueryHandlerTest {
                     runId = runId,
                     jobs = listOf(queryWorkflowJob(queryId = "q1", queryType = "getSpecific")),
                 )
-            val completion = executor.activate(queryActivation)
+            val completion = executor.activate(queryActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val queryResult =
@@ -587,7 +587,7 @@ class QueryHandlerTest {
                     runId = runId,
                     jobs = listOf(queryWorkflowJob(queryId = "q1", queryType = "nonExistentQuery")),
                 )
-            val completion = executor.activate(queryActivation)
+            val completion = executor.activate(queryActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val queryResult =
@@ -609,7 +609,7 @@ class QueryHandlerTest {
                     runId = runId,
                     jobs = listOf(queryWorkflowJob(queryId = "q1", queryType = "throwingQuery")),
                 )
-            val completion = executor.activate(queryActivation)
+            val completion = executor.activate(queryActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val queryResult =
@@ -630,7 +630,7 @@ class QueryHandlerTest {
                     runId = runId,
                     jobs = listOf(queryWorkflowJob(queryId = "q1", queryType = "nullPointerQuery")),
                 )
-            val completion = executor.activate(queryActivation)
+            val completion = executor.activate(queryActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val queryResult =
@@ -659,7 +659,7 @@ class QueryHandlerTest {
                             queryWorkflowJob(queryId = "q3", queryType = "getAll"),
                         ),
                 )
-            val completion = executor.activate(queryActivation)
+            val completion = executor.activate(queryActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val queryCommands = completion.successful.commandsList.filter { it.hasRespondToQuery() }
@@ -688,7 +688,7 @@ class QueryHandlerTest {
                             queryWorkflowJob(queryId = "q2", queryType = "nonExistent"), // Should fail
                         ),
                 )
-            val completion = executor.activate(queryActivation)
+            val completion = executor.activate(queryActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val queryCommands = completion.successful.commandsList.filter { it.hasRespondToQuery() }
@@ -794,7 +794,7 @@ class QueryHandlerTest {
                     runId = runId,
                     jobs = listOf(queryWorkflowJob(queryId = "q1", queryType = "runtimeQuery")),
                 )
-            val completion = executor.activate(queryActivation)
+            val completion = executor.activate(queryActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val queryResult =
@@ -820,7 +820,7 @@ class QueryHandlerTest {
                     runId = runId,
                     jobs = listOf(queryWorkflowJob(queryId = "q1", queryType = "anyUnknownQuery")),
                 )
-            val completion = executor.activate(queryActivation)
+            val completion = executor.activate(queryActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val queryResult =
@@ -846,7 +846,7 @@ class QueryHandlerTest {
                     runId = runId,
                     jobs = listOf(queryWorkflowJob(queryId = "q1", queryType = "getStatus")),
                 )
-            val completion = executor.activate(queryActivation)
+            val completion = executor.activate(queryActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val queryResult =
@@ -872,7 +872,7 @@ class QueryHandlerTest {
                     runId = runId,
                     jobs = listOf(queryWorkflowJob(queryId = "q1", queryType = "getString")),
                 )
-            val completion = executor.activate(queryActivation)
+            val completion = executor.activate(queryActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val queryResult =
@@ -898,7 +898,7 @@ class QueryHandlerTest {
                     runId = runId,
                     jobs = listOf(queryWorkflowJob(queryId = "q1", queryType = "getInt")),
                 )
-            val completion = executor.activate(queryActivation)
+            val completion = executor.activate(queryActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val queryResult =
@@ -924,7 +924,7 @@ class QueryHandlerTest {
                     runId = runId,
                     jobs = listOf(queryWorkflowJob(queryId = "q1", queryType = "getList")),
                 )
-            val completion = executor.activate(queryActivation)
+            val completion = executor.activate(queryActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val queryResult =
@@ -950,7 +950,7 @@ class QueryHandlerTest {
                     runId = runId,
                     jobs = listOf(queryWorkflowJob(queryId = "q1", queryType = "getComplex")),
                 )
-            val completion = executor.activate(queryActivation)
+            val completion = executor.activate(queryActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val queryResult =
@@ -976,7 +976,7 @@ class QueryHandlerTest {
                     runId = runId,
                     jobs = listOf(queryWorkflowJob(queryId = "q1", queryType = "getNull")),
                 )
-            val completion = executor.activate(queryActivation)
+            val completion = executor.activate(queryActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val queryResult =
@@ -1003,7 +1003,7 @@ class QueryHandlerTest {
                     runId = runId,
                     jobs = listOf(queryWorkflowJob(queryId = "q1", queryType = "tempQuery")),
                 )
-            val completion = executor.activate(queryActivation)
+            val completion = executor.activate(queryActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val queryResult =
@@ -1029,7 +1029,7 @@ class QueryHandlerTest {
                     runId = runId,
                     jobs = listOf(queryWorkflowJob(queryId = "q1", queryType = "attemptMutation")),
                 )
-            val completion = executor.activate(queryActivation)
+            val completion = executor.activate(queryActivation).completion
 
             assertTrue(completion.hasSuccessful())
             val queryResult =
@@ -1082,7 +1082,7 @@ class QueryHandlerTest {
                 runId = runId,
                 jobs = listOf(initializeWorkflowJob(workflowType = workflowType)),
             )
-        executor.activate(initActivation)
+        executor.activate(initActivation).completion
 
         return executor to runId
     }

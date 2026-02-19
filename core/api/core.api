@@ -271,13 +271,15 @@ public final class com/surrealdev/temporal/application/EmbeddedTemporalKt {
 
 public final class com/surrealdev/temporal/application/ShutdownConfig {
 	public fun <init> ()V
-	public fun <init> (JJ)V
-	public synthetic fun <init> (JJILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (JJJ)V
+	public synthetic fun <init> (JJJILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()J
 	public final fun component2 ()J
-	public final fun copy (JJ)Lcom/surrealdev/temporal/application/ShutdownConfig;
-	public static synthetic fun copy$default (Lcom/surrealdev/temporal/application/ShutdownConfig;JJILjava/lang/Object;)Lcom/surrealdev/temporal/application/ShutdownConfig;
+	public final fun component3 ()J
+	public final fun copy (JJJ)Lcom/surrealdev/temporal/application/ShutdownConfig;
+	public static synthetic fun copy$default (Lcom/surrealdev/temporal/application/ShutdownConfig;JJJILjava/lang/Object;)Lcom/surrealdev/temporal/application/ShutdownConfig;
 	public fun equals (Ljava/lang/Object;)Z
+	public final fun getFatalShutdownTimeoutMs ()J
 	public final fun getForceTimeoutMs ()J
 	public final fun getGracePeriodMs ()J
 	public fun hashCode ()I
@@ -302,7 +304,6 @@ public final class com/surrealdev/temporal/application/TaskQueueBuilder : com/su
 	public fun getAttributes ()Lcom/surrealdev/temporal/util/Attributes;
 	public final fun getDefaultHeartbeatThrottleIntervalMs ()J
 	public final fun getDynamicActivityHandler ()Lkotlin/jvm/functions/Function4;
-	public final fun getForceExitTimeout-UwyO8pc ()J
 	public final fun getMaxConcurrentActivities ()I
 	public final fun getMaxConcurrentWorkflows ()I
 	public final fun getMaxHeartbeatThrottleIntervalMs ()J
@@ -315,7 +316,6 @@ public final class com/surrealdev/temporal/application/TaskQueueBuilder : com/su
 	public final fun getZombieEviction ()Lcom/surrealdev/temporal/internal/ZombieEvictionConfig;
 	public final fun setDefaultHeartbeatThrottleIntervalMs (J)V
 	public final fun setDynamicActivityHandler (Lkotlin/jvm/functions/Function4;)V
-	public final fun setForceExitTimeout-LRDsOJo (J)V
 	public final fun setMaxConcurrentActivities (I)V
 	public final fun setMaxConcurrentWorkflows (I)V
 	public final fun setMaxHeartbeatThrottleIntervalMs (J)V
@@ -339,6 +339,7 @@ public class com/surrealdev/temporal/application/TemporalApplication : com/surre
 	public final fun getInterceptorRegistry ()Lcom/surrealdev/temporal/application/plugin/interceptor/InterceptorRegistry;
 	public final fun getParentCoroutineContext ()Lkotlin/coroutines/CoroutineContext;
 	public fun getParentScope ()Lcom/surrealdev/temporal/util/AttributeScope;
+	public final fun isWorkerShuttingDown (Ljava/lang/String;)Z
 	public final fun start (ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun start$default (Lcom/surrealdev/temporal/application/TemporalApplication;ZLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 }
@@ -369,6 +370,7 @@ public final class com/surrealdev/temporal/application/TemporalApplicationBuilde
 }
 
 public final class com/surrealdev/temporal/application/TemporalApplicationKt {
+	public static final fun getCoreMetricsMeterKey ()Lcom/surrealdev/temporal/util/AttributeKey;
 	public static final fun taskQueue (Lcom/surrealdev/temporal/application/TemporalApplication;Ljava/lang/String;Lkotlin/jvm/functions/Function1;)V
 	public static synthetic fun taskQueue$default (Lcom/surrealdev/temporal/application/TemporalApplication;Ljava/lang/String;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)V
 }
@@ -2177,6 +2179,12 @@ public final class com/surrealdev/temporal/common/exceptions/ChildWorkflowStartF
 public final class com/surrealdev/temporal/common/exceptions/ChildWorkflowStartFailureException$Companion {
 }
 
+public final class com/surrealdev/temporal/common/exceptions/ClientPermissionDeniedException : com/surrealdev/temporal/common/exceptions/TemporalRuntimeException {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+}
+
 public final class com/surrealdev/temporal/common/exceptions/ClientWorkflowAlreadyExistsException : com/surrealdev/temporal/common/exceptions/ClientWorkflowException {
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
 	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
@@ -2717,9 +2725,10 @@ public final class com/surrealdev/temporal/workflow/ContinueAsNewException : jav
 }
 
 public final class com/surrealdev/temporal/workflow/ContinueAsNewOptions {
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Lkotlin/time/Duration;Lkotlin/time/Duration;Ljava/util/Map;Ljava/util/Map;Lcom/surrealdev/temporal/common/RetryPolicy;Ljava/util/Map;Lcom/surrealdev/temporal/workflow/VersioningIntent;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Lkotlin/time/Duration;Lkotlin/time/Duration;Ljava/util/Map;Ljava/util/Map;Lcom/surrealdev/temporal/common/RetryPolicy;Ljava/util/Map;Lcom/surrealdev/temporal/workflow/VersioningIntent;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Lkotlin/time/Duration;Lkotlin/time/Duration;Ljava/util/Map;Ljava/util/Map;Lcom/surrealdev/temporal/common/RetryPolicy;Ljava/util/Map;Lcom/surrealdev/temporal/workflow/VersioningIntent;Lcom/surrealdev/temporal/workflow/ContinueAsNewVersioningBehavior;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Lkotlin/time/Duration;Lkotlin/time/Duration;Ljava/util/Map;Ljava/util/Map;Lcom/surrealdev/temporal/common/RetryPolicy;Ljava/util/Map;Lcom/surrealdev/temporal/workflow/VersioningIntent;Lcom/surrealdev/temporal/workflow/ContinueAsNewVersioningBehavior;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/lang/String;
+	public final fun component10 ()Lcom/surrealdev/temporal/workflow/ContinueAsNewVersioningBehavior;
 	public final fun component2 ()Ljava/lang/String;
 	public final fun component3-FghU774 ()Lkotlin/time/Duration;
 	public final fun component4-FghU774 ()Lkotlin/time/Duration;
@@ -2728,10 +2737,11 @@ public final class com/surrealdev/temporal/workflow/ContinueAsNewOptions {
 	public final fun component7 ()Lcom/surrealdev/temporal/common/RetryPolicy;
 	public final fun component8 ()Ljava/util/Map;
 	public final fun component9 ()Lcom/surrealdev/temporal/workflow/VersioningIntent;
-	public final fun copy-imR-fxc (Ljava/lang/String;Ljava/lang/String;Lkotlin/time/Duration;Lkotlin/time/Duration;Ljava/util/Map;Ljava/util/Map;Lcom/surrealdev/temporal/common/RetryPolicy;Ljava/util/Map;Lcom/surrealdev/temporal/workflow/VersioningIntent;)Lcom/surrealdev/temporal/workflow/ContinueAsNewOptions;
-	public static synthetic fun copy-imR-fxc$default (Lcom/surrealdev/temporal/workflow/ContinueAsNewOptions;Ljava/lang/String;Ljava/lang/String;Lkotlin/time/Duration;Lkotlin/time/Duration;Ljava/util/Map;Ljava/util/Map;Lcom/surrealdev/temporal/common/RetryPolicy;Ljava/util/Map;Lcom/surrealdev/temporal/workflow/VersioningIntent;ILjava/lang/Object;)Lcom/surrealdev/temporal/workflow/ContinueAsNewOptions;
+	public final fun copy-coI8QPY (Ljava/lang/String;Ljava/lang/String;Lkotlin/time/Duration;Lkotlin/time/Duration;Ljava/util/Map;Ljava/util/Map;Lcom/surrealdev/temporal/common/RetryPolicy;Ljava/util/Map;Lcom/surrealdev/temporal/workflow/VersioningIntent;Lcom/surrealdev/temporal/workflow/ContinueAsNewVersioningBehavior;)Lcom/surrealdev/temporal/workflow/ContinueAsNewOptions;
+	public static synthetic fun copy-coI8QPY$default (Lcom/surrealdev/temporal/workflow/ContinueAsNewOptions;Ljava/lang/String;Ljava/lang/String;Lkotlin/time/Duration;Lkotlin/time/Duration;Ljava/util/Map;Ljava/util/Map;Lcom/surrealdev/temporal/common/RetryPolicy;Ljava/util/Map;Lcom/surrealdev/temporal/workflow/VersioningIntent;Lcom/surrealdev/temporal/workflow/ContinueAsNewVersioningBehavior;ILjava/lang/Object;)Lcom/surrealdev/temporal/workflow/ContinueAsNewOptions;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getHeaders ()Ljava/util/Map;
+	public final fun getInitialVersioningBehavior ()Lcom/surrealdev/temporal/workflow/ContinueAsNewVersioningBehavior;
 	public final fun getMemo ()Ljava/util/Map;
 	public final fun getRetryPolicy ()Lcom/surrealdev/temporal/common/RetryPolicy;
 	public final fun getSearchAttributes ()Ljava/util/Map;
@@ -2742,6 +2752,14 @@ public final class com/surrealdev/temporal/workflow/ContinueAsNewOptions {
 	public final fun getWorkflowType ()Ljava/lang/String;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/surrealdev/temporal/workflow/ContinueAsNewVersioningBehavior : java/lang/Enum {
+	public static final field AUTO_UPGRADE Lcom/surrealdev/temporal/workflow/ContinueAsNewVersioningBehavior;
+	public static final field UNSPECIFIED Lcom/surrealdev/temporal/workflow/ContinueAsNewVersioningBehavior;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lcom/surrealdev/temporal/workflow/ContinueAsNewVersioningBehavior;
+	public static fun values ()[Lcom/surrealdev/temporal/workflow/ContinueAsNewVersioningBehavior;
 }
 
 public abstract interface class com/surrealdev/temporal/workflow/ExternalWorkflowHandle : com/surrealdev/temporal/workflow/WorkflowHandleBase {
@@ -2797,6 +2815,17 @@ public final class com/surrealdev/temporal/workflow/ParentClosePolicy : java/lan
 public abstract interface class com/surrealdev/temporal/workflow/RemoteActivityHandle : com/surrealdev/temporal/workflow/ActivityHandle {
 }
 
+public final class com/surrealdev/temporal/workflow/SuggestContinueAsNewReason : java/lang/Enum {
+	public static final field HISTORY_SIZE_TOO_LARGE Lcom/surrealdev/temporal/workflow/SuggestContinueAsNewReason;
+	public static final field TARGET_WORKER_DEPLOYMENT_VERSION_CHANGED Lcom/surrealdev/temporal/workflow/SuggestContinueAsNewReason;
+	public static final field TOO_MANY_HISTORY_EVENTS Lcom/surrealdev/temporal/workflow/SuggestContinueAsNewReason;
+	public static final field TOO_MANY_UPDATES Lcom/surrealdev/temporal/workflow/SuggestContinueAsNewReason;
+	public static final field UNSPECIFIED Lcom/surrealdev/temporal/workflow/SuggestContinueAsNewReason;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lcom/surrealdev/temporal/workflow/SuggestContinueAsNewReason;
+	public static fun values ()[Lcom/surrealdev/temporal/workflow/SuggestContinueAsNewReason;
+}
+
 public final class com/surrealdev/temporal/workflow/VersioningIntent : java/lang/Enum {
 	public static final field COMPATIBLE Lcom/surrealdev/temporal/workflow/VersioningIntent;
 	public static final field DEFAULT Lcom/surrealdev/temporal/workflow/VersioningIntent;
@@ -2812,6 +2841,7 @@ public abstract interface class com/surrealdev/temporal/workflow/WorkflowContext
 	public abstract fun awaitCondition-rnQQ1Ag (JLjava/lang/String;Lkotlin/jvm/functions/Function0;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun awaitCondition-rnQQ1Ag$default (Lcom/surrealdev/temporal/workflow/WorkflowContext;JLjava/lang/String;Lkotlin/jvm/functions/Function0;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public abstract fun continueAsNewInternal (Lcom/surrealdev/temporal/workflow/ContinueAsNewOptions;Ljava/util/List;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun getContinueAsNewSuggestedReasons ()Ljava/util/Set;
 	public abstract fun getExternalWorkflowHandle (Ljava/lang/String;Ljava/lang/String;)Lcom/surrealdev/temporal/workflow/ExternalWorkflowHandle;
 	public static synthetic fun getExternalWorkflowHandle$default (Lcom/surrealdev/temporal/workflow/WorkflowContext;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lcom/surrealdev/temporal/workflow/ExternalWorkflowHandle;
 	public abstract fun getHistoryLength ()I

@@ -9,7 +9,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.Logger
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.hours
@@ -70,7 +69,8 @@ internal class ZombieEvictionManager(
     private val config: ZombieEvictionConfig,
     /**
      * Callback invoked when zombie threshold is exceeded.
-     * Only invoked once via atomic guard.
+     * May be called multiple times if multiple zombies cross the threshold concurrently;
+     * callers are expected to provide their own at-most-once guarantee.
      */
     private val onFatalError: (suspend () -> Unit)?,
     /**
@@ -84,7 +84,6 @@ internal class ZombieEvictionManager(
 ) {
     private val zombieCount = AtomicInteger(0)
     private val zombieEvictionJobs = ConcurrentHashMap<String, Job>()
-    private val fatalErrorTriggered = AtomicBoolean(false)
 
     /**
      * Gets the current count of zombie threads.
@@ -202,17 +201,15 @@ internal class ZombieEvictionManager(
 
                 // Check threshold
                 if (config.maxZombieCount in 1..currentZombies) {
-                    if (fatalErrorTriggered.compareAndSet(false, true)) {
-                        logger.error(
-                            "[${errorCodePrefix}05] FATAL: Zombie threshold exceeded ({} >= {}). " +
-                                "Worker cannot safely continue. This indicates $entityType code " +
-                                "that uses non-interruptible blocking (busy loops, native calls). " +
-                                "Initiating graceful shutdown.",
-                            currentZombies,
-                            config.maxZombieCount,
-                        )
-                        onFatalError?.invoke()
-                    }
+                    logger.error(
+                        "[${errorCodePrefix}05] FATAL: Zombie threshold exceeded ({} >= {}). " +
+                            "Worker cannot safely continue. This indicates $entityType code " +
+                            "that uses non-interruptible blocking (busy loops, native calls). " +
+                            "Initiating graceful shutdown.",
+                        currentZombies,
+                        config.maxZombieCount,
+                    )
+                    onFatalError?.invoke()
                 }
             }
 

@@ -17,6 +17,7 @@ import com.surrealdev.temporal.common.failure.FAILURE_SOURCE
 import com.surrealdev.temporal.common.failure.buildFailureProto
 import com.surrealdev.temporal.internal.ZombieEvictionConfig
 import com.surrealdev.temporal.internal.ZombieEvictionManager
+import com.surrealdev.temporal.internal.isFatalError
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.serialization.safeDecode
@@ -53,6 +54,19 @@ internal data class RunningActivity(
     val job: Job,
     val context: ActivityContextImpl,
     val virtualThread: ActivityVirtualThread? = null,
+)
+
+/**
+ * Result of dispatching an activity task.
+ *
+ * @property completion The activity task completion to send to core
+ * @property fatalError If the activity threw a [java.lang.Error], it is captured here.
+ *   The completion should be sent to core first (so the failure is reported to Temporal),
+ *   and then this error should be re-thrown to crash the worker.
+ */
+internal data class ActivityDispatchResult(
+    val completion: CoreInterface.ActivityTaskCompletion,
+    val fatalError: Error? = null,
 )
 
 /**
@@ -141,7 +155,7 @@ class ActivityDispatcher(
     internal suspend fun dispatchStart(
         task: ActivityTaskOuterClass.ActivityTask,
         virtualThread: ActivityVirtualThread,
-    ): CoreInterface.ActivityTaskCompletion {
+    ): ActivityDispatchResult {
         require(task.hasStart()) { "dispatchStart requires a Start task" }
 
         // Get the current coroutine's Job for cancellation tracking
@@ -173,7 +187,7 @@ class ActivityDispatcher(
                 ?: error("dispatchForTest must be called from a coroutine with a Job")
 
         return semaphore.withPermit {
-            dispatchStartTask(task, currentJob, virtualThread = null)
+            dispatchStartTask(task, currentJob, virtualThread = null).completion
         }
     }
 
@@ -287,15 +301,17 @@ class ActivityDispatcher(
         task: ActivityTaskOuterClass.ActivityTask,
         currentJob: Job,
         virtualThread: ActivityVirtualThread?,
-    ): CoreInterface.ActivityTaskCompletion {
+    ): ActivityDispatchResult {
         val taskToken = task.taskToken
 
         // Handle invalid task
         if (!task.hasStart()) {
-            return buildFailureCompletion(
-                taskToken,
-                "INVALID_TASK",
-                "Activity task has neither start nor cancel variant",
+            return ActivityDispatchResult(
+                buildFailureCompletion(
+                    taskToken,
+                    "INVALID_TASK",
+                    "Activity task has neither start nor cancel variant",
+                ),
             )
         }
 
@@ -309,10 +325,12 @@ class ActivityDispatcher(
             if (dynamicActivityHandler != null) {
                 return invokeDynamicActivity(task, start, currentJob, virtualThread)
             }
-            return buildFailureCompletion(
-                taskToken,
-                "ACTIVITY_NOT_FOUND",
-                "Activity type not registered: $activityType. Available: ${registry.registeredTypes()}",
+            return ActivityDispatchResult(
+                buildFailureCompletion(
+                    taskToken,
+                    "ACTIVITY_NOT_FOUND",
+                    "Activity type not registered: $activityType. Available: ${registry.registeredTypes()}",
+                ),
             )
         }
 
@@ -347,10 +365,12 @@ class ActivityDispatcher(
                     deserializeArguments(start.inputList, methodInfo.parameterTypes)
                 } catch (e: PayloadProcessingException) {
                     // Codec/serialization error - activity task can be retried
-                    return buildFailureCompletion(
-                        taskToken,
-                        "ARGUMENT_PROCESSING_FAILED",
-                        "Failed to process activity arguments: ${e.message}",
+                    return ActivityDispatchResult(
+                        buildFailureCompletion(
+                            taskToken,
+                            "ARGUMENT_PROCESSING_FAILED",
+                            "Failed to process activity arguments: ${e.message}",
+                        ),
                     )
                 }
 
@@ -377,17 +397,20 @@ class ActivityDispatcher(
                             invokeMethod(methodInfo, context, args)
                         }
                     }
-                buildSuccessCompletion(taskToken, result, methodInfo.returnType)
+                ActivityDispatchResult(buildSuccessCompletion(taskToken, result, methodInfo.returnType))
             } catch (e: ActivityCancelledException) {
-                buildCancelledCompletion(taskToken)
+                ActivityDispatchResult(buildCancelledCompletion(taskToken))
             } catch (e: CancellationException) {
-                // Coroutine was cancelled - treat as activity cancellation
-                buildCancelledCompletion(taskToken)
+                // Coroutine was canceled - treat as activity cancellation
+                ActivityDispatchResult(buildCancelledCompletion(taskToken))
             } catch (e: InterruptedException) {
                 // Virtual thread was interrupted - treat as activity cancellation
-                buildCancelledCompletion(taskToken)
-            } catch (e: Exception) {
-                buildFailureCompletion(taskToken, e)
+                ActivityDispatchResult(buildCancelledCompletion(taskToken))
+            } catch (e: Throwable) {
+                ActivityDispatchResult(
+                    completion = buildFailureCompletion(taskToken, e),
+                    fatalError = if (e.isFatalError()) e as Error else null,
+                )
             }
         } finally {
             // Always clean up tracking
@@ -438,47 +461,52 @@ class ActivityDispatcher(
         // This allows activity code to access context via coroutineContext[ActivityContext]
         // Activities run on dedicated virtual threads, so blocking calls are fine.
         // Thread interruption is handled directly via ActivityVirtualThread.interrupt().
-        return withContext(context) {
-            // For bound method references, instance is null (captured in the method)
-            // For unbound methods from instance scanning, instance is provided
-            val instance = methodInfo.instance
+        return try {
+            withContext(context) {
+                // For bound method references, instance is null (captured in the method)
+                // For unbound methods from instance scanning, instance is provided
+                val instance = methodInfo.instance
 
-            if (methodInfo.hasContextReceiver) {
-                // Method has ActivityContext as extension receiver
-                if (instance != null) {
-                    // Unbound method - need to pass instance
-                    if (methodInfo.isSuspend) {
-                        method.callSuspend(instance, context, *args)
+                if (methodInfo.hasContextReceiver) {
+                    // Method has ActivityContext as extension receiver
+                    if (instance != null) {
+                        // Unbound method - need to pass instance
+                        if (methodInfo.isSuspend) {
+                            method.callSuspend(instance, context, *args)
+                        } else {
+                            method.call(instance, context, *args)
+                        }
                     } else {
-                        method.call(instance, context, *args)
+                        // Bound method reference - instance is captured
+                        if (methodInfo.isSuspend) {
+                            method.callSuspend(context, *args)
+                        } else {
+                            method.call(context, *args)
+                        }
                     }
                 } else {
-                    // Bound method reference - instance is captured
-                    if (methodInfo.isSuspend) {
-                        method.callSuspend(context, *args)
+                    // Method does not use context receiver
+                    // Can still access context via coroutineContext[ActivityContext]
+                    if (instance != null) {
+                        // Unbound method - need to pass instance
+                        if (methodInfo.isSuspend) {
+                            method.callSuspend(instance, *args)
+                        } else {
+                            method.call(instance, *args)
+                        }
                     } else {
-                        method.call(context, *args)
-                    }
-                }
-            } else {
-                // Method does not use context receiver
-                // Can still access context via coroutineContext[ActivityContext]
-                if (instance != null) {
-                    // Unbound method - need to pass instance
-                    if (methodInfo.isSuspend) {
-                        method.callSuspend(instance, *args)
-                    } else {
-                        method.call(instance, *args)
-                    }
-                } else {
-                    // Bound method reference - instance is captured
-                    if (methodInfo.isSuspend) {
-                        method.callSuspend(*args)
-                    } else {
-                        method.call(*args)
+                        // Bound method reference - instance is captured
+                        if (methodInfo.isSuspend) {
+                            method.callSuspend(*args)
+                        } else {
+                            method.call(*args)
+                        }
                     }
                 }
             }
+        } catch (e: java.lang.reflect.InvocationTargetException) {
+            // Unwrap reflection exceptions to get the actual activity exception
+            throw e.targetException ?: e
         }
     }
 
@@ -490,7 +518,7 @@ class ActivityDispatcher(
         start: ActivityTaskOuterClass.Start,
         currentJob: Job,
         virtualThread: ActivityVirtualThread?,
-    ): CoreInterface.ActivityTaskCompletion {
+    ): ActivityDispatchResult {
         val taskToken = task.taskToken
         val handler = dynamicActivityHandler!!
 
@@ -541,17 +569,20 @@ class ActivityDispatcher(
                         handler.invoke(context, start.activityType, encodedPayloads)
                     }
                 } as TemporalPayload?
-            buildDynamicSuccessCompletion(taskToken, result)
+            ActivityDispatchResult(buildDynamicSuccessCompletion(taskToken, result))
         } catch (e: ActivityCancelledException) {
-            buildCancelledCompletion(taskToken)
+            ActivityDispatchResult(buildCancelledCompletion(taskToken))
         } catch (e: CancellationException) {
             // Coroutine was cancelled - treat as activity cancellation
-            buildCancelledCompletion(taskToken)
+            ActivityDispatchResult(buildCancelledCompletion(taskToken))
         } catch (e: InterruptedException) {
             // Virtual thread was interrupted - treat as activity cancellation
-            buildCancelledCompletion(taskToken)
-        } catch (e: Exception) {
-            buildFailureCompletion(taskToken, e)
+            ActivityDispatchResult(buildCancelledCompletion(taskToken))
+        } catch (e: Throwable) {
+            ActivityDispatchResult(
+                completion = buildFailureCompletion(taskToken, e),
+                fatalError = if (e.isFatalError()) e as Error else null,
+            )
         } finally {
             // Always clean up tracking
             runningActivities.remove(taskToken)
@@ -627,7 +658,7 @@ class ActivityDispatcher(
 
     private suspend fun buildFailureCompletion(
         taskToken: ByteString,
-        exception: Exception,
+        exception: Throwable,
     ): CoreInterface.ActivityTaskCompletion {
         // Unwrap InvocationTargetException from Kotlin/Java reflection
         val actualException = unwrapReflectionException(exception)
@@ -635,7 +666,7 @@ class ActivityDispatcher(
         logger.info("Activity failed with exception: {}", actualException.message, actualException)
 
         val failure =
-            buildFailureProto(actualException as Exception, serializer, codec)
+            buildFailureProto(actualException, serializer, codec)
 
         return activityTaskCompletion {
             this.taskToken = taskToken

@@ -321,7 +321,7 @@ class LocalActivityActivationTest {
                 jobs = listOf(initializeWorkflowJob(workflowType = workflowType)),
                 isReplaying = false,
             )
-        val completion = executor.activate(initActivation)
+        val completion = executor.activate(initActivation).completion
 
         return ExecutorResult(executor, runId, workflow, completion)
     }
@@ -372,7 +372,7 @@ class LocalActivityActivationTest {
                     runId = runId,
                     jobs = listOf(resolveLocalActivityJobCompleted(seq = 1, result = resultPayload.toTemporal())),
                 )
-            executor.activate(resolveActivation)
+            executor.activate(resolveActivation).completion
 
             assertEquals("Hello from local activity", (workflow as SimpleLocalActivityWorkflow).localActivityResult)
         }
@@ -392,7 +392,7 @@ class LocalActivityActivationTest {
                     runId = runId,
                     jobs = listOf(resolveLocalActivityJobFailed(seq = 1, message = "Local activity failed!")),
                 )
-            executor.activate(resolveActivation)
+            executor.activate(resolveActivation).completion
 
             assertNotNull((workflow as FailingLocalActivityWorkflow).caughtException)
             assertTrue(workflow.caughtException!!.message!!.contains("failed"))
@@ -433,7 +433,7 @@ class LocalActivityActivationTest {
                             ),
                         ),
                 )
-            val backoffCompletion = executor.activate(backoffActivation)
+            val backoffCompletion = executor.activate(backoffActivation).completion
 
             // Should have a StartTimer command for the backoff duration
             commands = getCommandsFromCompletion(backoffCompletion)
@@ -448,7 +448,7 @@ class LocalActivityActivationTest {
                     runId = runId,
                     jobs = listOf(fireTimerJob(seq = timerCmd.startTimer.seq)),
                 )
-            val fireTimerCompletion = executor.activate(fireTimerActivation)
+            val fireTimerCompletion = executor.activate(fireTimerActivation).completion
 
             // Should have a NEW ScheduleLocalActivity with different seq (not 1)
             commands = getCommandsFromCompletion(fireTimerCompletion)
@@ -473,7 +473,7 @@ class LocalActivityActivationTest {
                             ),
                         ),
                 )
-            executor.activate(resolveActivation)
+            executor.activate(resolveActivation).completion
 
             assertEquals("Retry succeeded", (workflow as RetryableLocalActivityWorkflow).handleResult)
         }
@@ -506,7 +506,7 @@ class LocalActivityActivationTest {
                             ),
                         ),
                 )
-            val backoffCompletion = executor.activate(backoffActivation)
+            val backoffCompletion = executor.activate(backoffActivation).completion
 
             // Get timer seq and fire it
             commands = getCommandsFromCompletion(backoffCompletion)
@@ -516,7 +516,7 @@ class LocalActivityActivationTest {
                     runId = runId,
                     jobs = listOf(fireTimerJob(seq = timerCmd.startTimer.seq)),
                 )
-            val fireTimerCompletion = executor.activate(fireTimerActivation)
+            val fireTimerCompletion = executor.activate(fireTimerActivation).completion
 
             // Verify retry command preserves the argument
             commands = getCommandsFromCompletion(fireTimerCompletion)
@@ -544,7 +544,7 @@ class LocalActivityActivationTest {
                     runId = runId,
                     jobs = listOf(resolveLocalActivityJobCancelled(seq = 1)),
                 )
-            executor.activate(resolveActivation)
+            executor.activate(resolveActivation).completion
 
             assertNotNull((workflow as CancellableLocalActivityWorkflow).caughtException)
             assertTrue(workflow.caughtException is WorkflowActivityCancelledException)
@@ -622,32 +622,34 @@ class LocalActivityActivationTest {
 
             // First backoff: attempt 2
             val backoff1Completion =
-                executor.activate(
-                    createActivation(
-                        runId = runId,
-                        jobs =
-                            listOf(
-                                resolveLocalActivityJobBackoff(
-                                    seq = 1,
-                                    attempt = 2,
-                                    backoffSeconds = 1,
-                                    originalScheduleTime = originalScheduleTime,
+                executor
+                    .activate(
+                        createActivation(
+                            runId = runId,
+                            jobs =
+                                listOf(
+                                    resolveLocalActivityJobBackoff(
+                                        seq = 1,
+                                        attempt = 2,
+                                        backoffSeconds = 1,
+                                        originalScheduleTime = originalScheduleTime,
+                                    ),
                                 ),
-                            ),
-                    ),
-                )
+                        ),
+                    ).completion
 
             commands = getCommandsFromCompletion(backoff1Completion)
             val timer1Seq = commands.first { it.hasStartTimer() }.startTimer.seq
 
             // Fire timer 1
             val fireTimer1Completion =
-                executor.activate(
-                    createActivation(
-                        runId = runId,
-                        jobs = listOf(fireTimerJob(seq = timer1Seq)),
-                    ),
-                )
+                executor
+                    .activate(
+                        createActivation(
+                            runId = runId,
+                            jobs = listOf(fireTimerJob(seq = timer1Seq)),
+                        ),
+                    ).completion
 
             commands = getCommandsFromCompletion(fireTimer1Completion)
             val schedule2 = commands.first { it.hasScheduleLocalActivity() }.scheduleLocalActivity
@@ -657,32 +659,34 @@ class LocalActivityActivationTest {
 
             // Second backoff: attempt 3
             val backoff2Completion =
-                executor.activate(
-                    createActivation(
-                        runId = runId,
-                        jobs =
-                            listOf(
-                                resolveLocalActivityJobBackoff(
-                                    seq = schedule2.seq,
-                                    attempt = 3,
-                                    backoffSeconds = 2,
-                                    originalScheduleTime = originalScheduleTime,
+                executor
+                    .activate(
+                        createActivation(
+                            runId = runId,
+                            jobs =
+                                listOf(
+                                    resolveLocalActivityJobBackoff(
+                                        seq = schedule2.seq,
+                                        attempt = 3,
+                                        backoffSeconds = 2,
+                                        originalScheduleTime = originalScheduleTime,
+                                    ),
                                 ),
-                            ),
-                    ),
-                )
+                        ),
+                    ).completion
 
             commands = getCommandsFromCompletion(backoff2Completion)
             val timer2Seq = commands.first { it.hasStartTimer() }.startTimer.seq
 
             // Fire timer 2
             val fireTimer2Completion =
-                executor.activate(
-                    createActivation(
-                        runId = runId,
-                        jobs = listOf(fireTimerJob(seq = timer2Seq)),
-                    ),
-                )
+                executor
+                    .activate(
+                        createActivation(
+                            runId = runId,
+                            jobs = listOf(fireTimerJob(seq = timer2Seq)),
+                        ),
+                    ).completion
 
             commands = getCommandsFromCompletion(fireTimer2Completion)
             val schedule3 = commands.first { it.hasScheduleLocalActivity() }.scheduleLocalActivity
@@ -691,32 +695,34 @@ class LocalActivityActivationTest {
 
             // Third backoff: attempt 4
             val backoff3Completion =
-                executor.activate(
-                    createActivation(
-                        runId = runId,
-                        jobs =
-                            listOf(
-                                resolveLocalActivityJobBackoff(
-                                    seq = schedule3.seq,
-                                    attempt = 4,
-                                    backoffSeconds = 3,
-                                    originalScheduleTime = originalScheduleTime,
+                executor
+                    .activate(
+                        createActivation(
+                            runId = runId,
+                            jobs =
+                                listOf(
+                                    resolveLocalActivityJobBackoff(
+                                        seq = schedule3.seq,
+                                        attempt = 4,
+                                        backoffSeconds = 3,
+                                        originalScheduleTime = originalScheduleTime,
+                                    ),
                                 ),
-                            ),
-                    ),
-                )
+                        ),
+                    ).completion
 
             commands = getCommandsFromCompletion(backoff3Completion)
             val timer3Seq = commands.first { it.hasStartTimer() }.startTimer.seq
 
             // Fire timer 3
             val fireTimer3Completion =
-                executor.activate(
-                    createActivation(
-                        runId = runId,
-                        jobs = listOf(fireTimerJob(seq = timer3Seq)),
-                    ),
-                )
+                executor
+                    .activate(
+                        createActivation(
+                            runId = runId,
+                            jobs = listOf(fireTimerJob(seq = timer3Seq)),
+                        ),
+                    ).completion
 
             commands = getCommandsFromCompletion(fireTimer3Completion)
             val schedule4 = commands.first { it.hasScheduleLocalActivity() }.scheduleLocalActivity
@@ -725,15 +731,19 @@ class LocalActivityActivationTest {
 
             // Finally complete
             val resultPayload = createPayload("\"Success after 4 attempts\"")
-            executor.activate(
-                createActivation(
-                    runId = runId,
-                    jobs =
-                        listOf(
-                            resolveLocalActivityJobCompleted(seq = schedule4.seq, result = resultPayload.toTemporal()),
-                        ),
-                ),
-            )
+            executor
+                .activate(
+                    createActivation(
+                        runId = runId,
+                        jobs =
+                            listOf(
+                                resolveLocalActivityJobCompleted(
+                                    seq = schedule4.seq,
+                                    result = resultPayload.toTemporal(),
+                                ),
+                            ),
+                    ),
+                ).completion
         }
 
     /**
@@ -758,7 +768,7 @@ class LocalActivityActivationTest {
                             ),
                         ),
                 )
-            executor.activate(resolveActivation)
+            executor.activate(resolveActivation).completion
 
             val wf = workflow as TimeoutLocalActivityWorkflow
             assertNotNull(wf.caughtException, "Should have caught exception")
@@ -792,7 +802,7 @@ class LocalActivityActivationTest {
                             ),
                         ),
                 )
-            executor.activate(resolveActivation)
+            executor.activate(resolveActivation).completion
 
             val wf = workflow as FailureDetailsWorkflow
             assertNotNull(wf.caughtException, "Should have caught exception")
@@ -829,7 +839,7 @@ class LocalActivityActivationTest {
                     runId = runId,
                     jobs = listOf(resolveLocalActivityJobCompleted(seq = 1)),
                 )
-            executor.activate(resolveActivation)
+            executor.activate(resolveActivation).completion
 
             assertTrue((workflow as UnitReturnWorkflow).completed, "Workflow should complete with Unit result")
         }
@@ -852,7 +862,7 @@ class LocalActivityActivationTest {
                     runId = runId,
                     jobs = listOf(resolveLocalActivityJobCompleted(seq = 1, result = resultPayload.toTemporal())),
                 )
-            executor.activate(resolveActivation)
+            executor.activate(resolveActivation).completion
 
             val wf = workflow as ComplexReturnWorkflow
             assertNotNull(wf.result, "Should have result")
@@ -896,36 +906,38 @@ class LocalActivityActivationTest {
                     .build()
 
             val backoffCompletion1 =
-                executor1.activate(
-                    createActivation(
-                        runId = runId1,
-                        jobs =
-                            listOf(
-                                resolveLocalActivityJobBackoff(
-                                    seq = 1,
-                                    attempt = 2,
-                                    backoffSeconds = 5,
-                                    originalScheduleTime = originalScheduleTime,
+                executor1
+                    .activate(
+                        createActivation(
+                            runId = runId1,
+                            jobs =
+                                listOf(
+                                    resolveLocalActivityJobBackoff(
+                                        seq = 1,
+                                        attempt = 2,
+                                        backoffSeconds = 5,
+                                        originalScheduleTime = originalScheduleTime,
+                                    ),
                                 ),
-                            ),
-                    ),
-                )
+                        ),
+                    ).completion
 
             val backoffCompletion2 =
-                executor2.activate(
-                    createActivation(
-                        runId = runId2,
-                        jobs =
-                            listOf(
-                                resolveLocalActivityJobBackoff(
-                                    seq = 1,
-                                    attempt = 2,
-                                    backoffSeconds = 5,
-                                    originalScheduleTime = originalScheduleTime,
+                executor2
+                    .activate(
+                        createActivation(
+                            runId = runId2,
+                            jobs =
+                                listOf(
+                                    resolveLocalActivityJobBackoff(
+                                        seq = 1,
+                                        attempt = 2,
+                                        backoffSeconds = 5,
+                                        originalScheduleTime = originalScheduleTime,
+                                    ),
                                 ),
-                            ),
-                    ),
-                )
+                        ),
+                    ).completion
 
             val backoffCmds1 = getCommandsFromCompletion(backoffCompletion1)
             val backoffCmds2 = getCommandsFromCompletion(backoffCompletion2)
@@ -968,7 +980,7 @@ class LocalActivityActivationTest {
                             ),
                         ),
                 )
-            executor.activate(resolveActivation)
+            executor.activate(resolveActivation).completion
 
             val wf = workflow as TimeoutLocalActivityWorkflow
             assertNotNull(wf.caughtException, "Should have caught exception")

@@ -13,8 +13,6 @@ import com.surrealdev.temporal.serialization.payloadSerializer
 import com.surrealdev.temporal.util.AttributeScope
 import com.surrealdev.temporal.util.Attributes
 import io.temporal.api.common.v1.Payload
-import kotlin.time.Duration
-import kotlin.time.Duration.Companion.minutes
 
 /**
  * Builder for configuring a task queue with workflows and activities.
@@ -119,14 +117,6 @@ class TaskQueueBuilder internal constructor(
      * non-interruptible blocking operations (busy loops, certain native calls).
      */
     var zombieEviction: ZombieEvictionConfig = ZombieEvictionConfig()
-
-    /**
-     * Timeout for force exit when shutdown is stuck due to unresponsive threads.
-     * If application.close() doesn't complete within this time, System.exit(1) is called.
-     *
-     * Default: 60 seconds
-     */
-    var forceExitTimeout: Duration = 1.minutes
 
     @PublishedApi
     internal val workflows = mutableListOf<WorkflowRegistration>()
@@ -306,7 +296,6 @@ class TaskQueueBuilder internal constructor(
             defaultHeartbeatThrottleIntervalMs = defaultHeartbeatThrottleIntervalMs,
             workflowDeadlockTimeoutMs = workflowDeadlockTimeoutMs,
             zombieEviction = zombieEviction,
-            forceExitTimeout = forceExitTimeout,
             dynamicActivityHandler = dynamicActivityHandler,
             serializer = payloadSerializer(),
             codec = payloadCodecOrNull(),

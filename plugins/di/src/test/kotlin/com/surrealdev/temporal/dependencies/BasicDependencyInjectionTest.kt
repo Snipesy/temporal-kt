@@ -12,6 +12,7 @@ import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.util.AttributeScope
 import com.surrealdev.temporal.util.Attributes
 import com.surrealdev.temporal.util.ExecutionScope
+import com.surrealdev.temporal.workflow.SuggestContinueAsNewReason
 import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.WorkflowInfo
 import kotlinx.coroutines.Dispatchers
@@ -925,6 +926,8 @@ class BasicDependencyInjectionTest {
         override fun patched(patchId: String): Boolean = true
 
         override fun isContinueAsNewSuggested(): Boolean = false
+
+        override val continueAsNewSuggestedReasons: Set<SuggestContinueAsNewReason> = setOf()
 
         override suspend fun startChildWorkflowWithPayloads(
             workflowType: String,

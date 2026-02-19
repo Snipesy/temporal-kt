@@ -264,7 +264,7 @@ class ActivationReplayDeterminismTest {
                     runId = runId,
                     jobs = listOf(initializeWorkflowJob(workflowType = "TestWorkflow", randomnessSeed = 111L)),
                 )
-            executor.activate(initActivation)
+            executor.activate(initActivation).completion
 
             // Update random seed
             val seedActivation =
@@ -272,7 +272,7 @@ class ActivationReplayDeterminismTest {
                     runId = runId,
                     jobs = listOf(updateRandomSeedJob(seed = 999L)),
                 )
-            val completion = executor.activate(seedActivation)
+            val completion = executor.activate(seedActivation).completion
 
             // Should complete successfully
             assertTrue(completion.hasSuccessful())
@@ -380,7 +380,7 @@ class ActivationReplayDeterminismTest {
                     runId = runId,
                     jobs = listOf(initializeWorkflowJob(workflowType = "TestWorkflow")),
                 )
-            val initCompletion = executor.activate(initActivation)
+            val initCompletion = executor.activate(initActivation).completion
             assertTrue(initCompletion.hasSuccessful())
 
             // Fire timers in sequence (simulating replay)
@@ -390,7 +390,7 @@ class ActivationReplayDeterminismTest {
                     jobs = listOf(fireTimerJob(1)),
                     isReplaying = true,
                 )
-            val fireCompletion = executor.activate(fireTimerActivation)
+            val fireCompletion = executor.activate(fireTimerActivation).completion
             assertTrue(fireCompletion.hasSuccessful())
         }
 

@@ -5,18 +5,22 @@ import com.surrealdev.temporal.common.exceptions.PayloadProcessingException
 import com.surrealdev.temporal.common.failure.FAILURE_SOURCE
 import com.surrealdev.temporal.common.failure.buildFailureProto
 import com.surrealdev.temporal.common.toProto
+import com.surrealdev.temporal.internal.isFatalError
 import com.surrealdev.temporal.serialization.safeEncode
 import com.surrealdev.temporal.serialization.safeEncodeSingle
 import com.surrealdev.temporal.serialization.safeSerialize
 import com.surrealdev.temporal.workflow.ContinueAsNewException
+import com.surrealdev.temporal.workflow.ContinueAsNewVersioningBehavior
 import com.surrealdev.temporal.workflow.VersioningIntent
 import coresdk.workflow_commands.WorkflowCommands
 import coresdk.workflow_completion.WorkflowCompletion
 import io.temporal.api.common.v1.Payload
+import io.temporal.api.common.v1.SearchAttributes
 import io.temporal.api.failure.v1.Failure
 import kotlinx.coroutines.Deferred
 import kotlin.time.Duration
 import kotlin.time.toJavaDuration
+import io.temporal.api.enums.v1.ContinueAsNewVersioningBehavior as ProtoContinueAsNewVersioningBehavior
 
 /*
  * Extension functions for building workflow completion responses in WorkflowExecutor.
@@ -33,7 +37,7 @@ import kotlin.time.toJavaDuration
 internal suspend fun WorkflowExecutor.buildTerminalCompletion(
     result: Deferred<Any?>,
     returnType: kotlin.reflect.KType,
-): WorkflowCompletion.WorkflowActivationCompletion {
+): WorkflowDispatchResult {
     // Mark workflow as completed so handlers that try to schedule work will warn
     state.workflowCompleted = true
     terminateWorkflowExecutionJob()
@@ -58,7 +62,7 @@ internal suspend fun WorkflowExecutor.buildTerminalCompletion(
                 // Codec/serialization error during result encoding - return task failure (retryable)
                 // instead of workflow failure (permanent). Server can retry with same history.
                 logger.warn("Failed to encode/serialize workflow result: {}", e.message, e)
-                return buildFailureCompletion(e)
+                return WorkflowDispatchResult(buildFailureCompletion(e))
             }
 
         // Build completion command
@@ -75,29 +79,31 @@ internal suspend fun WorkflowExecutor.buildTerminalCompletion(
         val commands = state.drainCommands().toMutableList()
         commands.add(completeCommand)
 
-        WorkflowCompletion.WorkflowActivationCompletion
-            .newBuilder()
-            .setRunId(runId)
-            .setSuccessful(
-                WorkflowCompletion.Success
-                    .newBuilder()
-                    .addAllCommands(commands),
-            ).build()
+        WorkflowDispatchResult(
+            WorkflowCompletion.WorkflowActivationCompletion
+                .newBuilder()
+                .setRunId(runId)
+                .setSuccessful(
+                    WorkflowCompletion.Success
+                        .newBuilder()
+                        .addAllCommands(commands),
+                ).build(),
+        )
     } catch (e: ContinueAsNewException) {
         // Handle continue-as-new (this is not an error, it's a control flow mechanism)
         logger.debug("Workflow requested continue-as-new")
-        buildContinueAsNewCompletion(e)
+        WorkflowDispatchResult(buildContinueAsNewCompletion(e))
     } catch (e: PayloadProcessingException) {
         // Codec/serialization infrastructure error during workflow execution (e.g., codec service
         // down, rate limited, temporary key issue). These are transient failures.
         // Return task failure (retryable) so server can retry the workflow task.
         logger.warn("Workflow task failed due to payload processing error: {}", e.message, e)
-        buildFailureCompletion(e)
-    } catch (e: Exception) {
+        WorkflowDispatchResult(buildFailureCompletion(e))
+    } catch (e: Throwable) {
         // Check if this is a cancellation with the cancel flag set
         if (state.cancelRequested && e is kotlinx.coroutines.CancellationException) {
             logger.debug("Workflow cancelled")
-            buildWorkflowCancellationCompletion()
+            WorkflowDispatchResult(buildWorkflowCancellationCompletion())
         } else {
             // If this is a CancellationException from structured concurrency (not a Temporal
             // cancellation), unwrap to find the root cause. When a child coroutine (e.g., async)
@@ -111,7 +117,10 @@ internal suspend fun WorkflowExecutor.buildTerminalCompletion(
                     e
                 }
             logger.info("Workflow failed with exception: {}", actualException.message, actualException)
-            buildWorkflowFailureCompletion(actualException)
+            WorkflowDispatchResult(
+                completion = buildWorkflowFailureCompletion(actualException),
+                fatalError = if (actualException.isFatalError()) actualException as Error else null,
+            )
         }
     }
 }
@@ -159,7 +168,7 @@ internal fun WorkflowExecutor.buildSuccessCompletion(): WorkflowCompletion.Workf
  * This is different from workflow failure - it indicates the SDK itself encountered an error.
  */
 internal fun WorkflowExecutor.buildFailureCompletion(
-    exception: Exception,
+    exception: Throwable,
 ): WorkflowCompletion.WorkflowActivationCompletion {
     val failure =
         Failure
@@ -188,7 +197,7 @@ internal fun WorkflowExecutor.buildFailureCompletion(
  * and category are properly propagated to the Temporal server.
  */
 internal suspend fun WorkflowExecutor.buildWorkflowFailureCompletion(
-    exception: Exception,
+    exception: Throwable,
 ): WorkflowCompletion.WorkflowActivationCompletion {
     val failure = buildFailureProto(exception, serializer, codec)
 
@@ -288,7 +297,9 @@ internal suspend fun WorkflowExecutor.buildContinueAsNewCompletion(
         commandBuilder.putAllMemo(memo.mapValues { (_, v) -> v.toProto() })
     }
     options.searchAttributes?.let { attrs ->
-        commandBuilder.putAllSearchAttributes(attrs.mapValues { (_, v) -> v.toProto() })
+        commandBuilder.setSearchAttributes(
+            SearchAttributes.newBuilder().putAllIndexedFields(attrs.mapValues { (_, v) -> v.toProto() }).build(),
+        )
     }
     options.retryPolicy?.let { policy ->
         commandBuilder.setRetryPolicy(policy.toProtoRetryPolicy())
@@ -297,6 +308,9 @@ internal suspend fun WorkflowExecutor.buildContinueAsNewCompletion(
         commandBuilder.putAllHeaders(headers.mapValues { (_, v) -> v.toProto() })
     }
     commandBuilder.setVersioningIntent(options.versioningIntent.toProtoVersioningIntent())
+    if (options.initialVersioningBehavior != ContinueAsNewVersioningBehavior.UNSPECIFIED) {
+        commandBuilder.setInitialVersioningBehavior(options.initialVersioningBehavior.toProto())
+    }
 
     val continueAsNewCommand =
         WorkflowCommands.WorkflowCommand
@@ -365,3 +379,11 @@ private fun RetryPolicy.toProtoRetryPolicy(): io.temporal.api.common.v1.RetryPol
 
     return retryPolicyBuilder.build()
 }
+
+private fun ContinueAsNewVersioningBehavior.toProto(): ProtoContinueAsNewVersioningBehavior =
+    when (this) {
+        ContinueAsNewVersioningBehavior.AUTO_UPGRADE ->
+            ProtoContinueAsNewVersioningBehavior.CONTINUE_AS_NEW_VERSIONING_BEHAVIOR_AUTO_UPGRADE
+        ContinueAsNewVersioningBehavior.UNSPECIFIED ->
+            ProtoContinueAsNewVersioningBehavior.CONTINUE_AS_NEW_VERSIONING_BEHAVIOR_UNSPECIFIED
+    }

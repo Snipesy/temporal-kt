@@ -276,7 +276,7 @@ class ActivityActivationTest {
                 jobs = listOf(initializeWorkflowJob(workflowType = workflowType)),
                 isReplaying = false,
             )
-        val completion = executor.activate(initActivation)
+        val completion = executor.activate(initActivation).completion
 
         return ExecutorResult(executor, runId, workflow, completion)
     }
@@ -328,13 +328,14 @@ class ActivityActivationTest {
             // Resolve activity with result
             val resultPayload = createPayload("\"Hello from activity!\"")
             val completion =
-                result.executor.activate(
-                    createActivation(
-                        runId = result.runId,
-                        jobs = listOf(resolveActivityJobCompleted(seq, resultPayload)),
-                        isReplaying = false,
-                    ),
-                )
+                result.executor
+                    .activate(
+                        createActivation(
+                            runId = result.runId,
+                            jobs = listOf(resolveActivityJobCompleted(seq, resultPayload)),
+                            isReplaying = false,
+                        ),
+                    ).completion
 
             assertTrue(completion.hasSuccessful())
             assertEquals("Hello from activity!", workflow.activityResult)
@@ -374,19 +375,20 @@ class ActivityActivationTest {
             // Initialize with argument
             val inputPayload = createPayload("\"Test Input\"")
             val initCompletion =
-                executor.activate(
-                    createActivation(
-                        runId = runId,
-                        jobs =
-                            listOf(
-                                initializeWorkflowJob(
-                                    workflowType = "ActivityWithArgumentWorkflow",
-                                    arguments = listOf(inputPayload),
+                executor
+                    .activate(
+                        createActivation(
+                            runId = runId,
+                            jobs =
+                                listOf(
+                                    initializeWorkflowJob(
+                                        workflowType = "ActivityWithArgumentWorkflow",
+                                        arguments = listOf(inputPayload),
+                                    ),
                                 ),
-                            ),
-                        isReplaying = false,
-                    ),
-                )
+                            isReplaying = false,
+                        ),
+                    ).completion
 
             val commands = getCommandsFromCompletion(initCompletion)
             val seq = commands[0].scheduleActivity.seq
@@ -394,13 +396,14 @@ class ActivityActivationTest {
             // Resolve activity
             val resultPayload = createPayload("\"Processed: Test Input\"")
             val completion =
-                executor.activate(
-                    createActivation(
-                        runId = runId,
-                        jobs = listOf(resolveActivityJobCompleted(seq, resultPayload)),
-                        isReplaying = false,
-                    ),
-                )
+                executor
+                    .activate(
+                        createActivation(
+                            runId = runId,
+                            jobs = listOf(resolveActivityJobCompleted(seq, resultPayload)),
+                            isReplaying = false,
+                        ),
+                    ).completion
 
             assertTrue(completion.hasSuccessful())
             assertEquals("Processed: Test Input", workflow.activityResult)
@@ -424,13 +427,14 @@ class ActivityActivationTest {
             val seq1 = commands[0].scheduleActivity.seq
 
             val completion1 =
-                result.executor.activate(
-                    createActivation(
-                        runId = result.runId,
-                        jobs = listOf(resolveActivityJobCompleted(seq1, createPayload("\"Step1 Done\""))),
-                        isReplaying = false,
-                    ),
-                )
+                result.executor
+                    .activate(
+                        createActivation(
+                            runId = result.runId,
+                            jobs = listOf(resolveActivityJobCompleted(seq1, createPayload("\"Step1 Done\""))),
+                            isReplaying = false,
+                        ),
+                    ).completion
 
             // Activity 2
             commands = getCommandsFromCompletion(completion1)
@@ -439,13 +443,14 @@ class ActivityActivationTest {
             val seq2 = commands[0].scheduleActivity.seq
 
             val completion2 =
-                result.executor.activate(
-                    createActivation(
-                        runId = result.runId,
-                        jobs = listOf(resolveActivityJobCompleted(seq2, createPayload("\"Step2 Done\""))),
-                        isReplaying = false,
-                    ),
-                )
+                result.executor
+                    .activate(
+                        createActivation(
+                            runId = result.runId,
+                            jobs = listOf(resolveActivityJobCompleted(seq2, createPayload("\"Step2 Done\""))),
+                            isReplaying = false,
+                        ),
+                    ).completion
 
             // Activity 3
             commands = getCommandsFromCompletion(completion2)
@@ -454,13 +459,14 @@ class ActivityActivationTest {
             val seq3 = commands[0].scheduleActivity.seq
 
             val completion =
-                result.executor.activate(
-                    createActivation(
-                        runId = result.runId,
-                        jobs = listOf(resolveActivityJobCompleted(seq3, createPayload("\"Step3 Done\""))),
-                        isReplaying = false,
-                    ),
-                )
+                result.executor
+                    .activate(
+                        createActivation(
+                            runId = result.runId,
+                            jobs = listOf(resolveActivityJobCompleted(seq3, createPayload("\"Step3 Done\""))),
+                            isReplaying = false,
+                        ),
+                    ).completion
 
             assertTrue(completion.hasSuccessful())
             assertEquals("Step1 Done", workflow.result1)
@@ -488,18 +494,19 @@ class ActivityActivationTest {
 
             // Resolve all activities
             val completion =
-                result.executor.activate(
-                    createActivation(
-                        runId = result.runId,
-                        jobs =
-                            listOf(
-                                resolveActivityJobCompleted(seqs[0], createPayload("\"Result1\"")),
-                                resolveActivityJobCompleted(seqs[1], createPayload("\"Result2\"")),
-                                resolveActivityJobCompleted(seqs[2], createPayload("\"Result3\"")),
-                            ),
-                        isReplaying = false,
-                    ),
-                )
+                result.executor
+                    .activate(
+                        createActivation(
+                            runId = result.runId,
+                            jobs =
+                                listOf(
+                                    resolveActivityJobCompleted(seqs[0], createPayload("\"Result1\"")),
+                                    resolveActivityJobCompleted(seqs[1], createPayload("\"Result2\"")),
+                                    resolveActivityJobCompleted(seqs[2], createPayload("\"Result3\"")),
+                                ),
+                            isReplaying = false,
+                        ),
+                    ).completion
 
             assertTrue(completion.hasSuccessful())
             assertNotNull(workflow.parallelResult)
@@ -524,13 +531,14 @@ class ActivityActivationTest {
 
             // Resolve activity with failure
             val completion =
-                result.executor.activate(
-                    createActivation(
-                        runId = result.runId,
-                        jobs = listOf(resolveActivityJobFailed(seq, "Activity execution failed")),
-                        isReplaying = false,
-                    ),
-                )
+                result.executor
+                    .activate(
+                        createActivation(
+                            runId = result.runId,
+                            jobs = listOf(resolveActivityJobFailed(seq, "Activity execution failed")),
+                            isReplaying = false,
+                        ),
+                    ).completion
 
             assertTrue(completion.hasSuccessful())
             assertNotNull(workflow.caughtException)
@@ -591,13 +599,14 @@ class ActivityActivationTest {
                     .build()
 
             val completion =
-                result.executor.activate(
-                    createActivation(
-                        runId = result.runId,
-                        jobs = listOf(job),
-                        isReplaying = false,
-                    ),
-                )
+                result.executor
+                    .activate(
+                        createActivation(
+                            runId = result.runId,
+                            jobs = listOf(job),
+                            isReplaying = false,
+                        ),
+                    ).completion
 
             // Workflow should fail with FailWorkflowExecution command
             assertTrue(completion.hasSuccessful())
@@ -643,13 +652,14 @@ class ActivityActivationTest {
 
             // Resolve activity as cancelled
             val completion =
-                result.executor.activate(
-                    createActivation(
-                        runId = result.runId,
-                        jobs = listOf(resolveActivityJobCancelled(seq)),
-                        isReplaying = false,
-                    ),
-                )
+                result.executor
+                    .activate(
+                        createActivation(
+                            runId = result.runId,
+                            jobs = listOf(resolveActivityJobCancelled(seq)),
+                            isReplaying = false,
+                        ),
+                    ).completion
 
             assertTrue(completion.hasSuccessful())
             assertNotNull(workflow.cancellationResult)
@@ -682,13 +692,14 @@ class ActivityActivationTest {
 
             // Resolve activity
             val completion =
-                result.executor.activate(
-                    createActivation(
-                        runId = result.runId,
-                        jobs = listOf(resolveActivityJobCompleted(seq, outputPayload)),
-                        isReplaying = false,
-                    ),
-                )
+                result.executor
+                    .activate(
+                        createActivation(
+                            runId = result.runId,
+                            jobs = listOf(resolveActivityJobCompleted(seq, outputPayload)),
+                            isReplaying = false,
+                        ),
+                    ).completion
 
             assertTrue(completion.hasSuccessful())
             assertNotNull(workflow.output)
@@ -712,13 +723,14 @@ class ActivityActivationTest {
             val seq = commands[0].scheduleActivity.seq
 
             val resultPayload = createPayload("\"Original Result\"")
-            result1.executor.activate(
-                createActivation(
-                    runId = result1.runId,
-                    jobs = listOf(resolveActivityJobCompleted(seq, resultPayload)),
-                    isReplaying = false,
-                ),
-            )
+            result1.executor
+                .activate(
+                    createActivation(
+                        runId = result1.runId,
+                        jobs = listOf(resolveActivityJobCompleted(seq, resultPayload)),
+                        isReplaying = false,
+                    ),
+                ).completion
 
             val firstResult = workflow1.activityResult
 
@@ -843,13 +855,14 @@ class ActivityActivationTest {
 
             // Initialize workflow - it will start the activity and wait for signal
             val initCompletion =
-                executor.activate(
-                    createActivation(
-                        runId = runId,
-                        jobs = listOf(initializeWorkflowJob(workflowType = "HandleCheckWorkflow")),
-                        isReplaying = false,
-                    ),
-                )
+                executor
+                    .activate(
+                        createActivation(
+                            runId = runId,
+                            jobs = listOf(initializeWorkflowJob(workflowType = "HandleCheckWorkflow")),
+                            isReplaying = false,
+                        ),
+                    ).completion
 
             val commands = getCommandsFromCompletion(initCompletion)
             val seq = commands[0].scheduleActivity.seq
@@ -860,13 +873,14 @@ class ActivityActivationTest {
             assertFalse(handleSnapshot.isDone)
 
             // Resolve the activity
-            executor.activate(
-                createActivation(
-                    runId = runId,
-                    jobs = listOf(resolveActivityJobCompleted(seq, createPayload("\"Done\""))),
-                    isReplaying = false,
-                ),
-            )
+            executor
+                .activate(
+                    createActivation(
+                        runId = runId,
+                        jobs = listOf(resolveActivityJobCompleted(seq, createPayload("\"Done\""))),
+                        isReplaying = false,
+                    ),
+                ).completion
 
             // Verify handle is done after resolution
             val handleSnapshotAfter = workflow.handle
@@ -921,25 +935,27 @@ class ActivityActivationTest {
             val scope = CoroutineScope(Dispatchers.Default)
 
             val initCompletion =
-                executor.activate(
-                    createActivation(
-                        runId = runId,
-                        jobs = listOf(initializeWorkflowJob(workflowType = "UnitActivityWorkflow")),
-                        isReplaying = false,
-                    ),
-                )
+                executor
+                    .activate(
+                        createActivation(
+                            runId = runId,
+                            jobs = listOf(initializeWorkflowJob(workflowType = "UnitActivityWorkflow")),
+                            isReplaying = false,
+                        ),
+                    ).completion
 
             val commands = getCommandsFromCompletion(initCompletion)
             val seq = commands[0].scheduleActivity.seq
 
             val completion =
-                executor.activate(
-                    createActivation(
-                        runId = runId,
-                        jobs = listOf(resolveActivityJobCompleted(seq, Payload.getDefaultInstance().toTemporal())),
-                        isReplaying = false,
-                    ),
-                )
+                executor
+                    .activate(
+                        createActivation(
+                            runId = runId,
+                            jobs = listOf(resolveActivityJobCompleted(seq, Payload.getDefaultInstance().toTemporal())),
+                            isReplaying = false,
+                        ),
+                    ).completion
 
             assertTrue(completion.hasSuccessful())
             assertTrue(workflow.completed)

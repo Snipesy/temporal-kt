@@ -234,7 +234,7 @@ class ChildWorkflowTest {
                     runId = result.runId,
                     jobs = listOf(resolveChildWorkflowStartJob(seq = 1, runId = childRunId)),
                 )
-            result.executor.activate(startActivation)
+            result.executor.activate(startActivation).completion
 
             // Handle should now have the run ID
             assertNotNull(workflow.handle)
@@ -260,7 +260,7 @@ class ChildWorkflowTest {
                             ),
                         ),
                 )
-            val completion = result.executor.activate(startActivation)
+            val completion = result.executor.activate(startActivation).completion
 
             // Workflow should fail with FailWorkflowExecution command
             assertTrue(completion.hasSuccessful())
@@ -286,7 +286,7 @@ class ChildWorkflowTest {
                             ),
                         ),
                 )
-            val completion = result.executor.activate(startActivation)
+            val completion = result.executor.activate(startActivation).completion
 
             // Workflow should fail with FailWorkflowExecution command
             assertTrue(completion.hasSuccessful())
@@ -310,7 +310,7 @@ class ChildWorkflowTest {
                     runId = result.runId,
                     jobs = listOf(resolveChildWorkflowStartJob(seq = 1)),
                 )
-            result.executor.activate(startActivation)
+            result.executor.activate(startActivation).completion
 
             val resultPayload = serializer.serialize("child result")
             val execActivation =
@@ -318,7 +318,7 @@ class ChildWorkflowTest {
                     runId = result.runId,
                     jobs = listOf(resolveChildWorkflowExecutionJob(seq = 1, result = resultPayload)),
                 )
-            val completion = result.executor.activate(execActivation)
+            val completion = result.executor.activate(execActivation).completion
 
             assertTrue(completion.hasSuccessful())
             assertEquals("child result", workflow.childResult)
@@ -336,7 +336,7 @@ class ChildWorkflowTest {
                     runId = result.runId,
                     jobs = listOf(resolveChildWorkflowStartJob(seq = 1)),
                 )
-            result.executor.activate(startActivation)
+            result.executor.activate(startActivation).completion
 
             val execActivation =
                 createActivation(
@@ -349,7 +349,7 @@ class ChildWorkflowTest {
                             ),
                         ),
                 )
-            val completion = result.executor.activate(execActivation)
+            val completion = result.executor.activate(execActivation).completion
 
             // Workflow should fail with FailWorkflowExecution command
             assertTrue(completion.hasSuccessful())
@@ -369,7 +369,7 @@ class ChildWorkflowTest {
                     runId = result.runId,
                     jobs = listOf(resolveChildWorkflowStartJob(seq = 1)),
                 )
-            result.executor.activate(startActivation)
+            result.executor.activate(startActivation).completion
 
             val execActivation =
                 createActivation(
@@ -382,7 +382,7 @@ class ChildWorkflowTest {
                             ),
                         ),
                 )
-            val completion = result.executor.activate(execActivation)
+            val completion = result.executor.activate(execActivation).completion
 
             // Workflow should fail with FailWorkflowExecution command
             assertTrue(completion.hasSuccessful())
@@ -415,7 +415,7 @@ class ChildWorkflowTest {
 
             // Complete first child
             val start1 = createActivation(runId = result.runId, jobs = listOf(resolveChildWorkflowStartJob(seq = 1)))
-            result.executor.activate(start1)
+            result.executor.activate(start1).completion
 
             val result1 = serializer.serialize("result1")
             val exec1 =
@@ -423,7 +423,7 @@ class ChildWorkflowTest {
                     runId = result.runId,
                     jobs = listOf(resolveChildWorkflowExecutionJob(seq = 1, result = result1)),
                 )
-            val exec1Completion = result.executor.activate(exec1)
+            val exec1Completion = result.executor.activate(exec1).completion
 
             // Now second child should be started - get commands from the completion
             val commands = getCommandsFromCompletion(exec1Completion)
@@ -504,7 +504,7 @@ class ChildWorkflowTest {
                     runId = result.runId,
                     jobs = listOf(resolveChildWorkflowStartJob(seq = 1, runId = childRunId)),
                 )
-            val afterStartCompletion = result.executor.activate(startActivation)
+            val afterStartCompletion = result.executor.activate(startActivation).completion
 
             // After child start is resolved, signal command should be generated
             val commandsAfterStart = getCommandsFromCompletion(afterStartCompletion)
@@ -523,7 +523,7 @@ class ChildWorkflowTest {
                     runId = result.runId,
                     jobs = listOf(resolveSignalExternalWorkflowJob(seq = signalExternal.seq)),
                 )
-            result.executor.activate(signalActivation)
+            result.executor.activate(signalActivation).completion
 
             // Workflow should have sent the signal
             assertTrue(workflow.signalSent)
@@ -578,7 +578,7 @@ class ChildWorkflowTest {
                 runId = runId,
                 jobs = listOf(initializeWorkflowJob(workflowType = workflowType)),
             )
-        val completion = executor.activate(initActivation)
+        val completion = executor.activate(initActivation).completion
 
         return ExecutorInitResult(executor, runId, completion)
     }

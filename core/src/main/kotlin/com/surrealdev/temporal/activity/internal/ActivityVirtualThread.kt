@@ -1,6 +1,5 @@
 package com.surrealdev.temporal.activity.internal
 
-import coresdk.CoreInterface.ActivityTaskCompletion
 import coresdk.activity_task.ActivityTaskOuterClass.ActivityTask
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
@@ -21,7 +20,7 @@ internal class ActivityVirtualThread(
     threadFactory: ThreadFactory,
     private val mdcContextMap: Map<String, String>? = null,
 ) {
-    private val completion = CompletableDeferred<ActivityTaskCompletion>()
+    private val completion = CompletableDeferred<ActivityDispatchResult>()
 
     @Volatile
     private var currentJob: Job? = null
@@ -57,7 +56,7 @@ internal class ActivityVirtualThread(
         }
     }
 
-    fun start(): Deferred<ActivityTaskCompletion> {
+    fun start(): Deferred<ActivityDispatchResult> {
         thread.start()
         return completion
     }

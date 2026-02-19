@@ -23,6 +23,7 @@ import com.surrealdev.temporal.application.plugin.interceptor.InterceptorRegistr
 import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.core.TemporalWorker
+import com.surrealdev.temporal.internal.isFatalError
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.util.SimpleAttributeScope
@@ -48,7 +49,6 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.CoroutineContext
-import kotlin.system.exitProcess
 import kotlin.time.Duration.Companion.milliseconds
 
 /**
@@ -204,21 +204,7 @@ internal class ManagedWorker(
             taskQueueScope = taskQueueScope,
             interceptorRegistry = mergedInterceptorRegistry,
             zombieConfig = config.zombieEviction,
-            onFatalError = {
-                val closed =
-                    withTimeoutOrNull(config.forceExitTimeout) {
-                        application.close()
-                        true
-                    }
-                if (closed == null) {
-                    logger.error(
-                        "[TKT1206] FATAL: Graceful shutdown timed out after {}. " +
-                            "Stuck threads prevent clean shutdown. Forcing System.exit(1).",
-                        config.forceExitTimeout,
-                    )
-                    exitProcess(1)
-                }
-            },
+            onFatalError = { application.fatalShutdown("TKT1206", "Activity zombie threshold exceeded") },
             dynamicActivityHandler = config.dynamicActivityHandler,
         )
 
@@ -366,31 +352,26 @@ internal class ManagedWorker(
                 workflowThreadFactory = workflowThreadFactory,
                 deadlockTimeoutMs = config.workflowDeadlockTimeoutMs,
                 zombieConfig = config.zombieEviction,
-                onFatalError = {
-                    val closed =
-                        withTimeoutOrNull(config.forceExitTimeout) {
-                            application.close()
-                            true
-                        }
-                    if (closed == null) {
-                        logger.error(
-                            "[TKT1106] FATAL: Graceful shutdown timed out after {}. " +
-                                "Stuck threads prevent clean shutdown. Forcing System.exit(1).",
-                            config.forceExitTimeout,
-                        )
-                        exitProcess(1)
-                    }
-                },
+                onFatalError = { application.fatalShutdown("TKT1106", "Workflow zombie threshold exceeded") },
             )
         workflowDispatcher = localWorkflowDispatcher
 
         // Root job for all workflow activations - isolated from each other (SupervisorJob)
         val rootWorkflowActivationJob = SupervisorJob(coroutineContext[Job])
 
-        // Exception handler as safety net for uncaught exceptions in workflow activation coroutines
+        // Exception handler as safety net for uncaught exceptions in workflow activation coroutines.
+        // java.lang.Error (e.g. OutOfMemoryError, VerifyError) indicates the JVM is in a
+        // potentially compromised state — trigger worker shutdown after reporting the failure.
         val workflowExceptionHandler =
             CoroutineExceptionHandler { _, throwable ->
                 logger.error("[pollWorkflowActivations] Uncaught exception in workflow coroutine", throwable)
+                if (throwable.isFatalError()) {
+                    application.fatalShutdown(
+                        "TKT1110",
+                        "Uncaught ${throwable::class.simpleName} in workflow coroutine",
+                        throwable,
+                    )
+                }
             }
 
         // Workflow activation scope - activations run concurrently (like activities)
@@ -463,7 +444,7 @@ internal class ManagedWorker(
 
                         try {
                             // Dispatch to workflow executor
-                            val completion = localWorkflowDispatcher.dispatch(activation)
+                            val dispatchResult = localWorkflowDispatcher.dispatch(activation)
 
                             // Fire WorkflowTaskCompleted hooks before sending completion to core
                             // This ensures spans are finished before clients can receive results
@@ -471,7 +452,7 @@ internal class ManagedWorker(
                             val completedContext =
                                 WorkflowTaskCompletedContext(
                                     activation = activation,
-                                    completion = completion,
+                                    completion = dispatchResult.completion,
                                     runId = activation.runId,
                                     duration = duration,
                                 )
@@ -479,11 +460,19 @@ internal class ManagedWorker(
                             config.hookRegistry.call(WorkflowTaskCompleted, completedContext)
 
                             // Send completion back to core
-                            coreWorker.completeWorkflowActivation(completion)
+                            coreWorker.completeWorkflowActivation(dispatchResult.completion)
                             logger.debug(
                                 "[pollWorkflowActivations] Completed activation for workflow {}",
                                 activation.runId,
                             )
+
+                            dispatchResult.fatalError?.let { error ->
+                                application.fatalShutdown(
+                                    "TKT1109",
+                                    "Workflow threw ${error::class.simpleName}",
+                                    error,
+                                )
+                            }
                         } catch (e: CancellationException) {
                             // Propagate cancellation
                             throw e
@@ -560,10 +549,19 @@ internal class ManagedWorker(
         // Root job for all activities - isolated from each other (SupervisorJob)
         val rootActivityJob = SupervisorJob(coroutineContext[Job])
 
-        // Exception handler as safety net for uncaught exceptions in activity coroutines
+        // Exception handler as safety net for uncaught exceptions in activity coroutines.
+        // java.lang.Error (e.g. OutOfMemoryError, VerifyError) indicates the JVM is in a
+        // potentially compromised state — trigger worker shutdown after reporting the failure.
         val exceptionHandler =
             CoroutineExceptionHandler { _, throwable ->
                 logger.error("[pollActivityTasks] Uncaught exception in activity coroutine", throwable)
+                if (throwable.isFatalError()) {
+                    application.fatalShutdown(
+                        "TKT1210",
+                        "Uncaught ${throwable::class.simpleName} in activity coroutine",
+                        throwable,
+                    )
+                }
             }
 
         // Activity scope includes the configured dispatcher if set
@@ -655,7 +653,7 @@ internal class ManagedWorker(
                                 )
 
                             try {
-                                val completion = activityThread.start().await()
+                                val dispatchResult = activityThread.start().await()
 
                                 // Fire ActivityTaskCompleted hooks before sending completion to core
                                 // This ensures spans are finished before clients can receive results
@@ -672,8 +670,16 @@ internal class ManagedWorker(
                                 applicationHooks.call(ActivityTaskCompleted, completedContext)
                                 config.hookRegistry.call(ActivityTaskCompleted, completedContext)
 
-                                coreWorker.completeActivityTask(completion)
+                                coreWorker.completeActivityTask(dispatchResult.completion)
                                 logger.debug("[pollActivityTasks] Completed activity: {}", activityInfo)
+
+                                dispatchResult.fatalError?.let { error ->
+                                    application.fatalShutdown(
+                                        "TKT1209",
+                                        "Activity threw ${error::class.simpleName}",
+                                        error,
+                                    )
+                                }
                             } catch (e: CancellationException) {
                                 // Re-throw cancellation to properly propagate it
                                 throw e

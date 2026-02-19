@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.surrealdev.temporal.workflow.SuggestContinueAsNewReason
 import coresdk.activity_result.ActivityResult
 import coresdk.child_workflow.ChildWorkflow
 import coresdk.workflow_activation.WorkflowActivationOuterClass.ResolveChildWorkflowExecutionStart
@@ -11,6 +12,7 @@ import java.util.logging.Logger
 import kotlin.coroutines.resume
 import kotlin.time.Instant
 import kotlin.time.toKotlinInstant
+import io.temporal.api.enums.v1.SuggestContinueAsNewReason as ProtoSuggestReason
 
 /**
  * Manages the state of a single workflow execution.
@@ -132,6 +134,12 @@ internal class WorkflowState(
         private set
 
     /**
+     * Reasons the server is suggesting continue-as-new. Empty when no suggestion is made.
+     */
+    var suggestContinueAsNewReasons: Set<SuggestContinueAsNewReason> = emptySet()
+        private set
+
+    /**
      * Whether the main workflow coroutine has completed (successfully or with failure).
      * Used to warn when handlers try to schedule new work after completion.
      */
@@ -229,6 +237,7 @@ internal class WorkflowState(
         historyLength: Int,
         historySizeBytes: Long = 0,
         continueAsNewSuggested: Boolean = false,
+        suggestContinueAsNewReasons: List<ProtoSuggestReason> = emptyList(),
     ) {
         if (timestamp != null) {
             val javaInstant = java.time.Instant.ofEpochSecond(timestamp.seconds, timestamp.nanos.toLong())
@@ -238,6 +247,7 @@ internal class WorkflowState(
         this.historyLength = historyLength
         this.historySizeBytes = historySizeBytes
         this.continueAsNewSuggested = continueAsNewSuggested
+        this.suggestContinueAsNewReasons = suggestContinueAsNewReasons.mapTo(mutableSetOf()) { it.toDomain() }
     }
 
     /**
@@ -887,6 +897,19 @@ internal data class PendingChildWorkflowInfo(
     val workflowId: String?,
     val started: Boolean,
 )
+
+private fun ProtoSuggestReason.toDomain(): SuggestContinueAsNewReason =
+    when (this) {
+        ProtoSuggestReason.SUGGEST_CONTINUE_AS_NEW_REASON_HISTORY_SIZE_TOO_LARGE ->
+            SuggestContinueAsNewReason.HISTORY_SIZE_TOO_LARGE
+        ProtoSuggestReason.SUGGEST_CONTINUE_AS_NEW_REASON_TOO_MANY_HISTORY_EVENTS ->
+            SuggestContinueAsNewReason.TOO_MANY_HISTORY_EVENTS
+        ProtoSuggestReason.SUGGEST_CONTINUE_AS_NEW_REASON_TOO_MANY_UPDATES ->
+            SuggestContinueAsNewReason.TOO_MANY_UPDATES
+        ProtoSuggestReason.SUGGEST_CONTINUE_AS_NEW_REASON_TARGET_WORKER_DEPLOYMENT_VERSION_CHANGED ->
+            SuggestContinueAsNewReason.TARGET_WORKER_DEPLOYMENT_VERSION_CHANGED
+        else -> SuggestContinueAsNewReason.UNSPECIFIED
+    }
 
 /**
  * Exception thrown when attempting to mutate workflow state in read-only mode.
