@@ -5,9 +5,10 @@ import com.surrealdev.temporal.activity.EncodedPayloads
 import com.surrealdev.temporal.activity.HeartbeatDetails
 import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.application.DynamicActivityHandler
+import com.surrealdev.temporal.application.plugin.HookRegistry
+import com.surrealdev.temporal.application.plugin.HookRegistryImpl
+import com.surrealdev.temporal.application.plugin.interceptor.ExecuteActivity
 import com.surrealdev.temporal.application.plugin.interceptor.ExecuteActivityInput
-import com.surrealdev.temporal.application.plugin.interceptor.InterceptorChain
-import com.surrealdev.temporal.application.plugin.interceptor.InterceptorRegistry
 import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.exceptions.ActivityCancelledException
@@ -94,9 +95,9 @@ class ActivityDispatcher(
      */
     private val taskQueueScope: AttributeScope,
     /**
-     * Merged interceptor registry for interceptor chain execution.
+     * Merged hook registry (application + task-queue level) for interceptor chain execution.
      */
-    private val interceptorRegistry: InterceptorRegistry = InterceptorRegistry.EMPTY,
+    private val hookRegistry: HookRegistry = HookRegistryImpl.EMPTY,
     /**
      * Configuration for zombie thread eviction.
      */
@@ -349,7 +350,7 @@ class ActivityDispatcher(
                 codec = codec,
                 heartbeatFn = heartbeatFn,
                 parentScope = taskQueueScope,
-                interceptorRegistry = interceptorRegistry,
+                hookRegistry = hookRegistry,
                 parentCoroutineContext = currentCoroutineContext(),
                 decodedHeartbeatDetails = decodedHeartbeatDetails,
             )
@@ -390,7 +391,7 @@ class ActivityDispatcher(
             // Wrap with withContext(context) so that ActivityContext is available
             // in the coroutine context for interceptors (e.g., ContextPropagation plugin).
             return try {
-                val chain = InterceptorChain(interceptorRegistry.executeActivity)
+                val chain = hookRegistry.chain(ExecuteActivity)
                 val result =
                     withContext(context) {
                         chain.execute(interceptorInput) { _ ->
@@ -540,7 +541,7 @@ class ActivityDispatcher(
                 codec = codec,
                 heartbeatFn = heartbeatFn,
                 parentScope = taskQueueScope,
-                interceptorRegistry = interceptorRegistry,
+                hookRegistry = hookRegistry,
                 parentCoroutineContext = currentCoroutineContext(),
                 decodedHeartbeatDetails = decodedHeartbeatDetails,
             )
@@ -562,7 +563,7 @@ class ActivityDispatcher(
             )
 
         return try {
-            val chain = InterceptorChain(interceptorRegistry.executeActivity)
+            val chain = hookRegistry.chain(ExecuteActivity)
             val result =
                 withContext(context) {
                     chain.execute(interceptorInput) { _ ->

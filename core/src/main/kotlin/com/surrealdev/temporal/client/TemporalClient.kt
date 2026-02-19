@@ -3,11 +3,14 @@ package com.surrealdev.temporal.client
 import com.google.protobuf.util.Durations
 import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.annotation.TemporalDsl
+import com.surrealdev.temporal.application.plugin.HookRegistry
+import com.surrealdev.temporal.application.plugin.HookRegistryImpl
 import com.surrealdev.temporal.application.plugin.PluginPipeline
+import com.surrealdev.temporal.application.plugin.interceptor.CountWorkflows
 import com.surrealdev.temporal.application.plugin.interceptor.CountWorkflowsInput
-import com.surrealdev.temporal.application.plugin.interceptor.InterceptorChain
-import com.surrealdev.temporal.application.plugin.interceptor.InterceptorRegistry
+import com.surrealdev.temporal.application.plugin.interceptor.ListWorkflows
 import com.surrealdev.temporal.application.plugin.interceptor.ListWorkflowsInput
+import com.surrealdev.temporal.application.plugin.interceptor.StartWorkflow
 import com.surrealdev.temporal.application.plugin.interceptor.StartWorkflowInput
 import com.surrealdev.temporal.client.internal.WorkflowServiceClient
 import com.surrealdev.temporal.client.internal.rethrowMapped
@@ -74,13 +77,11 @@ interface TemporalClient {
      * This uses raw payloads for arguments. For type-safe overloads, use the reified extension functions
      * [startWorkflow]
      *
-     * @param R The expected result type of the workflow.
      * @param workflowType The workflow type name.
      * @param taskQueue The task queue to run the workflow on.
      * @param workflowId The workflow ID.
      * @param args Arguments to pass to the workflow.
      * @param options Additional workflow options.
-     * @param resultTypeInfo Type information for the expected result type.
      * @return A handle to the started workflow execution.
      */
     @InternalTemporalApi
@@ -96,10 +97,8 @@ interface TemporalClient {
      * Gets a handle to an existing workflow. This is an internal API - use the
      * [getWorkflowHandle]` extension function instead for type-safe access.
      *
-     * @param R The expected result type of the workflow.
      * @param workflowId The workflow ID.
      * @param runId Optional run ID. If not specified, the latest run is used.
-     * @param resultTypeInfo Type information for the expected result type.
      * @return A handle to the workflow execution.
      */
     @InternalTemporalApi
@@ -169,14 +168,14 @@ interface TemporalClient {
             namespace: String = "default",
             serializer: PayloadSerializer = CompositePayloadSerializer.default(),
             codec: PayloadCodec = NoOpCodec,
-            interceptorRegistry: InterceptorRegistry = InterceptorRegistry.EMPTY,
+            hookRegistry: HookRegistry = HookRegistryImpl.EMPTY,
         ): TemporalClient {
             val config =
                 TemporalClientConfig().apply {
                     this.target = coreClient.targetUrl
                     this.namespace = namespace
                 }
-            return TemporalClientImpl(coreClient, config, serializer, codec, interceptorRegistry)
+            return TemporalClientImpl(coreClient, config, serializer, codec, hookRegistry)
         }
 
         /**
@@ -242,7 +241,7 @@ interface TemporalClient {
                 serializer,
                 codec,
                 runtime,
-                config.interceptorRegistry,
+                config.hookRegistry,
             )
         }
     }
@@ -258,8 +257,8 @@ private class ConnectedTemporalClient(
     serializer: PayloadSerializer,
     codec: PayloadCodec,
     private val runtime: com.surrealdev.temporal.core.TemporalRuntime,
-    interceptorRegistry: InterceptorRegistry = InterceptorRegistry.EMPTY,
-) : TemporalClient by TemporalClientImpl(coreClient, config, serializer, codec, interceptorRegistry) {
+    hookRegistry: HookRegistry = HookRegistryImpl.EMPTY,
+) : TemporalClient by TemporalClientImpl(coreClient, config, serializer, codec, hookRegistry) {
     override suspend fun close() {
         coreClient.close()
         runtime.close()
@@ -290,7 +289,7 @@ class TemporalClientImpl internal constructor(
     private val config: TemporalClientConfig,
     override val serializer: PayloadSerializer,
     internal val codec: PayloadCodec,
-    internal val interceptorRegistry: InterceptorRegistry = InterceptorRegistry.EMPTY,
+    internal val hookRegistry: HookRegistry = HookRegistryImpl.EMPTY,
 ) : TemporalClient {
     internal val serviceClient = WorkflowServiceClient(coreClient, config.namespace)
 
@@ -310,7 +309,7 @@ class TemporalClientImpl internal constructor(
                 options = options,
             )
 
-        return InterceptorChain(interceptorRegistry.startWorkflow).execute(input) { inp ->
+        return hookRegistry.chain(StartWorkflow).execute(input) { inp ->
             doStartWorkflow(inp)
         }
     }
@@ -424,7 +423,7 @@ class TemporalClientImpl internal constructor(
             serviceClient = serviceClient,
             serializer = serializer,
             codec = codec,
-            interceptorRegistry = interceptorRegistry,
+            hookRegistry = hookRegistry,
         )
     }
 
@@ -438,7 +437,7 @@ class TemporalClientImpl internal constructor(
             serviceClient = serviceClient,
             serializer = serializer,
             codec = codec,
-            interceptorRegistry = interceptorRegistry,
+            hookRegistry = hookRegistry,
         )
 
     override suspend fun listWorkflows(
@@ -446,7 +445,7 @@ class TemporalClientImpl internal constructor(
         pageSize: Int,
     ): WorkflowExecutionList {
         val input = ListWorkflowsInput(query = query, pageSize = pageSize)
-        return InterceptorChain(interceptorRegistry.listWorkflows).execute(input) { inp ->
+        return hookRegistry.chain(ListWorkflows).execute(input) { inp ->
             doListWorkflows(inp)
         }
     }
@@ -493,7 +492,7 @@ class TemporalClientImpl internal constructor(
 
     override suspend fun countWorkflows(query: String): Long {
         val input = CountWorkflowsInput(query = query)
-        return InterceptorChain(interceptorRegistry.countWorkflows).execute(input) { inp ->
+        return hookRegistry.chain(CountWorkflows).execute(input) { inp ->
             doCountWorkflows(inp)
         }
     }
@@ -544,8 +543,8 @@ class TemporalClientConfig : PluginPipeline {
     override val attributes: Attributes = Attributes(concurrent = false)
     override val parentScope: com.surrealdev.temporal.util.AttributeScope? = null
 
-    /** Interceptor registry for client interceptors installed via plugins. */
-    val interceptorRegistry: InterceptorRegistry = InterceptorRegistry()
+    /** Unified hook registry for client hooks and interceptors installed via plugins. */
+    val hookRegistry: HookRegistry = HookRegistryImpl()
 
     /**
      * Configure TLS using a builder.

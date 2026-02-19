@@ -51,8 +51,7 @@ class PluginFrameworkTest {
                 }
 
                 // Register all hooks and interceptors
-                builder.hooks.forEach { it.install(pipeline.hookRegistry) }
-                installInterceptors(builder, pipeline)
+                installHandlers(builder, pipeline)
 
                 return plugin
             }

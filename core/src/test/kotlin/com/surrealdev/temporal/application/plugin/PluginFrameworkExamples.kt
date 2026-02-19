@@ -62,8 +62,7 @@ object PluginFrameworkExamples {
                 }
 
                 // Install hooks and interceptors
-                builder.hooks.forEach { it.install(pipeline.hookRegistry) }
-                installInterceptors(builder, pipeline)
+                installHandlers(builder, pipeline)
 
                 return plugin
             }
@@ -229,8 +228,7 @@ object PluginFrameworkExamples {
                     }
                 }
 
-                builder.hooks.forEach { it.install(pipeline.hookRegistry) }
-                installInterceptors(builder, pipeline)
+                installHandlers(builder, pipeline)
 
                 return plugin
             }

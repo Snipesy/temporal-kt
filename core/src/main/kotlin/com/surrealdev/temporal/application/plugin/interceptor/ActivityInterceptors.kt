@@ -1,6 +1,19 @@
 package com.surrealdev.temporal.application.plugin.interceptor
 
+import com.surrealdev.temporal.application.plugin.InterceptorHook
 import com.surrealdev.temporal.common.TemporalPayload
+
+// ==================== Interceptor Hooks ====================
+
+object ExecuteActivity : InterceptorHook<ExecuteActivityInput, Any?> {
+    override val name = "ExecuteActivity"
+}
+
+object Heartbeat : InterceptorHook<HeartbeatInput, Unit> {
+    override val name = "Heartbeat"
+}
+
+// ==================== Input Types ====================
 
 /**
  * Input for the ExecuteActivity interceptor.

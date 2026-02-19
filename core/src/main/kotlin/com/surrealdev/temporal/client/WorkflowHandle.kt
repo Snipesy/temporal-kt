@@ -1,15 +1,23 @@
 package com.surrealdev.temporal.client
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.application.plugin.HookRegistry
+import com.surrealdev.temporal.application.plugin.HookRegistryImpl
+import com.surrealdev.temporal.application.plugin.interceptor.CancelWorkflow
 import com.surrealdev.temporal.application.plugin.interceptor.CancelWorkflowInput
+import com.surrealdev.temporal.application.plugin.interceptor.DescribeWorkflow
 import com.surrealdev.temporal.application.plugin.interceptor.DescribeWorkflowInput
+import com.surrealdev.temporal.application.plugin.interceptor.FetchWorkflowHistory
 import com.surrealdev.temporal.application.plugin.interceptor.FetchWorkflowHistoryInput
+import com.surrealdev.temporal.application.plugin.interceptor.FetchWorkflowResult
 import com.surrealdev.temporal.application.plugin.interceptor.FetchWorkflowResultInput
-import com.surrealdev.temporal.application.plugin.interceptor.InterceptorChain
-import com.surrealdev.temporal.application.plugin.interceptor.InterceptorRegistry
+import com.surrealdev.temporal.application.plugin.interceptor.QueryWorkflow
 import com.surrealdev.temporal.application.plugin.interceptor.QueryWorkflowInput
+import com.surrealdev.temporal.application.plugin.interceptor.SignalWorkflow
 import com.surrealdev.temporal.application.plugin.interceptor.SignalWorkflowInput
+import com.surrealdev.temporal.application.plugin.interceptor.StartWorkflowUpdate
 import com.surrealdev.temporal.application.plugin.interceptor.StartWorkflowUpdateInput
+import com.surrealdev.temporal.application.plugin.interceptor.TerminateWorkflow
 import com.surrealdev.temporal.application.plugin.interceptor.TerminateWorkflowInput
 import com.surrealdev.temporal.client.history.WorkflowHistory
 import com.surrealdev.temporal.client.internal.GRPC_CANCELLED
@@ -201,7 +209,7 @@ internal class WorkflowHandleImpl(
     private val serviceClient: WorkflowServiceClient,
     override val serializer: PayloadSerializer,
     internal val codec: PayloadCodec,
-    private val interceptorRegistry: InterceptorRegistry = InterceptorRegistry.EMPTY,
+    private val hookRegistry: HookRegistry = HookRegistryImpl.EMPTY,
     private val pollingConfig: ResultPollingConfig = ResultPollingConfig(),
 ) : WorkflowHandle {
     override suspend fun resultPayload(timeout: Duration): TemporalPayload? {
@@ -211,7 +219,7 @@ internal class WorkflowHandleImpl(
                 runId = runId,
                 timeout = timeout,
             )
-        return InterceptorChain(interceptorRegistry.fetchWorkflowResult).execute(input) { inp ->
+        return hookRegistry.chain(FetchWorkflowResult).execute(input) { inp ->
             doResultPayload(inp.timeout)
         }
     }
@@ -461,7 +469,7 @@ internal class WorkflowHandleImpl(
                 signalName = signalName,
                 args = args,
             )
-        InterceptorChain(interceptorRegistry.signalWorkflow).execute(input) { inp ->
+        hookRegistry.chain(SignalWorkflow).execute(input) { inp ->
             doSignal(inp)
         }
     }
@@ -509,7 +517,7 @@ internal class WorkflowHandleImpl(
                 updateName = updateName,
                 args = args,
             )
-        return InterceptorChain(interceptorRegistry.startWorkflowUpdate).execute(input) { inp ->
+        return hookRegistry.chain(StartWorkflowUpdate).execute(input) { inp ->
             doUpdate(inp)
         }
     }
@@ -610,7 +618,7 @@ internal class WorkflowHandleImpl(
                 queryType = queryType,
                 args = args,
             )
-        return InterceptorChain(interceptorRegistry.queryWorkflow).execute(input) { inp ->
+        return hookRegistry.chain(QueryWorkflow).execute(input) { inp ->
             doQuery(inp)
         }
     }
@@ -671,7 +679,7 @@ internal class WorkflowHandleImpl(
 
     override suspend fun cancel() {
         val input = CancelWorkflowInput(workflowId = workflowId, runId = runId)
-        InterceptorChain(interceptorRegistry.cancelWorkflow).execute(input) { inp ->
+        hookRegistry.chain(CancelWorkflow).execute(input) { inp ->
             doCancel(inp)
         }
     }
@@ -698,7 +706,7 @@ internal class WorkflowHandleImpl(
 
     override suspend fun terminate(reason: String?) {
         val input = TerminateWorkflowInput(workflowId = workflowId, runId = runId, reason = reason)
-        InterceptorChain(interceptorRegistry.terminateWorkflow).execute(input) { inp ->
+        hookRegistry.chain(TerminateWorkflow).execute(input) { inp ->
             doTerminate(inp)
         }
     }
@@ -726,7 +734,7 @@ internal class WorkflowHandleImpl(
 
     override suspend fun describe(): WorkflowExecutionDescription {
         val input = DescribeWorkflowInput(workflowId = workflowId, runId = runId)
-        return InterceptorChain(interceptorRegistry.describeWorkflow).execute(input) { inp ->
+        return hookRegistry.chain(DescribeWorkflow).execute(input) { inp ->
             doDescribe(inp)
         }
     }
@@ -774,7 +782,7 @@ internal class WorkflowHandleImpl(
                 workflowId = workflowId,
                 runId = runId,
             )
-        return InterceptorChain(interceptorRegistry.fetchWorkflowHistory).execute(input) { inp ->
+        return hookRegistry.chain(FetchWorkflowHistory).execute(input) { inp ->
             doGetHistory(inp)
         }
     }

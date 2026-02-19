@@ -1,7 +1,8 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.surrealdev.temporal.application.plugin.interceptor.ExecuteUpdate
 import com.surrealdev.temporal.application.plugin.interceptor.ExecuteUpdateInput
-import com.surrealdev.temporal.application.plugin.interceptor.InterceptorChain
+import com.surrealdev.temporal.application.plugin.interceptor.ValidateUpdate
 import com.surrealdev.temporal.application.plugin.interceptor.ValidateUpdateInput
 import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayload
@@ -70,7 +71,7 @@ internal suspend fun WorkflowExecutor.handleUpdate(
         return
     }
 
-    val ctx = (context ?: error("WorkflowContext not initialized")) as WorkflowContextImpl
+    val ctx = (context ?: error("WorkflowContext not initialized"))
 
     ctx.launchHandler {
         try {
@@ -84,7 +85,7 @@ internal suspend fun WorkflowExecutor.handleUpdate(
                         runId = runId,
                         headers = headers,
                     )
-                val validateChain = InterceptorChain(interceptorRegistry.validateUpdate)
+                val validateChain = hookRegistry.chain(ValidateUpdate)
                 validateChain.execute(validateInput) { input ->
                     if (resolved.validate != null) {
                         state.isReadOnly = true
@@ -109,7 +110,7 @@ internal suspend fun WorkflowExecutor.handleUpdate(
                     runId = runId,
                     headers = headers,
                 )
-            val executeChain = InterceptorChain(interceptorRegistry.executeUpdate)
+            val executeChain = hookRegistry.chain(ExecuteUpdate)
             val resultPayload =
                 executeChain.execute(executeInput) { input ->
                     resolved.execute(input.args)
@@ -225,7 +226,7 @@ private fun WorkflowExecutor.resolveAnnotationHandler(
     updateName: String,
     isDynamic: Boolean,
 ): ResolvedUpdateHandler {
-    val ctx = (context ?: error("WorkflowContext not initialized")) as WorkflowContextImpl
+    val ctx = (context ?: error("WorkflowContext not initialized"))
     val method = handler.handlerMethod
 
     return ResolvedUpdateHandler(

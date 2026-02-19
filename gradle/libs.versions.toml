@@ -42,6 +42,8 @@ opentelemetryExtensionKotlin = { module = "io.opentelemetry:opentelemetry-extens
 opentelemetryContext = { module = "io.opentelemetry:opentelemetry-context", version.ref = "opentelemetry" }
 opentelemetrySdk = { module = "io.opentelemetry:opentelemetry-sdk", version.ref = "opentelemetry" }
 opentelemetrySdkTesting = { module = "io.opentelemetry:opentelemetry-sdk-testing", version.ref = "opentelemetry" }
+opentelemetryExporterOtlp = { module = "io.opentelemetry:opentelemetry-exporter-otlp", version.ref = "opentelemetry" }
+opentelemetryLogbackAppender = { module = "io.opentelemetry.instrumentation:opentelemetry-logback-appender-1.0", version = "2.25.0-alpha" }
 logbackClassic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
 
 # Libraries can be bundled together for easier import

@@ -1,12 +1,48 @@
 package com.surrealdev.temporal.application.plugin.interceptor
 
+import com.surrealdev.temporal.application.plugin.InterceptorHook
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.workflow.ActivityOptions
+import com.surrealdev.temporal.workflow.ChildWorkflowHandle
 import com.surrealdev.temporal.workflow.ChildWorkflowOptions
 import com.surrealdev.temporal.workflow.ContinueAsNewOptions
+import com.surrealdev.temporal.workflow.LocalActivityHandle
 import com.surrealdev.temporal.workflow.LocalActivityOptions
+import com.surrealdev.temporal.workflow.RemoteActivityHandle
 import kotlin.time.Duration
+
+// ==================== Interceptor Hooks ====================
+
+object ScheduleActivity : InterceptorHook<ScheduleActivityInput, RemoteActivityHandle> {
+    override val name = "ScheduleActivity"
+}
+
+object ScheduleLocalActivity : InterceptorHook<ScheduleLocalActivityInput, LocalActivityHandle> {
+    override val name = "ScheduleLocalActivity"
+}
+
+object StartChildWorkflow : InterceptorHook<StartChildWorkflowInput, ChildWorkflowHandle> {
+    override val name = "StartChildWorkflow"
+}
+
+object Sleep : InterceptorHook<SleepInput, Unit> {
+    override val name = "Sleep"
+}
+
+object SignalExternalWorkflow : InterceptorHook<SignalExternalInput, Unit> {
+    override val name = "SignalExternalWorkflow"
+}
+
+object CancelExternalWorkflow : InterceptorHook<CancelExternalInput, Unit> {
+    override val name = "CancelExternalWorkflow"
+}
+
+object ContinueAsNew : InterceptorHook<ContinueAsNewInput, Nothing> {
+    override val name = "ContinueAsNew"
+}
+
+// ==================== Input Types ====================
 
 /**
  * Input for the ScheduleActivity interceptor.

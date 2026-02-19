@@ -1,8 +1,61 @@
 package com.surrealdev.temporal.application.plugin.interceptor
 
+import com.surrealdev.temporal.application.plugin.InterceptorHook
+import com.surrealdev.temporal.client.WorkflowExecutionDescription
+import com.surrealdev.temporal.client.WorkflowExecutionList
+import com.surrealdev.temporal.client.WorkflowHandle
 import com.surrealdev.temporal.client.WorkflowStartOptions
+import com.surrealdev.temporal.client.history.WorkflowHistory
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
+
+// ==================== Interceptor Hooks ====================
+
+object StartWorkflow : InterceptorHook<StartWorkflowInput, WorkflowHandle> {
+    override val name = "StartWorkflow"
+}
+
+object SignalWorkflow : InterceptorHook<SignalWorkflowInput, Unit> {
+    override val name = "SignalWorkflow"
+}
+
+object QueryWorkflow : InterceptorHook<QueryWorkflowInput, TemporalPayloads> {
+    override val name = "QueryWorkflow"
+}
+
+object StartWorkflowUpdate : InterceptorHook<StartWorkflowUpdateInput, TemporalPayloads> {
+    override val name = "StartWorkflowUpdate"
+}
+
+object CancelWorkflow : InterceptorHook<CancelWorkflowInput, Unit> {
+    override val name = "CancelWorkflow"
+}
+
+object TerminateWorkflow : InterceptorHook<TerminateWorkflowInput, Unit> {
+    override val name = "TerminateWorkflow"
+}
+
+object DescribeWorkflow : InterceptorHook<DescribeWorkflowInput, WorkflowExecutionDescription> {
+    override val name = "DescribeWorkflow"
+}
+
+object ListWorkflows : InterceptorHook<ListWorkflowsInput, WorkflowExecutionList> {
+    override val name = "ListWorkflows"
+}
+
+object CountWorkflows : InterceptorHook<CountWorkflowsInput, Long> {
+    override val name = "CountWorkflows"
+}
+
+object FetchWorkflowResult : InterceptorHook<FetchWorkflowResultInput, TemporalPayload?> {
+    override val name = "FetchWorkflowResult"
+}
+
+object FetchWorkflowHistory : InterceptorHook<FetchWorkflowHistoryInput, WorkflowHistory> {
+    override val name = "FetchWorkflowHistory"
+}
+
+// ==================== Input Types ====================
 
 /**
  * Input for the StartWorkflow client interceptor.

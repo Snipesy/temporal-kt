@@ -15,7 +15,6 @@ import com.surrealdev.temporal.application.plugin.hooks.WorkerStarted
 import com.surrealdev.temporal.application.plugin.hooks.WorkerStartedContext
 import com.surrealdev.temporal.application.plugin.hooks.WorkerStopped
 import com.surrealdev.temporal.application.plugin.hooks.WorkerStoppedContext
-import com.surrealdev.temporal.application.plugin.interceptor.InterceptorRegistry
 import com.surrealdev.temporal.application.worker.ManagedWorker
 import com.surrealdev.temporal.client.TemporalClient
 import com.surrealdev.temporal.client.TemporalClientConfig
@@ -114,19 +113,12 @@ open class TemporalApplication internal constructor(
     override val parentScope: com.surrealdev.temporal.util.AttributeScope? = null
 
     /**
-     * Hook registry for application-level lifecycle hooks.
+     * Unified hook registry for application-level lifecycle hooks and interceptors.
      *
-     * Plugins can register hooks via this registry to be notified of lifecycle events.
+     * Plugins register both hooks and interceptors via this registry. Interceptors are
+     * merged with task-queue-level interceptors at worker startup.
      */
     val hookRegistry: HookRegistry = HookRegistryImpl()
-
-    /**
-     * Interceptor registry for application-level interceptors.
-     *
-     * Plugins register interceptors via the `workflow {}` and `activity {}` DSL blocks.
-     * These interceptors are merged with task-queue-level interceptors at worker startup.
-     */
-    val interceptorRegistry: InterceptorRegistry = InterceptorRegistry()
 
     private val applicationJob = SupervisorJob(parentCoroutineContext[Job])
 
@@ -413,15 +405,15 @@ open class TemporalApplication internal constructor(
                 ?: payloadCodecOrNull()
                 ?: NoOpCodec
 
-        // Merge: app-level interceptors first, then client config interceptors
-        val mergedRegistry = interceptorRegistry.mergeWith(clientConfig.interceptorRegistry)
+        // Merge: app-level hooks/interceptors first, then client config
+        val mergedRegistry = hookRegistry.mergeWith(clientConfig.hookRegistry)
 
         return TemporalClient.create(
             coreClient = coreClientInstance,
             namespace = clientConfig.namespace,
             serializer = serializer,
             codec = codec,
-            interceptorRegistry = mergedRegistry,
+            hookRegistry = mergedRegistry,
         )
     }
 
@@ -533,10 +525,8 @@ internal data class TaskQueueConfig(
     val maxConcurrentActivities: Int = 200,
     /** Attributes for task-queue-scoped plugin storage. */
     val attributes: Attributes = Attributes(concurrent = false),
-    /** Hook registry for task-queue-scoped hooks. */
+    /** Unified hook registry for task-queue-scoped hooks and interceptors. */
     val hookRegistry: HookRegistry = HookRegistryImpl(),
-    /** Interceptor registry for task-queue-scoped interceptors. */
-    val interceptorRegistry: InterceptorRegistry = InterceptorRegistry(),
     /**
      * Grace period for shutdown to wait for polling jobs to complete gracefully.
      * After this timeout, polling jobs will be force-canceled.

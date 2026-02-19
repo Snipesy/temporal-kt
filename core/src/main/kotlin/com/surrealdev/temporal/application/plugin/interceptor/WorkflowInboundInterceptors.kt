@@ -1,7 +1,32 @@
 package com.surrealdev.temporal.application.plugin.interceptor
 
+import com.surrealdev.temporal.application.plugin.InterceptorHook
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
+
+// ==================== Interceptor Hooks ====================
+
+object ExecuteWorkflow : InterceptorHook<ExecuteWorkflowInput, Any?> {
+    override val name = "ExecuteWorkflow"
+}
+
+object HandleSignal : InterceptorHook<HandleSignalInput, Unit> {
+    override val name = "HandleSignal"
+}
+
+object HandleQuery : InterceptorHook<HandleQueryInput, Any?> {
+    override val name = "HandleQuery"
+}
+
+object ValidateUpdate : InterceptorHook<ValidateUpdateInput, Unit> {
+    override val name = "ValidateUpdate"
+}
+
+object ExecuteUpdate : InterceptorHook<ExecuteUpdateInput, Any?> {
+    override val name = "ExecuteUpdate"
+}
+
+// ==================== Input Types ====================
 
 /**
  * Input for the ExecuteWorkflow interceptor.

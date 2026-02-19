@@ -12,6 +12,8 @@ import io.opentelemetry.api.OpenTelemetry
  *     tracerName = "my-service"
  *     enableWorkflowSpans = true
  *     enableActivitySpans = true
+ *     enableClientSpans = true
+ *     enableContextPropagation = true
  *     enableMdcIntegration = true
  *     enableMetrics = true
  * }
@@ -26,20 +28,51 @@ class OpenTelemetryConfig {
     var openTelemetry: OpenTelemetry? = null
 
     /**
-     * Enable workflow task spans.
+     * Enable workflow interceptor spans.
      *
-     * When true, creates spans for workflow task processing.
+     * When true, creates per-operation spans for workflow inbound and outbound
+     * interceptors (RunWorkflow, HandleSignal, StartActivity, etc.).
      * Default: true
      */
     var enableWorkflowSpans: Boolean = true
 
     /**
-     * Enable activity task spans.
+     * Enable activity interceptor spans.
      *
-     * When true, creates spans for activity task execution.
+     * When true, creates spans for activity execution (RunActivity).
      * Default: true
      */
     var enableActivitySpans: Boolean = true
+
+    /**
+     * Enable client interceptor spans.
+     *
+     * When true, creates spans for client operations (StartWorkflow,
+     * SignalWorkflow, QueryWorkflow, etc.).
+     * Default: true
+     */
+    var enableClientSpans: Boolean = true
+
+    /**
+     * Enable trace context propagation via Temporal headers.
+     *
+     * When true, injects/extracts W3C trace context into Temporal message
+     * headers using the [headerKey]. This enables parent-child span
+     * relationships across client → workflow → activity boundaries.
+     *
+     * Context propagation works even when span creation is disabled,
+     * allowing downstream services to continue the trace.
+     * Default: true
+     */
+    var enableContextPropagation: Boolean = true
+
+    /**
+     * Temporal header key used for trace context propagation.
+     *
+     * Matches the convention used by official Temporal SDKs.
+     * Default: "_tracer-data"
+     */
+    var headerKey: String = HeaderPropagator.TRACE_HEADER_KEY
 
     /**
      * Tracer name for this plugin.
@@ -59,8 +92,9 @@ class OpenTelemetryConfig {
     /**
      * Enable MDC integration for log correlation.
      *
-     * When true, adds trace_id, span_id, and trace_flags to SLF4J MDC.
-     * This allows logs to be correlated with traces using logback patterns like:
+     * When true, adds trace_id, span_id, and trace_flags to SLF4J MDC
+     * during span execution. This allows logs to be correlated with traces
+     * using logback patterns like:
      * ```
      * %d{HH:mm:ss.SSS} trace_id=%X{trace_id} span_id=%X{span_id} - %msg%n
      * ```
@@ -96,4 +130,27 @@ class OpenTelemetryConfig {
      * Default: true
      */
     var enableCoreMetrics: Boolean = true
+
+    /**
+     * Automatically close the OpenTelemetry instance on application shutdown.
+     *
+     * Only applies when the provided [openTelemetry] instance implements [java.io.Closeable]
+     * (e.g., `OpenTelemetrySdk`). Instances obtained via `GlobalOpenTelemetry.get()` do not
+     * implement `Closeable` and are unaffected.
+     *
+     * Default: true
+     */
+    var manageSdkLifecycle: Boolean = true
+
+    /**
+     * Automatically install the OpenTelemetry Logback Appender during application setup.
+     *
+     * When true, the plugin calls `OpenTelemetryAppender.install(openTelemetry)` via
+     * reflection if the logback appender library is on the classpath
+     * (`io.opentelemetry.instrumentation:opentelemetry-logback-appender-1.0`).
+     * If the library is not present, this is silently skipped.
+     *
+     * Default: true
+     */
+    var installLogbackAppender: Boolean = true
 }

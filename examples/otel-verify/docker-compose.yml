@@ -1,0 +1,27 @@
+services:
+  # Grafana LGTM: all-in-one Loki + Grafana + Tempo + Mimir + OTel Collector
+  # Grafana UI:  http://localhost:3000  (admin / admin)
+  # OTLP gRPC:  localhost:4317
+  # OTLP HTTP:  localhost:4318
+  lgtm:
+    image: grafana/otel-lgtm:latest
+    ports:
+      - "3000:3000"   # Grafana UI
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+
+  # Temporal dev server (SQLite in-memory, no external DB needed)
+  # UI included at http://localhost:8233
+  temporal:
+    image: temporalio/temporal:latest
+    container_name: temporal
+    network_mode: host
+    environment:
+      - TemporalNamespace=default
+    ports:
+      - "7233:7233"
+      - "8233:8233"
+    command: server start-dev --ip 0.0.0.0

@@ -7,10 +7,11 @@ import com.surrealdev.temporal.application.plugin.hooks.ActivityTaskContext
 import com.surrealdev.temporal.application.plugin.hooks.ActivityTaskFailed
 import com.surrealdev.temporal.application.plugin.hooks.ActivityTaskFailedContext
 import com.surrealdev.temporal.application.plugin.hooks.ActivityTaskStarted
+import com.surrealdev.temporal.application.plugin.interceptor.ExecuteActivity
 import com.surrealdev.temporal.application.plugin.interceptor.ExecuteActivityInput
+import com.surrealdev.temporal.application.plugin.interceptor.Heartbeat
 import com.surrealdev.temporal.application.plugin.interceptor.HeartbeatInput
 import com.surrealdev.temporal.application.plugin.interceptor.Interceptor
-import com.surrealdev.temporal.application.plugin.interceptor.InterceptorRegistry
 
 /**
  * DSL builder for activity interceptors and observer hooks.
@@ -36,7 +37,6 @@ import com.surrealdev.temporal.application.plugin.interceptor.InterceptorRegistr
 @TemporalDsl
 class ActivityHookBuilder internal constructor(
     private val pluginBuilder: PluginBuilder<*>,
-    private val interceptorRegistry: InterceptorRegistry,
 ) {
     // ==================== Inbound Interceptors ====================
 
@@ -44,7 +44,7 @@ class ActivityHookBuilder internal constructor(
      * Intercepts activity execution (activity method invocation).
      */
     fun onExecute(interceptor: Interceptor<ExecuteActivityInput, Any?>) {
-        interceptorRegistry.executeActivity.add(interceptor)
+        pluginBuilder.on(ExecuteActivity, interceptor)
     }
 
     // ==================== Outbound Interceptors ====================
@@ -53,7 +53,7 @@ class ActivityHookBuilder internal constructor(
      * Intercepts activity heartbeat sending.
      */
     fun onHeartbeat(interceptor: Interceptor<HeartbeatInput, Unit>) {
-        interceptorRegistry.heartbeat.add(interceptor)
+        pluginBuilder.on(Heartbeat, interceptor)
     }
 
     // ==================== Observer Hooks ====================

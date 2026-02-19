@@ -1,8 +1,11 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.surrealdev.temporal.application.plugin.HookRegistry
+import com.surrealdev.temporal.application.plugin.HookRegistryImpl
+import com.surrealdev.temporal.application.plugin.hooks.BuildWorkflowCoroutineContext
+import com.surrealdev.temporal.application.plugin.hooks.WorkflowCoroutineContextEvent
+import com.surrealdev.temporal.application.plugin.interceptor.ExecuteWorkflow
 import com.surrealdev.temporal.application.plugin.interceptor.ExecuteWorkflowInput
-import com.surrealdev.temporal.application.plugin.interceptor.InterceptorChain
-import com.surrealdev.temporal.application.plugin.interceptor.InterceptorRegistry
 import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
@@ -54,9 +57,9 @@ internal class WorkflowExecutor(
      */
     private val taskQueueScope: AttributeScope,
     /**
-     * Merged interceptor registry for interceptor chain execution.
+     * Merged hook registry (application + task-queue level) for interceptor chain execution.
      */
-    internal val interceptorRegistry: InterceptorRegistry = InterceptorRegistry.EMPTY,
+    internal val hookRegistry: HookRegistry = HookRegistryImpl.EMPTY,
     /**
      * Parent job for structured concurrency.
      * Workflow execution job will be a child of this job (from rootExecutorJob).
@@ -73,17 +76,15 @@ internal class WorkflowExecutor(
      */
     internal val pendingQueryResults = mutableListOf<WorkflowCommands.WorkflowCommand>()
 
-    /** Builds MDC context for coroutine propagation with workflow identifiers. */
-    private fun buildMdcContext(): MDCContext =
-        MDCContext(
-            buildMap {
-                put("workflowType", methodInfo.workflowType)
-                put("taskQueue", taskQueue)
-                put("namespace", namespace)
-                put("runId", runId)
-                workflowInfo?.workflowId?.let { put("workflowId", it) }
-            },
-        )
+    /** Builds MDC map with workflow identifiers for the coroutine context hook. */
+    private fun buildMdcMap(): Map<String, String> =
+        buildMap {
+            put("workflowType", methodInfo.workflowType)
+            put("taskQueue", taskQueue)
+            put("namespace", namespace)
+            put("runId", runId)
+            workflowInfo?.workflowId?.let { put("workflowId", it) }
+        }
 
     // Create dispatcher with a timer scheduler that delegates to the workflow's timer system.
     // This allows kotlinx.coroutines.delay() and withTimeout() to work correctly in workflows
@@ -212,7 +213,7 @@ internal class WorkflowExecutor(
      * @return The completion to send back to the server
      */
     suspend fun activate(activation: WorkflowActivation): WorkflowDispatchResult =
-        withContext(buildMdcContext() + CoroutineName("WorkflowExecutor-activate")) {
+        withContext(CoroutineName("WorkflowExecutor-activate")) {
             try {
                 logger.debug(
                     "Processing activation: jobs={}, replaying={}, historyLength={}",
@@ -251,62 +252,74 @@ internal class WorkflowExecutor(
                 val queryJobs = activation.jobsList.filter { it.hasQueryWorkflow() }
 
                 // Stage 0: Process initialization if present
+                // This sets pluginCoroutineContext (MDC + OTel + any plugin elements)
                 if (initJob != null) {
                     processJob(initJob)
                     runOnce(checkConditions = true)
                 }
 
-                // Stage 1: Process patches
-                for (job in patchJobs) {
-                    processJob(job)
-                }
-                if (patchJobs.isNotEmpty()) {
-                    runOnce(checkConditions = false)
-                }
+                // Include plugin-contributed coroutine context for Stages 1–4.
+                // This ensures handler interceptor chains (HandleSignal, HandleUpdate, etc.)
+                // see the correct Context.current() (e.g., RunWorkflow OTel span) and MDC.
+                // For init activations: freshly set in Stage 0 above.
+                // For non-init activations: set during original initialization.
+                val pluginCtx =
+                    context?.pluginCoroutineContext
+                        ?: kotlin.coroutines.EmptyCoroutineContext
 
-                // Stage 2: Process signals and updates
-                for (job in signalAndUpdateJobs) {
-                    processJob(job)
-                }
-                if (signalAndUpdateJobs.isNotEmpty()) {
-                    runOnce(checkConditions = true)
-                }
-
-                // Stage 3: Process non-query jobs (resolutions, cancellation, etc.)
-                for (job in nonQueryJobs) {
-                    processJob(job)
-                }
-                if (nonQueryJobs.isNotEmpty()) {
-                    runOnce(checkConditions = true)
-                }
-
-                // Check for workflow completion BEFORE processing queries.
-                val mainResult = mainCoroutine
-                if (mainResult != null && mainResult.isCompleted && queryJobs.isEmpty()) {
-                    logger.debug("Main workflow coroutine completed, building terminal completion")
-                    return@withContext buildTerminalCompletion(mainResult, methodInfo.returnType)
-                }
-
-                // Stage 4: Process queries (read-only mode, no condition checking)
-                if (queryJobs.isNotEmpty()) {
-                    state.isReadOnly = true
-                    try {
-                        for (job in queryJobs) {
-                            processJob(job)
-                        }
-                        runOnce(checkConditions = false)
-                    } finally {
-                        state.isReadOnly = false
-                        // Flush accumulated query results as commands
-                        for (queryCommand in pendingQueryResults) {
-                            state.addCommand(queryCommand)
-                        }
-                        pendingQueryResults.clear()
+                withContext(pluginCtx) pluginScope@{
+                    // Stage 1: Process patches
+                    for (job in patchJobs) {
+                        processJob(job)
                     }
-                }
+                    if (patchJobs.isNotEmpty()) {
+                        runOnce(checkConditions = false)
+                    }
 
-                // Return accumulated commands (query responses only if queries were processed)
-                WorkflowDispatchResult(buildSuccessCompletion())
+                    // Stage 2: Process signals and updates
+                    for (job in signalAndUpdateJobs) {
+                        processJob(job)
+                    }
+                    if (signalAndUpdateJobs.isNotEmpty()) {
+                        runOnce(checkConditions = true)
+                    }
+
+                    // Stage 3: Process non-query jobs (resolutions, cancellation, etc.)
+                    for (job in nonQueryJobs) {
+                        processJob(job)
+                    }
+                    if (nonQueryJobs.isNotEmpty()) {
+                        runOnce(checkConditions = true)
+                    }
+
+                    // Check for workflow completion BEFORE processing queries.
+                    val mainResult = mainCoroutine
+                    if (mainResult != null && mainResult.isCompleted && queryJobs.isEmpty()) {
+                        logger.debug("Main workflow coroutine completed, building terminal completion")
+                        return@pluginScope buildTerminalCompletion(mainResult, methodInfo.returnType)
+                    }
+
+                    // Stage 4: Process queries (read-only mode, no condition checking)
+                    if (queryJobs.isNotEmpty()) {
+                        state.isReadOnly = true
+                        try {
+                            for (job in queryJobs) {
+                                processJob(job)
+                            }
+                            runOnce(checkConditions = false)
+                        } finally {
+                            state.isReadOnly = false
+                            // Flush accumulated query results as commands
+                            for (queryCommand in pendingQueryResults) {
+                                state.addCommand(queryCommand)
+                            }
+                            pendingQueryResults.clear()
+                        }
+                    }
+
+                    // Return accumulated commands (query responses only if queries were processed)
+                    WorkflowDispatchResult(buildSuccessCompletion())
+                }
             } catch (e: Throwable) {
                 WorkflowDispatchResult(
                     completion = buildFailureCompletion(e),
@@ -597,12 +610,47 @@ internal class WorkflowExecutor(
                 parentJob = workflowExecutionJob!!,
                 handlerJob = handlerJob!!,
                 parentScope = taskQueueScope,
-                interceptorRegistry = interceptorRegistry,
-                mdcContext = buildMdcContext(),
+                hookRegistry = hookRegistry,
             )
+
+        // Build MDC map and fire hook to collect plugin-contributed coroutine context elements.
+        // Base MDC is pre-seeded so it's always present; plugins (OTel) can override by
+        // contributing their own MDCContext with additional fields (trace_id, span_id, etc.).
+        val mdcMap = buildMdcMap()
+        val contextEvent =
+            WorkflowCoroutineContextEvent(
+                workflowType = methodInfo.workflowType,
+                workflowId = workflowInfo!!.workflowId,
+                runId = runId,
+                namespace = workflowInfo!!.namespace,
+                taskQueue = taskQueue,
+                headers =
+                    init.headersMap
+                        .takeIf { it.isNotEmpty() }
+                        ?.mapValues { (_, v) -> TemporalPayload(v) },
+                isReplaying = state.isReplaying,
+                mdcContextMap = mdcMap,
+            )
+        contextEvent.contribute(MDCContext(mdcMap))
+        hookRegistry.callBlocking(BuildWorkflowCoroutineContext, contextEvent)
+        context!!.pluginCoroutineContext = contextEvent.contributedContext
 
         // Start the main workflow coroutine
         mainCoroutine = startWorkflowCoroutine(init)
+
+        // Wire up completion handlers from the hook (e.g., span.end() for OTel).
+        // Each handler is wrapped in try/catch so one failing handler doesn't block others.
+        if (contextEvent.completionHandlers.isNotEmpty()) {
+            mainCoroutine!!.invokeOnCompletion { cause ->
+                for (handler in contextEvent.completionHandlers) {
+                    try {
+                        handler(cause)
+                    } catch (e: Throwable) {
+                        logger.warn("BuildWorkflowCoroutineContext completion handler failed", e)
+                    }
+                }
+            }
+        }
     }
 
     private fun startWorkflowCoroutine(init: InitializeWorkflow): Deferred<Any?> {
@@ -631,7 +679,7 @@ internal class WorkflowExecutor(
                 )
 
             // Execute through the interceptor chain
-            val chain = InterceptorChain(interceptorRegistry.executeWorkflow)
+            val chain = hookRegistry.chain(ExecuteWorkflow)
             chain.execute(interceptorInput) { input ->
                 // Deserialize already-decoded arguments (interceptors may have modified them)
                 val args = deserializeDecodedArguments(input.args, paramTypes)

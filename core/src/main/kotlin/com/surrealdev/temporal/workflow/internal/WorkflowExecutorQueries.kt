@@ -2,8 +2,8 @@ package com.surrealdev.temporal.workflow.internal
 
 import com.google.protobuf.ByteString
 import com.google.protobuf.util.JsonFormat
+import com.surrealdev.temporal.application.plugin.interceptor.HandleQuery
 import com.surrealdev.temporal.application.plugin.interceptor.HandleQueryInput
-import com.surrealdev.temporal.application.plugin.interceptor.InterceptorChain
 import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
@@ -88,7 +88,7 @@ internal suspend fun WorkflowExecutor.handleQuery(
         )
 
     try {
-        val chain = InterceptorChain(interceptorRegistry.handleQuery)
+        val chain = hookRegistry.chain(HandleQuery)
         chain.execute(interceptorInput) { input ->
             dispatchQuery(input.queryId, input.queryType, input.args)
         }

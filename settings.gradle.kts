@@ -17,5 +17,6 @@ include(":gradle-plugin")
 include(":examples:hello-world")
 include(":examples:config-driven")
 include(":examples:multi-worker")
+include(":examples:otel-verify")
 
 rootProject.name = "temporal-kt"

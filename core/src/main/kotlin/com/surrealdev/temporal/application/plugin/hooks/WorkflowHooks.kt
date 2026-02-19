@@ -1,8 +1,11 @@
 package com.surrealdev.temporal.application.plugin.hooks
 
 import com.surrealdev.temporal.application.plugin.Hook
+import com.surrealdev.temporal.common.TemporalPayload
 import coresdk.workflow_activation.WorkflowActivationOuterClass.WorkflowActivation
 import coresdk.workflow_completion.WorkflowCompletion
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.time.Duration
 
 /**
@@ -95,3 +98,59 @@ data class WorkflowTaskFailedContext(
     val error: Throwable,
     val runId: String,
 )
+
+/**
+ * Hook that fires when a workflow's coroutine context is being built.
+ *
+ * Plugins use this to contribute [CoroutineContext] elements that persist across
+ * all child coroutines — `async {}`, `launch {}`, signal handlers, update handlers.
+ *
+ * This is the primary mechanism for plugins like OpenTelemetry to install
+ * [kotlin.coroutines.CoroutineContext.Element]s (e.g., `KotlinContextElement`,
+ * `MDCContext`) into the workflow's base scope.
+ *
+ * The hook fires once per workflow initialization, before the workflow coroutine
+ * is launched.
+ */
+object BuildWorkflowCoroutineContext : Hook<(WorkflowCoroutineContextEvent) -> Unit> {
+    override val name = "BuildWorkflowCoroutineContext"
+}
+
+/**
+ * Event passed to [BuildWorkflowCoroutineContext] hook handlers.
+ *
+ * Handlers call [contribute] to add [CoroutineContext] elements to the workflow's
+ * base scope, and [onCompletion] to register cleanup callbacks that fire when
+ * the workflow coroutine finishes.
+ */
+class WorkflowCoroutineContextEvent(
+    val workflowType: String,
+    val workflowId: String,
+    val runId: String,
+    val namespace: String,
+    val taskQueue: String,
+    val headers: Map<String, TemporalPayload>?,
+    val isReplaying: Boolean,
+    /** The base MDC context map from the workflow (workflowType, taskQueue, etc.). */
+    val mdcContextMap: Map<String, String>,
+) {
+    private var context: CoroutineContext = EmptyCoroutineContext
+    private val handlers = mutableListOf<(Throwable?) -> Unit>()
+
+    /** Add elements to the workflow's base coroutine context. */
+    fun contribute(element: CoroutineContext) {
+        context += element
+    }
+
+    /**
+     * Register a callback that fires when the workflow coroutine completes.
+     *
+     * @param handler receives `null` on success, or the exception on failure
+     */
+    fun onCompletion(handler: (Throwable?) -> Unit) {
+        handlers.add(handler)
+    }
+
+    internal val contributedContext: CoroutineContext get() = context
+    internal val completionHandlers: List<(Throwable?) -> Unit> get() = handlers
+}

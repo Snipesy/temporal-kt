@@ -66,16 +66,27 @@ interface WorkflowContext :
     val info: WorkflowInfo
 
     /**
+     * Whether the workflow is currently replaying from history.
+     *
+     * During replay, the workflow re-executes deterministically using recorded
+     * history events. This property is useful for:
+     * - Skipping side effects that should only happen on first execution (e.g., emitting spans)
+     * - Conditional logging to reduce noise during replay
+     *
+     * **Note:** This value can change within a single activation — the workflow may
+     * start replaying and transition to non-replaying as it catches up with new events.
+     */
+    val isReplaying: Boolean
+
+    /**
      * Starts an activity and returns a handle to track its execution.
      *
      * This is the low-level method. For easier usage with type inference,
      * use the extension functions [startActivity].
      *
-     * @param R The expected result type of the activity
      * @param activityType The activity type name (e.g., "greet")
      * @param args Serialized arguments to pass to the activity
      * @param options Configuration for the activity
-     * @param returnType The KType for result deserialization
      * @return A handle to the activity for awaiting results or cancellation
      * @throws IllegalArgumentException if neither startToCloseTimeout nor scheduleToCloseTimeout is set
      */

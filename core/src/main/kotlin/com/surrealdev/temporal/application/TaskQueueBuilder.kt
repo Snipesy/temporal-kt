@@ -6,7 +6,6 @@ import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.application.plugin.HookRegistry
 import com.surrealdev.temporal.application.plugin.HookRegistryImpl
 import com.surrealdev.temporal.application.plugin.PluginPipeline
-import com.surrealdev.temporal.application.plugin.interceptor.InterceptorRegistry
 import com.surrealdev.temporal.internal.ZombieEvictionConfig
 import com.surrealdev.temporal.serialization.payloadCodecOrNull
 import com.surrealdev.temporal.serialization.payloadSerializer
@@ -51,7 +50,6 @@ class TaskQueueBuilder internal constructor(
     override val attributes: Attributes = Attributes(concurrent = false)
     override val parentScope: AttributeScope? = parentApplication
     internal val hookRegistry: HookRegistry = HookRegistryImpl()
-    internal val interceptorRegistry: InterceptorRegistry = InterceptorRegistry()
 
     /**
      * Optional namespace override for this task queue.
@@ -290,7 +288,6 @@ class TaskQueueBuilder internal constructor(
             maxConcurrentActivities = maxConcurrentActivities,
             attributes = attributes,
             hookRegistry = hookRegistry,
-            interceptorRegistry = interceptorRegistry,
             shutdownGracePeriodMs = shutdownGracePeriodMs,
             maxHeartbeatThrottleIntervalMs = maxHeartbeatThrottleIntervalMs,
             defaultHeartbeatThrottleIntervalMs = defaultHeartbeatThrottleIntervalMs,

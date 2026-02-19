@@ -896,6 +896,9 @@ class BasicDependencyInjectionTest {
 
         override val coroutineContext: CoroutineContext = Dispatchers.Unconfined
 
+        override val isReplaying: Boolean
+            get() = false
+
         // Stubs for required methods
         override suspend fun startActivityWithPayloads(
             activityType: String,

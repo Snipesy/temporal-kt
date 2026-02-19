@@ -1,9 +1,10 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
-import com.surrealdev.temporal.application.plugin.interceptor.InterceptorChain
-import com.surrealdev.temporal.application.plugin.interceptor.InterceptorRegistry
+import com.surrealdev.temporal.application.plugin.HookRegistry
+import com.surrealdev.temporal.application.plugin.HookRegistryImpl
 import com.surrealdev.temporal.application.plugin.interceptor.SignalExternalInput
+import com.surrealdev.temporal.application.plugin.interceptor.SignalExternalWorkflow
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.exceptions.ChildWorkflowCancelledException
@@ -48,7 +49,7 @@ internal class ChildWorkflowHandleImpl(
     override val serializer: PayloadSerializer,
     private val codec: PayloadCodec,
     private val cancellationType: ChildWorkflowCancellationType,
-    private val interceptorRegistry: InterceptorRegistry = InterceptorRegistry.EMPTY,
+    private val hookRegistry: HookRegistry = HookRegistryImpl.EMPTY,
 ) : ChildWorkflowHandle {
     /**
      * Deferred that completes when the child workflow starts (or fails to start).
@@ -152,7 +153,7 @@ internal class ChildWorkflowHandleImpl(
                 args = args,
             )
 
-        val chain = InterceptorChain(interceptorRegistry.signalExternalWorkflow)
+        val chain = hookRegistry.chain(SignalExternalWorkflow)
         chain.execute(interceptorInput) { input ->
             signalInternal(input)
         }

@@ -398,12 +398,15 @@ internal class CoreMetricsBridge(
                 )
 
             TemporalCoreMetrics.MetricKind.HISTOGRAM_DURATION.value ->
+                // Core SDK sends "duration" as the unit string, but the actual values
+                // are always in milliseconds (Rust side calls value.as_millis()).
+                // Override to the proper OTel unit.
                 OtelInstrument.HistogramDuration(
                     meter
                         .histogramBuilder(name)
                         .ofLongs()
                         .setDescription(description)
-                        .setUnit(unit)
+                        .setUnit("ms")
                         .build(),
                 )
 

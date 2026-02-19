@@ -29,6 +29,7 @@
             <option value="$PROJECT_DIR$/examples/config-driven" />
             <option value="$PROJECT_DIR$/examples/hello-world" />
             <option value="$PROJECT_DIR$/examples/multi-worker" />
+            <option value="$PROJECT_DIR$/examples/otel-verify" />
             <option value="$PROJECT_DIR$/gradle-plugin" />
             <option value="$PROJECT_DIR$/plugins" />
             <option value="$PROJECT_DIR$/plugins/di" />

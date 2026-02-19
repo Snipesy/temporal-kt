@@ -1,7 +1,7 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.surrealdev.temporal.application.plugin.interceptor.HandleSignal
 import com.surrealdev.temporal.application.plugin.interceptor.HandleSignalInput
-import com.surrealdev.temporal.application.plugin.interceptor.InterceptorChain
 import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
@@ -45,7 +45,7 @@ internal suspend fun WorkflowExecutor.handleSignal(
         )
 
     try {
-        val chain = InterceptorChain(interceptorRegistry.handleSignal)
+        val chain = hookRegistry.chain(HandleSignal)
         chain.execute(interceptorInput) { input ->
             dispatchSignal(input.signalName, input.args)
         }
@@ -109,7 +109,7 @@ private suspend fun WorkflowExecutor.invokeRuntimeSignalHandler(
     handler: suspend (TemporalPayloads) -> Unit,
     decodedArgs: TemporalPayloads,
 ) {
-    val ctx = (context ?: error("WorkflowContext not initialized")) as WorkflowContextImpl
+    val ctx = (context ?: error("WorkflowContext not initialized"))
     ctx.launchHandler {
         try {
             handler(decodedArgs)
@@ -131,7 +131,7 @@ private suspend fun WorkflowExecutor.invokeRuntimeDynamicSignalHandler(
     signalName: String,
     decodedArgs: TemporalPayloads,
 ) {
-    val ctx = (context ?: error("WorkflowContext not initialized")) as WorkflowContextImpl
+    val ctx = (context ?: error("WorkflowContext not initialized"))
     ctx.launchHandler {
         try {
             handler(signalName, decodedArgs)
@@ -153,7 +153,7 @@ private suspend fun WorkflowExecutor.invokeAnnotationSignalHandler(
     decodedArgs: TemporalPayloads,
     isDynamic: Boolean,
 ) {
-    val ctx = (context ?: error("WorkflowContext not initialized")) as WorkflowContextImpl
+    val ctx = (context ?: error("WorkflowContext not initialized"))
     val method = handler.handlerMethod
 
     ctx.launchHandler {

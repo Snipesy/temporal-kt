@@ -18,6 +18,9 @@ dependencies {
     // SLF4J for MDC
     implementation(libs.slf4jApi)
 
+    // Coroutine-aware MDC propagation
+    implementation(libs.kotlinCoroutinesSl4j)
+
     // Protobuf for accessing task fields (via core-bridge)
     implementation(libs.protobufJava)
 

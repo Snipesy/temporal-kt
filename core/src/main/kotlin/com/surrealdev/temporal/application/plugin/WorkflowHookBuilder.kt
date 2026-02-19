@@ -1,6 +1,8 @@
 package com.surrealdev.temporal.application.plugin
 
 import com.surrealdev.temporal.annotation.TemporalDsl
+import com.surrealdev.temporal.application.plugin.hooks.BuildWorkflowCoroutineContext
+import com.surrealdev.temporal.application.plugin.hooks.WorkflowCoroutineContextEvent
 import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskCompleted
 import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskCompletedContext
 import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskContext
@@ -8,18 +10,29 @@ import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskFailed
 import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskFailedContext
 import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskStarted
 import com.surrealdev.temporal.application.plugin.interceptor.CancelExternalInput
+import com.surrealdev.temporal.application.plugin.interceptor.CancelExternalWorkflow
+import com.surrealdev.temporal.application.plugin.interceptor.ContinueAsNew
 import com.surrealdev.temporal.application.plugin.interceptor.ContinueAsNewInput
+import com.surrealdev.temporal.application.plugin.interceptor.ExecuteUpdate
 import com.surrealdev.temporal.application.plugin.interceptor.ExecuteUpdateInput
+import com.surrealdev.temporal.application.plugin.interceptor.ExecuteWorkflow
 import com.surrealdev.temporal.application.plugin.interceptor.ExecuteWorkflowInput
+import com.surrealdev.temporal.application.plugin.interceptor.HandleQuery
 import com.surrealdev.temporal.application.plugin.interceptor.HandleQueryInput
+import com.surrealdev.temporal.application.plugin.interceptor.HandleSignal
 import com.surrealdev.temporal.application.plugin.interceptor.HandleSignalInput
 import com.surrealdev.temporal.application.plugin.interceptor.Interceptor
-import com.surrealdev.temporal.application.plugin.interceptor.InterceptorRegistry
+import com.surrealdev.temporal.application.plugin.interceptor.ScheduleActivity
 import com.surrealdev.temporal.application.plugin.interceptor.ScheduleActivityInput
+import com.surrealdev.temporal.application.plugin.interceptor.ScheduleLocalActivity
 import com.surrealdev.temporal.application.plugin.interceptor.ScheduleLocalActivityInput
 import com.surrealdev.temporal.application.plugin.interceptor.SignalExternalInput
+import com.surrealdev.temporal.application.plugin.interceptor.SignalExternalWorkflow
+import com.surrealdev.temporal.application.plugin.interceptor.Sleep
 import com.surrealdev.temporal.application.plugin.interceptor.SleepInput
+import com.surrealdev.temporal.application.plugin.interceptor.StartChildWorkflow
 import com.surrealdev.temporal.application.plugin.interceptor.StartChildWorkflowInput
+import com.surrealdev.temporal.application.plugin.interceptor.ValidateUpdate
 import com.surrealdev.temporal.application.plugin.interceptor.ValidateUpdateInput
 import com.surrealdev.temporal.workflow.ChildWorkflowHandle
 import com.surrealdev.temporal.workflow.LocalActivityHandle
@@ -59,7 +72,6 @@ import com.surrealdev.temporal.workflow.RemoteActivityHandle
 @TemporalDsl
 class WorkflowHookBuilder internal constructor(
     private val pluginBuilder: PluginBuilder<*>,
-    private val interceptorRegistry: InterceptorRegistry,
 ) {
     // ==================== Inbound Interceptors ====================
 
@@ -67,35 +79,35 @@ class WorkflowHookBuilder internal constructor(
      * Intercepts workflow execution (main workflow method invocation).
      */
     fun onExecute(interceptor: Interceptor<ExecuteWorkflowInput, Any?>) {
-        interceptorRegistry.executeWorkflow.add(interceptor)
+        pluginBuilder.on(ExecuteWorkflow, interceptor)
     }
 
     /**
      * Intercepts signal delivery to the workflow.
      */
     fun onHandleSignal(interceptor: Interceptor<HandleSignalInput, Unit>) {
-        interceptorRegistry.handleSignal.add(interceptor)
+        pluginBuilder.on(HandleSignal, interceptor)
     }
 
     /**
      * Intercepts query handling.
      */
     fun onHandleQuery(interceptor: Interceptor<HandleQueryInput, Any?>) {
-        interceptorRegistry.handleQuery.add(interceptor)
+        pluginBuilder.on(HandleQuery, interceptor)
     }
 
     /**
      * Intercepts update validation (before acceptance).
      */
     fun onValidateUpdate(interceptor: Interceptor<ValidateUpdateInput, Unit>) {
-        interceptorRegistry.validateUpdate.add(interceptor)
+        pluginBuilder.on(ValidateUpdate, interceptor)
     }
 
     /**
      * Intercepts update execution (after acceptance).
      */
     fun onExecuteUpdate(interceptor: Interceptor<ExecuteUpdateInput, Any?>) {
-        interceptorRegistry.executeUpdate.add(interceptor)
+        pluginBuilder.on(ExecuteUpdate, interceptor)
     }
 
     // ==================== Outbound Interceptors ====================
@@ -104,49 +116,64 @@ class WorkflowHookBuilder internal constructor(
      * Intercepts remote activity scheduling from workflow code.
      */
     fun onScheduleActivity(interceptor: Interceptor<ScheduleActivityInput, RemoteActivityHandle>) {
-        interceptorRegistry.scheduleActivity.add(interceptor)
+        pluginBuilder.on(ScheduleActivity, interceptor)
     }
 
     /**
      * Intercepts local activity scheduling from workflow code.
      */
     fun onScheduleLocalActivity(interceptor: Interceptor<ScheduleLocalActivityInput, LocalActivityHandle>) {
-        interceptorRegistry.scheduleLocalActivity.add(interceptor)
+        pluginBuilder.on(ScheduleLocalActivity, interceptor)
     }
 
     /**
      * Intercepts child workflow starting from workflow code.
      */
     fun onStartChildWorkflow(interceptor: Interceptor<StartChildWorkflowInput, ChildWorkflowHandle>) {
-        interceptorRegistry.startChildWorkflow.add(interceptor)
+        pluginBuilder.on(StartChildWorkflow, interceptor)
     }
 
     /**
      * Intercepts workflow sleep/timer from workflow code.
      */
     fun onSleep(interceptor: Interceptor<SleepInput, Unit>) {
-        interceptorRegistry.sleep.add(interceptor)
+        pluginBuilder.on(Sleep, interceptor)
     }
 
     /**
      * Intercepts signaling external workflows from workflow code.
      */
     fun onSignalExternalWorkflow(interceptor: Interceptor<SignalExternalInput, Unit>) {
-        interceptorRegistry.signalExternalWorkflow.add(interceptor)
+        pluginBuilder.on(SignalExternalWorkflow, interceptor)
     }
 
     /**
      * Intercepts canceling external workflows from workflow code.
      */
     fun onCancelExternalWorkflow(interceptor: Interceptor<CancelExternalInput, Unit>) {
-        interceptorRegistry.cancelExternalWorkflow.add(interceptor)
+        pluginBuilder.on(CancelExternalWorkflow, interceptor)
     }
 
     /**
      * Intercepts continue-as-new from workflow code.
      */
     fun onContinueAsNew(interceptor: Interceptor<ContinueAsNewInput, Nothing>) {
-        interceptorRegistry.continueAsNew.add(interceptor)
+        pluginBuilder.on(ContinueAsNew, interceptor)
+    }
+
+    // ==================== Coroutine Context Hook ====================
+
+    /**
+     * Hook that fires when the workflow coroutine context is being built.
+     *
+     * Use [WorkflowCoroutineContextEvent.contribute] to add [kotlin.coroutines.CoroutineContext]
+     * elements to the workflow's base scope. These elements are inherited by ALL child coroutines
+     * (`async {}`, `launch {}`, signal handlers, update handlers).
+     *
+     * Use [WorkflowCoroutineContextEvent.onCompletion] to register cleanup callbacks.
+     */
+    fun onBuildCoroutineContext(handler: (WorkflowCoroutineContextEvent) -> Unit) {
+        pluginBuilder.on(BuildWorkflowCoroutineContext, handler)
     }
 
     // ==================== Observer Hooks ====================

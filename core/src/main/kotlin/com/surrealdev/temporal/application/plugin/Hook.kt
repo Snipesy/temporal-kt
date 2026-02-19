@@ -1,5 +1,8 @@
 package com.surrealdev.temporal.application.plugin
 
+import com.surrealdev.temporal.application.plugin.interceptor.Interceptor
+import com.surrealdev.temporal.application.plugin.interceptor.InterceptorChain
+
 /**
  * A hook represents a lifecycle event that plugins can listen to.
  *
@@ -35,10 +38,10 @@ interface Hook<HookHandler> {
 }
 
 /**
- * Registry for managing hook handlers.
+ * Registry for managing hook handlers and interceptors.
  *
- * The [HookRegistry] stores handlers for each hook and provides methods
- * to invoke them when lifecycle events occur.
+ * The [HookRegistry] is the single unified registry for both lifecycle hooks
+ * (fan-out to all handlers) and interceptor hooks (chain-of-responsibility).
  */
 interface HookRegistry {
     /**
@@ -72,13 +75,34 @@ interface HookRegistry {
         hook: Hook<(T) -> Unit>,
         event: T,
     )
+
+    /**
+     * Returns an [InterceptorChain] for the given interceptor hook.
+     *
+     * @param hook The interceptor hook to build a chain for
+     * @return An [InterceptorChain] containing all registered interceptors for this hook
+     */
+    fun <TInput, TOutput> chain(hook: InterceptorHook<TInput, TOutput>): InterceptorChain<TInput, TOutput>
+
+    /**
+     * Appends all handlers from [other] into this registry.
+     */
+    fun addAllFrom(other: HookRegistry)
+
+    /**
+     * Creates a new registry that contains handlers from both this registry (first)
+     * and the [other] registry (appended after).
+     *
+     * Application-level handlers run before task-queue-level handlers.
+     */
+    fun mergeWith(other: HookRegistry): HookRegistry
 }
 
 /**
  * Internal implementation of [HookRegistry].
  */
 internal class HookRegistryImpl : HookRegistry {
-    private val handlers = mutableMapOf<String, MutableList<Any>>()
+    internal val handlers = mutableMapOf<String, MutableList<Any>>()
 
     @Synchronized
     override fun <T> register(
@@ -117,16 +141,55 @@ internal class HookRegistryImpl : HookRegistry {
             (handler as (T) -> Unit).invoke(event)
         }
     }
+
+    @Suppress("UNCHECKED_CAST")
+    override fun <TInput, TOutput> chain(hook: InterceptorHook<TInput, TOutput>): InterceptorChain<TInput, TOutput> {
+        val list =
+            synchronized(this) {
+                (handlers[hook.name]?.toList() ?: emptyList()) as List<Interceptor<TInput, TOutput>>
+            }
+        return InterceptorChain(list)
+    }
+
+    @Synchronized
+    override fun addAllFrom(other: HookRegistry) {
+        require(other is HookRegistryImpl) { "Can only merge HookRegistryImpl instances" }
+        for ((name, list) in other.handlers) {
+            handlers.getOrPut(name) { mutableListOf() }.addAll(list)
+        }
+    }
+
+    override fun mergeWith(other: HookRegistry): HookRegistry {
+        val merged = HookRegistryImpl()
+        merged.addAllFrom(this)
+        merged.addAllFrom(other)
+        return merged
+    }
+
+    companion object {
+        /** An empty registry with no handlers. */
+        val EMPTY: HookRegistry = HookRegistryImpl()
+    }
 }
 
 /**
- * Internal class for storing hook handlers before installation.
+ * An interceptor hook represents a named interception point in the pipeline.
+ *
+ * Unlike [Hook] which fans out to all handlers, interceptor hooks form a chain
+ * where each interceptor can modify the input/output and call `proceed` to invoke
+ * the next interceptor.
+ *
+ * [InterceptorHook] extends [Hook] so that interceptors can be registered using
+ * the same `pluginBuilder.on(hook, handler)` path as lifecycle hooks.
+ *
+ * Example:
+ * ```kotlin
+ * object ExecuteWorkflow : InterceptorHook<ExecuteWorkflowInput, Any?> {
+ *     override val name = "ExecuteWorkflow"
+ * }
+ * ```
+ *
+ * @param TInput The input type for the intercepted operation
+ * @param TOutput The output type for the intercepted operation
  */
-class HookHandler<T> internal constructor(
-    private val hook: Hook<T>,
-    private val handler: T,
-) {
-    fun install(registry: HookRegistry) {
-        registry.register(hook, handler)
-    }
-}
+interface InterceptorHook<TInput, TOutput> : Hook<Interceptor<TInput, TOutput>>

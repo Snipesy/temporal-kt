@@ -1,6 +1,7 @@
 package com.surrealdev.temporal.workflow.internal
 
-import com.surrealdev.temporal.application.plugin.interceptor.InterceptorRegistry
+import com.surrealdev.temporal.application.plugin.HookRegistry
+import com.surrealdev.temporal.application.plugin.HookRegistryImpl
 import com.surrealdev.temporal.common.exceptions.WorkflowDeadlockException
 import com.surrealdev.temporal.common.failure.FAILURE_SOURCE
 import com.surrealdev.temporal.internal.ZombieEvictionConfig
@@ -63,10 +64,10 @@ internal class WorkflowDispatcher(
      */
     private val taskQueueScope: AttributeScope,
     /**
-     * Merged interceptor registry (application + task-queue level).
+     * Merged hook registry (application + task-queue level).
      * Passed to workflow executors and context for interceptor chain execution.
      */
-    private val interceptorRegistry: InterceptorRegistry = InterceptorRegistry.EMPTY,
+    private val hookRegistry: HookRegistry = HookRegistryImpl.EMPTY,
     /**
      * Parent job for structured concurrency.
      * All workflow executors will be children of this job (rootExecutorJob).
@@ -281,7 +282,7 @@ internal class WorkflowDispatcher(
             taskQueue = taskQueue,
             namespace = namespace,
             taskQueueScope = taskQueueScope,
-            interceptorRegistry = interceptorRegistry,
+            hookRegistry = hookRegistry,
             parentJob = parentJob,
         )
     }

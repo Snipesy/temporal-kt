@@ -1,26 +1,24 @@
 package com.surrealdev.temporal.opentelemetry
 
-import io.opentelemetry.api.trace.Span
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Thread-safe storage for active spans keyed by their identifiers.
+ * Thread-safe storage for task metadata keyed by task identifiers.
  *
- * Spans are stored when a task starts (via WorkflowTaskStarted, ActivityTaskStarted hooks)
+ * Metadata is stored when a task starts (via WorkflowTaskStarted, ActivityTaskStarted hooks)
  * and retrieved when the task completes or fails (via Completed/Failed hooks).
  *
  * This allows correlating the start and end of tasks even though they occur
- * in different hook invocations.
+ * in different hook invocations (used for metrics dimensions).
  *
  * The storage uses [ConcurrentHashMap] for thread-safety since tasks from
  * different workers may be processed concurrently.
  */
-class SpanContextHolder {
+internal class SpanContextHolder {
     /**
-     * Data class holding span and associated context for metrics.
+     * Data class holding task metadata for metrics dimensions.
      */
     data class SpanWithContext(
-        val span: Span,
         val workflowType: String? = null,
         val activityType: String? = null,
         val taskQueue: String,
@@ -47,24 +45,21 @@ class SpanContextHolder {
     // Workflow span operations
 
     /**
-     * Stores a workflow span with context for later retrieval.
+     * Stores workflow task metadata for later retrieval.
      *
      * @param runId The workflow run ID
-     * @param span The span to store
      * @param workflowType The workflow type (may be null for non-initialize activations)
      * @param taskQueue The task queue name
      * @param namespace The namespace
      */
     fun putWorkflowSpan(
         runId: String,
-        span: Span,
         workflowType: String?,
         taskQueue: String,
         namespace: String,
     ) {
         workflowSpans[runId] =
             SpanWithContext(
-                span = span,
                 workflowType = workflowType,
                 taskQueue = taskQueue,
                 namespace = namespace,
@@ -82,12 +77,11 @@ class SpanContextHolder {
     // Activity span operations
 
     /**
-     * Stores an activity span with context for later retrieval.
+     * Stores activity task metadata for later retrieval.
      *
      * @param workflowId The workflow ID that scheduled the activity
      * @param runId The workflow run ID
      * @param activityId The activity ID
-     * @param span The span to store
      * @param activityType The activity type name
      * @param taskQueue The task queue name
      * @param namespace The namespace
@@ -96,7 +90,6 @@ class SpanContextHolder {
         workflowId: String,
         runId: String,
         activityId: String,
-        span: Span,
         activityType: String,
         taskQueue: String,
         namespace: String,
@@ -104,7 +97,6 @@ class SpanContextHolder {
         val key = makeActivityKey(workflowId, runId, activityId)
         activitySpans[key] =
             SpanWithContext(
-                span = span,
                 activityType = activityType,
                 workflowId = workflowId,
                 activityId = activityId,

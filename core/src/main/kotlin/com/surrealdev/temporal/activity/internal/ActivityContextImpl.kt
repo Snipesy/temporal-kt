@@ -5,9 +5,10 @@ import com.surrealdev.temporal.activity.ActivityContext
 import com.surrealdev.temporal.activity.ActivityInfo
 import com.surrealdev.temporal.activity.ActivityWorkflowInfo
 import com.surrealdev.temporal.activity.HeartbeatDetails
+import com.surrealdev.temporal.application.plugin.HookRegistry
+import com.surrealdev.temporal.application.plugin.HookRegistryImpl
+import com.surrealdev.temporal.application.plugin.interceptor.Heartbeat
 import com.surrealdev.temporal.application.plugin.interceptor.HeartbeatInput
-import com.surrealdev.temporal.application.plugin.interceptor.InterceptorChain
-import com.surrealdev.temporal.application.plugin.interceptor.InterceptorRegistry
 import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
@@ -39,7 +40,7 @@ internal class ActivityContextImpl(
     private val codec: PayloadCodec,
     private val heartbeatFn: suspend (ByteString, EncodedTemporalPayloads?) -> Unit,
     override val parentScope: AttributeScope,
-    private val interceptorRegistry: InterceptorRegistry = InterceptorRegistry.EMPTY,
+    private val hookRegistry: HookRegistry = HookRegistryImpl.EMPTY,
     private val parentCoroutineContext: CoroutineContext,
     private val decodedHeartbeatDetails: HeartbeatDetails? = null,
 ) : ActivityContext,
@@ -72,7 +73,7 @@ internal class ActivityContextImpl(
                 activityType = start.activityType,
             )
 
-        val chain = InterceptorChain(interceptorRegistry.heartbeat)
+        val chain = hookRegistry.chain(Heartbeat)
         chain.execute(interceptorInput) { input ->
             val encoded =
                 if (input.details != null) {

@@ -1,10 +1,12 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.application.plugin.HookRegistry
+import com.surrealdev.temporal.application.plugin.HookRegistryImpl
 import com.surrealdev.temporal.application.plugin.interceptor.CancelExternalInput
-import com.surrealdev.temporal.application.plugin.interceptor.InterceptorChain
-import com.surrealdev.temporal.application.plugin.interceptor.InterceptorRegistry
+import com.surrealdev.temporal.application.plugin.interceptor.CancelExternalWorkflow
 import com.surrealdev.temporal.application.plugin.interceptor.SignalExternalInput
+import com.surrealdev.temporal.application.plugin.interceptor.SignalExternalWorkflow
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.exceptions.CancelExternalWorkflowFailedException
 import com.surrealdev.temporal.common.exceptions.SignalExternalWorkflowFailedException
@@ -35,7 +37,7 @@ internal class ExternalWorkflowHandleImpl(
     private val state: WorkflowState,
     override val serializer: PayloadSerializer,
     private val codec: PayloadCodec,
-    private val interceptorRegistry: InterceptorRegistry = InterceptorRegistry.EMPTY,
+    private val hookRegistry: HookRegistry = HookRegistryImpl.EMPTY,
 ) : ExternalWorkflowHandle {
     /**
      * Builds the NamespacedWorkflowExecution proto used for targeting this external workflow.
@@ -66,7 +68,7 @@ internal class ExternalWorkflowHandleImpl(
                 args = args,
             )
 
-        val chain = InterceptorChain(interceptorRegistry.signalExternalWorkflow)
+        val chain = hookRegistry.chain(SignalExternalWorkflow)
         chain.execute(interceptorInput) { input ->
             signalInternal(input)
         }
@@ -122,7 +124,7 @@ internal class ExternalWorkflowHandleImpl(
                 reason = reason,
             )
 
-        val chain = InterceptorChain(interceptorRegistry.cancelExternalWorkflow)
+        val chain = hookRegistry.chain(CancelExternalWorkflow)
         chain.execute(interceptorInput) { input ->
             cancelInternal(input.reason)
         }

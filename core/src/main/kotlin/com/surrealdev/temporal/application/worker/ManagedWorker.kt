@@ -19,7 +19,6 @@ import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskContext
 import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskFailed
 import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskFailedContext
 import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskStarted
-import com.surrealdev.temporal.application.plugin.interceptor.InterceptorRegistry
 import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.core.TemporalWorker
@@ -185,10 +184,10 @@ internal class ManagedWorker(
             parentScope = application,
         )
 
-    // Merge application-level and task-queue-level interceptor registries
-    // Application-level interceptors run first (outermost), task-queue interceptors run after
-    internal val mergedInterceptorRegistry: InterceptorRegistry =
-        application.interceptorRegistry.mergeWith(config.interceptorRegistry)
+    // Merge application-level and task-queue-level hook registries
+    // Application-level hooks/interceptors run first (outermost), task-queue ones run after
+    internal val mergedHookRegistry: HookRegistry =
+        application.hookRegistry.mergeWith(config.hookRegistry)
 
     // Dispatchers with concurrency limits from config
     private val activityDispatcher =
@@ -202,7 +201,7 @@ internal class ManagedWorker(
                 recordActivityHeartbeat(taskToken, details)
             },
             taskQueueScope = taskQueueScope,
-            interceptorRegistry = mergedInterceptorRegistry,
+            hookRegistry = mergedHookRegistry,
             zombieConfig = config.zombieEviction,
             onFatalError = { application.fatalShutdown("TKT1206", "Activity zombie threshold exceeded") },
             dynamicActivityHandler = config.dynamicActivityHandler,
@@ -347,7 +346,7 @@ internal class ManagedWorker(
                 namespace = namespace,
                 maxConcurrent = config.maxConcurrentWorkflows,
                 taskQueueScope = taskQueueScope,
-                interceptorRegistry = mergedInterceptorRegistry,
+                hookRegistry = mergedHookRegistry,
                 parentJob = rootExecutorJob,
                 workflowThreadFactory = workflowThreadFactory,
                 deadlockTimeoutMs = config.workflowDeadlockTimeoutMs,

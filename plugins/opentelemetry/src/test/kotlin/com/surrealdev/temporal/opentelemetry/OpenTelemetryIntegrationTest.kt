@@ -22,6 +22,7 @@ import io.opentelemetry.sdk.metrics.export.MetricReader
 import io.opentelemetry.sdk.testing.exporter.InMemoryMetricReader
 import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter
 import io.opentelemetry.sdk.trace.SdkTracerProvider
+import io.opentelemetry.sdk.trace.data.SpanData
 import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor
 import kotlinx.coroutines.delay
 import org.junit.jupiter.api.Tag
@@ -87,7 +88,7 @@ class OpenTelemetryIntegrationTest {
     // ==================== Tests ====================
 
     @Test
-    fun `plugin records spans for workflow task`() =
+    fun `plugin records RunWorkflow span with correct name and kind`() =
         runTemporalTest(timeSkipping = true) {
             val spanExporter = InMemorySpanExporter.create()
             val metricReader = InMemoryMetricReader.create()
@@ -99,10 +100,6 @@ class OpenTelemetryIntegrationTest {
                 install(OpenTelemetryPlugin) {
                     this.openTelemetry = openTelemetry
                     tracerName = "test-tracer"
-                    enableWorkflowSpans = true
-                    enableActivitySpans = true
-                    enableMetrics = true
-                    enableMdcIntegration = true
                 }
 
                 taskQueue(taskQueue) {
@@ -122,24 +119,20 @@ class OpenTelemetryIntegrationTest {
             val result = handle.result<String>(timeout = 30.seconds)
             assertEquals("Result: World", result)
 
-            // Wait for workflow task spans to be exported (with polling)
-            val workflowSpans = waitForSpans(spanExporter, "temporal.workflow.task", timeout = 5.seconds)
-            assertTrue(workflowSpans.isNotEmpty(), "Expected workflow task spans")
+            // Verify RunWorkflow span
+            val workflowSpans = waitForSpans(spanExporter, "RunWorkflow:SimpleWorkflow", timeout = 5.seconds)
+            assertTrue(workflowSpans.isNotEmpty(), "Expected RunWorkflow:SimpleWorkflow span")
 
-            val workflowSpan = workflowSpans.first()
-            assertEquals(SpanKind.INTERNAL, workflowSpan.kind)
-            assertEquals(
-                "SimpleWorkflow",
-                workflowSpan.attributes.get(AttributeKey.stringKey("temporal.workflow.type")),
-            )
-            assertEquals(taskQueue, workflowSpan.attributes.get(AttributeKey.stringKey("temporal.task_queue")))
-            assertNotNull(workflowSpan.attributes.get(AttributeKey.stringKey("temporal.run.id")))
+            val span = workflowSpans.first()
+            assertEquals(SpanKind.SERVER, span.kind)
+            assertNotNull(span.attributes.get(AttributeKey.stringKey("temporalWorkflowID")))
+            assertNotNull(span.attributes.get(AttributeKey.stringKey("temporalRunID")))
 
             openTelemetry.close()
         }
 
     @Test
-    fun `plugin records spans for activity task`() =
+    fun `plugin records RunActivity span with correct name and kind`() =
         runTemporalTest(timeSkipping = false) {
             val spanExporter = InMemorySpanExporter.create()
             val metricReader = InMemoryMetricReader.create()
@@ -151,9 +144,6 @@ class OpenTelemetryIntegrationTest {
                 install(OpenTelemetryPlugin) {
                     this.openTelemetry = openTelemetry
                     tracerName = "test-tracer"
-                    enableWorkflowSpans = true
-                    enableActivitySpans = true
-                    enableMetrics = true
                 }
 
                 taskQueue(taskQueue) {
@@ -174,37 +164,32 @@ class OpenTelemetryIntegrationTest {
             val result = handle.result<String>(timeout = 30.seconds)
             assertEquals("Hello, Alice!", result)
 
-            // Wait for activity spans to be exported (with polling)
-            val activitySpans = waitForSpans(spanExporter, "temporal.activity.execute", timeout = 5.seconds)
-            assertTrue(activitySpans.isNotEmpty(), "Expected activity task spans")
+            // Verify RunActivity span
+            val activitySpans = waitForSpans(spanExporter, "RunActivity:greet", timeout = 5.seconds)
+            assertTrue(activitySpans.isNotEmpty(), "Expected RunActivity:greet span")
 
-            val activitySpan = activitySpans.first()
-            assertEquals(SpanKind.INTERNAL, activitySpan.kind)
-            assertEquals("greet", activitySpan.attributes.get(AttributeKey.stringKey("temporal.activity.type")))
-            assertEquals(taskQueue, activitySpan.attributes.get(AttributeKey.stringKey("temporal.task_queue")))
-            assertNotNull(activitySpan.attributes.get(AttributeKey.stringKey("temporal.activity.id")))
-            assertNotNull(activitySpan.attributes.get(AttributeKey.stringKey("temporal.workflow.id")))
-            assertNotNull(activitySpan.attributes.get(AttributeKey.stringKey("temporal.run.id")))
+            val span = activitySpans.first()
+            assertEquals(SpanKind.SERVER, span.kind)
+            assertNotNull(span.attributes.get(AttributeKey.stringKey("temporalActivityID")))
+            assertNotNull(span.attributes.get(AttributeKey.stringKey("temporalWorkflowID")))
+            assertNotNull(span.attributes.get(AttributeKey.stringKey("temporalRunID")))
 
             openTelemetry.close()
         }
 
     @Test
-    fun `plugin records metrics for workflow and activity tasks`() =
+    fun `plugin propagates trace context from workflow to activity`() =
         runTemporalTest(timeSkipping = false) {
             val spanExporter = InMemorySpanExporter.create()
             val metricReader = InMemoryMetricReader.create()
             val openTelemetry = createTestOpenTelemetry(spanExporter, metricReader)
 
-            val taskQueue = "otel-metrics-test-${UUID.randomUUID()}"
+            val taskQueue = "otel-propagation-test-${UUID.randomUUID()}"
 
             application {
                 install(OpenTelemetryPlugin) {
                     this.openTelemetry = openTelemetry
                     tracerName = "test-tracer"
-                    enableWorkflowSpans = true
-                    enableActivitySpans = true
-                    enableMetrics = true
                 }
 
                 taskQueue(taskQueue) {
@@ -224,7 +209,65 @@ class OpenTelemetryIntegrationTest {
 
             handle.result<String>(timeout = 30.seconds)
 
-            // Wait for metrics to be collected (with polling)
+            // Wait for all spans
+            waitForSpans(spanExporter, "RunActivity:greet", timeout = 5.seconds)
+
+            val allSpans = spanExporter.finishedSpanItems
+
+            // Find the StartActivity span (outbound from workflow) and RunActivity span (inbound at activity)
+            val startActivitySpan = allSpans.find { it.name == "StartActivity:greet" }
+            val runActivitySpan = allSpans.find { it.name == "RunActivity:greet" }
+
+            assertNotNull(startActivitySpan, "Expected StartActivity:greet span")
+            assertNotNull(runActivitySpan, "Expected RunActivity:greet span")
+
+            // The RunActivity span should be a child of StartActivity (via header propagation)
+            assertEquals(
+                startActivitySpan.spanContext.traceId,
+                runActivitySpan.spanContext.traceId,
+                "RunActivity should share the same trace ID as StartActivity",
+            )
+            assertEquals(
+                startActivitySpan.spanContext.spanId,
+                runActivitySpan.parentSpanId,
+                "RunActivity's parent should be StartActivity",
+            )
+
+            openTelemetry.close()
+        }
+
+    @Test
+    fun `plugin records metrics for workflow and activity tasks`() =
+        runTemporalTest(timeSkipping = false) {
+            val spanExporter = InMemorySpanExporter.create()
+            val metricReader = InMemoryMetricReader.create()
+            val openTelemetry = createTestOpenTelemetry(spanExporter, metricReader)
+
+            val taskQueue = "otel-metrics-test-${UUID.randomUUID()}"
+
+            application {
+                install(OpenTelemetryPlugin) {
+                    this.openTelemetry = openTelemetry
+                    tracerName = "test-tracer"
+                }
+
+                taskQueue(taskQueue) {
+                    workflow<WorkflowWithActivity>()
+                    activity(GreetingActivity())
+                }
+            }
+
+            val client = client()
+
+            val handle =
+                client.startWorkflow<String>(
+                    workflowType = "WorkflowWithActivity",
+                    taskQueue = taskQueue,
+                    arg = "Bob",
+                )
+
+            handle.result<String>(timeout = 30.seconds)
+
             val workflowTaskMetric = waitForMetric(metricReader, "temporal.workflow.task.total", timeout = 5.seconds)
             assertNotNull(workflowTaskMetric, "Expected workflow task counter metric")
 
@@ -278,13 +321,13 @@ class OpenTelemetryIntegrationTest {
             handle.result<String>(timeout = 30.seconds)
 
             // Wait for activity spans (which should be recorded)
-            val activitySpans = waitForSpans(spanExporter, "temporal.activity.execute", timeout = 5.seconds)
+            val activitySpans = waitForSpans(spanExporter, "RunActivity:greet", timeout = 5.seconds)
 
             // Should have activity spans but NOT workflow spans
-            val workflowSpans = spanExporter.finishedSpanItems.filter { it.name == "temporal.workflow.task" }
+            val workflowSpans = spanExporter.finishedSpanItems.filter { it.name.startsWith("RunWorkflow:") }
 
-            assertTrue(workflowSpans.isEmpty(), "Expected NO workflow task spans when disabled")
-            assertTrue(activitySpans.isNotEmpty(), "Expected activity task spans")
+            assertTrue(workflowSpans.isEmpty(), "Expected NO workflow spans when disabled")
+            assertTrue(activitySpans.isNotEmpty(), "Expected activity spans")
 
             openTelemetry.close()
         }
@@ -310,7 +353,6 @@ class OpenTelemetryIntegrationTest {
                 }
             }
 
-            // Wait for worker started metric (with polling)
             val workerStartedMetric = waitForMetric(metricReader, "temporal.worker.started.total", timeout = 5.seconds)
             assertNotNull(workerStartedMetric, "Expected worker started counter metric")
 
@@ -319,15 +361,11 @@ class OpenTelemetryIntegrationTest {
 
     // ==================== Helper Methods ====================
 
-    /**
-     * Waits for spans with the given name to appear in the exporter, with polling.
-     * This avoids flaky tests due to timing issues with span export.
-     */
     private suspend fun waitForSpans(
         exporter: InMemorySpanExporter,
         spanName: String,
         timeout: kotlin.time.Duration = 5.seconds,
-    ): List<io.opentelemetry.sdk.trace.data.SpanData> {
+    ): List<SpanData> {
         val deadline = System.currentTimeMillis() + timeout.inWholeMilliseconds
         while (System.currentTimeMillis() < deadline) {
             val spans = exporter.finishedSpanItems.filter { it.name == spanName }
@@ -339,10 +377,6 @@ class OpenTelemetryIntegrationTest {
         return exporter.finishedSpanItems.filter { it.name == spanName }
     }
 
-    /**
-     * Waits for a metric with the given name to appear in the reader, with polling.
-     * This avoids flaky tests due to timing issues with metric collection.
-     */
     private suspend fun waitForMetric(
         reader: InMemoryMetricReader,
         metricName: String,

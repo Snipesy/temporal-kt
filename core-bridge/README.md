@@ -4,10 +4,10 @@ This is the module that provides FFM bindings to the Temporal Core Rust library.
 definitions used by the SDK-Core Rust library.
 
 Most (if not all) interop is done against
-[temporal-sdk-core-c-bridge.h](./rust/sdk-core/crates/sdk-core-c-bridge/include/temporal-sdk-core-c-bridge.h) found in
-the Temporal [SDK-Core submodule](./rust/sdk-core/).
+`rust/sdk-core/crates/sdk-core-c-bridge/include/temporal-sdk-core-c-bridge.h` found in
+the Temporal SDK-Core submodule (`rust/sdk-core/`).
 
-The SDK-Core submodule is included as a workspace member in our [parent Rust workspace](./rust). This workspace wraps the
+The SDK-Core submodule is included as a workspace member in our parent Rust workspace (`rust/`). This workspace wraps the
 sdk-core crates and maintains its own `Cargo.lock` for reproducible builds (the sdk-core submodule gitignores its lock file
 since it's a library). The C-compatible shared library is built as part of the Gradle build for this module.
 

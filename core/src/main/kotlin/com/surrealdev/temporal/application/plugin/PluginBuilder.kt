@@ -3,7 +3,6 @@ package com.surrealdev.temporal.application.plugin
 import com.surrealdev.temporal.annotation.TemporalDsl
 import com.surrealdev.temporal.application.TaskQueueBuilder
 import com.surrealdev.temporal.application.TemporalApplication
-import com.surrealdev.temporal.application.plugin.interceptor.InterceptorRegistry
 import com.surrealdev.temporal.client.TemporalClientConfig
 import com.surrealdev.temporal.util.AttributeKey
 
@@ -12,9 +11,13 @@ import com.surrealdev.temporal.util.AttributeKey
  *
  * The [PluginBuilder] provides a DSL for:
  * - Accessing the application and plugin configuration
- * - Registering lifecycle hooks via observer pattern
- * - Registering interceptors via chain-of-responsibility pattern
+ * - Registering lifecycle [Hook]s via observer pattern (fan-out to all handlers)
+ * - Registering [InterceptorHook]s via chain-of-responsibility pattern (with `proceed`)
  * - Building the plugin instance
+ *
+ * Both hooks and interceptors are registered via the same unified [on] method, since
+ * [InterceptorHook] extends [Hook]. The DSL builders ([WorkflowHookBuilder],
+ * [ActivityHookBuilder], [ClientHookBuilder]) provide convenient `onXxx` methods for both.
  *
  * **Usage:**
  * ```kotlin
@@ -25,13 +28,21 @@ import com.surrealdev.temporal.util.AttributeKey
  *     }
  *
  *     workflow {
+ *         // Interceptors (chain-of-responsibility with proceed)
  *         onExecute { input, proceed -> proceed(input) }
+ *         onHandleSignal { input, proceed -> proceed(input) }
+ *
+ *         // Observer hooks (fan-out to all handlers)
  *         onTaskStarted { ctx -> ... }
  *     }
  *
  *     activity {
  *         onExecute { input, proceed -> proceed(input) }
  *         onTaskStarted { ctx -> ... }
+ *     }
+ *
+ *     client {
+ *         onStartWorkflow { input, proceed -> proceed(input) }
  *     }
  *
  *     Unit
@@ -79,17 +90,14 @@ abstract class PluginBuilder<PluginConfig : Any> internal constructor(
     abstract val pluginConfig: PluginConfig
 
     /**
-     * Internal list of hook handlers registered by this plugin.
+     * Internal unified registry for both hooks and interceptors registered by this plugin.
      */
-    val hooks = mutableListOf<HookHandler<*>>()
-
-    /**
-     * Internal interceptor registry for interceptors registered by this plugin.
-     */
-    internal val interceptorRegistry = InterceptorRegistry()
+    internal val registry = HookRegistryImpl()
 
     /**
      * Registers a handler for the given hook.
+     *
+     * Works for both lifecycle hooks and interceptor hooks (since [InterceptorHook] extends [Hook]).
      *
      * @param hook The hook to register for
      * @param handler The handler function
@@ -98,7 +106,7 @@ abstract class PluginBuilder<PluginConfig : Any> internal constructor(
         hook: Hook<HookHandler>,
         handler: HookHandler,
     ) {
-        hooks.add(HookHandler(hook, handler))
+        registry.register(hook, handler)
     }
 
     // ==================== Structured DSL Blocks ====================
@@ -134,7 +142,7 @@ abstract class PluginBuilder<PluginConfig : Any> internal constructor(
      * ```
      */
     fun workflow(block: WorkflowHookBuilder.() -> Unit) {
-        WorkflowHookBuilder(this, interceptorRegistry).apply(block)
+        WorkflowHookBuilder(this).apply(block)
     }
 
     /**
@@ -152,7 +160,7 @@ abstract class PluginBuilder<PluginConfig : Any> internal constructor(
      * ```
      */
     fun activity(block: ActivityHookBuilder.() -> Unit) {
-        ActivityHookBuilder(this, interceptorRegistry).apply(block)
+        ActivityHookBuilder(this).apply(block)
     }
 
     /**
@@ -166,7 +174,7 @@ abstract class PluginBuilder<PluginConfig : Any> internal constructor(
      * ```
      */
     fun client(block: ClientHookBuilder.() -> Unit) {
-        ClientHookBuilder(this, interceptorRegistry).apply(block)
+        ClientHookBuilder(this).apply(block)
     }
 }
 
@@ -206,8 +214,7 @@ class PluginBuilderImpl<PluginConfig : Any>(
  *                     // Handle workflow task
  *                 }
  *             }
- *             builder.hooks.forEach { it.install(pipeline.hookRegistry) }
- *             installInterceptors(builder, pipeline)
+ *             installHandlers(builder, pipeline)
  *
  *             return plugin
  *         }
@@ -236,14 +243,8 @@ inline fun <reified TPlugin : Any, TConfig : Any> createApplicationPlugin(
             val builder = PluginBuilderImpl(key, pipeline, config)
             val plugin = body(builder, config)
 
-            // Register all hooks
-            builder.hooks.forEach { hookHandler ->
-                @Suppress("UNCHECKED_CAST")
-                hookHandler.install(pipeline.hookRegistry)
-            }
-
-            // Merge interceptors into the pipeline's registry
-            installInterceptors(builder, pipeline)
+            // Register all hooks and interceptors into the pipeline
+            installHandlers(builder, pipeline)
 
             return plugin
         }
@@ -257,46 +258,20 @@ internal fun resolveHookRegistry(pipeline: PluginPipeline): HookRegistry? =
     when (pipeline) {
         is TemporalApplication -> pipeline.hookRegistry
         is TaskQueueBuilder -> pipeline.hookRegistry
+        is TemporalClientConfig -> pipeline.hookRegistry
         else -> null
     }
 
 /**
- * Resolves the [InterceptorRegistry] for the given pipeline, if available.
+ * Installs all hooks and interceptors from a [PluginBuilder] into the given pipeline's hook registry.
  */
 @PublishedApi
-internal fun resolveInterceptorRegistry(pipeline: PluginPipeline): InterceptorRegistry? =
-    when (pipeline) {
-        is TemporalApplication -> pipeline.interceptorRegistry
-        is TaskQueueBuilder -> pipeline.interceptorRegistry
-        is TemporalClientConfig -> pipeline.interceptorRegistry
-        else -> null
-    }
-
-/**
- * Installs all hooks from a [PluginBuilder] into the given pipeline's hook registry.
- */
-@PublishedApi
-internal fun installHooks(
+internal fun installHandlers(
     builder: PluginBuilder<*>,
     pipeline: PluginPipeline,
 ) {
-    val hookRegistry = resolveHookRegistry(pipeline) ?: return
-    builder.hooks.forEach { hookHandler ->
-        @Suppress("UNCHECKED_CAST")
-        hookHandler.install(hookRegistry)
-    }
-}
-
-/**
- * Merges interceptors from a [PluginBuilder] into the pipeline's interceptor registry.
- */
-@PublishedApi
-internal fun installInterceptors(
-    builder: PluginBuilder<*>,
-    pipeline: PluginPipeline,
-) {
-    val pipelineRegistry = resolveInterceptorRegistry(pipeline) ?: return
-    pipelineRegistry.addAllFrom(builder.interceptorRegistry)
+    val pipelineRegistry = resolveHookRegistry(pipeline) ?: return
+    pipelineRegistry.addAllFrom(builder.registry)
 }
 
 /**
@@ -326,8 +301,7 @@ inline fun <reified TPlugin : Any, TConfig : Any> createScopedPlugin(
             val builder = PluginBuilderImpl(key, pipeline, config)
             val plugin = body(builder, config)
 
-            installHooks(builder, pipeline)
-            installInterceptors(builder, pipeline)
+            installHandlers(builder, pipeline)
 
             return plugin
         }

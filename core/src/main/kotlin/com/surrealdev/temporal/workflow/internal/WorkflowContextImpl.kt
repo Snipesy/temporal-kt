@@ -1,12 +1,17 @@
 package com.surrealdev.temporal.workflow.internal
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
+import com.surrealdev.temporal.application.plugin.HookRegistry
+import com.surrealdev.temporal.application.plugin.HookRegistryImpl
+import com.surrealdev.temporal.application.plugin.interceptor.ContinueAsNew
 import com.surrealdev.temporal.application.plugin.interceptor.ContinueAsNewInput
-import com.surrealdev.temporal.application.plugin.interceptor.InterceptorChain
-import com.surrealdev.temporal.application.plugin.interceptor.InterceptorRegistry
+import com.surrealdev.temporal.application.plugin.interceptor.ScheduleActivity
 import com.surrealdev.temporal.application.plugin.interceptor.ScheduleActivityInput
+import com.surrealdev.temporal.application.plugin.interceptor.ScheduleLocalActivity
 import com.surrealdev.temporal.application.plugin.interceptor.ScheduleLocalActivityInput
+import com.surrealdev.temporal.application.plugin.interceptor.Sleep
 import com.surrealdev.temporal.application.plugin.interceptor.SleepInput
+import com.surrealdev.temporal.application.plugin.interceptor.StartChildWorkflow
 import com.surrealdev.temporal.application.plugin.interceptor.StartChildWorkflowInput
 import com.surrealdev.temporal.common.RetryPolicy
 import com.surrealdev.temporal.common.SearchAttributeEncoder
@@ -44,7 +49,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.slf4j.MDCContext
 import java.util.logging.Logger
 import kotlin.coroutines.ContinuationInterceptor
 import kotlin.coroutines.CoroutineContext
@@ -77,8 +81,7 @@ internal class WorkflowContextImpl(
     parentJob: Job,
     private val handlerJob: Job,
     override val parentScope: AttributeScope,
-    internal val interceptorRegistry: InterceptorRegistry = InterceptorRegistry.EMPTY,
-    private val mdcContext: MDCContext? = null,
+    internal val hookRegistry: HookRegistry = HookRegistryImpl.EMPTY,
 ) : WorkflowContext,
     ExecutionScope {
     companion object {
@@ -123,6 +126,14 @@ internal class WorkflowContextImpl(
 
     // Create a child job for this workflow - failures propagate to parent
     internal val job = Job(parentJob)
+
+    /**
+     * Additional coroutine context elements contributed by plugins via the
+     * [BuildWorkflowCoroutineContext][com.surrealdev.temporal.application.plugin.hooks.BuildWorkflowCoroutineContext] hook. Included in [coroutineContext] and
+     * [launchHandler] contexts so all child coroutines inherit them.
+     */
+    internal var pluginCoroutineContext: CoroutineContext = kotlin.coroutines.EmptyCoroutineContext
+
     private val deterministicRandom = DeterministicRandom(state.randomSeed)
 
     /**
@@ -175,14 +186,7 @@ internal class WorkflowContextImpl(
     internal var runtimeDynamicUpdateHandler: DynamicUpdateHandlerEntry? = null
 
     override val coroutineContext: CoroutineContext
-        get() =
-            if (mdcContext !=
-                null
-            ) {
-                job + workflowDispatcher + mdcContext + this
-            } else {
-                job + workflowDispatcher + this
-            }
+        get() = job + workflowDispatcher + pluginCoroutineContext + this
 
     /**
      * Updates the random seed (called when UpdateRandomSeed job is received).
@@ -198,7 +202,7 @@ internal class WorkflowContextImpl(
      * This is used for signal and update handlers which need to:
      * 1. Run on workflowDispatcher (so they can call workflow operations)
      * 2. NOT be cancelled when the main workflow completes
-     * 3. Have MDC context for proper logging
+     * 3. Inherit plugin-contributed context (MDC, OTel, etc.)
      * 4. Be properly managed (not orphan Jobs)
      *
      * The handler job is a sibling of the workflow execution job under parentJob,
@@ -213,12 +217,9 @@ internal class WorkflowContextImpl(
         // This handles edge cases where activations come after terminal completion.
         val effectiveJob = if (handlerJob.isActive) handlerJob else Job()
 
-        val context =
-            if (mdcContext != null) {
-                effectiveJob + workflowDispatcher + mdcContext + this
-            } else {
-                effectiveJob + workflowDispatcher + this
-            }
+        var context: CoroutineContext = effectiveJob + workflowDispatcher
+        context += pluginCoroutineContext
+        context += this
         return CoroutineScope(context).launch(block = block)
     }
 
@@ -243,7 +244,7 @@ internal class WorkflowContextImpl(
                 args = args,
                 options = options,
             )
-        val chain = InterceptorChain(interceptorRegistry.scheduleActivity)
+        val chain = hookRegistry.chain(ScheduleActivity)
         return chain.execute(interceptorInput) { input ->
             startActivityInternal(input)
         }
@@ -476,7 +477,7 @@ internal class WorkflowContextImpl(
                 args = args,
                 options = options,
             )
-        val chain = InterceptorChain(interceptorRegistry.scheduleLocalActivity)
+        val chain = hookRegistry.chain(ScheduleLocalActivity)
         return chain.execute(interceptorInput) { input ->
             startLocalActivityInternal(input)
         }
@@ -589,7 +590,7 @@ internal class WorkflowContextImpl(
 
         // Execute through the interceptor chain
         val interceptorInput = SleepInput(duration = duration)
-        val chain = InterceptorChain(interceptorRegistry.sleep)
+        val chain = hookRegistry.chain(Sleep)
         chain.execute(interceptorInput) { input ->
             sleepInternal(input.duration)
         }
@@ -713,7 +714,7 @@ internal class WorkflowContextImpl(
                 args = args,
                 options = options,
             )
-        val chain = InterceptorChain(interceptorRegistry.startChildWorkflow)
+        val chain = hookRegistry.chain(StartChildWorkflow)
         return chain.execute(interceptorInput) { input ->
             startChildWorkflowInternal(input)
         }
@@ -785,7 +786,7 @@ internal class WorkflowContextImpl(
                 serializer = serializer,
                 codec = codec,
                 cancellationType = options.cancellationType,
-                interceptorRegistry = interceptorRegistry,
+                hookRegistry = hookRegistry,
             )
 
         state.registerChildWorkflow(seq, handle)
@@ -929,7 +930,7 @@ internal class WorkflowContextImpl(
                 options = options,
                 args = serializedArgs,
             )
-        val chain = InterceptorChain(interceptorRegistry.continueAsNew)
+        val chain = hookRegistry.chain(ContinueAsNew)
         chain.execute(interceptorInput) { input ->
             throw ContinueAsNewException(
                 options = input.options,
@@ -950,13 +951,13 @@ internal class WorkflowContextImpl(
             state = state,
             serializer = serializer,
             codec = codec,
-            interceptorRegistry = interceptorRegistry,
+            hookRegistry = hookRegistry,
         )
 
     /**
      * Gets the current replaying state.
      */
-    val isReplaying: Boolean
+    override val isReplaying: Boolean
         get() = state.isReplaying
 }
 
