@@ -306,7 +306,8 @@ class ActivityTestHarnessDITest {
                 httpClient.get("")
             }
 
-            assertEquals(2, instanceCount, "Each context should create its own instance")
+            // Registry-level singleton: factory is called once regardless of context count
+            assertEquals(1, instanceCount, "Singleton is shared across all contexts from the same registry")
         }
 
     // ===========================================

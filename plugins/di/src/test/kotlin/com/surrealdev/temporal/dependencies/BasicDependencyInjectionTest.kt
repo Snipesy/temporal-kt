@@ -21,7 +21,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
-import kotlin.test.assertNotSame
 import kotlin.test.assertSame
 import kotlin.time.Duration
 import kotlin.time.Instant
@@ -464,7 +463,7 @@ class BasicDependencyInjectionTest {
 
         val key = dependencyKey<TestService>(DependencyScope.WORKFLOW_SAFE)
 
-        // Get from queue 1 multiple times (different contexts)
+        // Get from queue 1 multiple times (different contexts, same singleton)
         val queue1Context1 = queue1Registry!!.createWorkflowContext()
         val queue1Context2 = queue1Registry.createWorkflowContext()
         queue1Context1.get(key)
@@ -474,9 +473,9 @@ class BasicDependencyInjectionTest {
         val queue2Context = queue2Registry!!.createWorkflowContext()
         queue2Context.get(key)
 
-        // Each context creates its own instance
-        assertEquals(2, queue1Count, "Queue 1 should have been invoked twice (different contexts)")
-        assertEquals(1, queue2Count, "Queue 2 should have been invoked once")
+        // Registry-level singletons: factory called once per registry regardless of context count
+        assertEquals(1, queue1Count, "Queue 1 factory should be called once (singleton)")
+        assertEquals(1, queue2Count, "Queue 2 factory should be called once (singleton)")
     }
 
     @Test
@@ -503,11 +502,102 @@ class BasicDependencyInjectionTest {
         val service1b = context1.get(key)
         val service2 = context2.get(key)
 
-        // Same context should cache
-        assertSame(service1a, service1b, "Same context should return cached instance")
+        // Same context returns same singleton
+        assertSame(service1a, service1b, "Same context should return the same singleton")
 
-        // Different contexts should have different instances
-        assertNotSame(service1a, service2, "Different contexts should have different instances")
+        // Different contexts from the same registry return the same singleton
+        assertSame(service1a, service2, "Different contexts from the same registry share the singleton")
+    }
+
+    // ===========================================
+    // Lifecycle / AutoCloseable Tests
+    // ===========================================
+
+    @Test
+    fun `AutoCloseable dependency is closed when registry closes`() {
+        var closedCount = 0
+
+        val registry = DependencyRegistry()
+        registry.activityOnly<TestService> {
+            object : TestService, AutoCloseable {
+                override fun getMessage() = "closeable"
+
+                override fun close() {
+                    closedCount++
+                }
+            }
+        }
+
+        val key = dependencyKey<TestService>(DependencyScope.ACTIVITY_ONLY)
+        val ctx = registry.createActivityContext()
+        ctx.get(key)
+
+        assertEquals(0, closedCount, "Should not be closed before registry.close()")
+        registry.close()
+        assertEquals(1, closedCount, "Should be closed once after registry.close()")
+    }
+
+    @Test
+    fun `cleanup block is called instead of close() when registry closes`() {
+        var cleanupCount = 0
+        var autoCloseCount = 0
+
+        val registry = DependencyRegistry()
+        registry.activityOnly<TestService> {
+            object : TestService, AutoCloseable {
+                override fun getMessage() = "with-cleanup"
+
+                override fun close() {
+                    autoCloseCount++
+                }
+            }
+        } cleanup { cleanupCount++ }
+
+        val key = dependencyKey<TestService>(DependencyScope.ACTIVITY_ONLY)
+        registry.createActivityContext().get(key)
+        registry.close()
+
+        assertEquals(1, cleanupCount, "Cleanup block should be called once")
+        assertEquals(0, autoCloseCount, "AutoCloseable.close() should NOT be called when cleanup block is set")
+    }
+
+    @Test
+    fun `cleanup block is called for dependency without AutoCloseable`() {
+        var cleanupCount = 0
+
+        val registry = DependencyRegistry()
+        registry.workflowSafe<TestService> { TestServiceImpl() } cleanup { cleanupCount++ }
+
+        val key = dependencyKey<TestService>(DependencyScope.WORKFLOW_SAFE)
+        registry.createWorkflowContext().get(key)
+        registry.close()
+
+        assertEquals(1, cleanupCount, "Cleanup block should be called for non-AutoCloseable dependency")
+    }
+
+    @Test
+    fun `registry close is idempotent`() {
+        var closedCount = 0
+
+        val registry = DependencyRegistry()
+        registry.activityOnly<TestService> {
+            object : TestService, AutoCloseable {
+                override fun getMessage() = "idempotent"
+
+                override fun close() {
+                    closedCount++
+                }
+            }
+        }
+
+        val key = dependencyKey<TestService>(DependencyScope.ACTIVITY_ONLY)
+        registry.createActivityContext().get(key)
+
+        registry.close()
+        registry.close()
+        registry.close()
+
+        assertEquals(1, closedCount, "close() should only invoke cleanup once regardless of how many times called")
     }
 
     // ===========================================

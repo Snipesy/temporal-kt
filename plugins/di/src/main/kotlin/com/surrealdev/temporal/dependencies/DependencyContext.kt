@@ -3,8 +3,9 @@ package com.surrealdev.temporal.dependencies
 /**
  * Per-execution context for resolving dependencies.
  *
- * Created once per workflow run or activity task and provides lazy resolution
- * of dependencies with caching.
+ * Created once per workflow run or activity task. Dependencies are singletons
+ * within the owning [DependencyRegistry] — the same instance is returned
+ * across all contexts created from that registry.
  */
 interface DependencyContext {
     /**
@@ -19,11 +20,6 @@ interface DependencyContext {
      * Resolves a dependency by key, or null if not registered.
      */
     fun <T : Any> getOrNull(key: DependencyKey<T>): T?
-
-    /**
-     * Closes the context and releases resources.
-     */
-    fun close()
 }
 
 /**
@@ -31,36 +27,31 @@ interface DependencyContext {
  *
  * Supports hierarchical lookup: primary registry is checked first, then fallback.
  * This allows task-queue-level dependencies to override application-level ones.
+ *
+ * All instances returned are registry-level singletons.
  */
 internal class DependencyContextImpl(
     private val registry: DependencyRegistry,
     internal val isWorkflowContext: Boolean,
     private val fallbackRegistry: DependencyRegistry? = null,
 ) : DependencyContext {
-    // Cache resolved dependencies to ensure singleton behavior per scope
-    private val cache = mutableMapOf<DependencyKey<*>, Any>()
-
-    @Suppress("UNCHECKED_CAST")
     override fun <T : Any> get(key: DependencyKey<T>): T {
-        // Check cache first
-        cache[key]?.let { return it as T }
+        // Resolve from primary registry, then fallback — check provider existence before scope
+        val resolving =
+            when {
+                registry.hasProvider(key) -> registry
+                fallbackRegistry != null && fallbackRegistry.hasProvider(key) -> fallbackRegistry
+                else -> throw MissingDependencyException("No provider registered for $key")
+            }
 
-        // Validate scope
+        // Validate scope only after confirming the provider actually exists
         if (isWorkflowContext && key.scope == DependencyScope.ACTIVITY_ONLY) {
             throw IllegalDependencyScopeException(
                 "Cannot use ACTIVITY_ONLY dependency ${key.type.simpleName} in workflow context",
             )
         }
 
-        // Get provider - check primary registry first, then fallback
-        val provider =
-            registry.getProvider(key)
-                ?: fallbackRegistry?.getProvider(key)
-                ?: throw MissingDependencyException("No provider registered for $key")
-
-        val instance = provider.factory(this)
-        cache[key] = instance
-        return instance
+        return resolving.getOrCreate(key, this)
     }
 
     override fun <T : Any> getOrNull(key: DependencyKey<T>): T? =
@@ -69,11 +60,6 @@ internal class DependencyContextImpl(
         } catch (_: MissingDependencyException) {
             null
         }
-
-    override fun close() {
-        // Future: Call close() on any AutoCloseable dependencies
-        cache.clear()
-    }
 }
 
 /**

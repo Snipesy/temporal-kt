@@ -33,6 +33,16 @@ val app = embeddedTemporal(
 app.start(wait = true)
 ```
 
+### Singleton semantics
+
+Every dependency registered in a `DependencyRegistry` is a **singleton within that registry**. The factory lambda is called at most once; all contexts created from the same registry share the same instance:
+
+```kotlin
+app.dependencies {
+    activityOnly<HttpClient> { OkHttpClient() }  // created once, shared by all activity executions
+}
+```
+
 ## Using Dependencies
 
 ### In Workflows
@@ -96,6 +106,53 @@ val app = embeddedTemporal(
         }
     }
 )
+```
+
+## Lifecycle & Cleanup
+
+### Automatic shutdown
+
+Registries are closed automatically at the right lifecycle point:
+
+| Registry level | Closed when |
+|---|---|
+| `app.dependencies { }` | `ApplicationShutdown` — before any workers stop |
+| `taskQueue("q") { dependencies { } }` | `WorkerStopped` for that specific task queue |
+
+### AutoCloseable
+
+If a singleton instance implements `AutoCloseable`, its `close()` method is called automatically when the registry closes — no extra configuration needed:
+
+```kotlin
+app.dependencies {
+    activityOnly<HttpClient> { OkHttpClient() }          // closed automatically on shutdown
+    workflowSafe<ConfigService> { MyConfigService() }    // closed automatically on shutdown
+}
+```
+
+### Explicit `cleanup { }` DSL
+
+For instances that need custom teardown logic, chain a `cleanup` block after registration:
+
+```kotlin
+app.dependencies {
+    activityOnly<DatabasePool> { DatabasePool(config) } cleanup { it.shutdown() }
+    activityOnly<HttpClient>   { OkHttpClient() }       cleanup { it.dispatcher.executorService.shutdown() }
+}
+```
+
+The `cleanup` block is called **instead of** `AutoCloseable.close()` when one is provided. Each key may have at most one cleanup hook — registering a second one throws immediately during configuration.
+
+### Task-queue-scoped cleanup
+
+Resources that belong to a specific worker can be registered at the task-queue level. They are released when that worker stops, independently of the rest of the application:
+
+```kotlin
+taskQueue("payments-queue") {
+    dependencies {
+        activityOnly<PaymentGatewayClient> { PaymentGatewayClient(config) } cleanup { it.close() }
+    }
+}
 ```
 
 ## Qualifiers

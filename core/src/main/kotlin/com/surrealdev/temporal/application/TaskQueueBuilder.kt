@@ -51,6 +51,8 @@ class TaskQueueBuilder internal constructor(
     override val parentScope: AttributeScope? = parentApplication
     internal val hookRegistry: HookRegistry = HookRegistryImpl()
 
+    val taskQueueName: String get() = name
+
     /**
      * Optional namespace override for this task queue.
      * If null, the application's default namespace is used.
