@@ -21,6 +21,7 @@ import io.opentelemetry.api.trace.StatusCode
 import io.opentelemetry.api.trace.Tracer
 import io.opentelemetry.context.Context
 import io.opentelemetry.extension.kotlin.asContextElement
+import io.opentelemetry.extension.kotlin.getOpenTelemetryContext
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.slf4j.MDCContext
 import kotlinx.coroutines.withContext
@@ -98,6 +99,9 @@ val OpenTelemetryPlugin =
         // SpanContextHolder is still used for activation-level hook metrics
         val spanHolder = SpanContextHolder()
 
+        // Mark plugin as installed
+        pipeline.attributes.put(OpenTelemetryPluginKey, Unit)
+
         // Store the Meter in application attributes for Core metrics bridge
         if (config.enableCoreMetrics && otelMeter != null) {
             pipeline.attributes.put(CoreMetricsMeterKey, otelMeter)
@@ -106,26 +110,34 @@ val OpenTelemetryPlugin =
         // Helper to get WorkflowContext from the current coroutine
         suspend fun getWorkflowContext(): WorkflowContext? = currentCoroutineContext()[WorkflowContext]
 
+        // Resolves the current OTel context from the coroutine context first
+        suspend fun currentContext(): Context {
+            val fromCoroutine = currentCoroutineContext().getOpenTelemetryContext()
+            return if (fromCoroutine != Context.root()) fromCoroutine else Context.current()
+        }
+
         // Helper to create a span, make it current, run the operation, and end the span.
         // Making the span current is critical: it ensures that nested interceptors
         // (e.g., onScheduleActivity inside a RunWorkflow span) see this span via
         // Context.current() and create proper parent-child relationships.
+        // When parentContext is null, resolves from coroutine context first, then ThreadLocal.
         suspend fun <T> withSpan(
             name: String,
             kind: SpanKind,
-            parentContext: Context = Context.current(),
+            parentContext: Context? = null,
             configure: io.opentelemetry.api.trace.SpanBuilder.() -> Unit = {},
             body: suspend (Span) -> T,
         ): T {
+            val resolvedContext = parentContext ?: currentContext()
             val span =
                 tracer
                     .spanBuilder(name)
                     .setSpanKind(kind)
-                    .setParent(parentContext)
+                    .setParent(resolvedContext)
                     .apply { configure() }
                     .startSpan()
 
-            val spanContext = parentContext.with(span)
+            val spanContext = resolvedContext.with(span)
 
             // Build the coroutine context elements:
             // 1. asContextElement() bridges OTel's ThreadLocal Context with Kotlin's
@@ -206,13 +218,13 @@ val OpenTelemetryPlugin =
                             setAttribute(TemporalAttributes.WORKFLOW_ID, input.workflowId)
                         }) {
                             if (config.enableContextPropagation) {
-                                propagator.inject(input.headers)
+                                propagator.inject(input.headers, Context.current())
                             }
                             proceed(input)
                         }
                     } else {
                         if (config.enableContextPropagation) {
-                            propagator.inject(input.headers)
+                            propagator.inject(input.headers, currentContext())
                         }
                         proceed(input)
                     }
@@ -224,13 +236,13 @@ val OpenTelemetryPlugin =
                             setAttribute(TemporalAttributes.WORKFLOW_ID, input.workflowId)
                         }) {
                             if (config.enableContextPropagation) {
-                                propagator.inject(input.headers)
+                                propagator.inject(input.headers, Context.current())
                             }
                             proceed(input)
                         }
                     } else {
                         if (config.enableContextPropagation) {
-                            propagator.inject(input.headers)
+                            propagator.inject(input.headers, currentContext())
                         }
                         proceed(input)
                     }
@@ -242,13 +254,13 @@ val OpenTelemetryPlugin =
                             setAttribute(TemporalAttributes.WORKFLOW_ID, input.workflowId)
                         }) {
                             if (config.enableContextPropagation) {
-                                propagator.inject(input.headers)
+                                propagator.inject(input.headers, Context.current())
                             }
                             proceed(input)
                         }
                     } else {
                         if (config.enableContextPropagation) {
-                            propagator.inject(input.headers)
+                            propagator.inject(input.headers, currentContext())
                         }
                         proceed(input)
                     }
@@ -260,13 +272,13 @@ val OpenTelemetryPlugin =
                             setAttribute(TemporalAttributes.WORKFLOW_ID, input.workflowId)
                         }) {
                             if (config.enableContextPropagation) {
-                                propagator.inject(input.headers)
+                                propagator.inject(input.headers, Context.current())
                             }
                             proceed(input)
                         }
                     } else {
                         if (config.enableContextPropagation) {
-                            propagator.inject(input.headers)
+                            propagator.inject(input.headers, currentContext())
                         }
                         proceed(input)
                     }
@@ -438,7 +450,7 @@ val OpenTelemetryPlugin =
                         withSpan("StartActivity:${input.activityType}", SpanKind.CLIENT) {
                             if (config.enableContextPropagation) {
                                 val headersWithTrace = (input.options.headers ?: emptyMap()).toMutableMap()
-                                propagator.inject(headersWithTrace)
+                                propagator.inject(headersWithTrace, Context.current())
                                 proceed(input.copy(options = input.options.copy(headers = headersWithTrace)))
                             } else {
                                 proceed(input)
@@ -447,7 +459,7 @@ val OpenTelemetryPlugin =
                     } else if (config.enableContextPropagation) {
                         // Always propagate context even during replay
                         val headersWithTrace = (input.options.headers ?: emptyMap()).toMutableMap()
-                        propagator.inject(headersWithTrace)
+                        propagator.inject(headersWithTrace, Context.current())
                         proceed(input.copy(options = input.options.copy(headers = headersWithTrace)))
                     } else {
                         proceed(input)
@@ -461,12 +473,12 @@ val OpenTelemetryPlugin =
                     if (shouldCreateSpan) {
                         withSpan("StartActivity:${input.activityType}", SpanKind.CLIENT) {
                             if (config.enableContextPropagation) {
-                                propagator.inject(input.headers)
+                                propagator.inject(input.headers, Context.current())
                             }
                             proceed(input)
                         }
                     } else if (config.enableContextPropagation) {
-                        propagator.inject(input.headers)
+                        propagator.inject(input.headers, Context.current())
                         proceed(input)
                     } else {
                         proceed(input)
@@ -480,12 +492,12 @@ val OpenTelemetryPlugin =
                     if (shouldCreateSpan) {
                         withSpan("StartChildWorkflow:${input.workflowType}", SpanKind.CLIENT) {
                             if (config.enableContextPropagation) {
-                                propagator.inject(input.headers)
+                                propagator.inject(input.headers, Context.current())
                             }
                             proceed(input)
                         }
                     } else if (config.enableContextPropagation) {
-                        propagator.inject(input.headers)
+                        propagator.inject(input.headers, Context.current())
                         proceed(input)
                     } else {
                         proceed(input)
@@ -501,12 +513,12 @@ val OpenTelemetryPlugin =
                             setAttribute(TemporalAttributes.WORKFLOW_ID, input.workflowId)
                         }) {
                             if (config.enableContextPropagation) {
-                                propagator.inject(input.headers)
+                                propagator.inject(input.headers, Context.current())
                             }
                             proceed(input)
                         }
                     } else if (config.enableContextPropagation) {
-                        propagator.inject(input.headers)
+                        propagator.inject(input.headers, Context.current())
                         proceed(input)
                     } else {
                         proceed(input)
@@ -519,7 +531,7 @@ val OpenTelemetryPlugin =
                     if (config.enableContextPropagation) {
                         val existingHeaders = input.options.headers ?: emptyMap()
                         val headersWithTrace = existingHeaders.toMutableMap()
-                        propagator.inject(headersWithTrace)
+                        propagator.inject(headersWithTrace, Context.current())
                         proceed(input.copy(options = input.options.copy(headers = headersWithTrace)))
                     } else {
                         proceed(input)
@@ -659,8 +671,6 @@ val OpenTelemetryPlugin =
                 }
             }
         }
-
-        Unit
     }
 
 /**

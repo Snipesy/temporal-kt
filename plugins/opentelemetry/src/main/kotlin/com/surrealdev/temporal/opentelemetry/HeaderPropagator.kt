@@ -31,11 +31,13 @@ internal class HeaderPropagator(
      * [TemporalPayload], and puts it into [headers] under [headerKey].
      *
      * @param headers Mutable Temporal headers to inject into
-     * @param context The OTel context to inject (defaults to current context)
+     * @param context The OTel context to inject. Callers should resolve this from
+     *   the coroutine context (via [kotlinx.coroutines.currentCoroutineContext]) rather than relying on [Context.current],
+     *   which may be stale in undispatched coroutines (e.g., Ktor Netty).
      */
     fun inject(
         headers: MutableMap<String, TemporalPayload>,
-        context: Context = Context.current(),
+        context: Context,
     ) {
         val carrier = mutableMapOf<String, String>()
         propagator.inject(context, carrier, MapTextMapSetter)
