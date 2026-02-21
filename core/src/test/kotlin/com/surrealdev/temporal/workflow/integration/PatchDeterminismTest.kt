@@ -2,10 +2,10 @@ package com.surrealdev.temporal.workflow.integration
 
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
-import com.surrealdev.temporal.application.VersioningBehavior
-import com.surrealdev.temporal.application.WorkerDeploymentVersion
 import com.surrealdev.temporal.application.taskQueue
 import com.surrealdev.temporal.client.startWorkflow
+import com.surrealdev.temporal.core.VersioningBehavior
+import com.surrealdev.temporal.core.WorkerDeploymentVersion
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext

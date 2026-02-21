@@ -4,6 +4,8 @@ import com.surrealdev.temporal.application.config.TemporalConfig
 import com.surrealdev.temporal.application.config.TemporalConfigLoader
 import com.surrealdev.temporal.application.module.ModuleLoader
 import com.surrealdev.temporal.application.module.TemporalModule
+import com.surrealdev.temporal.core.VersioningBehavior
+import com.surrealdev.temporal.core.WorkerDeploymentVersion
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlin.coroutines.CoroutineContext

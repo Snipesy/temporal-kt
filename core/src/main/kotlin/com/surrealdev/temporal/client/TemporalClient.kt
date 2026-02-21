@@ -19,6 +19,7 @@ import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.core.TemporalCoreClient
 import com.surrealdev.temporal.core.TemporalCoreException
+import com.surrealdev.temporal.core.TlsConfig
 import com.surrealdev.temporal.serialization.CompositePayloadSerializer
 import com.surrealdev.temporal.serialization.NoOpCodec
 import com.surrealdev.temporal.serialization.PayloadCodec
@@ -216,22 +217,12 @@ interface TemporalClient {
                 com.surrealdev.temporal.core.TemporalRuntime
                     .create()
 
-            val tlsOptions =
-                config.tls?.let { tlsConfig ->
-                    com.surrealdev.temporal.core.TlsOptions(
-                        serverRootCaCert = tlsConfig.serverRootCaCert,
-                        domain = tlsConfig.domain,
-                        clientCert = tlsConfig.clientCert,
-                        clientPrivateKey = tlsConfig.clientPrivateKey,
-                    )
-                }
-
             val coreClient =
                 TemporalCoreClient.connect(
                     runtime = runtime,
                     targetUrl = config.target,
                     namespace = config.namespace,
-                    tls = tlsOptions,
+                    tls = config.tls,
                     apiKey = config.apiKey,
                 )
 

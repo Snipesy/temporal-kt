@@ -5,6 +5,7 @@ dependencyResolutionManagement {
     }
 }
 
+include(":core-common")
 include(":core-bridge")
 include(":core")
 include(":core-testing")

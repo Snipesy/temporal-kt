@@ -1,4 +1,4 @@
-package com.surrealdev.temporal.client
+package com.surrealdev.temporal.core
 
 import java.io.File
 import java.nio.file.Files
@@ -51,118 +51,13 @@ import java.nio.file.Path
  * }
  * ```
  *
- * ## Server-Only TLS (No Client Certificate)
- *
- * For servers that only require TLS verification without client authentication:
- *
- * ```kotlin
- * val tlsConfig = TlsConfig(
- *     serverRootCaCert = caCertBytes
- * )
- * ```
- *
- * ## Domain Override
- *
- * Use [domain] when the server certificate's CN/SAN doesn't match the connection address.
- * This is common when connecting via IP address or through a proxy:
- *
- * ```kotlin
- * val app = TemporalApplication {
- *     connection {
- *         target = "https://10.0.0.50:7233"  // Connecting via IP
- *         namespace = "default"
- *         tls {
- *             domain = "temporal.mycompany.com"  // Certificate's CN
- *             fromFiles(serverRootCaCertPath = "/path/to/ca.pem")
- *         }
- *     }
- * }
- * ```
- *
- * ## Loading Certificates Programmatically
- *
- * For secrets management integration (Vault, AWS Secrets Manager, etc.):
- *
- * ```kotlin
- * val tlsConfig = TlsConfig(
- *     clientCert = secretsManager.getSecret("temporal-client-cert").toByteArray(),
- *     clientPrivateKey = secretsManager.getSecret("temporal-client-key").toByteArray(),
- * )
- * ```
- *
- * ## Loading from Files
- *
- * The [fromFiles] factory methods support both [String] paths and [java.nio.file.Path] objects:
- *
- * ```kotlin
- * // Using string paths
- * val config1 = TlsConfig.fromFiles(
- *     serverRootCaCertPath = "/path/to/ca.pem",
- *     clientCertPath = "/path/to/client.pem",
- *     clientPrivateKeyPath = "/path/to/client-key.pem",
- * )
- *
- * // Using Path objects
- * val config2 = TlsConfig.fromFiles(
- *     serverRootCaCertPath = Path.of("/path/to/ca.pem"),
- *     clientCertPath = Path.of("/path/to/client.pem"),
- *     clientPrivateKeyPath = Path.of("/path/to/client-key.pem"),
- * )
- * ```
- *
- * ## Certificate Format
- *
- * All certificates and keys must be in PEM format. Example PEM file structure:
- *
- * ```
- * -----BEGIN CERTIFICATE-----
- * MIIBkTCB+wIJAKHBfpEgcM...
- * -----END CERTIFICATE-----
- * ```
- *
- * For private keys:
- * ```
- * -----BEGIN PRIVATE KEY-----
- * MIIEvgIBADANBgkqhkiG9w...
- * -----END PRIVATE KEY-----
- * ```
- *
- * ## Troubleshooting
- *
- * ### "Certificate verify failed" or "unknown CA"
- * - Ensure [serverRootCaCert] contains the CA that signed the server's certificate
- * - For Temporal Cloud, this is usually not needed (public CA is used)
- * - Check certificate expiration dates
- *
- * ### "Handshake failed"
- * - Verify the target URL uses `https://` prefix
- * - Ensure client certificate and key are a matching pair
- * - Check that the certificate is authorized for the namespace (Temporal Cloud)
- *
- * ### "Permission denied" on Temporal Cloud
- * - Verify the namespace name matches your Temporal Cloud namespace
- * - Ensure certificate filters are properly configured in Cloud UI
- *
- * ## Worker TLS
- *
- * Workers automatically inherit TLS configuration from the client connection.
- * There is no separate TLS configuration for workers - once the client connects
- * with TLS, all worker polling uses the same secure connection.
- *
  * @property serverRootCaCert PEM-encoded root CA certificate for verifying the server.
  *                            If null, the system's default trust store is used.
- *                            Required for self-hosted Temporal with private CAs.
- *                            Usually not needed for Temporal Cloud (uses public CAs).
- * @property domain Domain name to use for server certificate verification (SNI override).
- *                  Useful when connecting via IP address or when the certificate's
- *                  CN/SAN doesn't match the target host. Leave null to use the
- *                  target hostname from the connection URL.
+ * @property domain Domain name for server certificate verification (SNI override).
  * @property clientCert PEM-encoded client certificate for mutual TLS authentication.
- *                      Required for Temporal Cloud and mTLS-enabled self-hosted servers.
  *                      Must be provided together with [clientPrivateKey].
  * @property clientPrivateKey PEM-encoded private key for the client certificate.
  *                            Must be provided together with [clientCert].
- * @see [fromFiles] for loading certificates from the filesystem
  */
 data class TlsConfig(
     val serverRootCaCert: ByteArray? = null,
@@ -241,10 +136,10 @@ data class TlsConfig(
             clientPrivateKeyPath: String? = null,
         ): TlsConfig =
             TlsConfig(
-                serverRootCaCert = serverRootCaCertPath?.let { readFile(it) },
+                serverRootCaCert = serverRootCaCertPath?.let { File(it).readBytes() },
                 domain = domain,
-                clientCert = clientCertPath?.let { readFile(it) },
-                clientPrivateKey = clientPrivateKeyPath?.let { readFile(it) },
+                clientCert = clientCertPath?.let { File(it).readBytes() },
+                clientPrivateKey = clientPrivateKeyPath?.let { File(it).readBytes() },
             )
 
         /**
@@ -270,7 +165,5 @@ data class TlsConfig(
                 clientCert = clientCertPath?.let { Files.readAllBytes(it) },
                 clientPrivateKey = clientPrivateKeyPath?.let { Files.readAllBytes(it) },
             )
-
-        private fun readFile(path: String): ByteArray = File(path).readBytes()
     }
 }

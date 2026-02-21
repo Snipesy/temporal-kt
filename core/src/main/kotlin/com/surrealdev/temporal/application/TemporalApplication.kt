@@ -18,14 +18,13 @@ import com.surrealdev.temporal.application.plugin.hooks.WorkerStoppedContext
 import com.surrealdev.temporal.application.worker.ManagedWorker
 import com.surrealdev.temporal.client.TemporalClient
 import com.surrealdev.temporal.client.TemporalClientConfig
-import com.surrealdev.temporal.client.TlsConfig
-import com.surrealdev.temporal.core.CoreWorkerDeploymentOptions
-import com.surrealdev.temporal.core.CoreWorkerDeploymentVersion
+import com.surrealdev.temporal.core.CorePollerBehavior
 import com.surrealdev.temporal.core.TemporalCoreClient
 import com.surrealdev.temporal.core.TemporalRuntime
 import com.surrealdev.temporal.core.TemporalWorker
-import com.surrealdev.temporal.core.TlsOptions
+import com.surrealdev.temporal.core.TlsConfig
 import com.surrealdev.temporal.core.WorkerConfig
+import com.surrealdev.temporal.core.WorkerDeploymentOptions
 import com.surrealdev.temporal.internal.ZombieEvictionConfig
 import com.surrealdev.temporal.serialization.NoOpCodec
 import com.surrealdev.temporal.serialization.PayloadCodec
@@ -155,23 +154,12 @@ open class TemporalApplication internal constructor(
         val rt = TemporalRuntime.create(coreMetricsMeter)
         runtime = rt
 
-        // Connect to the server with TLS if configured
-        val tlsOptions =
-            config.connection.tls?.let { tlsConfig ->
-                TlsOptions(
-                    serverRootCaCert = tlsConfig.serverRootCaCert,
-                    domain = tlsConfig.domain,
-                    clientCert = tlsConfig.clientCert,
-                    clientPrivateKey = tlsConfig.clientPrivateKey,
-                )
-            }
-
         val client =
             TemporalCoreClient.connect(
                 runtime = rt,
                 targetUrl = config.connection.target,
                 namespace = config.connection.namespace,
-                tls = tlsOptions,
+                tls = config.connection.tls,
                 apiKey = config.connection.apiKey,
             )
         coreClient = client
@@ -186,19 +174,17 @@ open class TemporalApplication internal constructor(
         for (taskQueueConfig in taskQueues) {
             val effectiveNamespace = taskQueueConfig.namespace ?: config.connection.namespace
 
-            // Convert application deployment options to core-bridge format
-            val coreDeploymentOptions =
-                config.deployment?.let { appDeployment ->
-                    CoreWorkerDeploymentOptions(
-                        version =
-                            CoreWorkerDeploymentVersion(
-                                deploymentName = appDeployment.version.deploymentName,
-                                buildId = appDeployment.version.buildId,
-                            ),
-                        useWorkerVersioning = appDeployment.useWorkerVersioning,
-                        defaultVersioningBehavior = appDeployment.defaultVersioningBehavior.value,
-                    )
-                }
+            // Resolve identity: user-provided > default (pid@hostname)
+            val effectiveIdentity =
+                taskQueueConfig.workerIdentity
+                    ?: run {
+                        val pid = ProcessHandle.current().pid()
+                        val hostname =
+                            java.net.InetAddress
+                                .getLocalHost()
+                                .hostName
+                        "$pid@$hostname"
+                    }
 
             // Create the core bridge worker
             val coreWorker =
@@ -209,11 +195,21 @@ open class TemporalApplication internal constructor(
                     namespace = effectiveNamespace,
                     config =
                         WorkerConfig(
-                            deploymentOptions = coreDeploymentOptions,
+                            deploymentOptions = config.deployment,
+                            maxCachedWorkflows = taskQueueConfig.maxCachedWorkflows,
                             maxConcurrentWorkflowTasks = taskQueueConfig.maxConcurrentWorkflows,
                             maxConcurrentActivities = taskQueueConfig.maxConcurrentActivities,
                             maxHeartbeatThrottleIntervalMs = taskQueueConfig.maxHeartbeatThrottleIntervalMs,
                             defaultHeartbeatThrottleIntervalMs = taskQueueConfig.defaultHeartbeatThrottleIntervalMs,
+                            workflowPollerBehavior = taskQueueConfig.workflowPollerBehavior,
+                            activityPollerBehavior = taskQueueConfig.activityPollerBehavior,
+                            maxActivitiesPerSecond = taskQueueConfig.maxActivitiesPerSecond,
+                            maxTaskQueueActivitiesPerSecond = taskQueueConfig.maxTaskQueueActivitiesPerSecond,
+                            workerIdentity = effectiveIdentity,
+                            nonstickyToStickyPollRatio = taskQueueConfig.nonstickyToStickyPollRatio,
+                            stickyQueueScheduleToStartTimeoutMs = taskQueueConfig.stickyQueueScheduleToStartTimeoutMs,
+                            nondeterminismAsWorkflowFail = taskQueueConfig.nondeterminismAsWorkflowFail,
+                            nondeterminismAsWorkflowFailForTypes = taskQueueConfig.nondeterminismAsWorkflowFailForTypes,
                         ),
                 )
 
@@ -233,7 +229,6 @@ open class TemporalApplication internal constructor(
             workers[taskQueueConfig.name] = managedWorker
             managedWorker.start()
 
-            // Fire WorkerStarted hook
             hookRegistry.call(
                 WorkerStarted,
                 WorkerStartedContext(taskQueueConfig.name, effectiveNamespace),
@@ -270,7 +265,6 @@ open class TemporalApplication internal constructor(
         )
 
         // Phase 2: Stop workers with grace period
-        // (Keep explicit stop calls until Phase 2 refactor is complete)
         for ((taskQueue, worker) in workers) {
             try {
                 worker.stop()
@@ -559,6 +553,55 @@ internal data class TaskQueueConfig(
      * If null, unregistered activity types will result in an error.
      */
     val dynamicActivityHandler: DynamicActivityHandler? = null,
+    /**
+     * Poller behavior for workflow tasks. Controls how many concurrent gRPC long-polls are issued
+     * to the Temporal server for workflow activations.
+     */
+    val workflowPollerBehavior: CorePollerBehavior = CorePollerBehavior.SimpleMaximum(5),
+    /**
+     * Poller behavior for activity tasks. Controls how many concurrent gRPC long-polls are issued
+     * to the Temporal server for activity tasks.
+     */
+    val activityPollerBehavior: CorePollerBehavior = CorePollerBehavior.SimpleMaximum(5),
+    /**
+     * Maximum number of activities per second this worker will execute. Use to protect downstream
+     * services from burst load. 0.0 means no limit.
+     */
+    val maxActivitiesPerSecond: Double = 0.0,
+    /**
+     * Server-enforced rate limit on activities per second across all workers on this task queue.
+     * Takes precedence over per-worker limits when set lower. 0.0 means no limit.
+     */
+    val maxTaskQueueActivitiesPerSecond: Double = 0.0,
+    /**
+     * Maximum number of workflow executions to keep in the sticky cache.
+     * Larger values improve replay performance at the cost of memory.
+     */
+    val maxCachedWorkflows: Int = 1000,
+    /**
+     * Worker identity string sent to the Temporal server, visible in the UI and history.
+     * Null means the default is used: "pid@hostname".
+     */
+    val workerIdentity: String? = null,
+    /**
+     * Fraction of max workflow pollers dedicated to the nonsticky (global) task queue.
+     * Only applies when using [CorePollerBehavior.SimpleMaximum].
+     */
+    val nonstickyToStickyPollRatio: Float = 0.2f,
+    /**
+     * How long (ms) a workflow task may sit on a worker's sticky queue before being moved
+     * to the global nonsticky queue. Controls failover latency during worker failures.
+     */
+    val stickyQueueScheduleToStartTimeoutMs: Long = 10_000L,
+    /**
+     * When true, nondeterminism errors are reported as workflow failures rather than
+     * task failures that retry.
+     */
+    val nondeterminismAsWorkflowFail: Boolean = false,
+    /**
+     * Workflow type names for which nondeterminism errors are reported as workflow failures.
+     */
+    val nondeterminismAsWorkflowFailForTypes: List<String> = emptyList(),
     /**
      * Resolved payload serializer for this task queue.
      * Resolved during build from the task queue's plugin pipeline (with parent fallback).

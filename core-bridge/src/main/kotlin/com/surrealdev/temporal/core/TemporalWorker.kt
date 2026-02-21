@@ -13,62 +13,6 @@ import kotlin.coroutines.resumeWithException
 import com.surrealdev.temporal.core.internal.TemporalCoreWorker as InternalWorker
 
 /**
- * Identifies a worker deployment version for the core bridge.
- *
- * @property deploymentName Name of the deployment (e.g., "llm_srv", "payment-service")
- * @property buildId Build ID within the deployment (e.g., "1.0", "v2.3.5")
- */
-data class CoreWorkerDeploymentVersion(
-    val deploymentName: String,
-    val buildId: String,
-)
-
-/**
- * Deployment options for worker versioning in the core bridge.
- *
- * @property version The deployment version identifying this worker
- * @property useWorkerVersioning If true, worker participates in versioned task routing
- * @property defaultVersioningBehavior Default versioning behavior value (0=UNSPECIFIED, 1=PINNED, 2=AUTO_UPGRADE)
- */
-data class CoreWorkerDeploymentOptions(
-    val version: CoreWorkerDeploymentVersion,
-    val useWorkerVersioning: Boolean = true,
-    val defaultVersioningBehavior: Int = 0,
-)
-
-/**
- * Configuration options for a Temporal worker.
- */
-data class WorkerConfig(
-    val maxCachedWorkflows: Int = 1000,
-    val enableWorkflows: Boolean = true,
-    val enableActivities: Boolean = true,
-    val enableNexus: Boolean = false,
-    val deploymentOptions: CoreWorkerDeploymentOptions? = null,
-    /**
-     * Maximum number of concurrent workflow task executions.
-     * Controls the Core SDK's workflow slot supplier.
-     */
-    val maxConcurrentWorkflowTasks: Int = 100,
-    /**
-     * Maximum number of concurrent activity executions.
-     * Controls the Core SDK's activity slot supplier.
-     */
-    val maxConcurrentActivities: Int = 100,
-    /**
-     * Maximum interval for throttling activity heartbeats in milliseconds.
-     * Heartbeats will be throttled to at most this interval.
-     */
-    val maxHeartbeatThrottleIntervalMs: Long = 60_000L,
-    /**
-     * Default interval for throttling activity heartbeats in milliseconds.
-     * Used when no heartbeat timeout is set. When a heartbeat timeout is configured,
-     * throttling uses 80% of that timeout instead.
-     */
-    val defaultHeartbeatThrottleIntervalMs: Long = 30_000L,
-)
-
-/**
  * A high-level wrapper for a Temporal Core worker.
  *
  * Workers poll for tasks from the Temporal server and execute workflows and activities.
@@ -136,15 +80,7 @@ class TemporalWorker private constructor(
                         arena = resourceArena,
                         namespace = namespace,
                         taskQueue = taskQueue,
-                        maxCachedWorkflows = config.maxCachedWorkflows,
-                        workflows = config.enableWorkflows,
-                        activities = config.enableActivities,
-                        nexus = config.enableNexus,
-                        deploymentOptions = config.deploymentOptions,
-                        maxConcurrentWorkflowTasks = config.maxConcurrentWorkflowTasks,
-                        maxConcurrentActivities = config.maxConcurrentActivities,
-                        maxHeartbeatThrottleIntervalMs = config.maxHeartbeatThrottleIntervalMs,
-                        defaultHeartbeatThrottleIntervalMs = config.defaultHeartbeatThrottleIntervalMs,
+                        config = config,
                     )
                 TemporalWorker(
                     handle = workerPtr,

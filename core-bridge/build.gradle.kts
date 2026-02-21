@@ -25,6 +25,7 @@ val nativePlatforms =
     )
 
 dependencies {
+    api(project(":core-common"))
     implementation(libs.protobufJava)
     implementation(libs.protobufKotlin)
     implementation(libs.kotlinxCoroutines)

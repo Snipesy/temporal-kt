@@ -2,7 +2,10 @@ package com.surrealdev.temporal.application
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.annotation.TemporalDsl
-import com.surrealdev.temporal.client.TlsConfig
+import com.surrealdev.temporal.core.TlsConfig
+import com.surrealdev.temporal.core.VersioningBehavior
+import com.surrealdev.temporal.core.WorkerDeploymentOptions
+import com.surrealdev.temporal.core.WorkerDeploymentVersion
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import java.io.File

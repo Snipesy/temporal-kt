@@ -1,10 +1,14 @@
 package com.surrealdev.temporal.core.internal
 
-import com.surrealdev.temporal.core.CoreWorkerDeploymentOptions
+import com.surrealdev.temporal.core.CorePollerBehavior
 import com.surrealdev.temporal.core.TemporalCoreException
+import com.surrealdev.temporal.core.WorkerConfig
+import com.surrealdev.temporal.core.WorkerDeploymentOptions
+import io.temporal.sdkbridge.TemporalCoreByteArrayRef
 import io.temporal.sdkbridge.TemporalCoreByteArrayRefArray
 import io.temporal.sdkbridge.TemporalCoreFixedSizeSlotSupplier
 import io.temporal.sdkbridge.TemporalCorePollerBehavior
+import io.temporal.sdkbridge.TemporalCorePollerBehaviorAutoscaling
 import io.temporal.sdkbridge.TemporalCorePollerBehaviorSimpleMaximum
 import io.temporal.sdkbridge.TemporalCoreSlotSupplier
 import io.temporal.sdkbridge.TemporalCoreTunerHolder
@@ -19,6 +23,7 @@ import io.temporal.sdkbridge.TemporalCoreWorkerVersioningNone
 import io.temporal.sdkbridge.TemporalCoreWorkerVersioningStrategy
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
+import java.lang.foreign.ValueLayout
 import io.temporal.sdkbridge.temporal_sdk_core_c_bridge_h as CoreBridge
 
 /**
@@ -70,31 +75,9 @@ internal object TemporalCoreWorker {
         arena: Arena,
         namespace: String,
         taskQueue: String,
-        maxCachedWorkflows: Int = 1000,
-        workflows: Boolean = true,
-        activities: Boolean = true,
-        nexus: Boolean = false,
-        deploymentOptions: CoreWorkerDeploymentOptions? = null,
-        maxConcurrentWorkflowTasks: Int = 100,
-        maxConcurrentActivities: Int = 100,
-        maxHeartbeatThrottleIntervalMs: Long = 60_000L,
-        defaultHeartbeatThrottleIntervalMs: Long = 30_000L,
+        config: WorkerConfig = WorkerConfig(),
     ): MemorySegment {
-        val options =
-            buildWorkerOptions(
-                arena = arena,
-                namespace = namespace,
-                taskQueue = taskQueue,
-                maxCachedWorkflows = maxCachedWorkflows,
-                workflows = workflows,
-                activities = activities,
-                nexus = nexus,
-                deploymentOptions = deploymentOptions,
-                maxConcurrentWorkflowTasks = maxConcurrentWorkflowTasks,
-                maxConcurrentActivities = maxConcurrentActivities,
-                maxHeartbeatThrottleIntervalMs = maxHeartbeatThrottleIntervalMs,
-                defaultHeartbeatThrottleIntervalMs = defaultHeartbeatThrottleIntervalMs,
-            )
+        val options = buildWorkerOptions(arena, namespace, taskQueue, config)
 
         val result = CoreBridge.temporal_core_worker_new(arena, clientPtr, options)
 
@@ -444,10 +427,7 @@ internal object TemporalCoreWorker {
                 arena = arena,
                 namespace = namespace,
                 taskQueue = taskQueue,
-                maxCachedWorkflows = 1,
-                workflows = true,
-                activities = false,
-                nexus = false,
+                config = WorkerConfig(maxCachedWorkflows = 1, enableActivities = false, enableNexus = false),
             )
 
         val result = CoreBridge.temporal_core_worker_replayer_new(arena, runtimePtr, options)
@@ -536,138 +516,165 @@ internal object TemporalCoreWorker {
         arena: Arena,
         namespace: String,
         taskQueue: String,
-        maxCachedWorkflows: Int,
-        workflows: Boolean,
-        activities: Boolean,
-        nexus: Boolean,
-        deploymentOptions: CoreWorkerDeploymentOptions? = null,
-        maxConcurrentWorkflowTasks: Int = 100,
-        maxConcurrentActivities: Int = 100,
-        maxHeartbeatThrottleIntervalMs: Long = 60_000L,
-        defaultHeartbeatThrottleIntervalMs: Long = 30_000L,
+        config: WorkerConfig,
     ): MemorySegment {
         val options = TemporalCoreWorkerOptions.allocate(arena)
 
         TemporalCoreWorkerOptions.namespace_(options, TemporalCoreFfmUtil.createByteArrayRef(arena, namespace))
         TemporalCoreWorkerOptions.task_queue(options, TemporalCoreFfmUtil.createByteArrayRef(arena, taskQueue))
-        // Use process ID and hostname as default identity
-        val defaultIdentity = "${ProcessHandle.current().pid()}@${java.net.InetAddress.getLocalHost().hostName}"
+        val identity =
+            config.workerIdentity
+                ?: "${ProcessHandle.current().pid()}@${java.net.InetAddress.getLocalHost().hostName}"
         TemporalCoreWorkerOptions.identity_override(
             options,
-            TemporalCoreFfmUtil.createByteArrayRef(arena, defaultIdentity),
+            TemporalCoreFfmUtil.createByteArrayRef(arena, identity),
         )
-        TemporalCoreWorkerOptions.max_cached_workflows(options, maxCachedWorkflows)
+        TemporalCoreWorkerOptions.max_cached_workflows(options, config.maxCachedWorkflows)
 
-        // Set versioning strategy based on deployment options
-        val versioningStrategy = TemporalCoreWorkerVersioningStrategy.allocate(arena)
-        if (deploymentOptions != null) {
-            // Use deployment-based versioning
-            TemporalCoreWorkerVersioningStrategy.tag(versioningStrategy, CoreBridge.DeploymentBased())
-
-            // Get the deployment_based segment from the versioning strategy union
-            val deploymentBasedSegment = TemporalCoreWorkerVersioningStrategy.deployment_based(versioningStrategy)
-
-            // Set version
-            val versionSegment = TemporalCoreWorkerDeploymentOptions.version(deploymentBasedSegment)
-            TemporalCoreWorkerDeploymentVersion.deployment_name(
-                versionSegment,
-                TemporalCoreFfmUtil.createByteArrayRef(arena, deploymentOptions.version.deploymentName),
-            )
-            TemporalCoreWorkerDeploymentVersion.build_id(
-                versionSegment,
-                TemporalCoreFfmUtil.createByteArrayRef(arena, deploymentOptions.version.buildId),
-            )
-
-            // Set use_worker_versioning flag
-            TemporalCoreWorkerDeploymentOptions.use_worker_versioning(
-                deploymentBasedSegment,
-                deploymentOptions.useWorkerVersioning,
-            )
-
-            // Set default versioning behavior
-            TemporalCoreWorkerDeploymentOptions.default_versioning_behavior(
-                deploymentBasedSegment,
-                deploymentOptions.defaultVersioningBehavior,
-            )
-        } else {
-            // No versioning
-            TemporalCoreWorkerVersioningStrategy.tag(versioningStrategy, CoreBridge.None())
-            val versioningNone = TemporalCoreWorkerVersioningNone.allocate(arena)
-            TemporalCoreWorkerVersioningStrategy.none(versioningStrategy, versioningNone)
-        }
-        TemporalCoreWorkerOptions.versioning_strategy(options, versioningStrategy)
+        TemporalCoreWorkerOptions.versioning_strategy(
+            options,
+            config.deploymentOptions.toFfmVersioningStrategy(arena),
+        )
 
         // Set task types
         val taskTypes = TemporalCoreWorkerTaskTypes.allocate(arena)
-        TemporalCoreWorkerTaskTypes.enable_workflows(taskTypes, workflows)
-        TemporalCoreWorkerTaskTypes.enable_remote_activities(taskTypes, activities)
-        TemporalCoreWorkerTaskTypes.enable_local_activities(taskTypes, activities)
-        TemporalCoreWorkerTaskTypes.enable_nexus(taskTypes, nexus)
+        TemporalCoreWorkerTaskTypes.enable_workflows(taskTypes, config.enableWorkflows)
+        TemporalCoreWorkerTaskTypes.enable_remote_activities(taskTypes, config.enableActivities)
+        TemporalCoreWorkerTaskTypes.enable_local_activities(taskTypes, config.enableActivities)
+        TemporalCoreWorkerTaskTypes.enable_nexus(taskTypes, config.enableNexus)
         TemporalCoreWorkerOptions.task_types(options, taskTypes)
 
         // Initialize tuner with fixed-size slot suppliers
-        // Get the embedded tuner struct from the options
         val tuner = TemporalCoreWorkerOptions.tuner(options)
         initializeSlotSupplier(
             TemporalCoreTunerHolder.workflow_slot_supplier(tuner),
-            maxConcurrentWorkflowTasks.toLong(),
+            config.maxConcurrentWorkflowTasks.toLong(),
         )
         initializeSlotSupplier(
             TemporalCoreTunerHolder.activity_slot_supplier(tuner),
-            maxConcurrentActivities.toLong(),
+            config.maxConcurrentActivities.toLong(),
         )
         initializeSlotSupplier(
             TemporalCoreTunerHolder.local_activity_slot_supplier(tuner),
-            maxConcurrentActivities.toLong(),
+            config.maxConcurrentActivities.toLong(),
         )
         initializeSlotSupplier(TemporalCoreTunerHolder.nexus_task_slot_supplier(tuner), 100)
 
         // Set timeouts and limits
         TemporalCoreWorkerOptions.sticky_queue_schedule_to_start_timeout_millis(options, 10_000L)
-        TemporalCoreWorkerOptions.max_heartbeat_throttle_interval_millis(options, maxHeartbeatThrottleIntervalMs)
+        TemporalCoreWorkerOptions.max_heartbeat_throttle_interval_millis(
+            options,
+            config.maxHeartbeatThrottleIntervalMs,
+        )
         TemporalCoreWorkerOptions.default_heartbeat_throttle_interval_millis(
             options,
-            defaultHeartbeatThrottleIntervalMs,
+            config.defaultHeartbeatThrottleIntervalMs,
         )
-        TemporalCoreWorkerOptions.max_activities_per_second(options, 0.0)
-        TemporalCoreWorkerOptions.max_task_queue_activities_per_second(options, 0.0)
+        TemporalCoreWorkerOptions.max_activities_per_second(options, config.maxActivitiesPerSecond)
+        TemporalCoreWorkerOptions.max_task_queue_activities_per_second(
+            options,
+            config.maxTaskQueueActivitiesPerSecond,
+        )
         TemporalCoreWorkerOptions.graceful_shutdown_period_millis(options, 0L)
+        TemporalCoreWorkerOptions.sticky_queue_schedule_to_start_timeout_millis(
+            options,
+            config.stickyQueueScheduleToStartTimeoutMs,
+        )
 
-        // Set poller behavior (SimpleMaximum with 5 pollers)
-        val workflowPollerBehavior = createSimpleMaximumPollerBehavior(arena, 5)
-        TemporalCoreWorkerOptions.workflow_task_poller_behavior(options, workflowPollerBehavior)
-
-        TemporalCoreWorkerOptions.nonsticky_to_sticky_poll_ratio(options, 0.2f)
-
-        val activityPollerBehavior = createSimpleMaximumPollerBehavior(arena, 5)
-        TemporalCoreWorkerOptions.activity_task_poller_behavior(options, activityPollerBehavior)
-
-        val nexusPollerBehavior = createSimpleMaximumPollerBehavior(arena, 2)
-        TemporalCoreWorkerOptions.nexus_task_poller_behavior(options, nexusPollerBehavior)
+        // Set poller behavior
+        TemporalCoreWorkerOptions.workflow_task_poller_behavior(
+            options,
+            config.workflowPollerBehavior.toFfm(arena),
+        )
+        TemporalCoreWorkerOptions.nonsticky_to_sticky_poll_ratio(options, config.nonstickyToStickyPollRatio)
+        TemporalCoreWorkerOptions.activity_task_poller_behavior(
+            options,
+            config.activityPollerBehavior.toFfm(arena),
+        )
+        TemporalCoreWorkerOptions.nexus_task_poller_behavior(
+            options,
+            CorePollerBehavior.SimpleMaximum(2).toFfm(arena),
+        )
 
         // Set nondeterminism options
-        TemporalCoreWorkerOptions.nondeterminism_as_workflow_fail(options, false)
+        TemporalCoreWorkerOptions.nondeterminism_as_workflow_fail(options, config.nondeterminismAsWorkflowFail)
         TemporalCoreWorkerOptions.nondeterminism_as_workflow_fail_for_types(
             options,
-            createEmptyByteArrayRefArray(arena),
+            config.nondeterminismAsWorkflowFailForTypes.toFfmByteArrayRefArray(arena),
         )
         TemporalCoreWorkerOptions.plugins(options, createEmptyByteArrayRefArray(arena))
 
         return options
     }
 
-    private fun createSimpleMaximumPollerBehavior(
-        arena: Arena,
-        maximum: Int,
-    ): MemorySegment {
+    private fun CorePollerBehavior.toFfm(arena: Arena): MemorySegment {
         val behavior = TemporalCorePollerBehavior.allocate(arena)
-        // Allocate the SimpleMaximum struct and set its value
-        val simpleMax = TemporalCorePollerBehaviorSimpleMaximum.allocate(arena)
-        TemporalCorePollerBehaviorSimpleMaximum.simple_maximum(simpleMax, maximum.toLong())
-        // Set the pointer in the behavior struct (other pointer stays null)
-        TemporalCorePollerBehavior.simple_maximum(behavior, simpleMax)
-        TemporalCorePollerBehavior.autoscaling(behavior, MemorySegment.NULL)
-        return behavior
+        return when (this) {
+            is CorePollerBehavior.SimpleMaximum -> {
+                val simpleMax = TemporalCorePollerBehaviorSimpleMaximum.allocate(arena)
+                TemporalCorePollerBehaviorSimpleMaximum.simple_maximum(simpleMax, maximum.toLong())
+                TemporalCorePollerBehavior.simple_maximum(behavior, simpleMax)
+                TemporalCorePollerBehavior.autoscaling(behavior, MemorySegment.NULL)
+                behavior
+            }
+            is CorePollerBehavior.Autoscaling -> {
+                val autoscaling = TemporalCorePollerBehaviorAutoscaling.allocate(arena)
+                TemporalCorePollerBehaviorAutoscaling.minimum(autoscaling, minimum.toLong())
+                TemporalCorePollerBehaviorAutoscaling.maximum(autoscaling, maximum.toLong())
+                TemporalCorePollerBehaviorAutoscaling.initial(autoscaling, initial.toLong())
+                TemporalCorePollerBehavior.autoscaling(behavior, autoscaling)
+                TemporalCorePollerBehavior.simple_maximum(behavior, MemorySegment.NULL)
+                behavior
+            }
+        }
+    }
+
+    private fun WorkerDeploymentOptions?.toFfmVersioningStrategy(arena: Arena): MemorySegment {
+        val strategy = TemporalCoreWorkerVersioningStrategy.allocate(arena)
+        if (this != null) {
+            TemporalCoreWorkerVersioningStrategy.tag(strategy, CoreBridge.DeploymentBased())
+            val deploymentBased = TemporalCoreWorkerVersioningStrategy.deployment_based(strategy)
+            val versionSegment = TemporalCoreWorkerDeploymentOptions.version(deploymentBased)
+            TemporalCoreWorkerDeploymentVersion.deployment_name(
+                versionSegment,
+                TemporalCoreFfmUtil.createByteArrayRef(arena, version.deploymentName),
+            )
+            TemporalCoreWorkerDeploymentVersion.build_id(
+                versionSegment,
+                TemporalCoreFfmUtil.createByteArrayRef(arena, version.buildId),
+            )
+            TemporalCoreWorkerDeploymentOptions.use_worker_versioning(deploymentBased, useWorkerVersioning)
+            TemporalCoreWorkerDeploymentOptions.default_versioning_behavior(
+                deploymentBased,
+                defaultVersioningBehavior.value,
+            )
+        } else {
+            TemporalCoreWorkerVersioningStrategy.tag(strategy, CoreBridge.None())
+            TemporalCoreWorkerVersioningStrategy.none(strategy, TemporalCoreWorkerVersioningNone.allocate(arena))
+        }
+        return strategy
+    }
+
+    private fun List<String>.toFfmByteArrayRefArray(arena: Arena): MemorySegment {
+        val arr = TemporalCoreByteArrayRefArray.allocate(arena)
+        if (isEmpty()) {
+            TemporalCoreByteArrayRefArray.data(arr, MemorySegment.NULL)
+            TemporalCoreByteArrayRefArray.size(arr, 0L)
+        } else {
+            val refByteSize = TemporalCoreByteArrayRef.layout().byteSize()
+            val refsSegment = arena.allocate(refByteSize * size)
+            forEachIndexed { i, str ->
+                val ref = refsSegment.asSlice(refByteSize * i, refByteSize)
+                val bytes = str.toByteArray(Charsets.UTF_8)
+                val dataSegment = arena.allocate(bytes.size.toLong())
+                MemorySegment.copy(bytes, 0, dataSegment, ValueLayout.JAVA_BYTE, 0, bytes.size)
+                TemporalCoreByteArrayRef.data(ref, dataSegment)
+                TemporalCoreByteArrayRef.size(ref, bytes.size.toLong())
+            }
+            TemporalCoreByteArrayRefArray.data(arr, refsSegment)
+            TemporalCoreByteArrayRefArray.size(arr, size.toLong())
+        }
+        return arr
     }
 
     private fun createEmptyByteArrayRefArray(arena: Arena): MemorySegment {

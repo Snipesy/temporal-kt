@@ -6,6 +6,7 @@ import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.application.plugin.HookRegistry
 import com.surrealdev.temporal.application.plugin.HookRegistryImpl
 import com.surrealdev.temporal.application.plugin.PluginPipeline
+import com.surrealdev.temporal.core.CorePollerBehavior
 import com.surrealdev.temporal.internal.ZombieEvictionConfig
 import com.surrealdev.temporal.serialization.payloadCodecOrNull
 import com.surrealdev.temporal.serialization.payloadSerializer
@@ -117,6 +118,97 @@ class TaskQueueBuilder internal constructor(
      * non-interruptible blocking operations (busy loops, certain native calls).
      */
     var zombieEviction: ZombieEvictionConfig = ZombieEvictionConfig()
+
+    /**
+     * Poller behavior for workflow tasks. Controls how many concurrent gRPC long-polls are issued
+     * to the Temporal server for workflow activations.
+     *
+     * Default: [CorePollerBehavior.SimpleMaximum] with 5 pollers
+     */
+    var workflowPollerBehavior: CorePollerBehavior = CorePollerBehavior.SimpleMaximum(5)
+
+    /**
+     * Poller behavior for activity tasks. Controls how many concurrent gRPC long-polls are issued
+     * to the Temporal server for activity tasks.
+     *
+     * Default: [CorePollerBehavior.SimpleMaximum] with 5 pollers
+     */
+    var activityPollerBehavior: CorePollerBehavior = CorePollerBehavior.SimpleMaximum(5)
+
+    /**
+     * Maximum number of activities per second this worker will execute. Use to protect downstream
+     * services from burst load. 0.0 means no limit.
+     *
+     * Default: 0.0 (no limit)
+     */
+    var maxActivitiesPerSecond: Double = 0.0
+
+    /**
+     * Server-enforced rate limit on activities per second across all workers on this task queue.
+     * Takes precedence over per-worker limits when set lower. 0.0 means no limit.
+     *
+     * Default: 0.0 (no limit)
+     */
+    var maxTaskQueueActivitiesPerSecond: Double = 0.0
+
+    /**
+     * Maximum number of workflow executions to keep in the sticky cache.
+     * Larger values improve replay performance at the cost of memory.
+     *
+     * Default: 1000
+     */
+    var maxCachedWorkflows: Int = 1000
+
+    /**
+     * Worker identity string sent to the Temporal server, visible in the UI and history.
+     * When null (default), uses `"<pid>@<hostname>"`.
+     *
+     * Example:
+     * ```kotlin
+     * workerIdentity = "payment-worker@${System.getenv("POD_NAME")}"
+     * ```
+     */
+    var workerIdentity: String? = null
+
+    /**
+     * When true, any nondeterminism error in a workflow will be reported as a workflow failure
+     * rather than causing the workflow task to fail and retry.
+     *
+     * Default: false
+     */
+    var nondeterminismAsWorkflowFail: Boolean = false
+
+    /**
+     * Workflow type names for which nondeterminism errors should be reported as workflow failures.
+     *
+     * Default: empty
+     */
+    var nondeterminismAsWorkflowFailForTypes: List<String> = emptyList()
+
+    /**
+     * Fraction of max workflow pollers dedicated to the nonsticky (global) task queue.
+     * Only applies when using [CorePollerBehavior.SimpleMaximum].
+     *
+     * Pollers are split between the sticky queue (workflows already cached on this worker)
+     * and the nonsticky queue (new tasks from any workflow). With the default of 0.2 and
+     * [CorePollerBehavior.SimpleMaximum] of 5, only 1 poller pulls from the nonsticky queue.
+     * For high-fanout workloads with many concurrent new tasks, increasing this to 0.3–0.5
+     * reduces schedule-to-start latency at the cost of slightly more cache misses.
+     *
+     * Default: 0.2
+     */
+    var nonstickyToStickyPollRatio: Float = 0.2f
+
+    /**
+     * How long (ms) a workflow task may sit on a worker's sticky queue before the server
+     * moves it to the global nonsticky queue where any worker can pick it up.
+     *
+     * This is the worst-case schedule-to-start latency during worker failures or rolling
+     * deployments. Lowering this value reduces failover latency.
+     *
+     * Default: 10,000ms (10 seconds)
+     */
+    var stickyQueueScheduleToStartTimeoutMs: Long = 10_000L
 
     @PublishedApi
     internal val workflows = mutableListOf<WorkflowRegistration>()
@@ -298,5 +390,15 @@ class TaskQueueBuilder internal constructor(
             dynamicActivityHandler = dynamicActivityHandler,
             serializer = payloadSerializer(),
             codec = payloadCodecOrNull(),
+            workflowPollerBehavior = workflowPollerBehavior,
+            activityPollerBehavior = activityPollerBehavior,
+            maxActivitiesPerSecond = maxActivitiesPerSecond,
+            maxTaskQueueActivitiesPerSecond = maxTaskQueueActivitiesPerSecond,
+            maxCachedWorkflows = maxCachedWorkflows,
+            workerIdentity = workerIdentity,
+            nonstickyToStickyPollRatio = nonstickyToStickyPollRatio,
+            stickyQueueScheduleToStartTimeoutMs = stickyQueueScheduleToStartTimeoutMs,
+            nondeterminismAsWorkflowFail = nondeterminismAsWorkflowFail,
+            nondeterminismAsWorkflowFailForTypes = nondeterminismAsWorkflowFailForTypes,
         )
 }

@@ -1,7 +1,7 @@
 package com.surrealdev.temporal.application.config
 
 import com.surrealdev.temporal.application.ConnectionConfig
-import com.surrealdev.temporal.client.TlsConfig
+import com.surrealdev.temporal.core.TlsConfig
 import java.io.File
 
 /**

@@ -24,6 +24,7 @@
             <option value="$PROJECT_DIR$/compiler-plugin" />
             <option value="$PROJECT_DIR$/core" />
             <option value="$PROJECT_DIR$/core-bridge" />
+            <option value="$PROJECT_DIR$/core-common" />
             <option value="$PROJECT_DIR$/core-testing" />
             <option value="$PROJECT_DIR$/examples" />
             <option value="$PROJECT_DIR$/examples/config-driven" />

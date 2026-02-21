@@ -1,4 +1,4 @@
-package com.surrealdev.temporal.application
+package com.surrealdev.temporal.core
 
 /**
  * Identifies a worker deployment version.

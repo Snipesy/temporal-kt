@@ -5,9 +5,6 @@ import com.surrealdev.temporal.application.ShutdownConfig
 import com.surrealdev.temporal.application.ShutdownConfigBuilder
 import com.surrealdev.temporal.application.TemporalApplication
 import com.surrealdev.temporal.application.TemporalApplicationBuilder
-import com.surrealdev.temporal.application.VersioningBehavior
-import com.surrealdev.temporal.application.WorkerDeploymentOptions
-import com.surrealdev.temporal.application.WorkerDeploymentVersion
 import com.surrealdev.temporal.client.TemporalClient
 import com.surrealdev.temporal.client.TemporalClientConfig
 import com.surrealdev.temporal.client.TemporalClientImpl
@@ -16,6 +13,9 @@ import com.surrealdev.temporal.core.EphemeralServer
 import com.surrealdev.temporal.core.TemporalDevServer
 import com.surrealdev.temporal.core.TemporalRuntime
 import com.surrealdev.temporal.core.TemporalTestServer
+import com.surrealdev.temporal.core.VersioningBehavior
+import com.surrealdev.temporal.core.WorkerDeploymentOptions
+import com.surrealdev.temporal.core.WorkerDeploymentVersion
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.TestResult
 import kotlinx.coroutines.test.TestScope

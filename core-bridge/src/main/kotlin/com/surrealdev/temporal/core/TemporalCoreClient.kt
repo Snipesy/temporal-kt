@@ -22,71 +22,13 @@ data class ClientOptions(
     val identity: String? = null,
 )
 
-/**
- * TLS configuration for secure connections to Temporal servers.
- *
- * This is the core-bridge level TLS configuration that maps to the FFM bindings.
- *
- * @property serverRootCaCert PEM-encoded root CA certificate for verifying the server.
- *                            If null, the system's default trust store is used.
- * @property domain Domain name for server certificate verification.
- * @property clientCert PEM-encoded client certificate for mTLS.
- * @property clientPrivateKey PEM-encoded client private key for mTLS.
- */
-data class TlsOptions(
-    val serverRootCaCert: ByteArray? = null,
-    val domain: String? = null,
-    val clientCert: ByteArray? = null,
-    val clientPrivateKey: ByteArray? = null,
-) {
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (javaClass != other?.javaClass) return false
-
-        other as TlsOptions
-
-        if (serverRootCaCert != null) {
-            if (other.serverRootCaCert == null) return false
-            if (!serverRootCaCert.contentEquals(other.serverRootCaCert)) return false
-        } else if (other.serverRootCaCert != null) {
-            return false
-        }
-
-        if (domain != other.domain) return false
-
-        if (clientCert != null) {
-            if (other.clientCert == null) return false
-            if (!clientCert.contentEquals(other.clientCert)) return false
-        } else if (other.clientCert != null) {
-            return false
-        }
-
-        if (clientPrivateKey != null) {
-            if (other.clientPrivateKey == null) return false
-            if (!clientPrivateKey.contentEquals(other.clientPrivateKey)) return false
-        } else if (other.clientPrivateKey != null) {
-            return false
-        }
-
-        return true
-    }
-
-    override fun hashCode(): Int {
-        var result = serverRootCaCert?.contentHashCode() ?: 0
-        result = 31 * result + (domain?.hashCode() ?: 0)
-        result = 31 * result + (clientCert?.contentHashCode() ?: 0)
-        result = 31 * result + (clientPrivateKey?.contentHashCode() ?: 0)
-        return result
-    }
-
-    internal fun toInternal(): ClientTlsOptions =
-        ClientTlsOptions(
-            serverRootCaCert = serverRootCaCert,
-            domain = domain,
-            clientCert = clientCert,
-            clientPrivateKey = clientPrivateKey,
-        )
-}
+private fun TlsConfig.toClientTlsOptions(): ClientTlsOptions =
+    ClientTlsOptions(
+        serverRootCaCert = serverRootCaCert,
+        domain = domain,
+        clientCert = clientCert,
+        clientPrivateKey = clientPrivateKey,
+    )
 
 /**
  * A high-level wrapper for the Temporal Core client.
@@ -126,13 +68,14 @@ class TemporalCoreClient private constructor(
          * TLS is automatically enabled when the target URL uses the `https://` scheme,
          * or when an API key is provided.
          * For custom CA certificates, client certificates (mTLS), or domain overrides,
-         * provide a [TlsOptions] instance.
+         * provide a [TlsConfig] instance.
          *
          * @param runtime The Temporal runtime to use
          * @param targetUrl The server URL (e.g., "http://localhost:7233" or "https://my-namespace.tmprl.cloud:7233")
          * @param namespace The namespace to use (default: "default")
          * @param options Additional client options
          * @param tls TLS configuration. If null and URL is https:// or apiKey is set, uses system CA certificates.
+         *            Provide a [TlsConfig] for custom CA certificates, client certificates (mTLS), or domain overrides.
          * @param apiKey API key for Temporal Cloud authentication (alternative to mTLS)
          * @return A connected client instance
          * @throws TemporalCoreException if connection fails
@@ -142,7 +85,7 @@ class TemporalCoreClient private constructor(
             targetUrl: String,
             namespace: String = "default",
             options: ClientOptions = ClientOptions(),
-            tls: TlsOptions? = null,
+            tls: TlsConfig? = null,
             apiKey: String? = null,
         ): TemporalCoreClient {
             runtime.ensureOpen()
@@ -150,7 +93,7 @@ class TemporalCoreClient private constructor(
             // Auto-enable TLS for https:// URLs or when API key is provided
             val effectiveTls =
                 when {
-                    tls != null -> tls.toInternal()
+                    tls != null -> tls.toClientTlsOptions()
 
                     targetUrl.startsWith("https://", ignoreCase = true) -> ClientTlsOptions()
 

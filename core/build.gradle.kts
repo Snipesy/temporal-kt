@@ -14,6 +14,7 @@ kotlin {
 }
 
 dependencies {
+    api(project(":core-common"))
     implementation(project(":core-bridge"))
     api(libs.bundles.kotlinxEcosystem)
     implementation(libs.protobufJava)
