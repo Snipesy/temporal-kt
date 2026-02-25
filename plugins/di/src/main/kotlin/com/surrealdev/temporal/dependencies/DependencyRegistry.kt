@@ -41,6 +41,7 @@ class DependencyRegistry internal constructor() {
     private val providers = ConcurrentHashMap<DependencyKey<*>, DependencyProvider<*>>()
     private val singletonCache = ConcurrentHashMap<DependencyKey<*>, Any>()
     private val cleanupHooks = ConcurrentHashMap<DependencyKey<*>, (Any) -> Unit>()
+    private val creatingKeys = ThreadLocal.withInitial { mutableSetOf<DependencyKey<*>>() }
 
     private val closed = AtomicBoolean(false)
 
@@ -116,12 +117,24 @@ class DependencyRegistry internal constructor() {
         context: DependencyContext,
     ): T {
         singletonCache[key]?.let { return it as T }
-        return synchronized(this) {
-            singletonCache.getOrPut(key) {
-                val provider =
-                    providers[key] ?: throw MissingDependencyException("No provider registered for $key")
-                provider.factory(context)
-            } as T
+
+        val creating = creatingKeys.get()
+        if (!creating.add(key)) {
+            throw CircularDependencyException(
+                "Circular dependency detected while creating ${key.type.simpleName}" +
+                    (key.qualifier?.let { " (qualifier: $it)" } ?: ""),
+            )
+        }
+        try {
+            return synchronized(this) {
+                singletonCache.getOrPut(key) {
+                    val provider =
+                        providers[key] ?: throw MissingDependencyException("No provider registered for $key")
+                    provider.factory(context)
+                } as T
+            }
+        } finally {
+            creating.remove(key)
         }
     }
 

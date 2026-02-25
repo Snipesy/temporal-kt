@@ -643,7 +643,7 @@ class BasicDependencyInjectionTest {
 
     @Test
     fun `task queue context can access app-level dependency not overridden`() {
-        var appRegistry: DependencyRegistry? = null
+        var appRegistry: DependencyRegistry?
         var taskQueueRegistry: DependencyRegistry? = null
 
         val app =
@@ -953,6 +953,148 @@ class BasicDependencyInjectionTest {
 
         assertEquals("HTTP client", mockContext.getHttpService().getMessage())
         assertEquals("GRPC client", mockContext.getGrpcService().getMessage())
+    }
+
+    // ===========================================
+    // resolve() / resolveOrNull() Tests
+    // ===========================================
+
+    @Test
+    fun `resolve can resolve nested dependencies in factory lambda`() {
+        val registry = DependencyRegistry()
+        registry.workflowSafe<ConfigService> { ConfigServiceImpl("nested-config") }
+        registry.activityOnly<TestService> {
+            val config = resolve<ConfigService>()
+            TestServiceImpl(config.getConfig())
+        }
+
+        val context = registry.createActivityContext()
+        val key = dependencyKey<TestService>(DependencyScope.ACTIVITY_ONLY)
+        val service = context.get(key)
+
+        assertEquals("nested-config", service.getMessage())
+    }
+
+    @Test
+    fun `resolve finds ACTIVITY_ONLY dependency without specifying scope`() {
+        val registry = DependencyRegistry()
+        registry.activityOnly<TestService> { TestServiceImpl("activity-dep") }
+
+        val context = registry.createActivityContext()
+        // Use resolve directly on context (simulates usage inside a factory lambda)
+        val service = context.resolve<TestService>()
+
+        assertEquals("activity-dep", service.getMessage())
+    }
+
+    @Test
+    fun `resolve finds WORKFLOW_SAFE dependency without specifying scope`() {
+        val registry = DependencyRegistry()
+        registry.workflowSafe<ConfigService> { ConfigServiceImpl("wf-config") }
+
+        val context = registry.createWorkflowContext()
+        val config = context.resolve<ConfigService>()
+
+        assertEquals("wf-config", config.getConfig())
+    }
+
+    @Test
+    fun `resolve with qualifier`() {
+        val registry = DependencyRegistry()
+        registry.workflowSafe<TestService>(qualifier = "primary") { TestServiceImpl("primary") }
+        registry.workflowSafe<TestService>(qualifier = "secondary") { TestServiceImpl("secondary") }
+
+        val context = registry.createWorkflowContext()
+        val primary = context.resolve<TestService>("primary")
+        val secondary = context.resolve<TestService>("secondary")
+
+        assertEquals("primary", primary.getMessage())
+        assertEquals("secondary", secondary.getMessage())
+    }
+
+    @Test
+    fun `resolve throws MissingDependencyException for unregistered type`() {
+        val registry = DependencyRegistry()
+        val context = registry.createActivityContext()
+
+        assertFailsWith<MissingDependencyException> {
+            context.resolve<TestService>()
+        }
+    }
+
+    @Test
+    fun `resolve throws IllegalDependencyScopeException for ACTIVITY_ONLY in workflow context`() {
+        val registry = DependencyRegistry()
+        registry.activityOnly<TestService> { TestServiceImpl("nope") }
+
+        val context = registry.createWorkflowContext()
+
+        assertFailsWith<IllegalDependencyScopeException> {
+            context.resolve<TestService>()
+        }
+    }
+
+    @Test
+    fun `resolveOrNull returns null for unregistered type`() {
+        val registry = DependencyRegistry()
+        val context = registry.createActivityContext()
+
+        val result = context.resolveOrNull<TestService>()
+        assertEquals(null, result)
+    }
+
+    @Test
+    fun `resolveOrNull returns instance for registered type`() {
+        val registry = DependencyRegistry()
+        registry.workflowSafe<ConfigService> { ConfigServiceImpl("found") }
+
+        val context = registry.createWorkflowContext()
+        val config = context.resolveOrNull<ConfigService>()
+
+        assertNotNull(config)
+        assertEquals("found", config.getConfig())
+    }
+
+    // ===========================================
+    // Circular Dependency Detection Tests
+    // ===========================================
+
+    @Test
+    fun `circular dependency throws CircularDependencyException`() {
+        val registry = DependencyRegistry()
+
+        // A depends on B, B depends on A
+        registry.workflowSafe<TestService> {
+            resolve<ConfigService>() // triggers ConfigService creation
+            TestServiceImpl("never reached")
+        }
+        registry.workflowSafe<ConfigService> {
+            resolve<TestService>() // triggers TestService creation -> circular!
+            ConfigServiceImpl("never reached")
+        }
+
+        val context = registry.createWorkflowContext()
+
+        assertFailsWith<CircularDependencyException> {
+            context.resolve<TestService>()
+        }
+    }
+
+    @Test
+    fun `non-circular nested resolution works fine`() {
+        val registry = DependencyRegistry()
+
+        // C -> B -> A (linear chain, no cycle)
+        registry.workflowSafe<ConfigService> { ConfigServiceImpl("base-config") }
+        registry.workflowSafe<TestService> {
+            val config = resolve<ConfigService>()
+            TestServiceImpl("service-using-${config.getConfig()}")
+        }
+
+        val context = registry.createWorkflowContext()
+        val service = context.resolve<TestService>()
+
+        assertEquals("service-using-base-config", service.getMessage())
     }
 
     // ===========================================

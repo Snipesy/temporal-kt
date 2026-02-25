@@ -70,8 +70,50 @@ class MissingDependencyException(
 ) : IllegalStateException(message)
 
 /**
+ * Resolves a dependency by type, searching across all scopes.
+ *
+ * Checks WORKFLOW_SAFE first, then ACTIVITY_ONLY. Scope validation still
+ * applies — resolving an ACTIVITY_ONLY dependency in a workflow context will throw.
+ *
+ * Usage inside a `provide` / `workflowSafe` / `activityOnly` factory:
+ * ```kotlin
+ * activityOnly<HttpClient> {
+ *     val config = resolve<AppConfig>()
+ *     HttpClient(config.baseUrl)
+ * }
+ * ```
+ *
+ * @throws MissingDependencyException if no provider is registered for the type
+ * @throws IllegalDependencyScopeException if the resolved dependency's scope is not allowed
+ */
+inline fun <reified T : Any> DependencyContext.resolve(qualifier: String? = null): T =
+    resolveOrNull<T>(qualifier)
+        ?: throw MissingDependencyException(
+            "No provider registered for ${T::class.simpleName}" +
+                (qualifier?.let { " (qualifier: $it)" } ?: ""),
+        )
+
+/**
+ * Resolves a dependency by type, or null if not registered.
+ *
+ * Like [resolve], searches WORKFLOW_SAFE first, then ACTIVITY_ONLY.
+ *
+ * @throws IllegalDependencyScopeException if the resolved dependency's scope is not allowed
+ */
+inline fun <reified T : Any> DependencyContext.resolveOrNull(qualifier: String? = null): T? =
+    getOrNull(DependencyKey(T::class, DependencyScope.WORKFLOW_SAFE, qualifier))
+        ?: getOrNull(DependencyKey(T::class, DependencyScope.ACTIVITY_ONLY, qualifier))
+
+/**
  * Exception thrown when attempting to use an ACTIVITY_ONLY dependency in a workflow.
  */
 class IllegalDependencyScopeException(
+    message: String,
+) : IllegalStateException(message)
+
+/**
+ * Exception thrown when a circular dependency is detected during resolution.
+ */
+class CircularDependencyException(
     message: String,
 ) : IllegalStateException(message)
