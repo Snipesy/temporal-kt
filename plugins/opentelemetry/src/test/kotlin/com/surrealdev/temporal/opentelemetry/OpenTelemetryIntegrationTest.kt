@@ -127,8 +127,6 @@ class OpenTelemetryIntegrationTest {
             assertEquals(SpanKind.SERVER, span.kind)
             assertNotNull(span.attributes.get(AttributeKey.stringKey("temporalWorkflowID")))
             assertNotNull(span.attributes.get(AttributeKey.stringKey("temporalRunID")))
-
-            openTelemetry.close()
         }
 
     @Test
@@ -173,8 +171,6 @@ class OpenTelemetryIntegrationTest {
             assertNotNull(span.attributes.get(AttributeKey.stringKey("temporalActivityID")))
             assertNotNull(span.attributes.get(AttributeKey.stringKey("temporalWorkflowID")))
             assertNotNull(span.attributes.get(AttributeKey.stringKey("temporalRunID")))
-
-            openTelemetry.close()
         }
 
     @Test
@@ -232,8 +228,6 @@ class OpenTelemetryIntegrationTest {
                 runActivitySpan.parentSpanId,
                 "RunActivity's parent should be StartActivity",
             )
-
-            openTelemetry.close()
         }
 
     @Test
@@ -281,8 +275,6 @@ class OpenTelemetryIntegrationTest {
             val activityDurationMetric =
                 waitForMetric(metricReader, "temporal.activity.task.duration", timeout = 5.seconds)
             assertNotNull(activityDurationMetric, "Expected activity task duration metric")
-
-            openTelemetry.close()
         }
 
     @Test
@@ -328,8 +320,6 @@ class OpenTelemetryIntegrationTest {
 
             assertTrue(workflowSpans.isEmpty(), "Expected NO workflow spans when disabled")
             assertTrue(activitySpans.isNotEmpty(), "Expected activity spans")
-
-            openTelemetry.close()
         }
 
     @Test
@@ -355,8 +345,6 @@ class OpenTelemetryIntegrationTest {
 
             val workerStartedMetric = waitForMetric(metricReader, "temporal.worker.started.total", timeout = 5.seconds)
             assertNotNull(workerStartedMetric, "Expected worker started counter metric")
-
-            openTelemetry.close()
         }
 
     // ==================== Helper Methods ====================

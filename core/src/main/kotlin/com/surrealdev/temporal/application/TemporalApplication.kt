@@ -258,13 +258,9 @@ open class TemporalApplication internal constructor(
         if (!started) return
         if (!closeStarted.compareAndSet(false, true)) return
 
-        // Phase 1: Fire shutdown hook
-        hookRegistry.call(
-            ApplicationShutdown,
-            ApplicationShutdownContext(this),
-        )
-
-        // Phase 2: Stop workers with grace period
+        // Phase 1: Stop workers with grace period
+        // Workers must stop before shutdown hooks fire so that all in-flight task
+        // hooks (onTaskCompleted, etc.) complete before resources are cleaned up.
         for ((taskQueue, worker) in workers) {
             try {
                 worker.stop()
@@ -281,6 +277,12 @@ open class TemporalApplication internal constructor(
             }
         }
         workers.clear()
+
+        // Phase 2: Fire shutdown hooks (resource cleanup, etc.)
+        hookRegistry.call(
+            ApplicationShutdown,
+            ApplicationShutdownContext(this),
+        )
 
         // Phase 3: Cancel application job with timeout
         applicationJob.cancel()
