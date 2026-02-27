@@ -123,6 +123,14 @@ class GreetingActivity {
        --input '"World"'
    ```
 
+### Container Images with Jib
+
+When building multi-arch container images with [Jib](https://github.com/GoogleContainerTools/jib),
+the Gradle plugin automatically includes all native classifier JARs. Add the
+[jib-plugin](../plugins/jib) extension to filter them per target platform:
+
+See the [jib-plugin README](../plugins/jib/README.md) for full details.
+
 For more examples, see the [examples](../examples) directory.
 
 ## Structured Concurrent Workflows

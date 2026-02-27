@@ -19,6 +19,7 @@ sl4jkotlinCoroutines = "1.10.2"
 opentelemetry = "1.57.0"
 logback = "1.5.6"
 osdetector = "1.7.3"
+jibExtensionApi = "0.4.0"
 
 [libraries]
 kotlinGradlePlugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
@@ -45,6 +46,7 @@ opentelemetrySdkTesting = { module = "io.opentelemetry:opentelemetry-sdk-testing
 opentelemetryExporterOtlp = { module = "io.opentelemetry:opentelemetry-exporter-otlp", version.ref = "opentelemetry" }
 opentelemetryLogbackAppender = { module = "io.opentelemetry.instrumentation:opentelemetry-logback-appender-1.0", version = "2.25.0-alpha" }
 logbackClassic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
+jibGradlePluginExtensionApi = { module = "com.google.cloud.tools:jib-gradle-plugin-extension-api", version.ref = "jibExtensionApi" }
 
 # Libraries can be bundled together for easier import
 [bundles]

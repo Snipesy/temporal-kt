@@ -34,6 +34,7 @@
             <option value="$PROJECT_DIR$/gradle-plugin" />
             <option value="$PROJECT_DIR$/plugins" />
             <option value="$PROJECT_DIR$/plugins/di" />
+            <option value="$PROJECT_DIR$/plugins/jib" />
             <option value="$PROJECT_DIR$/plugins/opentelemetry" />
           </set>
         </option>

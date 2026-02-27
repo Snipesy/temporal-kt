@@ -13,6 +13,7 @@ include(":plugins:di")
 include(":plugins:opentelemetry")
 include(":compiler-plugin")
 include(":gradle-plugin")
+include(":plugins:jib")
 
 // Example modules
 include(":examples:hello-world")

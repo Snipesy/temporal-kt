@@ -78,10 +78,20 @@ class TemporalGradlePlugin : KotlinCompilerPluginSupportPlugin {
                     // Read extension values lazily during resolution
                     val nativeEnabled = extension.native.enabled.get()
                     if (nativeEnabled) {
-                        val classifier = extension.native.classifier.orNull ?: detectPlatformClassifier()
-                        val coordinates =
-                            "${BuildConfig.GROUP_ID}:${BuildConfig.CORE_BRIDGE_ARTIFACT_ID}:${BuildConfig.VERSION}:$classifier"
-                        deps.add(project.dependencies.create(coordinates))
+                        val bridge =
+                            "${BuildConfig.GROUP_ID}:${BuildConfig.CORE_BRIDGE_ARTIFACT_ID}:${BuildConfig.VERSION}"
+                        val hasJib =
+                            project.pluginManager.hasPlugin("com.google.cloud.tools.jib")
+                        if (hasJib) {
+                            // Add all classifiers so the Jib extension can filter per platform
+                            for (classifier in ALL_CLASSIFIERS) {
+                                deps.add(project.dependencies.create("$bridge:$classifier"))
+                            }
+                        } else {
+                            val classifier =
+                                extension.native.classifier.orNull ?: detectPlatformClassifier()
+                            deps.add(project.dependencies.create("$bridge:$classifier"))
+                        }
                     }
                 }
             }
@@ -154,6 +164,16 @@ class TemporalGradlePlugin : KotlinCompilerPluginSupportPlugin {
         const val EXTENSION_NAME = "temporal"
         const val CONFIGURATION_API = "temporalApi"
         const val CONFIGURATION_NATIVE = "temporalNative"
+
+        /** All known native classifier suffixes for core-bridge. */
+        val ALL_CLASSIFIERS =
+            listOf(
+                "linux-x86_64-gnu",
+                "linux-aarch64-gnu",
+                "macos-x86_64",
+                "macos-aarch64",
+                "windows-x86_64",
+            )
 
         /**
          * Detects the native library classifier based on current OS and architecture.
