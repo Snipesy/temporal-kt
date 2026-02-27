@@ -17,10 +17,15 @@ import com.surrealdev.temporal.core.VersioningBehavior
 import com.surrealdev.temporal.core.WorkerDeploymentOptions
 import com.surrealdev.temporal.core.WorkerDeploymentVersion
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.test.TestResult
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.nio.channels.FileChannel
+import java.nio.file.StandardOpenOption
 import java.time.Instant
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
@@ -308,6 +313,34 @@ class TemporalTestApplicationBuilder internal constructor(
     }
 }
 
+// Serializes ephemeral server starts within this JVM.
+// Needed because POSIX FileLock is per-process, not per-thread.
+private val serverStartMutex = Mutex()
+
+/**
+ * Serializes ephemeral server starts across JVM processes on this machine.
+ *
+ * The Core SDK's `get_free_port()` has a TOCTOU race: it finds a free port, drops the listener,
+ * then passes the port to a subprocess that must re-bind it. When multiple Gradle modules run
+ * tests in parallel (each in its own JVM), concurrent starts can collide on the same port.
+ *
+ * This uses a [Mutex] for within-JVM serialization (POSIX FileLock is per-process) and a
+ * [FileChannel.lock] for cross-JVM serialization. The lock is held only for the duration of
+ * [block] (the server start call), not the entire test.
+ */
+private suspend fun <T> withServerStartLock(block: suspend () -> T): T =
+    serverStartMutex.withLock {
+        val lockFile = File(System.getProperty("java.io.tmpdir"), TEMPORAL_SERVER_START_SYSTEM_LOCK_FILE)
+        FileChannel.open(lockFile.toPath(), StandardOpenOption.CREATE, StandardOpenOption.WRITE).use { channel ->
+            val lock = withContext(Dispatchers.IO) { channel.lock() }
+            try {
+                block()
+            } finally {
+                lock.release()
+            }
+        }
+    }
+
 /**
  * Runs a test with an ephemeral Temporal dev server.
  *
@@ -470,48 +503,39 @@ suspend fun TestScope.runTestApplication(
                 coroutineContext
             }
 
-        if (timeSkipping) {
-            TemporalTestServer
-                .start(
-                    runtime = runtime,
-                    searchAttributes = searchAttributePairs,
-                ).use { testServer ->
-                    // Time skipping starts LOCKED (Python SDK behavior)
-                    // It will be automatically unlocked when awaiting workflow results
-                    // via TemporalTestClient/TimeSkippingWorkflowHandle
+        // Serialize server starts to avoid Core SDK's get_free_port() TOCTOU race.
+        // Lock is held only until start() confirms the server is listening.
+        val server: EphemeralServer =
+            withServerStartLock {
+                if (timeSkipping) {
+                    TemporalTestServer.start(
+                        runtime = runtime,
+                        searchAttributes = searchAttributePairs,
+                    )
+                } else {
+                    TemporalDevServer.start(
+                        runtime = runtime,
+                        ip = ip,
+                        namespace = namespace,
+                        searchAttributes = searchAttributePairs,
+                    )
+                }
+            }
 
-                    val builder =
-                        TemporalTestApplicationBuilder(
-                            server = testServer,
-                            parentCoroutineContext = effectiveContext,
-                            namespace = namespace,
-                        )
-                    try {
-                        builder.block()
-                    } finally {
-                        builder.cleanup()
-                    }
-                }
-        } else {
-            TemporalDevServer
-                .start(
-                    runtime = runtime,
-                    ip = ip,
+        server.use { startedServer ->
+            val builder =
+                TemporalTestApplicationBuilder(
+                    server = startedServer,
+                    parentCoroutineContext = effectiveContext,
                     namespace = namespace,
-                    searchAttributes = searchAttributePairs,
-                ).use { devServer ->
-                    val builder =
-                        TemporalTestApplicationBuilder(
-                            server = devServer,
-                            parentCoroutineContext = effectiveContext,
-                            namespace = namespace,
-                        )
-                    try {
-                        builder.block()
-                    } finally {
-                        builder.cleanup()
-                    }
-                }
+                )
+            try {
+                builder.block()
+            } finally {
+                builder.cleanup()
+            }
         }
     }
 }
+
+private const val TEMPORAL_SERVER_START_SYSTEM_LOCK_FILE = "temporal-kt-server-start.lock"

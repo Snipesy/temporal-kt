@@ -382,8 +382,11 @@ private fun RetryPolicy.toProtoRetryPolicy(): io.temporal.api.common.v1.RetryPol
 
 private fun ContinueAsNewVersioningBehavior.toProto(): ProtoContinueAsNewVersioningBehavior =
     when (this) {
-        ContinueAsNewVersioningBehavior.AUTO_UPGRADE ->
+        ContinueAsNewVersioningBehavior.AUTO_UPGRADE -> {
             ProtoContinueAsNewVersioningBehavior.CONTINUE_AS_NEW_VERSIONING_BEHAVIOR_AUTO_UPGRADE
-        ContinueAsNewVersioningBehavior.UNSPECIFIED ->
+        }
+
+        ContinueAsNewVersioningBehavior.UNSPECIFIED -> {
             ProtoContinueAsNewVersioningBehavior.CONTINUE_AS_NEW_VERSIONING_BEHAVIOR_UNSPECIFIED
+        }
     }

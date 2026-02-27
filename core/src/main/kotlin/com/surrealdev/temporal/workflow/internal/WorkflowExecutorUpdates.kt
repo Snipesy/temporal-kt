@@ -180,14 +180,25 @@ private fun WorkflowExecutor.resolveUpdateHandler(updateName: String): ResolvedU
     val annotationDynamicHandler = methodInfo.updateHandlers[null]
 
     return when {
-        runtimeHandler != null -> resolveRuntimeHandler(runtimeHandler)
-        annotationHandler != null ->
+        runtimeHandler != null -> {
+            resolveRuntimeHandler(runtimeHandler)
+        }
+
+        annotationHandler != null -> {
             resolveAnnotationHandler(annotationHandler, updateName, isDynamic = false)
-        runtimeDynamicHandler != null ->
+        }
+
+        runtimeDynamicHandler != null -> {
             resolveRuntimeDynamicHandler(runtimeDynamicHandler, updateName)
-        annotationDynamicHandler != null ->
+        }
+
+        annotationDynamicHandler != null -> {
             resolveAnnotationHandler(annotationDynamicHandler, updateName, isDynamic = true)
-        else -> null
+        }
+
+        else -> {
+            null
+        }
     }
 }
 

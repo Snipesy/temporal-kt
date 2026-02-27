@@ -617,6 +617,7 @@ internal object TemporalCoreWorker {
                 TemporalCorePollerBehavior.autoscaling(behavior, MemorySegment.NULL)
                 behavior
             }
+
             is CorePollerBehavior.Autoscaling -> {
                 val autoscaling = TemporalCorePollerBehaviorAutoscaling.allocate(arena)
                 TemporalCorePollerBehaviorAutoscaling.minimum(autoscaling, minimum.toLong())

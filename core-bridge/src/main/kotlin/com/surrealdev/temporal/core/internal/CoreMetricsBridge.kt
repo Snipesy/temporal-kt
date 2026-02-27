@@ -186,17 +186,30 @@ internal class CoreMetricsBridge(
             val attrs = resolveAttributes(attributes)
 
             when (instrument) {
-                is OtelInstrument.CounterLong -> instrument.counter.add(value, attrs)
-                is OtelInstrument.HistogramLong -> instrument.histogram.record(value, attrs)
-                is OtelInstrument.GaugeLong -> instrument.gauge.set(value, attrs)
-                is OtelInstrument.HistogramDuration -> instrument.histogram.record(value, attrs)
+                is OtelInstrument.CounterLong -> {
+                    instrument.counter.add(value, attrs)
+                }
+
+                is OtelInstrument.HistogramLong -> {
+                    instrument.histogram.record(value, attrs)
+                }
+
+                is OtelInstrument.GaugeLong -> {
+                    instrument.gauge.set(value, attrs)
+                }
+
+                is OtelInstrument.HistogramDuration -> {
+                    instrument.histogram.record(value, attrs)
+                }
+
                 is OtelInstrument.HistogramDouble,
                 is OtelInstrument.GaugeDouble,
-                ->
+                -> {
                     logger.warn(
                         "Unexpected integer recording on float instrument (handle={})",
                         metric.address(),
                     )
+                }
             }
         } catch (t: Throwable) {
             logger.error("metricRecordInteger callback failed", t)
@@ -213,13 +226,20 @@ internal class CoreMetricsBridge(
             val attrs = resolveAttributes(attributes)
 
             when (instrument) {
-                is OtelInstrument.HistogramDouble -> instrument.histogram.record(value, attrs)
-                is OtelInstrument.GaugeDouble -> instrument.gauge.set(value, attrs)
-                else ->
+                is OtelInstrument.HistogramDouble -> {
+                    instrument.histogram.record(value, attrs)
+                }
+
+                is OtelInstrument.GaugeDouble -> {
+                    instrument.gauge.set(value, attrs)
+                }
+
+                else -> {
                     logger.warn(
                         "Unexpected float recording on integer instrument (handle={})",
                         metric.address(),
                     )
+                }
             }
         } catch (t: Throwable) {
             logger.error("metricRecordFloat callback failed", t)
@@ -236,12 +256,16 @@ internal class CoreMetricsBridge(
             val attrs = resolveAttributes(attributes)
 
             when (instrument) {
-                is OtelInstrument.HistogramDuration -> instrument.histogram.record(valueMs, attrs)
-                else ->
+                is OtelInstrument.HistogramDuration -> {
+                    instrument.histogram.record(valueMs, attrs)
+                }
+
+                else -> {
                     logger.warn(
                         "Unexpected duration recording on non-duration instrument (handle={})",
                         metric.address(),
                     )
+                }
             }
         } catch (t: Throwable) {
             logger.error("metricRecordDuration callback failed", t)
@@ -294,6 +318,7 @@ internal class CoreMetricsBridge(
                                 strValue ?: "",
                             )
                         }
+
                         TemporalCoreMetrics.AttributeValueType.INTEGER.value -> {
                             val intValue =
                                 TemporalCoreCustomMetricAttributeValue.int_value(valueUnion)
@@ -303,6 +328,7 @@ internal class CoreMetricsBridge(
                                 intValue,
                             )
                         }
+
                         TemporalCoreMetrics.AttributeValueType.FLOAT.value -> {
                             val floatValue =
                                 TemporalCoreCustomMetricAttributeValue.float_value(valueUnion)
@@ -312,6 +338,7 @@ internal class CoreMetricsBridge(
                                 floatValue,
                             )
                         }
+
                         TemporalCoreMetrics.AttributeValueType.BOOL.value -> {
                             val boolValue =
                                 TemporalCoreCustomMetricAttributeValue.bool_value(valueUnion)
@@ -369,7 +396,7 @@ internal class CoreMetricsBridge(
         kind: Int,
     ): OtelInstrument =
         when (kind) {
-            TemporalCoreMetrics.MetricKind.COUNTER_INTEGER.value ->
+            TemporalCoreMetrics.MetricKind.COUNTER_INTEGER.value -> {
                 OtelInstrument.CounterLong(
                     meter
                         .counterBuilder(name)
@@ -377,8 +404,9 @@ internal class CoreMetricsBridge(
                         .setUnit(unit)
                         .build(),
                 )
+            }
 
-            TemporalCoreMetrics.MetricKind.HISTOGRAM_INTEGER.value ->
+            TemporalCoreMetrics.MetricKind.HISTOGRAM_INTEGER.value -> {
                 OtelInstrument.HistogramLong(
                     meter
                         .histogramBuilder(name)
@@ -387,8 +415,9 @@ internal class CoreMetricsBridge(
                         .setUnit(unit)
                         .build(),
                 )
+            }
 
-            TemporalCoreMetrics.MetricKind.HISTOGRAM_FLOAT.value ->
+            TemporalCoreMetrics.MetricKind.HISTOGRAM_FLOAT.value -> {
                 OtelInstrument.HistogramDouble(
                     meter
                         .histogramBuilder(name)
@@ -396,8 +425,9 @@ internal class CoreMetricsBridge(
                         .setUnit(unit)
                         .build(),
                 )
+            }
 
-            TemporalCoreMetrics.MetricKind.HISTOGRAM_DURATION.value ->
+            TemporalCoreMetrics.MetricKind.HISTOGRAM_DURATION.value -> {
                 // Core SDK sends "duration" as the unit string, but the actual values
                 // are always in milliseconds (Rust side calls value.as_millis()).
                 // Override to the proper OTel unit.
@@ -409,8 +439,9 @@ internal class CoreMetricsBridge(
                         .setUnit("ms")
                         .build(),
                 )
+            }
 
-            TemporalCoreMetrics.MetricKind.GAUGE_INTEGER.value ->
+            TemporalCoreMetrics.MetricKind.GAUGE_INTEGER.value -> {
                 OtelInstrument.GaugeLong(
                     meter
                         .gaugeBuilder(name)
@@ -419,8 +450,9 @@ internal class CoreMetricsBridge(
                         .setUnit(unit)
                         .build(),
                 )
+            }
 
-            TemporalCoreMetrics.MetricKind.GAUGE_FLOAT.value ->
+            TemporalCoreMetrics.MetricKind.GAUGE_FLOAT.value -> {
                 OtelInstrument.GaugeDouble(
                     meter
                         .gaugeBuilder(name)
@@ -428,6 +460,7 @@ internal class CoreMetricsBridge(
                         .setUnit(unit)
                         .build(),
                 )
+            }
 
             else -> {
                 logger.warn(

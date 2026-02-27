@@ -900,15 +900,25 @@ internal data class PendingChildWorkflowInfo(
 
 private fun ProtoSuggestReason.toDomain(): SuggestContinueAsNewReason =
     when (this) {
-        ProtoSuggestReason.SUGGEST_CONTINUE_AS_NEW_REASON_HISTORY_SIZE_TOO_LARGE ->
+        ProtoSuggestReason.SUGGEST_CONTINUE_AS_NEW_REASON_HISTORY_SIZE_TOO_LARGE -> {
             SuggestContinueAsNewReason.HISTORY_SIZE_TOO_LARGE
-        ProtoSuggestReason.SUGGEST_CONTINUE_AS_NEW_REASON_TOO_MANY_HISTORY_EVENTS ->
+        }
+
+        ProtoSuggestReason.SUGGEST_CONTINUE_AS_NEW_REASON_TOO_MANY_HISTORY_EVENTS -> {
             SuggestContinueAsNewReason.TOO_MANY_HISTORY_EVENTS
-        ProtoSuggestReason.SUGGEST_CONTINUE_AS_NEW_REASON_TOO_MANY_UPDATES ->
+        }
+
+        ProtoSuggestReason.SUGGEST_CONTINUE_AS_NEW_REASON_TOO_MANY_UPDATES -> {
             SuggestContinueAsNewReason.TOO_MANY_UPDATES
-        ProtoSuggestReason.SUGGEST_CONTINUE_AS_NEW_REASON_TARGET_WORKER_DEPLOYMENT_VERSION_CHANGED ->
+        }
+
+        ProtoSuggestReason.SUGGEST_CONTINUE_AS_NEW_REASON_TARGET_WORKER_DEPLOYMENT_VERSION_CHANGED -> {
             SuggestContinueAsNewReason.TARGET_WORKER_DEPLOYMENT_VERSION_CHANGED
-        else -> SuggestContinueAsNewReason.UNSPECIFIED
+        }
+
+        else -> {
+            SuggestContinueAsNewReason.UNSPECIFIED
+        }
     }
 
 /**

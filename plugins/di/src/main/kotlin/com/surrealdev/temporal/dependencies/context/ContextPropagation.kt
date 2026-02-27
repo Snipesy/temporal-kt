@@ -236,6 +236,7 @@ val ContextPropagation: ScopedPlugin<ContextPropagationConfig, ContextPropagatio
                             values[entry.name] = serializer.serialize(entry.type, entry.provider())
                         }
                     }
+
                     ProviderBehavior.ALWAYS_EXECUTE -> {
                         // Always execute the provider, overwriting any inbound header.
                         values[entry.name] = serializer.serialize(entry.type, entry.provider())

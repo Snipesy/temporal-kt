@@ -295,6 +295,7 @@ internal class WorkflowHandleImpl(
                             null
                         }
                     }
+
                     is CloseEventResult.Failed -> {
                         throw ClientWorkflowFailedException(
                             workflowId = workflowId,
@@ -304,6 +305,7 @@ internal class WorkflowHandleImpl(
                             cause = result.failure?.let { buildCause(it, codec) },
                         )
                     }
+
                     is CloseEventResult.TimedOut -> {
                         throw ClientWorkflowTimedOutException(
                             workflowId = workflowId,
@@ -311,6 +313,7 @@ internal class WorkflowHandleImpl(
                             timeoutType = WorkflowTimeoutType.WORKFLOW_EXECUTION_TIMEOUT,
                         )
                     }
+
                     is CloseEventResult.FollowRun -> {
                         // Follow continuation without recursion — update local runId and re-poll
                         currentRunId = result.newRunId

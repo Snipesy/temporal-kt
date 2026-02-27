@@ -30,11 +30,19 @@ internal fun TemporalCoreException.rethrowMapped(
     runId: String? = null,
 ): Nothing =
     when (statusCode) {
-        GRPC_NOT_FOUND ->
+        GRPC_NOT_FOUND -> {
             throw ClientWorkflowNotFoundException(workflowId = workflowId, runId = runId, cause = this)
-        GRPC_ALREADY_EXISTS ->
+        }
+
+        GRPC_ALREADY_EXISTS -> {
             throw ClientWorkflowAlreadyExistsException(workflowId = workflowId, existingRunId = null, cause = this)
-        GRPC_PERMISSION_DENIED ->
+        }
+
+        GRPC_PERMISSION_DENIED -> {
             throw ClientPermissionDeniedException(cause = this)
-        else -> throw this
+        }
+
+        else -> {
+            throw this
+        }
     }
