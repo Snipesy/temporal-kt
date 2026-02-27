@@ -32,7 +32,7 @@ jobs:
           rustflags: ""
 
       - name: Install Protobuf
-        run: sudo apt-get install -y protobuf-compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
