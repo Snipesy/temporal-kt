@@ -17,8 +17,8 @@ val nativePlatforms =
     listOf(
         NativePlatform("linux-x86_64-gnu", "linux-x86_64-gnu"),
         NativePlatform("linux-aarch64-gnu", "linux-aarch64-gnu"),
-        NativePlatform("linux-x86_64-musl", "linux-x86_64-musl"),
-        NativePlatform("linux-aarch64-musl", "linux-aarch64-musl"),
+        // Future: NativePlatform("linux-x86_64-musl", "linux-x86_64-musl"),
+        // Future: NativePlatform("linux-aarch64-musl", "linux-aarch64-musl"),
         NativePlatform("macos-x86_64", "macos-x86_64"),
         NativePlatform("macos-aarch64", "macos-aarch64"),
         NativePlatform("windows-x86_64", "windows-x86_64"),
@@ -176,78 +176,6 @@ val copyNativeLibLinuxAarch64 by tasks.registering(Copy::class) {
     into(nativeLibsDir.map { it.dir("native/linux-aarch64-gnu") })
 }
 
-// Native build for Linux x86_64 musl (Alpine) - cross-compiled in Alpine container
-val cargoBuildLinuxx8664Musl by tasks.registering(Exec::class) {
-    description = "Build native library for linux-x86_64-musl"
-    group = "build"
-    workingDir = file("rust")
-    commandLine(
-        "cargo",
-        "build",
-        "--release",
-        "--locked",
-        "-p",
-        "temporalio-sdk-core-c-bridge",
-        "--target",
-        "x86_64-unknown-linux-musl",
-    )
-
-    inputs.files(
-        fileTree("rust") {
-            include("Cargo.toml", "Cargo.lock")
-        },
-        fileTree("rust/sdk-core") {
-            include("**/*.rs", "**/Cargo.toml")
-        },
-    )
-    outputs.file("rust/target/x86_64-unknown-linux-musl/release/lib$nativeLibName.so")
-}
-
-val copyNativeLibLinuxx8664Musl by tasks.registering(Copy::class) {
-    description = "Copy native library for linux-x86_64-musl to build directory"
-    group = "build"
-    dependsOn(cargoBuildLinuxx8664Musl)
-
-    from("rust/target/x86_64-unknown-linux-musl/release/lib$nativeLibName.so")
-    into(nativeLibsDir.map { it.dir("native/linux-x86_64-musl") })
-}
-
-// Native build for Linux aarch64 musl (Alpine) - cross-compiled in Alpine container
-val cargoBuildLinuxAarch64Musl by tasks.registering(Exec::class) {
-    description = "Build native library for linux-aarch64-musl"
-    group = "build"
-    workingDir = file("rust")
-    commandLine(
-        "cargo",
-        "build",
-        "--release",
-        "--locked",
-        "-p",
-        "temporalio-sdk-core-c-bridge",
-        "--target",
-        "aarch64-unknown-linux-musl",
-    )
-
-    inputs.files(
-        fileTree("rust") {
-            include("Cargo.toml", "Cargo.lock")
-        },
-        fileTree("rust/sdk-core") {
-            include("**/*.rs", "**/Cargo.toml")
-        },
-    )
-    outputs.file("rust/target/aarch64-unknown-linux-musl/release/lib$nativeLibName.so")
-}
-
-val copyNativeLibLinuxAarch64Musl by tasks.registering(Copy::class) {
-    description = "Copy native library for linux-aarch64-musl to build directory"
-    group = "build"
-    dependsOn(cargoBuildLinuxAarch64Musl)
-
-    from("rust/target/aarch64-unknown-linux-musl/release/lib$nativeLibName.so")
-    into(nativeLibsDir.map { it.dir("native/linux-aarch64-musl") })
-}
-
 // Windows x86_64 build (native MSVC on Windows runner)
 val cargoBuildWindowsx8664 by tasks.registering(Exec::class) {
     description = "Build native library for windows-x86_64 (native MSVC)"
@@ -363,8 +291,6 @@ val cargoBuildAll by tasks.registering {
     dependsOn(
         cargoBuildLinuxx8664,
         cargoBuildLinuxAarch64,
-        cargoBuildLinuxx8664Musl,
-        cargoBuildLinuxAarch64Musl,
         cargoBuildWindowsx8664,
         cargoBuildMacosAarch64,
         cargoBuildMacosx8664,
@@ -377,8 +303,6 @@ val copyAllNativeLibs by tasks.registering {
     dependsOn(
         copyNativeLibLinuxx8664,
         copyNativeLibLinuxAarch64,
-        copyNativeLibLinuxx8664Musl,
-        copyNativeLibLinuxAarch64Musl,
         copyNativeLibWindowsx8664,
         copyNativeLibMacosAarch64,
         copyNativeLibMacosx8664,
@@ -389,12 +313,7 @@ val copyAllNativeLibs by tasks.registering {
 val copyLinuxNativeLibs by tasks.registering {
     description = "Copy Linux native libraries (for Linux CI runner)"
     group = "build"
-    dependsOn(
-        copyNativeLibLinuxx8664,
-        copyNativeLibLinuxAarch64,
-        copyNativeLibLinuxx8664Musl,
-        copyNativeLibLinuxAarch64Musl,
-    )
+    dependsOn(copyNativeLibLinuxx8664, copyNativeLibLinuxAarch64)
 }
 
 val copyMacosAarch64NativeLib by tasks.registering {

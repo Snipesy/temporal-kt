@@ -5,7 +5,7 @@ Jib extension that filters Temporal core-bridge native classifier JARs per conta
 When building multi-arch container images with Jib, all native classifier JARs end up on the classpath.
 This extension removes the ones that don't match the target platform, keeping images lean.
 
-Both GNU (glibc) and musl (Alpine) Linux images are supported. Set the `libc` property to `musl` when targeting Alpine-based images (defaults to `gnu`).
+Only GNU-based Linux images are supported. Alpine (musl) is not supported.
 
 Note: Jib uses legacy service loaders for their SPI (realllllly bad practice) 
 otherwise we would probably find a better way of doing this.
@@ -45,19 +45,6 @@ jib {
     pluginExtensions {
         pluginExtension {
             implementation = "com.surrealdev.temporal.gradle.jib.TemporalJibExtension"
-        }
-    }
-}
-```
-
-For Alpine-based images, set the `libc` property to `musl`:
-
-```kotlin
-jib {
-    pluginExtensions {
-        pluginExtension {
-            implementation = "com.surrealdev.temporal.gradle.jib.TemporalJibExtension"
-            properties = mapOf("libc" to "musl")
         }
     }
 }

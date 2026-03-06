@@ -170,8 +170,6 @@ class TemporalGradlePlugin : KotlinCompilerPluginSupportPlugin {
             listOf(
                 "linux-x86_64-gnu",
                 "linux-aarch64-gnu",
-                "linux-x86_64-musl",
-                "linux-aarch64-musl",
                 "macos-x86_64",
                 "macos-aarch64",
                 "windows-x86_64",

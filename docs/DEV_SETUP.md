@@ -18,12 +18,13 @@ Temporal-KT currently supports:
 * macOS x86_64
 * Linux x86_64 (glibc)
 * Linux aarch64 (glibc)
-* Linux x86_64 (musl/Alpine)
-* Linux aarch64 (musl/Alpine)
 * Windows x86_64
 
-Native libraries are built on each platform's native GitHub Actions runner. Musl builds run inside
-Alpine containers. Release binaries are built and tested on all supported platforms.
+> **Note:** Alpine Linux and other musl libc distributions are not currently supported.
+> For containerized deployments, use a glibc-based image (e.g., `debian`, `ubuntu`) instead of Alpine.
+
+Native libraries are built on each platform's native GitHub Actions runner. Release binaries are built
+and tested on the appropriate platforms (Linux x86_64, Linux aarch64, macOS x86_64, macOS aarch64, Windows x86_64).
 
 
 ## Cloning

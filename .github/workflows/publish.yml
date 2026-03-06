@@ -68,22 +68,13 @@ jobs:
         with:
           submodules: 'recursive'
 
-      - name: Cache native library
-        id: native-cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ matrix.artifact-path }}
-          key: native-${{ matrix.platform }}-${{ hashFiles('core-bridge/rust/Cargo.lock', 'core-bridge/rust/Cargo.toml', 'core-bridge/rust/sdk-core/**/*.rs', 'core-bridge/rust/sdk-core/**/Cargo.toml') }}
-
       - name: Set up JDK 25
-        if: steps.native-cache.outputs.cache-hit != 'true'
         uses: actions/setup-java@v4
         with:
           java-version: '25'
           distribution: 'graalvm'
 
       - name: Set up Rust
-        if: steps.native-cache.outputs.cache-hit != 'true'
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: stable
@@ -94,95 +85,24 @@ jobs:
           rustflags: ""
 
       - name: Install protobuf (Linux)
-        if: steps.native-cache.outputs.cache-hit != 'true' && runner.os == 'Linux'
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - name: Install protobuf (macOS)
-        if: steps.native-cache.outputs.cache-hit != 'true' && runner.os == 'macOS'
+        if: runner.os == 'macOS'
         run: brew install protobuf
 
       - name: Install protobuf (Windows)
-        if: steps.native-cache.outputs.cache-hit != 'true' && runner.os == 'Windows'
+        if: runner.os == 'Windows'
         uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Gradle
-        if: steps.native-cache.outputs.cache-hit != 'true'
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build native library
-        if: steps.native-cache.outputs.cache-hit != 'true'
         run: ./gradlew :core-bridge:${{ matrix.gradle-task }} --no-daemon
-
-      - name: Upload native lib
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact-name }}
-          path: ${{ matrix.artifact-path }}
-          retention-days: 1
-
-  # ===== MUSL (ALPINE) NATIVE BUILD JOBS =====
-  # These run inside Alpine containers to link against musl libc natively.
-
-  build-native-musl:
-    name: Build Native (${{ matrix.platform }})
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-24.04
-            platform: linux-x86_64-musl
-            rust-target: x86_64-unknown-linux-musl
-            gradle-task: copyNativeLibLinuxx8664Musl
-            artifact-name: native-libs-linux-x86_64-musl
-            artifact-path: core-bridge/build/native-libs/native/linux-x86_64-musl
-          - os: ubuntu-24.04-arm
-            platform: linux-aarch64-musl
-            rust-target: aarch64-unknown-linux-musl
-            gradle-task: copyNativeLibLinuxAarch64Musl
-            artifact-name: native-libs-linux-aarch64-musl
-            artifact-path: core-bridge/build/native-libs/native/linux-aarch64-musl
-
-    runs-on: ${{ matrix.os }}
-    container:
-      image: alpine:3.21
-    steps:
-      - name: Install Alpine dependencies
-        run: |
-          apk add --no-cache \
-            bash curl git musl-dev gcc g++ make \
-            protobuf-dev protoc \
-            openjdk21-jdk \
-            tar gzip
-
-      - uses: actions/checkout@v6
-        with:
-          submodules: 'recursive'
-
-      - name: Cache native library
-        id: native-cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ matrix.artifact-path }}
-          key: native-${{ matrix.platform }}-${{ hashFiles('core-bridge/rust/Cargo.lock', 'core-bridge/rust/Cargo.toml', 'core-bridge/rust/sdk-core/**/*.rs', 'core-bridge/rust/sdk-core/**/Cargo.toml') }}
-
-      - name: Set up Rust
-        if: steps.native-cache.outputs.cache-hit != 'true'
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --target ${{ matrix.rust-target }}
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-
-      - name: Setup Gradle
-        if: steps.native-cache.outputs.cache-hit != 'true'
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Build native library
-        if: steps.native-cache.outputs.cache-hit != 'true'
-        run: |
-          . "$HOME/.cargo/env"
-          ./gradlew :core-bridge:${{ matrix.gradle-task }} --no-daemon
 
       - name: Upload native lib
         uses: actions/upload-artifact@v4
@@ -265,7 +185,7 @@ jobs:
 
   publish:
     name: Publish to Maven Central
-    needs: [build-native, build-native-musl, test]
+    needs: [build-native, test]
     timeout-minutes: 30
     runs-on: ubuntu-latest
     permissions:
@@ -300,18 +220,6 @@ jobs:
           name: native-libs-linux-aarch64-gnu
           path: core-bridge/build/native-libs/native/linux-aarch64-gnu
 
-      - name: Download Linux x86_64 musl native lib
-        uses: actions/download-artifact@v4
-        with:
-          name: native-libs-linux-x86_64-musl
-          path: core-bridge/build/native-libs/native/linux-x86_64-musl
-
-      - name: Download Linux aarch64 musl native lib
-        uses: actions/download-artifact@v4
-        with:
-          name: native-libs-linux-aarch64-musl
-          path: core-bridge/build/native-libs/native/linux-aarch64-musl
-
       - name: Download macOS ARM64 native lib
         uses: actions/download-artifact@v4
         with:
@@ -338,8 +246,6 @@ jobs:
           echo "Expected structure:"
           echo "  native/linux-x86_64-gnu/libtemporalio_sdk_core_c_bridge.so"
           echo "  native/linux-aarch64-gnu/libtemporalio_sdk_core_c_bridge.so"
-          echo "  native/linux-x86_64-musl/libtemporalio_sdk_core_c_bridge.so"
-          echo "  native/linux-aarch64-musl/libtemporalio_sdk_core_c_bridge.so"
           echo "  native/macos-x86_64/libtemporalio_sdk_core_c_bridge.dylib"
           echo "  native/macos-aarch64/libtemporalio_sdk_core_c_bridge.dylib"
           echo "  native/windows-x86_64/temporalio_sdk_core_c_bridge.dll"
@@ -364,8 +270,6 @@ jobs:
           ./gradlew :core-bridge:jar \
             :core-bridge:linuxx8664gnuNativeJar \
             :core-bridge:linuxaarch64gnuNativeJar \
-            :core-bridge:linuxx8664muslNativeJar \
-            :core-bridge:linuxaarch64muslNativeJar \
             :core-bridge:macosx8664NativeJar \
             :core-bridge:macosaarch64NativeJar \
             :core-bridge:windowsx8664NativeJar \
@@ -408,8 +312,6 @@ jobs:
           ./gradlew jar \
             :core-bridge:linuxx8664gnuNativeJar \
             :core-bridge:linuxaarch64gnuNativeJar \
-            :core-bridge:linuxx8664muslNativeJar \
-            :core-bridge:linuxaarch64muslNativeJar \
             :core-bridge:macosx8664NativeJar \
             :core-bridge:macosaarch64NativeJar \
             :core-bridge:windowsx8664NativeJar \

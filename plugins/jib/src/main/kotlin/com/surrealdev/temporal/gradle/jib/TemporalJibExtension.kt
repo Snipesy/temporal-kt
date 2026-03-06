@@ -17,24 +17,6 @@ import java.util.Optional
  *
  * For example, when building for linux/arm64, the `core-bridge-*-linux-x86_64-gnu.jar`,
  * `core-bridge-*-macos-*.jar`, and `core-bridge-*-windows-*.jar` entries are removed.
- *
- * ## Libc selection
- *
- * Since Jib's platform descriptor only provides OS and architecture (not libc variant),
- * this extension uses a `libc` property to determine whether to keep `gnu` (glibc) or
- * `musl` (Alpine) classifier JARs for Linux platforms.
- *
- * Configure via Jib plugin extension properties:
- * ```kotlin
- * jib {
- *     pluginExtensions {
- *         pluginExtension {
- *             implementation = "com.surrealdev.temporal.gradle.jib.TemporalJibExtension"
- *             properties = mapOf("libc" to "musl")  // "gnu" (default) or "musl"
- *         }
- *     }
- * }
- * ```
  */
 class TemporalJibExtension : JibGradlePluginExtension<Void> {
     override fun getExtraConfigType(): Optional<Class<Void>> = Optional.empty()
@@ -49,25 +31,16 @@ class TemporalJibExtension : JibGradlePluginExtension<Void> {
         val platforms = buildPlan.platforms
         if (platforms.isEmpty()) return buildPlan
 
-        val libc = properties.getOrDefault("libc", "gnu")
-        if (libc != "gnu" && libc != "musl") {
-            logger.log(
-                LogLevel.WARN,
-                "Temporal: invalid libc property '$libc', expected 'gnu' or 'musl'. Defaulting to 'gnu'.",
-            )
-        }
-        val effectiveLibc = if (libc == "musl") "musl" else "gnu"
-
         // Determine which classifiers are valid for the target platform(s)
         val allowedClassifiers =
             platforms.flatMapTo(mutableSetOf()) { platform ->
-                classifiersForPlatform(platform.architecture, platform.os, effectiveLibc)
+                classifiersForPlatform(platform.architecture, platform.os)
             }
 
         if (allowedClassifiers.isEmpty()) {
             logger.log(
                 LogLevel.WARN,
-                "Temporal: no known classifiers for platforms $platforms (libc=$effectiveLibc), skipping filtering",
+                "Temporal: no known classifiers for platforms $platforms, skipping filtering",
             )
             return buildPlan
         }
@@ -94,22 +67,19 @@ class TemporalJibExtension : JibGradlePluginExtension<Void> {
             setOf(
                 "linux-x86_64-gnu",
                 "linux-aarch64-gnu",
-                "linux-x86_64-musl",
-                "linux-aarch64-musl",
                 "macos-x86_64",
                 "macos-aarch64",
                 "windows-x86_64",
             )
 
-        /** Maps Jib platform (arch, os) + libc variant to the matching Temporal classifier(s). */
+        /** Maps Jib platform (arch, os) to the matching Temporal classifier(s). */
         private fun classifiersForPlatform(
             architecture: String,
             os: String,
-            libc: String,
         ): Set<String> =
             when (os) {
-                "linux" if architecture == "amd64" -> setOf("linux-x86_64-$libc")
-                "linux" if architecture == "arm64" -> setOf("linux-aarch64-$libc")
+                "linux" if architecture == "amd64" -> setOf("linux-x86_64-gnu")
+                "linux" if architecture == "arm64" -> setOf("linux-aarch64-gnu")
                 "darwin" if architecture == "arm64" -> setOf("macos-aarch64")
                 "darwin" if architecture == "amd64" -> setOf("macos-x86_64")
                 "windows" if architecture == "amd64" -> setOf("windows-x86_64")
