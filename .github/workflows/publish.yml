@@ -55,18 +55,6 @@ jobs:
             gradle-task: copyMacosx8664NativeLib
             artifact-name: native-libs-macos-x86_64
             artifact-path: core-bridge/build/native-libs/native/macos-x86_64
-          - os: ubuntu-24.04
-            platform: linux-x86_64-musl
-            rust-targets: x86_64-unknown-linux-musl
-            gradle-task: copyNativeLibLinuxx8664Musl
-            artifact-name: native-libs-linux-x86_64-musl
-            artifact-path: core-bridge/build/native-libs/native/linux-x86_64-musl
-          - os: ubuntu-24.04-arm
-            platform: linux-aarch64-musl
-            rust-targets: aarch64-unknown-linux-musl
-            gradle-task: copyNativeLibLinuxAarch64Musl
-            artifact-name: native-libs-linux-aarch64-musl
-            artifact-path: core-bridge/build/native-libs/native/linux-aarch64-musl
           - os: windows-latest
             platform: windows
             rust-targets: x86_64-pc-windows-msvc
@@ -105,9 +93,9 @@ jobs:
           cache-on-failure: true
           rustflags: ""
 
-      - name: Install build dependencies (Linux)
+      - name: Install protobuf (Linux)
         if: steps.native-cache.outputs.cache-hit != 'true' && runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler musl-tools
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - name: Install protobuf (macOS)
         if: steps.native-cache.outputs.cache-hit != 'true' && runner.os == 'macOS'
@@ -126,6 +114,66 @@ jobs:
       - name: Build native library
         if: steps.native-cache.outputs.cache-hit != 'true'
         run: ./gradlew :core-bridge:${{ matrix.gradle-task }} --no-daemon
+
+      - name: Upload native lib
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: ${{ matrix.artifact-path }}
+          retention-days: 1
+
+  # ===== MUSL (ALPINE) NATIVE BUILD JOBS =====
+  # Musl targets require building inside an Alpine environment because Rust's musl
+  # targets cannot produce cdylib (shared libraries) when cross-compiling from glibc.
+  # We use `docker run` instead of a job container so JS-based actions (checkout, cache)
+  # work natively on both x86_64 and arm64 runners.
+
+  build-native-musl:
+    name: Build Native (${{ matrix.platform }})
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux-x86_64-musl
+            rust-target: x86_64-unknown-linux-musl
+            gradle-task: copyNativeLibLinuxx8664Musl
+            artifact-name: native-libs-linux-x86_64-musl
+            artifact-path: core-bridge/build/native-libs/native/linux-x86_64-musl
+          - os: ubuntu-24.04-arm
+            platform: linux-aarch64-musl
+            rust-target: aarch64-unknown-linux-musl
+            gradle-task: copyNativeLibLinuxAarch64Musl
+            artifact-name: native-libs-linux-aarch64-musl
+            artifact-path: core-bridge/build/native-libs/native/linux-aarch64-musl
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: 'recursive'
+
+      - name: Cache native library
+        id: native-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ matrix.artifact-path }}
+          key: native-${{ matrix.platform }}-${{ hashFiles('core-bridge/rust/Cargo.lock', 'core-bridge/rust/Cargo.toml', 'core-bridge/rust/sdk-core/**/*.rs', 'core-bridge/rust/sdk-core/**/Cargo.toml') }}
+
+      - name: Build native library in Alpine container
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace \
+            alpine:3.21 \
+            sh -c '
+              apk add --no-cache bash curl git musl-dev gcc g++ make protobuf-dev protoc openjdk21-jdk tar gzip &&
+              curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --target ${{ matrix.rust-target }} &&
+              . "$HOME/.cargo/env" &&
+              ./gradlew :core-bridge:${{ matrix.gradle-task }} --no-daemon
+            '
 
       - name: Upload native lib
         uses: actions/upload-artifact@v4
@@ -208,7 +256,7 @@ jobs:
 
   publish:
     name: Publish to Maven Central
-    needs: [build-native, test]
+    needs: [build-native, build-native-musl, test]
     timeout-minutes: 30
     runs-on: ubuntu-latest
     permissions:
