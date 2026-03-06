@@ -65,7 +65,7 @@ object NativeLoader {
                     Or specify the classifier directly:
                       runtimeOnly("com.surrealdev.temporal:core-bridge:VERSION:$${platform.mavenClassifier}")
 
-                    Supported classifiers: linux-x86_64-gnu, linux-aarch64-gnu, macos-x86_64, macos-aarch64, windows-x86_64
+                    Supported classifiers: linux-x86_64-gnu, linux-aarch64-gnu, linux-x86_64-musl, linux-aarch64-musl, macos-x86_64, macos-aarch64, windows-x86_64
                     """.trimIndent(),
                 )
 
@@ -121,11 +121,7 @@ object NativeLoader {
                 }
 
                 osName.contains("linux") && isMusl -> {
-                    throw IllegalStateException(
-                        "Musl libc (Alpine Linux) is not currently supported. " +
-                            "Please use a glibc-based Linux distribution (e.g., Debian, Ubuntu). " +
-                            "For container deployments, use a glibc-based base image instead of Alpine.",
-                    )
+                    OS.LINUXMUSL
                 }
 
                 osName.contains("linux") -> {
@@ -179,8 +175,7 @@ object NativeLoader {
     private enum class OS {
         MACOS,
         LINUXGNU,
-
-        // LINUXMUSL,  // Future: Alpine Linux support
+        LINUXMUSL,
         WINDOWS,
     }
 
@@ -201,6 +196,7 @@ object NativeLoader {
                 when (os) {
                     OS.MACOS -> "macos-${arch.name.lowercase()}"
                     OS.LINUXGNU -> "linux-${arch.name.lowercase()}-gnu"
+                    OS.LINUXMUSL -> "linux-${arch.name.lowercase()}-musl"
                     OS.WINDOWS -> "windows-${arch.name.lowercase()}"
                 }
 
@@ -213,13 +209,14 @@ object NativeLoader {
                 when (os) {
                     OS.MACOS -> "macos-${arch.name.lowercase()}"
                     OS.LINUXGNU -> "linux-${arch.name.lowercase()}-gnu"
+                    OS.LINUXMUSL -> "linux-${arch.name.lowercase()}-musl"
                     OS.WINDOWS -> "windows-${arch.name.lowercase()}"
                 }
 
         fun libFileName(baseName: String): String =
             when (os) {
                 OS.MACOS -> "lib$baseName.dylib"
-                OS.LINUXGNU -> "lib$baseName.so"
+                OS.LINUXGNU, OS.LINUXMUSL -> "lib$baseName.so"
                 OS.WINDOWS -> "$baseName.dll"
             }
     }
