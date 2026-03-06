@@ -166,14 +166,17 @@ jobs:
         run: |
           docker run --rm \
             -v "${{ github.workspace }}:/workspace" \
-            -w /workspace \
+            -w /workspace/core-bridge/rust \
             alpine:3.21 \
             sh -c '
-              apk add --no-cache bash curl git musl-dev gcc g++ make protobuf-dev protoc openjdk21-jdk tar gzip &&
+              apk add --no-cache bash curl musl-dev gcc g++ make protobuf-dev protoc &&
               curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --target ${{ matrix.rust-target }} &&
               . "$HOME/.cargo/env" &&
-              ./gradlew :core-bridge:${{ matrix.gradle-task }} --no-daemon
+              cargo build --release --locked -p temporalio-sdk-core-c-bridge --target ${{ matrix.rust-target }}
             '
+          mkdir -p ${{ matrix.artifact-path }}
+          cp core-bridge/rust/target/${{ matrix.rust-target }}/release/libtemporalio_sdk_core_c_bridge.so \
+             ${{ matrix.artifact-path }}/
 
       - name: Upload native lib
         uses: actions/upload-artifact@v4
