@@ -14,6 +14,7 @@ include(":plugins:opentelemetry")
 include(":compiler-plugin")
 include(":gradle-plugin")
 include(":plugins:jib")
+include(":plugins:health")
 
 // Example modules
 include(":examples:hello-world")

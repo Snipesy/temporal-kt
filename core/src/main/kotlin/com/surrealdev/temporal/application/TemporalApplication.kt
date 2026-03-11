@@ -4,6 +4,9 @@ import com.surrealdev.temporal.activity.ActivityContext
 import com.surrealdev.temporal.activity.EncodedPayloads
 import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.annotation.TemporalDsl
+import com.surrealdev.temporal.application.health.ApplicationHealthReport
+import com.surrealdev.temporal.application.health.ApplicationStatus
+import com.surrealdev.temporal.application.health.WorkerHealthReport
 import com.surrealdev.temporal.application.plugin.HookRegistry
 import com.surrealdev.temporal.application.plugin.HookRegistryImpl
 import com.surrealdev.temporal.application.plugin.PluginPipeline
@@ -16,6 +19,7 @@ import com.surrealdev.temporal.application.plugin.hooks.WorkerStartedContext
 import com.surrealdev.temporal.application.plugin.hooks.WorkerStopped
 import com.surrealdev.temporal.application.plugin.hooks.WorkerStoppedContext
 import com.surrealdev.temporal.application.worker.ManagedWorker
+import com.surrealdev.temporal.application.worker.WorkerStatus
 import com.surrealdev.temporal.client.TemporalClient
 import com.surrealdev.temporal.client.TemporalClientConfig
 import com.surrealdev.temporal.core.CorePollerBehavior
@@ -331,6 +335,73 @@ open class TemporalApplication internal constructor(
      */
     fun isWorkerShuttingDown(taskQueue: String): Boolean =
         closeStarted.get() || workers[taskQueue]?.isShuttingDown == true
+
+    /**
+     * Returns a health report for the entire application, aggregating all worker statuses.
+     */
+    fun health(): ApplicationHealthReport {
+        val workerReports =
+            workers.map { (taskQueue, worker) ->
+                WorkerHealthReport(
+                    taskQueue = taskQueue,
+                    namespace = worker.workerNamespace,
+                    status = worker.status,
+                    workflowZombieCount = worker.getWorkflowZombieCount(),
+                    activityZombieCount = worker.getActivityZombieCount(),
+                )
+            }
+
+        val appStatus =
+            when {
+                !started -> ApplicationStatus.NOT_STARTED
+
+                closeStarted.get() || fatalShutdownTriggered.get() -> ApplicationStatus.SHUTTING_DOWN
+
+                workerReports.any { it.status == WorkerStatus.FAILED } -> ApplicationStatus.DEGRADED
+
+                workerReports.all { it.status.isServing } -> ApplicationStatus.HEALTHY
+
+                workerReports.any {
+                    it.status == WorkerStatus.STARTING || it.status == WorkerStatus.CREATED
+                } -> ApplicationStatus.STARTING
+
+                else -> ApplicationStatus.HEALTHY
+            }
+
+        return ApplicationHealthReport(
+            status = appStatus,
+            workers = workerReports,
+        )
+    }
+
+    /**
+     * Returns a health report for a single worker by task queue name.
+     *
+     * @return the worker's health report, or null if no worker exists for the given task queue
+     */
+    fun workerHealth(taskQueue: String): WorkerHealthReport? {
+        val worker = workers[taskQueue] ?: return null
+        return WorkerHealthReport(
+            taskQueue = taskQueue,
+            namespace = worker.workerNamespace,
+            status = worker.status,
+            workflowZombieCount = worker.getWorkflowZombieCount(),
+            activityZombieCount = worker.getActivityZombieCount(),
+        )
+    }
+
+    /**
+     * Returns true if the application is ready to serve (all workers are [WorkerStatus.READY]).
+     */
+    fun isReady(): Boolean = health().status == ApplicationStatus.HEALTHY
+
+    /**
+     * Returns true if the application is alive (no workers have failed, not shutting down).
+     */
+    fun isAlive(): Boolean {
+        val status = health().status
+        return status != ApplicationStatus.DEGRADED && status != ApplicationStatus.SHUTTING_DOWN
+    }
 
     /**
      * Single entry point for all fatal shutdown paths.

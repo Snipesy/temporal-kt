@@ -35,7 +35,9 @@ val DependencyRegistryKey = AttributeKey<DependencyRegistry>("DependencyRegistry
  * ```
  */
 @TemporalDsl
-class DependencyRegistry internal constructor() {
+class DependencyRegistry internal constructor(
+    private val healthCheckRegistry: HealthCheckRegistry? = null,
+) {
     private val logger = LoggerFactory.getLogger(DependencyRegistry::class.java)
 
     private val providers = ConcurrentHashMap<DependencyKey<*>, DependencyProvider<*>>()
@@ -155,6 +157,25 @@ class DependencyRegistry internal constructor() {
     }
 
     /**
+     * Registers a health check for a dependency.
+     *
+     * The check lambda receives the dependency instance and returns `true` if healthy.
+     * If the dependency has not been instantiated yet, it is considered healthy (returns `true`).
+     * Has no effect if no [HealthCheckRegistry] was provided at construction time.
+     */
+    @Suppress("UNCHECKED_CAST")
+    fun <T : Any> registerHealthCheck(
+        key: DependencyKey<T>,
+        check: (T) -> Boolean,
+    ) {
+        val name = key.type.simpleName!! + (key.qualifier?.let { ":$it" } ?: "")
+        healthCheckRegistry?.register(name) {
+            val instance = singletonCache[key] ?: return@register true
+            check(instance as T)
+        }
+    }
+
+    /**
      * Closes the registry, invoking cleanup hooks or AutoCloseable.close() on all
      * singleton instances. Idempotent — safe to call multiple times.
      */
@@ -211,6 +232,11 @@ class DependencyRegistry internal constructor() {
             registry.registerCleanup(key, block)
             return this
         }
+
+        infix fun healthCheck(check: (T) -> Boolean): RegistrationHandle<T> {
+            registry.registerHealthCheck(key, check)
+            return this
+        }
     }
 }
 
@@ -223,7 +249,8 @@ class DependencyRegistry internal constructor() {
 var TemporalApplication.dependencies: DependencyRegistry
     get() =
         attributes.computeIfAbsent(DependencyRegistryKey) {
-            DependencyRegistry().also { registry ->
+            val healthRegistry = attributes.computeIfAbsent(HealthCheckRegistryKey) { HealthCheckRegistry() }
+            DependencyRegistry(healthCheckRegistry = healthRegistry).also { registry ->
                 hookRegistry.register(ApplicationShutdown) { _ -> registry.close() }
             }
         }
@@ -255,9 +282,10 @@ fun <T> TemporalApplication.dependencies(action: DependencyRegistry.() -> T): T 
 var TaskQueueBuilder.dependencies: DependencyRegistry
     get() =
         attributes.computeIfAbsent(DependencyRegistryKey) {
-            DependencyRegistry().also { registry ->
+            val app = parentScope as? TemporalApplication
+            val healthRegistry = app?.attributes?.getOrNull(HealthCheckRegistryKey)
+            DependencyRegistry(healthCheckRegistry = healthRegistry).also { registry ->
                 val queueName = taskQueueName
-                val app = parentScope as? TemporalApplication
                 app?.hookRegistry?.register(WorkerStopped) { ctx ->
                     if (ctx.taskQueue == queueName) registry.close()
                 }

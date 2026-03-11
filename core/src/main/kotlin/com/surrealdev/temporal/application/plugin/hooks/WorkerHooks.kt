@@ -1,6 +1,7 @@
 package com.surrealdev.temporal.application.plugin.hooks
 
 import com.surrealdev.temporal.application.plugin.Hook
+import com.surrealdev.temporal.application.worker.WorkerStatus
 
 /**
  * Hook called after a worker successfully starts.
@@ -52,4 +53,31 @@ object WorkerStopped : Hook<suspend (WorkerStoppedContext) -> Unit> {
 data class WorkerStoppedContext(
     val taskQueue: String,
     val namespace: String,
+)
+
+/**
+ * Hook called when a worker's lifecycle status changes.
+ *
+ * This is a **blocking** (non-suspend) hook because status transitions may occur
+ * from non-suspend contexts (e.g., `invokeOnCompletion` handlers).
+ *
+ * Handlers are called via [com.surrealdev.temporal.application.plugin.HookRegistry.callBlocking].
+ */
+object WorkerStatusChanged : Hook<(WorkerStatusChangedContext) -> Unit> {
+    override val name = "WorkerStatusChanged"
+}
+
+/**
+ * Context provided to [WorkerStatusChanged] hook handlers.
+ *
+ * @property taskQueue The task queue name
+ * @property namespace The namespace the worker is connected to
+ * @property previousStatus The status before the transition
+ * @property newStatus The status after the transition
+ */
+data class WorkerStatusChangedContext(
+    val taskQueue: String,
+    val namespace: String,
+    val previousStatus: WorkerStatus,
+    val newStatus: WorkerStatus,
 )

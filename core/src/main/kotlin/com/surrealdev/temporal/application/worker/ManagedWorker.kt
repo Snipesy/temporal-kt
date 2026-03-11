@@ -13,6 +13,8 @@ import com.surrealdev.temporal.application.plugin.hooks.ActivityTaskContext
 import com.surrealdev.temporal.application.plugin.hooks.ActivityTaskFailed
 import com.surrealdev.temporal.application.plugin.hooks.ActivityTaskFailedContext
 import com.surrealdev.temporal.application.plugin.hooks.ActivityTaskStarted
+import com.surrealdev.temporal.application.plugin.hooks.WorkerStatusChanged
+import com.surrealdev.temporal.application.plugin.hooks.WorkerStatusChangedContext
 import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskCompleted
 import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskCompletedContext
 import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskContext
@@ -47,6 +49,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -99,11 +102,10 @@ internal class ManagedWorker(
 
     private val logger = LoggerFactory.getLogger(ManagedWorker::class.java)
 
-    @Volatile
-    private var started = false
+    private val _status = AtomicReference(WorkerStatus.CREATED)
 
-    @Volatile
-    private var stopped = false
+    /** Current lifecycle status of this worker. */
+    val status: WorkerStatus get() = _status.get()
 
     // Reference to workflow dispatcher for zombie count access
     @Volatile
@@ -134,11 +136,10 @@ internal class ManagedWorker(
     private val runningActivityThreads = ConcurrentHashMap<Long, ActivityThreadInfo>()
 
     /**
-     * Returns true if shutdown has been signaled.
-     * Polling loops should check this.
+     * Returns true if shutdown has been signaled or the worker is in a terminal state.
      */
     val isShuttingDown: Boolean
-        get() = shutdownSignal.isCompleted
+        get() = status.let { it == WorkerStatus.STOPPING || it.isTerminal }
 
     val taskQueue: String get() = config.name
 
@@ -154,6 +155,9 @@ internal class ManagedWorker(
      */
     fun getActivityZombieCount(): Int = activityDispatcher.getZombieCount()
 
+    /** The namespace this worker is connected to. */
+    val workerNamespace: String get() = namespace
+
     /**
      * Waits for the worker to be ready (polling started for both workflow and activity polling).
      * This ensures the worker is registered with the Temporal server before workflows are started.
@@ -164,6 +168,46 @@ internal class ManagedWorker(
         // Yield to allow worker coroutines to proceed to the FFI poll calls
         // The poll calls register the worker with the server even though they block
         kotlinx.coroutines.yield()
+    }
+
+    /**
+     * Transitions state from [expected] to [new] using CAS.
+     * Fires the [WorkerStatusChanged] blocking hook on success.
+     *
+     * @return true if the transition was performed
+     */
+    private fun transition(
+        expected: WorkerStatus,
+        new: WorkerStatus,
+    ): Boolean {
+        val success = _status.compareAndSet(expected, new)
+        if (success) {
+            logger.debug("[transition] {} -> {} for taskQueue={}", expected, new, taskQueue)
+            applicationHooks.callBlocking(
+                WorkerStatusChanged,
+                WorkerStatusChangedContext(taskQueue, namespace, expected, new),
+            )
+        }
+        return success
+    }
+
+    /**
+     * Unconditionally sets state to [new], regardless of current state.
+     * Used for terminal states like [WorkerStatus.FAILED] that can be reached from multiple states.
+     * Fires the [WorkerStatusChanged] blocking hook if the state actually changed.
+     *
+     * @return the previous status
+     */
+    private fun forceTransition(new: WorkerStatus): WorkerStatus {
+        val old = _status.getAndSet(new)
+        if (old != new) {
+            logger.debug("[transition] {} -> {} for taskQueue={}", old, new, taskQueue)
+            applicationHooks.callBlocking(
+                WorkerStatusChanged,
+                WorkerStatusChangedContext(taskQueue, namespace, old, new),
+            )
+        }
+        return old
     }
 
     // Build registries from config
@@ -238,10 +282,19 @@ internal class ManagedWorker(
      * @return The job representing the worker's lifecycle
      */
     fun start(): Job {
-        check(!started) { "Worker already started" }
-        started = true
+        check(transition(WorkerStatus.CREATED, WorkerStatus.STARTING)) {
+            "Worker already started (status=$status)"
+        }
 
         logger.info("[start] Starting worker for taskQueue={}", taskQueue)
+
+        // Transition to READY once both pollers have registered with the Core SDK
+        launch(CoroutineName("ReadyWatcher-$taskQueue")) {
+            workflowPollingStarted.await()
+            activityPollingStarted.await()
+            kotlinx.coroutines.yield()
+            transition(WorkerStatus.STARTING, WorkerStatus.READY)
+        }
 
         // Keep explicit references to polling jobs
         workflowPollingJob =
@@ -259,6 +312,7 @@ internal class ManagedWorker(
             cause?.let {
                 if (it !is CancellationException) {
                     logger.error("[start] Workflow polling job failed unexpectedly", it)
+                    forceTransition(WorkerStatus.FAILED)
                     shutdownSignal.completeExceptionally(it)
                 }
             }
@@ -268,6 +322,7 @@ internal class ManagedWorker(
             cause?.let {
                 if (it !is CancellationException) {
                     logger.error("[start] Activity polling job failed unexpectedly", it)
+                    forceTransition(WorkerStatus.FAILED)
                     shutdownSignal.completeExceptionally(it)
                 }
             }
@@ -285,12 +340,20 @@ internal class ManagedWorker(
      * and performs a clean shutdown of the core worker.
      */
     suspend fun stop() {
-        if (stopped) return
-        stopped = true
+        // Atomically claim the stopping role. Only one caller proceeds with cleanup.
+        // FAILED workers still need cleanup (coreWorker.close(), etc.), so we transition
+        // FAILED -> STOPPING rather than returning early.
+        while (true) {
+            when (val current = status) {
+                WorkerStatus.STOPPED -> return
+                WorkerStatus.STOPPING -> return
+                else -> if (transition(current, WorkerStatus.STOPPING)) break
+            }
+        }
 
         logger.info("[stop] Initiating shutdown for taskQueue={}", taskQueue)
 
-        // Phase 1: Signal shutdown intent
+        // Phase 1: Signal shutdown intent (derived from state machine)
         shutdownSignal.complete()
         coreWorker.initiateShutdown()
 
@@ -324,7 +387,8 @@ internal class ManagedWorker(
         coreWorker.awaitShutdown()
         coreWorker.close()
 
-        // Phase 6: Complete this worker job
+        // Phase 6: Complete this worker job and mark as stopped
+        transition(WorkerStatus.STOPPING, WorkerStatus.STOPPED)
         workerJob.complete()
 
         logger.info("[stop] Worker stopped for taskQueue={}", taskQueue)

@@ -2,6 +2,8 @@ package com.surrealdev.temporal.application
 
 import com.surrealdev.temporal.application.config.TemporalConfig
 import com.surrealdev.temporal.application.config.TemporalConfigLoader
+import com.surrealdev.temporal.application.health.ApplicationHealthReport
+import com.surrealdev.temporal.application.health.WorkerHealthReport
 import com.surrealdev.temporal.application.module.ModuleLoader
 import com.surrealdev.temporal.application.module.TemporalModule
 import com.surrealdev.temporal.core.VersioningBehavior
@@ -65,6 +67,18 @@ class EmbeddedTemporal internal constructor(
     suspend fun stop() {
         application.close()
     }
+
+    /** Returns a health report for the entire application. */
+    fun health(): ApplicationHealthReport = application.health()
+
+    /** Returns a health report for a single worker by task queue name. */
+    fun workerHealth(taskQueue: String): WorkerHealthReport? = application.workerHealth(taskQueue)
+
+    /** Returns true if the application is ready to serve. */
+    fun isReady(): Boolean = application.isReady()
+
+    /** Returns true if the application is alive. */
+    fun isAlive(): Boolean = application.isAlive()
 }
 
 /**
