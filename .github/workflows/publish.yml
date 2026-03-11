@@ -68,13 +68,22 @@ jobs:
         with:
           submodules: 'recursive'
 
+      - name: Cache native library
+        id: native-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ matrix.artifact-path }}
+          key: native-${{ matrix.platform }}-${{ hashFiles('core-bridge/rust/Cargo.lock', 'core-bridge/rust/Cargo.toml', 'core-bridge/rust/sdk-core/**/*.rs', 'core-bridge/rust/sdk-core/**/Cargo.toml') }}
+
       - name: Set up JDK 25
+        if: steps.native-cache.outputs.cache-hit != 'true'
         uses: actions/setup-java@v4
         with:
           java-version: '25'
           distribution: 'graalvm'
 
       - name: Set up Rust
+        if: steps.native-cache.outputs.cache-hit != 'true'
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: stable
@@ -85,23 +94,25 @@ jobs:
           rustflags: ""
 
       - name: Install protobuf (Linux)
-        if: runner.os == 'Linux'
+        if: steps.native-cache.outputs.cache-hit != 'true' && runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - name: Install protobuf (macOS)
-        if: runner.os == 'macOS'
+        if: steps.native-cache.outputs.cache-hit != 'true' && runner.os == 'macOS'
         run: brew install protobuf
 
       - name: Install protobuf (Windows)
-        if: runner.os == 'Windows'
+        if: steps.native-cache.outputs.cache-hit != 'true' && runner.os == 'Windows'
         uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Gradle
+        if: steps.native-cache.outputs.cache-hit != 'true'
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build native library
+        if: steps.native-cache.outputs.cache-hit != 'true'
         run: ./gradlew :core-bridge:${{ matrix.gradle-task }} --no-daemon
 
       - name: Upload native lib

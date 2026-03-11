@@ -1,4 +1,4 @@
-# Health Check Plugin
+# Module health
 
 HTTP health check endpoints for Kubernetes readiness/liveness probes, powered by the JDK's built-in `HttpServer`.
 
