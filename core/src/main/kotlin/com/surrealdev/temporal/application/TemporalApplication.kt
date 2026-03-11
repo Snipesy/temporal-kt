@@ -10,10 +10,14 @@ import com.surrealdev.temporal.application.health.WorkerHealthReport
 import com.surrealdev.temporal.application.plugin.HookRegistry
 import com.surrealdev.temporal.application.plugin.HookRegistryImpl
 import com.surrealdev.temporal.application.plugin.PluginPipeline
+import com.surrealdev.temporal.application.plugin.hooks.ApplicationPreStartup
+import com.surrealdev.temporal.application.plugin.hooks.ApplicationPreStartupContext
 import com.surrealdev.temporal.application.plugin.hooks.ApplicationSetup
 import com.surrealdev.temporal.application.plugin.hooks.ApplicationSetupContext
 import com.surrealdev.temporal.application.plugin.hooks.ApplicationShutdown
 import com.surrealdev.temporal.application.plugin.hooks.ApplicationShutdownContext
+import com.surrealdev.temporal.application.plugin.hooks.ApplicationStartupFailed
+import com.surrealdev.temporal.application.plugin.hooks.ApplicationStartupFailedContext
 import com.surrealdev.temporal.application.plugin.hooks.WorkerStarted
 import com.surrealdev.temporal.application.plugin.hooks.WorkerStartedContext
 import com.surrealdev.temporal.application.plugin.hooks.WorkerStopped
@@ -153,95 +157,111 @@ open class TemporalApplication internal constructor(
         check(!started) { "Application already started" }
         started = true
 
-        // Create the runtime, with Core metrics bridge if OTel plugin provided a Meter
-        val coreMetricsMeter = attributes.getOrNull(CoreMetricsMeterKey)
-        val rt = TemporalRuntime.create(coreMetricsMeter)
-        runtime = rt
-
-        val client =
-            TemporalCoreClient.connect(
-                runtime = rt,
-                targetUrl = config.connection.target,
-                namespace = config.connection.namespace,
-                tls = config.connection.tls,
-                apiKey = config.connection.apiKey,
-            )
-        coreClient = client
-
-        // Fire ApplicationSetup hook
-        hookRegistry.call(
-            ApplicationSetup,
-            ApplicationSetupContext(this, rt, client),
-        )
-
-        // Create and start workers for each task queue
-        for (taskQueueConfig in taskQueues) {
-            val effectiveNamespace = taskQueueConfig.namespace ?: config.connection.namespace
-
-            // Resolve identity: user-provided > default (pid@hostname)
-            val effectiveIdentity =
-                taskQueueConfig.workerIdentity
-                    ?: run {
-                        val pid = ProcessHandle.current().pid()
-                        val hostname =
-                            java.net.InetAddress
-                                .getLocalHost()
-                                .hostName
-                        "$pid@$hostname"
-                    }
-
-            // Create the core bridge worker
-            val coreWorker =
-                TemporalWorker.create(
-                    runtime = rt,
-                    client = client,
-                    taskQueue = taskQueueConfig.name,
-                    namespace = effectiveNamespace,
-                    config =
-                        WorkerConfig(
-                            deploymentOptions = config.deployment,
-                            maxCachedWorkflows = taskQueueConfig.maxCachedWorkflows,
-                            maxConcurrentWorkflowTasks = taskQueueConfig.maxConcurrentWorkflows,
-                            maxConcurrentActivities = taskQueueConfig.maxConcurrentActivities,
-                            maxHeartbeatThrottleIntervalMs = taskQueueConfig.maxHeartbeatThrottleIntervalMs,
-                            defaultHeartbeatThrottleIntervalMs = taskQueueConfig.defaultHeartbeatThrottleIntervalMs,
-                            workflowPollerBehavior = taskQueueConfig.workflowPollerBehavior,
-                            activityPollerBehavior = taskQueueConfig.activityPollerBehavior,
-                            maxActivitiesPerSecond = taskQueueConfig.maxActivitiesPerSecond,
-                            maxTaskQueueActivitiesPerSecond = taskQueueConfig.maxTaskQueueActivitiesPerSecond,
-                            workerIdentity = effectiveIdentity,
-                            nonstickyToStickyPollRatio = taskQueueConfig.nonstickyToStickyPollRatio,
-                            stickyQueueScheduleToStartTimeoutMs = taskQueueConfig.stickyQueueScheduleToStartTimeoutMs,
-                            nondeterminismAsWorkflowFail = taskQueueConfig.nondeterminismAsWorkflowFail,
-                            nondeterminismAsWorkflowFailForTypes = taskQueueConfig.nondeterminismAsWorkflowFailForTypes,
-                        ),
-                )
-
-            // Wrap in ManagedWorker
-            val managedWorker =
-                ManagedWorker(
-                    coreWorker = coreWorker,
-                    config = taskQueueConfig,
-                    parentContext = coroutineContext,
-                    serializer = taskQueueConfig.serializer ?: payloadSerializer(),
-                    codec = taskQueueConfig.codec ?: payloadCodecOrNull() ?: NoOpCodec,
-                    namespace = effectiveNamespace,
-                    applicationHooks = hookRegistry,
-                    application = this,
-                )
-
-            workers[taskQueueConfig.name] = managedWorker
-            managedWorker.start()
-
+        try {
+            // Fire PreStartup hook before any I/O so plugins like HealthCheck can
+            // open their server socket immediately (K8s startup probes).
             hookRegistry.call(
-                WorkerStarted,
-                WorkerStartedContext(taskQueueConfig.name, effectiveNamespace),
+                ApplicationPreStartup,
+                ApplicationPreStartupContext(this),
             )
-        }
+            // Create the runtime, with Core metrics bridge if OTel plugin provided a Meter
+            val coreMetricsMeter = attributes.getOrNull(CoreMetricsMeterKey)
+            val rt = TemporalRuntime.create(coreMetricsMeter)
+            runtime = rt
 
-        // Wait for all workers to be ready (first poll completed)
-        for (worker in workers.values) {
-            worker.awaitReady()
+            val client =
+                TemporalCoreClient.connect(
+                    runtime = rt,
+                    targetUrl = config.connection.target,
+                    namespace = config.connection.namespace,
+                    tls = config.connection.tls,
+                    apiKey = config.connection.apiKey,
+                )
+            coreClient = client
+
+            // Fire ApplicationSetup hook
+            hookRegistry.call(
+                ApplicationSetup,
+                ApplicationSetupContext(this, rt, client),
+            )
+
+            // Create and start workers for each task queue
+            for (taskQueueConfig in taskQueues) {
+                val effectiveNamespace = taskQueueConfig.namespace ?: config.connection.namespace
+
+                // Resolve identity: user-provided > default (pid@hostname)
+                val effectiveIdentity =
+                    taskQueueConfig.workerIdentity
+                        ?: run {
+                            val pid = ProcessHandle.current().pid()
+                            val hostname =
+                                java.net.InetAddress
+                                    .getLocalHost()
+                                    .hostName
+                            "$pid@$hostname"
+                        }
+
+                // Create the core bridge worker
+                val coreWorker =
+                    TemporalWorker.create(
+                        runtime = rt,
+                        client = client,
+                        taskQueue = taskQueueConfig.name,
+                        namespace = effectiveNamespace,
+                        config =
+                            WorkerConfig(
+                                deploymentOptions = config.deployment,
+                                maxCachedWorkflows = taskQueueConfig.maxCachedWorkflows,
+                                maxConcurrentWorkflowTasks = taskQueueConfig.maxConcurrentWorkflows,
+                                maxConcurrentActivities = taskQueueConfig.maxConcurrentActivities,
+                                maxHeartbeatThrottleIntervalMs = taskQueueConfig.maxHeartbeatThrottleIntervalMs,
+                                defaultHeartbeatThrottleIntervalMs = taskQueueConfig.defaultHeartbeatThrottleIntervalMs,
+                                workflowPollerBehavior = taskQueueConfig.workflowPollerBehavior,
+                                activityPollerBehavior = taskQueueConfig.activityPollerBehavior,
+                                maxActivitiesPerSecond = taskQueueConfig.maxActivitiesPerSecond,
+                                maxTaskQueueActivitiesPerSecond = taskQueueConfig.maxTaskQueueActivitiesPerSecond,
+                                workerIdentity = effectiveIdentity,
+                                nonstickyToStickyPollRatio = taskQueueConfig.nonstickyToStickyPollRatio,
+                                stickyQueueScheduleToStartTimeoutMs =
+                                    taskQueueConfig.stickyQueueScheduleToStartTimeoutMs,
+                                nondeterminismAsWorkflowFail = taskQueueConfig.nondeterminismAsWorkflowFail,
+                                nondeterminismAsWorkflowFailForTypes =
+                                    taskQueueConfig.nondeterminismAsWorkflowFailForTypes,
+                            ),
+                    )
+
+                // Wrap in ManagedWorker
+                val managedWorker =
+                    ManagedWorker(
+                        coreWorker = coreWorker,
+                        config = taskQueueConfig,
+                        parentContext = coroutineContext,
+                        serializer = taskQueueConfig.serializer ?: payloadSerializer(),
+                        codec = taskQueueConfig.codec ?: payloadCodecOrNull() ?: NoOpCodec,
+                        namespace = effectiveNamespace,
+                        applicationHooks = hookRegistry,
+                        application = this,
+                    )
+
+                workers[taskQueueConfig.name] = managedWorker
+                managedWorker.start()
+
+                hookRegistry.call(
+                    WorkerStarted,
+                    WorkerStartedContext(taskQueueConfig.name, effectiveNamespace),
+                )
+            }
+
+            // Wait for all workers to be ready (first poll completed)
+            for (worker in workers.values) {
+                worker.awaitReady()
+            }
+        } catch (e: Throwable) {
+            hookRegistry.call(
+                ApplicationStartupFailed,
+                ApplicationStartupFailedContext(this, e),
+            )
+            throw e
         }
 
         if (wait) {

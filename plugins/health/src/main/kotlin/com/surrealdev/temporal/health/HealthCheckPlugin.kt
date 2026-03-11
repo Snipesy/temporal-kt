@@ -119,9 +119,12 @@ val HealthCheckPlugin =
         val instance = HealthCheckInstance()
 
         application {
-            onSetup { ctx ->
-                val app = ctx.application
-                instance.start(startHealthServer(config, app))
+            onPreStartup { ctx ->
+                instance.start(startHealthServer(config, ctx.application))
+            }
+
+            onStartupFailed {
+                instance.stop()
             }
 
             onShutdown {

@@ -6,6 +6,27 @@ import com.surrealdev.temporal.core.TemporalCoreClient
 import com.surrealdev.temporal.core.TemporalRuntime
 
 /**
+ * Hook called at the very start of [TemporalApplication.start], before the
+ * runtime is created or any connection to the Temporal server is attempted.
+ *
+ * Use this hook for work that must be available as early as possible, such as
+ * starting an HTTP health-check server so that K8s startup probes can connect
+ * while the application is still initialising.
+ */
+object ApplicationPreStartup : Hook<suspend (ApplicationPreStartupContext) -> Unit> {
+    override val name = "ApplicationPreStartup"
+}
+
+/**
+ * Context provided to [ApplicationPreStartup] hook handlers.
+ *
+ * @property application The [TemporalApplication] instance
+ */
+data class ApplicationPreStartupContext(
+    val application: TemporalApplication,
+)
+
+/**
  * Hook called after the application's runtime and core client are created.
  *
  * This hook is fired in [TemporalApplication.start] after creating the runtime
@@ -31,6 +52,29 @@ data class ApplicationSetupContext(
     val application: TemporalApplication,
     val runtime: TemporalRuntime,
     val coreClient: TemporalCoreClient,
+)
+
+/**
+ * Hook called when [TemporalApplication.start] fails with an exception.
+ *
+ * This hook fires before the exception is re-thrown, giving plugins a chance to
+ * clean up resources they allocated during [ApplicationPreStartup] or
+ * [ApplicationSetup]. For example, the health-check plugin can stop its HTTP
+ * server so the port is released.
+ */
+object ApplicationStartupFailed : Hook<suspend (ApplicationStartupFailedContext) -> Unit> {
+    override val name = "ApplicationStartupFailed"
+}
+
+/**
+ * Context provided to [ApplicationStartupFailed] hook handlers.
+ *
+ * @property application The [TemporalApplication] instance
+ * @property cause The exception that caused startup to fail
+ */
+data class ApplicationStartupFailedContext(
+    val application: TemporalApplication,
+    val cause: Throwable,
 )
 
 /**

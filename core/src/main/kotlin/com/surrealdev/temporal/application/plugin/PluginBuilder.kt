@@ -23,7 +23,9 @@ import com.surrealdev.temporal.util.AttributeKey
  * ```kotlin
  * val plugin = createApplicationPlugin<Unit>("MyPlugin") {
  *     application {
+ *         onPreStartup { ctx -> ... }
  *         onSetup { ctx -> ... }
+ *         onStartupFailed { ctx -> ... }
  *         onShutdown { ctx -> ... }
  *     }
  *
