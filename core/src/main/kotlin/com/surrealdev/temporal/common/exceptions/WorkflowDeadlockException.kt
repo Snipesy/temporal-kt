@@ -39,18 +39,23 @@ class WorkflowDeadlockException(
                 append(", stackCaptureTimestamp=")
                 append(stackCaptureTimestamp)
                 append("}")
+            }
 
-                if (!threadStackTrace.isNullOrEmpty()) {
-                    append("\n\n")
-                    append(threadName ?: "workflow-thread")
+    /**
+     * Formats the captured thread stack trace for use in the Failure proto's stack_trace field.
+     */
+    fun formatStackTrace(): String =
+        buildString {
+            if (!threadStackTrace.isNullOrEmpty()) {
+                append(threadName ?: "workflow-thread")
+                append("\n")
+                for (element in threadStackTrace) {
+                    append("\tat ")
+                    append(element)
                     append("\n")
-                    for (element in threadStackTrace) {
-                        append("\tat ")
-                        append(element)
-                        append("\n")
-                    }
                 }
             }
+        }
 
     companion object {
         /**

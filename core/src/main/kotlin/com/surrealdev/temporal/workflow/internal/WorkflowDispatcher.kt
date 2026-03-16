@@ -348,12 +348,16 @@ internal class WorkflowDispatcher(
         activation: WorkflowActivation,
         exception: WorkflowDeadlockException,
     ): WorkflowCompletion.WorkflowActivationCompletion {
-        val failure =
+        val failureBuilder =
             Failure
                 .newBuilder()
                 .setMessage(exception.message)
                 .setSource(FAILURE_SOURCE)
-                .build()
+
+        val stackTrace = exception.formatStackTrace()
+        if (stackTrace.isNotEmpty()) {
+            failureBuilder.setStackTrace(stackTrace)
+        }
 
         return WorkflowCompletion.WorkflowActivationCompletion
             .newBuilder()
@@ -361,7 +365,7 @@ internal class WorkflowDispatcher(
             .setFailed(
                 WorkflowCompletion.Failure
                     .newBuilder()
-                    .setFailure(failure),
+                    .setFailure(failureBuilder),
             ).build()
     }
 
