@@ -15,6 +15,7 @@ import com.surrealdev.temporal.application.plugin.interceptor.StartWorkflowInput
 import com.surrealdev.temporal.client.internal.WorkflowServiceClient
 import com.surrealdev.temporal.client.internal.rethrowMapped
 import com.surrealdev.temporal.common.SearchAttributeEncoder
+import com.surrealdev.temporal.common.TemporalByteString
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.core.TemporalCoreClient
@@ -124,11 +125,13 @@ interface TemporalClient {
      *
      * @param query Visibility query string (empty string returns all)
      * @param pageSize Maximum number of results to return
+     * @param nextPageToken Token from a previous [WorkflowExecutionList.nextPageToken] to fetch the next page
      * @return List of workflow executions matching the query
      */
     suspend fun listWorkflows(
         query: String = "",
         pageSize: Int = 100,
+        nextPageToken: TemporalByteString? = null,
     ): WorkflowExecutionList
 
     /**
@@ -434,21 +437,27 @@ class TemporalClientImpl internal constructor(
     override suspend fun listWorkflows(
         query: String,
         pageSize: Int,
+        nextPageToken: TemporalByteString?,
     ): WorkflowExecutionList {
-        val input = ListWorkflowsInput(query = query, pageSize = pageSize)
+        val input = ListWorkflowsInput(query = query, pageSize = pageSize, nextPageToken = nextPageToken)
         return hookRegistry.chain(ListWorkflows).execute(input) { inp ->
             doListWorkflows(inp)
         }
     }
 
     private suspend fun doListWorkflows(input: ListWorkflowsInput): WorkflowExecutionList {
-        val request =
+        val requestBuilder =
             ListWorkflowExecutionsRequest
                 .newBuilder()
                 .setNamespace(config.namespace)
                 .setQuery(input.query)
                 .setPageSize(input.pageSize)
-                .build()
+
+        input.nextPageToken?.let {
+            requestBuilder.setNextPageToken(it.inner)
+        }
+
+        val request = requestBuilder.build()
 
         val response = serviceClient.listWorkflowExecutions(request)
 

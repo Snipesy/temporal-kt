@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.client.history
 
+import com.surrealdev.temporal.serialization.PayloadCodec
 import io.temporal.api.history.v1.History
 
 /**
@@ -42,15 +43,16 @@ class WorkflowHistory(
         /**
          * Creates a [WorkflowHistory] from a protobuf [History] message.
          */
-        internal fun fromProto(
+        internal suspend fun fromProto(
             workflowId: String,
             runId: String?,
             history: History,
+            codec: PayloadCodec,
         ): WorkflowHistory =
             WorkflowHistory(
                 workflowId = workflowId,
                 runId = runId,
-                events = history.eventsList.map { TemporalHistoryEvent.fromProto(it) },
+                events = history.eventsList.map { TemporalHistoryEvent.fromProto(it, codec) },
             )
     }
 

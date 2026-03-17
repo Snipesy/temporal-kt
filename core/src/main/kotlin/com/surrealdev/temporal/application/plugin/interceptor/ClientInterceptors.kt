@@ -136,6 +136,7 @@ data class DescribeWorkflowInput(
 data class ListWorkflowsInput(
     val query: String,
     val pageSize: Int,
+    val nextPageToken: com.surrealdev.temporal.common.TemporalByteString? = null,
     val headers: MutableMap<String, TemporalPayload> = mutableMapOf(),
 )
 

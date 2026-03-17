@@ -768,6 +768,7 @@ internal class WorkflowHandleImpl(
             runId = info.execution.runId,
             workflowType = info.type.name,
             status = WorkflowExecutionStatus.fromProto(info.status),
+            taskQueue = info.taskQueue,
             startTime = info.startTime.seconds * 1000 + info.startTime.nanos / 1_000_000,
             closeTime =
                 if (info.hasCloseTime()) {
@@ -826,6 +827,7 @@ internal class WorkflowHandleImpl(
                     .newBuilder()
                     .addAllEvents(allEvents)
                     .build(),
+            codec = codec,
         )
     }
 }

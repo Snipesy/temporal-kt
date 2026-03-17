@@ -99,6 +99,7 @@ enum class WorkflowIdConflictPolicy {
  * @property runId The current run ID.
  * @property workflowType The workflow type name.
  * @property status The current execution status.
+ * @property taskQueue The task queue the workflow is running on.
  * @property startTime When the workflow started (epoch millis).
  * @property closeTime When the workflow closed, if applicable (epoch millis).
  * @property historyLength Number of events in the workflow history.
@@ -108,6 +109,7 @@ data class WorkflowExecutionDescription(
     val runId: String,
     val workflowType: String,
     val status: WorkflowExecutionStatus,
+    val taskQueue: String,
     val startTime: Long,
     val closeTime: Long?,
     val historyLength: Long,

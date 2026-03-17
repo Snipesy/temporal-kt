@@ -1,5 +1,9 @@
 package com.surrealdev.temporal.client.history
 
+import com.surrealdev.temporal.common.EncodedTemporalPayloads
+import com.surrealdev.temporal.common.TemporalPayloads
+import com.surrealdev.temporal.serialization.PayloadCodec
+import com.surrealdev.temporal.serialization.safeDecode
 import io.temporal.api.enums.v1.EventType
 import io.temporal.api.history.v1.HistoryEvent
 import kotlin.time.Duration
@@ -27,6 +31,7 @@ sealed class TemporalHistoryEvent {
         override val timestamp: Long,
         val workflowType: String,
         val taskQueue: String,
+        val input: TemporalPayloads?,
         val originalExecutionRunId: String,
         val firstExecutionRunId: String,
         val attempt: Int,
@@ -46,6 +51,7 @@ sealed class TemporalHistoryEvent {
     data class WorkflowExecutionCompleted(
         override val eventId: Long,
         override val timestamp: Long,
+        val result: TemporalPayloads?,
         val newExecutionRunId: String?,
     ) : TemporalHistoryEvent() {
         override val eventType get() = TemporalEventType.WORKFLOW_EXECUTION_COMPLETED
@@ -241,6 +247,7 @@ sealed class TemporalHistoryEvent {
         val activityId: String,
         val activityType: String,
         val taskQueue: String,
+        val input: TemporalPayloads?,
         val scheduleToCloseTimeout: Duration?,
         val scheduleToStartTimeout: Duration?,
         val startToCloseTimeout: Duration?,
@@ -267,6 +274,7 @@ sealed class TemporalHistoryEvent {
         val scheduledEventId: Long,
         val startedEventId: Long,
         val identity: String,
+        val result: TemporalPayloads?,
     ) : TemporalHistoryEvent() {
         override val eventType get() = TemporalEventType.ACTIVITY_TASK_COMPLETED
     }
@@ -663,7 +671,10 @@ sealed class TemporalHistoryEvent {
     ) : TemporalHistoryEvent()
 
     companion object {
-        internal fun fromProto(proto: HistoryEvent): TemporalHistoryEvent {
+        internal suspend fun fromProto(
+            proto: HistoryEvent,
+            codec: PayloadCodec,
+        ): TemporalHistoryEvent {
             val eventId = proto.eventId
             val ts = proto.eventTime.seconds * 1000 + proto.eventTime.nanos / 1_000_000
 
@@ -677,6 +688,12 @@ sealed class TemporalHistoryEvent {
                         timestamp = ts,
                         workflowType = a.workflowType.name,
                         taskQueue = a.taskQueue.name,
+                        input =
+                            if (a.hasInput()) {
+                                codec.safeDecode(EncodedTemporalPayloads(a.input))
+                            } else {
+                                null
+                            },
                         originalExecutionRunId = a.originalExecutionRunId,
                         firstExecutionRunId = a.firstExecutionRunId,
                         attempt = a.attempt,
@@ -711,6 +728,12 @@ sealed class TemporalHistoryEvent {
                     WorkflowExecutionCompleted(
                         eventId = eventId,
                         timestamp = ts,
+                        result =
+                            if (a.hasResult()) {
+                                codec.safeDecode(EncodedTemporalPayloads(a.result))
+                            } else {
+                                null
+                            },
                         newExecutionRunId = a.newExecutionRunId.ifEmpty { null },
                     )
                 }
@@ -948,6 +971,12 @@ sealed class TemporalHistoryEvent {
                         activityId = a.activityId,
                         activityType = a.activityType.name,
                         taskQueue = a.taskQueue.name,
+                        input =
+                            if (a.hasInput()) {
+                                codec.safeDecode(EncodedTemporalPayloads(a.input))
+                            } else {
+                                null
+                            },
                         scheduleToCloseTimeout =
                             if (a.hasScheduleToCloseTimeout()) a.scheduleToCloseTimeout.toKt() else null,
                         scheduleToStartTimeout =
@@ -980,6 +1009,12 @@ sealed class TemporalHistoryEvent {
                         scheduledEventId = a.scheduledEventId,
                         startedEventId = a.startedEventId,
                         identity = a.identity,
+                        result =
+                            if (a.hasResult()) {
+                                codec.safeDecode(EncodedTemporalPayloads(a.result))
+                            } else {
+                                null
+                            },
                     )
                 }
 
@@ -1408,12 +1443,13 @@ sealed class TemporalHistoryEvent {
 
                 // ---- Fallback ----
 
-                else ->
+                else -> {
                     Unknown(
                         eventId = eventId,
                         eventType = TemporalEventType.fromProto(proto.eventType),
                         timestamp = ts,
                     )
+                }
             }
         }
     }
