@@ -950,7 +950,7 @@ class ExceptionPropagationIntegrationTest {
 
     @Test
     fun `concurrent activities with one failure produce clean exception at client`() =
-        runTemporalTest(timeSkipping = true) {
+        runTemporalTest(timeSkipping = false) {
             @Workflow("ConcurrentActivitiesOneFailsWF")
             class ConcurrentActivitiesOneFailsWorkflow {
                 @WorkflowRun
