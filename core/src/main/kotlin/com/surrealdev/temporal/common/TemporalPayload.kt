@@ -332,6 +332,7 @@ value class EncodedTemporalPayloads(
          * Use this when receiving payloads from the wire (e.g., from activation jobs or gRPC responses)
          * that need to be decoded via [PayloadCodec.decode][com.surrealdev.temporal.serialization.PayloadCodec.decode].
          */
+        @InternalTemporalApi
         fun fromProtoPayloadList(payloads: List<io.temporal.api.common.v1.Payload>): EncodedTemporalPayloads =
             EncodedTemporalPayloads(
                 io.temporal.api.common.v1.Payloads

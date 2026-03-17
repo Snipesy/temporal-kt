@@ -36,7 +36,7 @@ object SearchAttributeEncoder {
      * @param attributes The typed search attributes to encode
      * @return Map of attribute names to encoded Payloads with type metadata
      */
-    fun encode(attributes: TypedSearchAttributes): Map<String, Payload> =
+    internal fun encode(attributes: TypedSearchAttributes): Map<String, Payload> =
         attributes.pairs.associate { pair ->
             pair.key.name to encodeValue(pair.key, pair.value)
         }
