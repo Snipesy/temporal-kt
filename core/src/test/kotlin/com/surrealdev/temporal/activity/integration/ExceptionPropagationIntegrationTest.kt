@@ -26,6 +26,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.minutes
@@ -219,6 +220,119 @@ class ExceptionPropagationIntegrationTest {
             handle.assertHistory {
                 completed()
             }
+        }
+
+    // ================================================================
+    // Section A3 — Stack trace cutoff verification
+    // ================================================================
+
+    // Workflow that extracts the raw originalStackTrace from an activity failure so the test
+    // can assert which frames are present/absent after the cutoff logic runs.
+    @Workflow("ActivityStackTraceCutoffWF")
+    class ActivityStackTraceCutoffWorkflow {
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String =
+            try {
+                startActivity(
+                    activityType = "throwIllegalState",
+                    options =
+                        ActivityOptions(
+                            startToCloseTimeout = 1.minutes,
+                            retryPolicy = RetryPolicy(maximumAttempts = 1),
+                        ),
+                ).result()
+            } catch (e: WorkflowActivityFailureException) {
+                val trace = e.applicationFailure?.originalStackTrace ?: ""
+                buildString {
+                    // User code frame must survive
+                    append("hasActivityFrame=${trace.contains("ExceptionActivities")}")
+                    // Inclusive cutoff frame must be present as the final SDK anchor.
+                    // kotlinx.coroutines and kotlin.reflect frames between user code and the
+                    // cutoff are expected — they are coroutine machinery artefacts that appear
+                    // in the middle of the trace and are intentionally kept (see serializeStackTrace).
+                    append("|hasCutoffFrame=${trace.contains("ActivityDispatcher.invokeMethod")}")
+                    // Everything below the cutoff must be absent
+                    append("|hasDispatchStartTask=${trace.contains("dispatchStartTask")}")
+                    append("|hasInterceptorChain=${trace.contains("InterceptorChain")}")
+                }
+            }
+    }
+
+    @Test
+    fun `activity failure stack trace is cut off at ActivityDispatcher invokeMethod`() =
+        runTemporalTest(timeSkipping = true) {
+            val taskQueue = "test-excprop-cutoff-act-${UUID.randomUUID()}"
+            val activities = ExceptionActivities()
+
+            application {
+                taskQueue(taskQueue) {
+                    workflow<ActivityStackTraceCutoffWorkflow>()
+                    activity(activities)
+                }
+            }
+
+            val client = client()
+            val handle =
+                client.startWorkflow(
+                    workflowType = "ActivityStackTraceCutoffWF",
+                    taskQueue = taskQueue,
+                )
+
+            val result = handle.result<String>(timeout = 30.seconds)
+
+            assertTrue(result.contains("hasActivityFrame=true"), "User activity frame missing: $result")
+            assertTrue(result.contains("hasCutoffFrame=true"), "Inclusive cutoff frame missing: $result")
+            assertTrue(result.contains("hasDispatchStartTask=false"), "dispatchStartTask should be cut: $result")
+            assertTrue(result.contains("hasInterceptorChain=false"), "InterceptorChain should be cut: $result")
+
+            handle.assertHistory { completed() }
+        }
+
+    // Workflow that fails immediately so the client can check the workflow-side stack trace cutoff.
+    @Workflow("WorkflowStackTraceCutoffWF")
+    class WorkflowStackTraceCutoffWorkflow {
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String = throw IllegalStateException("workflow failed for trace cutoff test")
+    }
+
+    @Test
+    fun `workflow failure stack trace contains user code and no synthetic coroutine boundary markers`() =
+        runTemporalTest(timeSkipping = true) {
+            val taskQueue = "test-excprop-cutoff-wf-${UUID.randomUUID()}"
+
+            application {
+                taskQueue(taskQueue) {
+                    workflow<WorkflowStackTraceCutoffWorkflow>()
+                }
+            }
+
+            val client = client()
+            val handle =
+                client.startWorkflow(
+                    workflowType = "WorkflowStackTraceCutoffWF",
+                    taskQueue = taskQueue,
+                )
+
+            val ex =
+                assertFailsWith<ClientWorkflowFailedException> {
+                    handle.result<String>(timeout = 30.seconds)
+                }
+
+            val trace = ex.applicationFailure?.originalStackTrace ?: ""
+            assertTrue(trace.isNotEmpty(), "originalStackTrace should be present")
+            assertTrue(
+                trace.contains("WorkflowStackTraceCutoffWorkflow"),
+                "User workflow class frame missing: $trace",
+            )
+            // Synthetic _COROUTINE._BOUNDARY._ / _COROUTINE._CREATION._ markers inserted by
+            // kotlinx.coroutines StackTraceRecovery must not appear — they point to library
+            // internals and render as noise. Everything else (reflection, coroutine machinery,
+            // WorkflowExecutor frames) may appear as coroutine artefacts; there is no named
+            // cutoff method for workflow dispatch.
+            assertFalse(
+                trace.contains("_COROUTINE"),
+                "Synthetic _COROUTINE boundary markers should be stripped: $trace",
+            )
         }
 
     @Workflow("NestedCauseReportWF")

@@ -18,7 +18,7 @@ import com.surrealdev.temporal.core.internal.TemporalCoreClient as InternalClien
  */
 data class ClientOptions(
     val clientName: String = "temporal-kotlin",
-    val clientVersion: String = "0.1.0",
+    val clientVersion: String = BuildConfig.SDK_VERSION,
     val identity: String? = null,
 )
 

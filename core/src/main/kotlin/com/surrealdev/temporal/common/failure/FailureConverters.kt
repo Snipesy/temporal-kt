@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.common.failure
 
+import com.surrealdev.temporal.activity.internal.ActivityDispatcher
 import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayloads
@@ -25,6 +26,67 @@ private val logger = LoggerFactory.getLogger("com.surrealdev.temporal.common.fai
  * originating from the same SDK family get their Java stack trace replaced.
  */
 const val FAILURE_SOURCE = "Kotlin"
+
+/**
+ * Exact `className.methodName` strings at which stack trace serialization stops (inclusive).
+t *
+ * These are the SDK's own dispatch entry points — the methods that call into user code via
+ * reflection. Everything below them (interceptor chain, OTel spans, coroutine machinery) is
+ * pure SDK infrastructure with no user-meaningful content.
+ */
+private val STACK_TRACE_CUTOFF_METHODS =
+    setOf(
+        "${ActivityDispatcher::class.qualifiedName}.invokeMethod",
+        "${ActivityDispatcher::class.qualifiedName}.invokeDynamicActivity",
+    )
+
+/**
+ * Serializes [frames] to a newline-separated string, dropping synthetic coroutine boundary
+ * markers and stopping at the SDK's own dispatch entry points.
+ *
+ * ## Why synthetic frames appear
+ *
+ * kotlinx.coroutines' stack trace recovery (`StackTraceRecovery.kt`) inserts artificial
+ * `_COROUTINE._BOUNDARY._` frames to mark the boundary between coroutine execution and
+ * coroutine launch-site frames. Two recovery paths place this marker at index 0, *before*
+ * any user code:
+ *  - `sanitizeStackTrace()` — always puts `ARTIFICIAL_FRAME` at position 0
+ *  - `createFinalException()` fallback — when the cause trace has no `BaseContinuationImpl`
+ *    frame, the boundary marker lands at index 0
+ *
+ * These frames carry no user-meaningful content and are silently skipped wherever they appear.
+ * `BaseContinuationImpl` and `kotlinx.coroutines.*` frames are intentionally **not** used as
+ * hard stops: those frames interleave with user `invokeSuspend` frames in nested coroutine
+ * call chains, so stopping at the first occurrence would silently drop legitimate user frames.
+ *
+ * ## Serialization logic
+ *
+ * 1. Skip frames whose `className` starts with `_COROUTINE` — synthetic boundary markers.
+ * 2. If a frame matches [STACK_TRACE_CUTOFF_METHODS], include it as an anchor and stop.
+ *    This strips the SDK's internal dispatch machinery (interceptor chain, OTel spans, etc.)
+ *    that lives below the reflection call into user code.
+ * 3. All other frames — including `kotlinx.coroutines.*` and `BaseContinuationImpl` frames
+ *    that appear between user frames — are emitted as-is. Coroutine machinery frames in the
+ *    middle of the trace are an artifact of how `kotlinx.coroutines` interleaves
+ *    trampoline frames with user continuation frames.
+ */
+internal fun serializeStackTrace(frames: Array<StackTraceElement>): String =
+    buildString {
+        for (frame in frames) {
+            // Skip synthetic _COROUTINE._BOUNDARY._ / _COROUTINE._CREATION._ markers inserted
+            // by kotlinx.coroutines StackTraceRecovery.
+            if (frame.className.startsWith("_COROUTINE")) continue
+
+            val fullMethod = "${frame.className}.${frame.methodName}"
+            if (fullMethod in STACK_TRACE_CUTOFF_METHODS) {
+                // Include the SDK dispatch frame as a recognisable anchor, then stop.
+                // Everything below (InterceptorChain, OTel, coroutine machinery) is stripped.
+                appendLine(frame)
+                break
+            }
+            appendLine(frame)
+        }
+    }.trimEnd()
 
 /**
  * Regex for parsing a single JVM stack trace element in `ClassName.methodName(FileName:line)` format.
@@ -196,8 +258,8 @@ internal suspend fun buildFailureProto(
     codec: PayloadCodec,
     depth: Int = 0,
 ): Failure {
-    // Format stack trace as bare StackTraceElement.toString() lines for clean round-tripping
-    val stackTraceString = exception.stackTrace.joinToString("\n") { it.toString() }
+    // Format stack trace with SDK/coroutine cutoff to keep the failure payload compact
+    val stackTraceString = serializeStackTrace(exception.stackTrace)
 
     // Use originalMessage for ApplicationFailure to avoid serializing the decorated getMessage()
     // into the proto (which would double-decorate on round-trip).
@@ -252,10 +314,6 @@ internal suspend fun buildFailureProto(
         if (exception.category != ApplicationErrorCategory.UNSPECIFIED) {
             val protoCategory =
                 when (exception.category) {
-                    ApplicationErrorCategory.UNSPECIFIED -> {
-                        io.temporal.api.enums.v1.ApplicationErrorCategory.APPLICATION_ERROR_CATEGORY_UNSPECIFIED
-                    }
-
                     ApplicationErrorCategory.BENIGN -> {
                         io.temporal.api.enums.v1.ApplicationErrorCategory.APPLICATION_ERROR_CATEGORY_BENIGN
                     }

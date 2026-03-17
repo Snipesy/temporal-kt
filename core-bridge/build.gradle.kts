@@ -398,6 +398,7 @@ buildConfig {
     documentation.set("Build-time configuration constants.")
 
     buildConfigField("TEMPORAL_CLI_VERSION", temporalCliVersion)
+    buildConfigField("SDK_VERSION", project.version.toString())
 }
 
 // Configure Dokka to exclude generated code to prevent OOM

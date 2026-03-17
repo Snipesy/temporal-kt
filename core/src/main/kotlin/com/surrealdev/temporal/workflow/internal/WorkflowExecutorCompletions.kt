@@ -4,6 +4,7 @@ import com.surrealdev.temporal.common.RetryPolicy
 import com.surrealdev.temporal.common.exceptions.PayloadProcessingException
 import com.surrealdev.temporal.common.failure.FAILURE_SOURCE
 import com.surrealdev.temporal.common.failure.buildFailureProto
+import com.surrealdev.temporal.common.failure.serializeStackTrace
 import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.internal.isFatalError
 import com.surrealdev.temporal.serialization.safeEncode
@@ -174,7 +175,7 @@ internal fun WorkflowExecutor.buildFailureCompletion(
         Failure
             .newBuilder()
             .setMessage(exception.message ?: exception::class.simpleName ?: "Unknown error")
-            .setStackTrace(exception.stackTraceToString())
+            .setStackTrace(serializeStackTrace(exception.stackTrace))
             .setSource(FAILURE_SOURCE)
             .build()
 
