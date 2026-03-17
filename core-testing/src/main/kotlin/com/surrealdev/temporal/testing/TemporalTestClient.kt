@@ -120,7 +120,8 @@ class TemporalTestClient internal constructor(
     override suspend fun listWorkflows(
         query: String,
         pageSize: Int,
-    ): WorkflowExecutionList = delegate.listWorkflows(query, pageSize)
+        nextPageToken: com.surrealdev.temporal.common.TemporalByteString?,
+    ): WorkflowExecutionList = delegate.listWorkflows(query, pageSize, nextPageToken)
 
     override suspend fun countWorkflows(query: String): Long = delegate.countWorkflows(query)
 
