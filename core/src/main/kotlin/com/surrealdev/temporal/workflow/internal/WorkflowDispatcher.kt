@@ -222,7 +222,8 @@ internal class WorkflowDispatcher(
             try {
                 entry.virtualThread.dispatch(activation)
             } catch (e: WorkflowDeadlockException) {
-                // Deadlock detected - clean up and fail the workflow task
+                // Deadlock detected - fail the task and let Core send RemoveFromCache
+                // to trigger cleanup via the normal eviction path (lines 152-166)
                 val workflowType =
                     activation.jobsList
                         .find { it.hasInitializeWorkflow() }
@@ -238,14 +239,8 @@ internal class WorkflowDispatcher(
                     e.message,
                 )
 
-                // Remove from cache
-                executors.remove(runId)
-                entry.executor.terminateWorkflowExecutionJob()
-
-                // Launch NonCancellable coroutine to keep trying to evict the zombie thread
-                launchTerminationJob(entry.virtualThread, runId, workflowType)
-
-                // Return failure completion to Core SDK (workflow task will retry)
+                // Return failure completion to Core SDK
+                // Core will respond with RemoveFromCache, which handles eviction and cleanup
                 return@withLock WorkflowDispatchResult(buildDeadlockFailure(activation, e))
             }
         }
