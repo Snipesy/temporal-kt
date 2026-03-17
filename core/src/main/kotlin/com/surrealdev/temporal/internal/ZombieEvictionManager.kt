@@ -288,7 +288,7 @@ internal class ZombieEvictionManager(
             zombieEvictionJobs.size,
         )
 
-        val jobs = zombieEvictionJobs.values.toList()
+        val jobs = ArrayList(zombieEvictionJobs.values)
         val completed =
             withTimeoutOrNull(config.shutdownTimeout) {
                 jobs.joinAll()

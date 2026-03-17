@@ -836,8 +836,8 @@ internal class WorkflowState(
      */
     fun getDebugInfo(): PendingOperationsDebugInfo =
         PendingOperationsDebugInfo(
-            pendingTimers = pendingTimers.keys.toList().sorted(),
-            pendingTimerContinuations = pendingTimerContinuations.keys.toList().sorted(),
+            pendingTimers = ArrayList(pendingTimers.keys).sorted(),
+            pendingTimerContinuations = ArrayList(pendingTimerContinuations.keys).sorted(),
             pendingActivities =
                 pendingActivities
                     .map { (seq, handle) ->
@@ -858,8 +858,8 @@ internal class WorkflowState(
                             started = handle.startDeferred.isCompleted,
                         )
                     }.sortedBy { it.seq },
-            pendingExternalSignals = pendingExternalSignals.keys.toList().sorted(),
-            pendingExternalCancels = pendingExternalCancels.keys.toList().sorted(),
+            pendingExternalSignals = ArrayList(pendingExternalSignals.keys).sorted(),
+            pendingExternalCancels = ArrayList(pendingExternalCancels.keys).sorted(),
             pendingConditions = conditions.size,
             isReplaying = isReplaying,
             currentTime = currentTime,
