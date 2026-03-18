@@ -16,6 +16,7 @@ import com.surrealdev.temporal.core.TemporalTestServer
 import com.surrealdev.temporal.core.VersioningBehavior
 import com.surrealdev.temporal.core.WorkerDeploymentOptions
 import com.surrealdev.temporal.core.WorkerDeploymentVersion
+import com.surrealdev.temporal.workflow.StrictWorkflowRegistrationKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -83,6 +84,7 @@ class TemporalTestApplicationBuilder internal constructor(
     private var configured = false
     private var deploymentOptions: WorkerDeploymentOptions? = null
     private var shutdownConfig: ShutdownConfig = ShutdownConfig()
+    private var strictRegistrationEnabled: Boolean = true
 
     /**
      * The gRPC target URL for connecting to the ephemeral server.
@@ -130,6 +132,29 @@ class TemporalTestApplicationBuilder internal constructor(
     }
 
     /**
+     * Controls strict workflow registration mode (default: **enabled**).
+     *
+     * When enabled, any workflow activation for a type that is not registered on this worker
+     * permanently fails the workflow execution with a descriptive error message listing the
+     * known types. This surfaces registration mistakes (typos, missing `workflow<Foo>()` calls)
+     * immediately rather than causing the test to hang until its timeout.
+     *
+     * Disable this if the test intentionally uses multiple workers where some workflow types
+     * are handled by a worker outside this test application (multi-worker test scenarios).
+     *
+     * This must be called before [application] to take effect.
+     *
+     * @param enabled `true` to fail the workflow immediately on unknown type (default),
+     *                `false` to use the production behavior (task failure, retried by the server)
+     *
+     * @see com.surrealdev.temporal.workflow.StrictWorkflowRegistrationKey
+     */
+    fun strictWorkflowRegistration(enabled: Boolean) {
+        check(!configured) { "strictWorkflowRegistration() must be called before application()" }
+        strictRegistrationEnabled = enabled
+    }
+
+    /**
      * Configures and starts the Temporal application.
      *
      * This must be called before accessing [client] or other application features.
@@ -160,6 +185,11 @@ class TemporalTestApplicationBuilder internal constructor(
         }
 
         _application = appBuilder.build()
+
+        // Apply strict registration mode so unregistered workflow types fail fast in tests.
+        // This is set on the application-level attributes, which propagate down to task-queue
+        // scopes via the AttributeScope hierarchy, so it covers all workers in this application.
+        _application!!.attributes.put(StrictWorkflowRegistrationKey, strictRegistrationEnabled)
 
         // Apply user configuration on the built application
         _application!!.block()

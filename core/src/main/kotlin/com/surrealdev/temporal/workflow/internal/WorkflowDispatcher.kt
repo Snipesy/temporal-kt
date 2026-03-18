@@ -9,7 +9,10 @@ import com.surrealdev.temporal.internal.ZombieEvictionManager
 import com.surrealdev.temporal.serialization.PayloadCodec
 import com.surrealdev.temporal.serialization.PayloadSerializer
 import com.surrealdev.temporal.util.AttributeScope
+import com.surrealdev.temporal.util.getAttributeOrNull
+import com.surrealdev.temporal.workflow.StrictWorkflowRegistrationKey
 import coresdk.workflow_activation.WorkflowActivationOuterClass.WorkflowActivation
+import coresdk.workflow_commands.WorkflowCommands
 import coresdk.workflow_completion.WorkflowCompletion
 import io.temporal.api.failure.v1.Failure
 import kotlinx.coroutines.Job
@@ -300,12 +303,52 @@ internal class WorkflowDispatcher(
                 ?.workflowType
                 ?: "unknown"
 
+        val available = registry.registeredTypes()
+        val message =
+            if (available.isEmpty()) {
+                "Workflow type not registered: $workflowType (no workflows registered on this task queue)"
+            } else {
+                "Workflow type not registered: $workflowType. Known types: $available"
+            }
+
         val failure =
             Failure
                 .newBuilder()
-                .setMessage("Workflow type not registered: $workflowType")
+                .setMessage(message)
                 .setSource(FAILURE_SOURCE)
                 .build()
+
+        // When strict registration mode is enabled (e.g. in test environments), permanently fail
+        // the workflow execution instead of returning a task failure. A task failure would cause
+        // the server to retry indefinitely — harmless in production where another worker may
+        // handle the type, but causes test hangs in single-worker setups.
+        val strict = taskQueueScope.getAttributeOrNull(StrictWorkflowRegistrationKey) ?: false
+        if (strict) {
+            logger.warn(
+                "[TKT1108] Strict registration: permanently failing workflow for unregistered type. " +
+                    "run_id={}, task_queue={}, message={}",
+                activation.runId,
+                taskQueue,
+                message,
+            )
+            val failCommand =
+                WorkflowCommands.WorkflowCommand
+                    .newBuilder()
+                    .setFailWorkflowExecution(
+                        WorkflowCommands.FailWorkflowExecution
+                            .newBuilder()
+                            .setFailure(failure),
+                    ).build()
+
+            return WorkflowCompletion.WorkflowActivationCompletion
+                .newBuilder()
+                .setRunId(activation.runId)
+                .setSuccessful(
+                    WorkflowCompletion.Success
+                        .newBuilder()
+                        .addCommands(failCommand),
+                ).build()
+        }
 
         return WorkflowCompletion.WorkflowActivationCompletion
             .newBuilder()
