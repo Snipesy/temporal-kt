@@ -28,16 +28,23 @@ private val logger = LoggerFactory.getLogger("com.surrealdev.temporal.common.fai
 const val FAILURE_SOURCE = "Kotlin"
 
 /**
- * Exact `className.methodName` strings at which stack trace serialization stops (inclusive).
-t *
+ * Class name prefixes at which stack trace serialization stops (inclusive).
+ *
  * These are the SDK's own dispatch entry points — the methods that call into user code via
  * reflection. Everything below them (interceptor chain, OTel spans, coroutine machinery) is
  * pure SDK infrastructure with no user-meaningful content.
+ *
+ * We match by prefix rather than exact `className.methodName` because coroutine continuations
+ * produce mangled class names like `ActivityDispatcher$invokeDynamicActivity$result$1$1`
+ * with methodName `invokeSuspend`, which would not match an exact check.
  */
-private val STACK_TRACE_CUTOFF_METHODS =
-    setOf(
+private val STACK_TRACE_CUTOFF_PREFIXES =
+    listOf(
         "${ActivityDispatcher::class.qualifiedName}.invokeMethod",
         "${ActivityDispatcher::class.qualifiedName}.invokeDynamicActivity",
+        // Coroutine continuations nest the method name as an inner class
+        "${ActivityDispatcher::class.qualifiedName}\$invokeMethod",
+        "${ActivityDispatcher::class.qualifiedName}\$invokeDynamicActivity",
     )
 
 /**
@@ -62,7 +69,7 @@ private val STACK_TRACE_CUTOFF_METHODS =
  * ## Serialization logic
  *
  * 1. Skip frames whose `className` starts with `_COROUTINE` — synthetic boundary markers.
- * 2. If a frame matches [STACK_TRACE_CUTOFF_METHODS], include it as an anchor and stop.
+ * 2. If a frame matches [STACK_TRACE_CUTOFF_PREFIXES], include it as an anchor and stop.
  *    This strips the SDK's internal dispatch machinery (interceptor chain, OTel spans, etc.)
  *    that lives below the reflection call into user code.
  * 3. All other frames — including `kotlinx.coroutines.*` and `BaseContinuationImpl` frames
@@ -78,7 +85,7 @@ internal fun serializeStackTrace(frames: Array<StackTraceElement>): String =
             if (frame.className.startsWith("_COROUTINE")) continue
 
             val fullMethod = "${frame.className}.${frame.methodName}"
-            if (fullMethod in STACK_TRACE_CUTOFF_METHODS) {
+            if (STACK_TRACE_CUTOFF_PREFIXES.any { fullMethod.startsWith(it) }) {
                 // Include the SDK dispatch frame as a recognisable anchor, then stop.
                 // Everything below (InterceptorChain, OTel, coroutine machinery) is stripped.
                 appendLine(frame)
