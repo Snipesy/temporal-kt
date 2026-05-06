@@ -1,0 +1,45 @@
+FILE: NonWorkflowClass.kt
+    public final class NonWorkflowClass : R|kotlin/Any| {
+        public constructor(): R|NonWorkflowClass| {
+            super<R|kotlin/Any|>()
+        }
+
+        public final fun doBackgroundWork(): R|kotlin/Unit| {
+            Q|kotlinx/coroutines/GlobalScope|.R|kotlinx/coroutines/launch|(<L> = launch@fun R|kotlinx/coroutines/CoroutineScope|.<anonymous>(): R|kotlin/Unit| <inline=NoInline>  {
+                R|kotlin/io/println|(String(This is fine - not a workflow))
+            }
+            )
+        }
+
+        public final suspend fun fetchData(): R|kotlin/String| {
+            ^fetchData R|kotlinx/coroutines/withContext|<R|kotlin/String|>(Q|kotlinx/coroutines/Dispatchers|.R|kotlinx/coroutines/Dispatchers.IO|, <L> = withContext@fun R|kotlinx/coroutines/CoroutineScope|.<anonymous>(): R|kotlin/String| <inline=NoInline, kind=EXACTLY_ONCE>  {
+                ^ String(data)
+            }
+            )
+        }
+
+        public final suspend fun processInBackground(): R|kotlin/Int| {
+            ^processInBackground R|kotlinx/coroutines/withContext|<R|kotlin/Int|>(Q|kotlinx/coroutines/Dispatchers|.R|kotlinx/coroutines/Dispatchers.Default|, <L> = withContext@fun R|kotlinx/coroutines/CoroutineScope|.<anonymous>(): R|kotlin/Int| <inline=NoInline, kind=EXACTLY_ONCE>  {
+                ^ Int(1).R|kotlin/Int.rangeTo|(Int(1000)).R|kotlin/collections/sum|()
+            }
+            )
+        }
+
+        public final fun startAsync(): R|kotlin/Unit| {
+            Q|kotlinx/coroutines/GlobalScope|.R|kotlinx/coroutines/async|<R|kotlin/String|>(<L> = async@fun R|kotlinx/coroutines/CoroutineScope|.<anonymous>(): R|kotlin/String| <inline=NoInline>  {
+                ^ String(async result)
+            }
+            )
+        }
+
+    }
+    public final suspend fun regularSuspendFunction(): R|kotlin/Unit| {
+        R|kotlinx/coroutines/withContext|<R|kotlin/Unit|>(Q|kotlinx/coroutines/Dispatchers|.R|kotlinx/coroutines/Dispatchers.IO|, <L> = withContext@fun R|kotlinx/coroutines/CoroutineScope|.<anonymous>(): R|kotlin/Unit| <inline=NoInline, kind=EXACTLY_ONCE>  {
+            R|kotlin/io/println|(String(This is totally fine))
+        }
+        )
+        Q|kotlinx/coroutines/GlobalScope|.R|kotlinx/coroutines/launch|(<L> = launch@fun R|kotlinx/coroutines/CoroutineScope|.<anonymous>(): R|kotlin/Unit| <inline=NoInline>  {
+            R|kotlin/io/println|(String(Also fine - not in a workflow))
+        }
+        )
+    }

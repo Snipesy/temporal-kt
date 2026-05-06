@@ -14,6 +14,7 @@ import com.surrealdev.temporal.serialization.payloadSerializer
 import com.surrealdev.temporal.util.AttributeScope
 import com.surrealdev.temporal.util.Attributes
 import io.temporal.api.common.v1.Payload
+import kotlin.reflect.full.companionObjectInstance
 
 /**
  * Builder for configuring a task queue with workflows and activities.
@@ -276,6 +277,83 @@ class TaskQueueBuilder internal constructor(
                 workflowClass = klass,
             ),
         )
+
+        // Compiler-plugin hook: if the workflow class's companion object exposes
+        // `__registerInlineActivities(builder)`, invoke it. Synthesised by the plugin when the
+        // `@WorkflowRun` body inlines `activity("Name") { ... }` calls — those activities get
+        // lifted to top-level @Activity functions and auto-registered here so the user doesn't
+        // have to repeat them at the taskQueue scope.
+        invokeInlineActivityHookIfPresent(klass)
+    }
+
+    /**
+     * Reflectively invoke `<T>.Companion.__registerInlineActivities(this)` if such a method
+     * exists. No-op for classes without inline activities (the plugin only synthesises the hook
+     * when needed). Errors from the hook propagate.
+     */
+    @PublishedApi
+    internal fun invokeInlineActivityHookIfPresent(klass: kotlin.reflect.KClass<*>) {
+        val companion = klass.companionObjectInstance ?: return
+        val hook =
+            companion::class.java.declaredMethods.firstOrNull { method ->
+                method.name == INLINE_ACTIVITY_HOOK_NAME && method.parameterCount == 1
+            } ?: return
+        hook.isAccessible = true
+        hook.invoke(companion, this)
+    }
+
+    /**
+     * Non-reified helper to register a workflow class. Used by the IR-time inline-workflow
+     * lowering: when the plugin synthesises an anonymous workflow class from a
+     * `taskQueue { workflow("Name") { ... } }` block, the rewritten call site becomes a call to
+     * this method with the synthesised class. Validation and prefix checking match
+     * [workflow]'s behaviour.
+     */
+    @PublishedApi
+    internal fun registerWorkflowClass(
+        workflowType: String,
+        klass: kotlin.reflect.KClass<out Any>,
+    ) {
+        val hasNoArgConstructor = klass.constructors.any { it.parameters.isEmpty() }
+        require(hasNoArgConstructor) {
+            "Workflow class ${klass.qualifiedName ?: klass.simpleName} must have a no-arg constructor"
+        }
+        require(!workflowType.startsWith("__temporal_")) {
+            "Workflow type name '$workflowType' cannot start with '__temporal_' (reserved for internal use)"
+        }
+        workflows.add(
+            WorkflowRegistration(
+                workflowType = workflowType,
+                workflowClass = klass,
+            ),
+        )
+        invokeInlineActivityHookIfPresent(klass)
+    }
+
+    /**
+     * Non-reified helper to register an activity function reference. Used by the IR-time
+     * inline-activity lowering when lifting `activity("Name") { ... }` lambda bodies to top-level
+     * `@Activity` functions.
+     */
+    @PublishedApi
+    internal fun registerActivityFunction(
+        activityType: String,
+        function: kotlin.reflect.KFunction<*>,
+    ) {
+        require(!activityType.startsWith("__temporal_")) {
+            "Activity type name '$activityType' cannot start with '__temporal_' (reserved for internal use)"
+        }
+        activities.add(
+            ActivityRegistration.FunctionRegistration(
+                activityType = activityType,
+                method = function,
+            ),
+        )
+    }
+
+    @PublishedApi
+    internal companion object {
+        const val INLINE_ACTIVITY_HOOK_NAME = "__registerInlineActivities"
     }
 
     /**

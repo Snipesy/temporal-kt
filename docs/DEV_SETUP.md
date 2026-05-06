@@ -99,6 +99,21 @@ fun TemporalApplication.module() {
 }
 ```
 
+
+## IDEA Kotlin Compiler
+
+Since Jetbrains IDEA runs several times ahead you can manually sepcify the compiler like this. Where `2.4.0-ij261-32`
+is your IDEA Kotlin Compiler Version
+
+```bash
+./gradlew :core:jar :compiler-plugin-runtime:jar :compiler-plugin:jar -Pkotlin.compiler=2.4.0-ij261-32
+```
+
+## VS Code LSP Integration
+
+TODO if its even possible.
+
+
 ## Proposals
 
 The main goal of this project is to provide powerful kotlin-first APIs to develop Temporal workflows and activities.

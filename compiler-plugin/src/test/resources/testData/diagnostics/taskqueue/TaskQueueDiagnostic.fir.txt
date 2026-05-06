@@ -1,0 +1,14 @@
+FILE: TaskQueueDiagnostic.kt
+    public final fun withTaskQueue(name: R|kotlin/String|, action: R|() -> kotlin/Unit|): R|kotlin/Unit| {
+        R|<local>/action|.R|SubstitutionOverride<kotlin/Function0.invoke: R|kotlin/Unit|>|()
+    }
+    public final fun test(): R|kotlin/Unit| {
+        R|/withTaskQueue|(String(bad-queue), <L> = withTaskQueue@fun <anonymous>(): R|kotlin/Unit| <inline=NoInline>  {
+            ^@withTaskQueue Unit
+        }
+        )
+        R|/withTaskQueue|(String(known-queue), <L> = withTaskQueue@fun <anonymous>(): R|kotlin/Unit| <inline=NoInline>  {
+            ^@withTaskQueue Unit
+        }
+        )
+    }

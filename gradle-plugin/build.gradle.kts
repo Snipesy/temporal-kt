@@ -22,7 +22,14 @@ buildConfig {
     buildConfigField("VERSION", project.version.toString())
     buildConfigField("GROUP_ID", project.group.toString())
     buildConfigField("COMPILER_PLUGIN_ARTIFACT_ID", "compiler-plugin")
+    buildConfigField("COMPILER_PLUGIN_RUNTIME_ARTIFACT_ID", "compiler-plugin-runtime")
     buildConfigField("CORE_BRIDGE_ARTIFACT_ID", "core-bridge")
+
+    // The compiler-plugin artifact is published with KEFS-compatible
+    // `<kotlinCompilerVersion>-<libraryVersion>` versioning so the IDE's external-FIR-support
+    // tool can match it to the IDE's bundled compiler. The gradle plugin must request that exact
+    // version when wiring SubpluginArtifact.
+    buildConfigField("COMPILER_PLUGIN_KOTLIN_VERSION", libs.versions.kotlin.get())
 }
 
 gradlePlugin {

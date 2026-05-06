@@ -2,7 +2,6 @@ package com.surrealdev.temporal.compiler.shared
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import org.jetbrains.kotlin.ir.declarations.IrParameterKind
 
 @Serializable
 data class DeterminismRulesConfig(
@@ -19,14 +18,24 @@ data class DeterminismRule(
 
 @Serializable
 data class RuleMatch(
-    // Match by parameter kind and type (for receiver checks)
+    /**
+     * Receiver kind for receiver-based matches.
+     * One of: "DispatchReceiver", "ExtensionReceiver", "Context", "Regular".
+     */
     val parameterKind: String? = null,
+    /** FQN of the receiver type to match. */
     val type: String? = null,
-    // Optional function name pattern to match (e.g., "<get-IO>")
+    /**
+     * Function name pattern; for property accessors use `<get-Foo>` / `<set-Foo>`.
+     * Optional refinement when [parameterKind] + [type] are set.
+     */
     val functionPattern: String? = null,
-    // Match by function FQ name directly
+    /** Direct match on a function FQN (e.g. `kotlinx.coroutines.withContext`). */
     val function: String? = null,
-    // Match if any argument has one of these types
+    /**
+     * If specified, the call matches when at least one argument's type contains/equals
+     * one of these strings. Used together with [function].
+     */
     val argumentTypes: List<String>? = null,
 )
 
@@ -42,13 +51,4 @@ object DeterminismRulesLoader {
         val jsonString = resourceStream.bufferedReader().use { it.readText() }
         return json.decodeFromString<DeterminismRulesConfig>(jsonString)
     }
-
-    fun parseParameterKind(kind: String): IrParameterKind =
-        when (kind) {
-            "DispatchReceiver" -> IrParameterKind.DispatchReceiver
-            "ExtensionReceiver" -> IrParameterKind.ExtensionReceiver
-            "Context" -> IrParameterKind.Context
-            "Regular" -> IrParameterKind.Regular
-            else -> error("Unknown parameter kind: $kind")
-        }
 }

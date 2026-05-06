@@ -1,0 +1,23 @@
+FILE: WorkflowLambdaCapture.kt
+    public final object Logger : R|kotlin/Any| {
+        private constructor(): R|Logger| {
+            super<R|kotlin/Any|>()
+        }
+
+        public final fun log(msg: R|kotlin/String|): R|kotlin/Unit| {
+        }
+
+    }
+    public final fun module(builder: R|com/surrealdev/temporal/application/TaskQueueBuilder|, captured: R|kotlin/String|): R|kotlin/Unit| {
+        R|kotlin/with|<R|com/surrealdev/temporal/application/TaskQueueBuilder|, R|kotlin/Unit|>(R|<local>/builder|, <L> = with@fun R|com/surrealdev/temporal/application/TaskQueueBuilder|.<anonymous>(): R|kotlin/Unit| <inline=Inline, kind=EXACTLY_ONCE>  {
+            this@R|special/anonymous|.R|com/surrealdev/temporal/dsl/workflow|<R|kotlin/Unit|>(String(Bad), <L> = workflow@fun R|com/surrealdev/temporal/workflow/WorkflowContext|.<anonymous>(): R|kotlin/Unit| <inline=NoInline>  {
+                Q|Logger|.R|/Logger.log|(R|<local>/captured|)
+            }
+            )
+            this@R|special/anonymous|.R|com/surrealdev/temporal/dsl/workflow|<R|kotlin/Unit|>(String(Good), <L> = workflow@fun R|com/surrealdev/temporal/workflow/WorkflowContext|.<anonymous>(): R|kotlin/Unit| <inline=NoInline>  {
+                Q|Logger|.R|/Logger.log|(String(hello))
+            }
+            )
+        }
+        )
+    }
