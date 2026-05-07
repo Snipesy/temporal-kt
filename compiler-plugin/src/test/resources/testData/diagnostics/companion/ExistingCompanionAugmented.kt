@@ -15,9 +15,8 @@ class AlreadyHasCompanion {
     }
 }
 
-// User's existing companion gets augmented (not replaced) with start/execute.
-// Both the user's constant AND the synth'd helpers resolve without error.
 suspend fun useAugmented(client: TemporalClient) {
     val s: String = AlreadyHasCompanion.SOME_CONSTANT
-    val r: String = AlreadyHasCompanion.execute(client, "q", "World")
+    val handle: AlreadyHasCompanion.Handle<String> = AlreadyHasCompanion.start(client, "q", "World")
+    val r: String = handle.result()
 }

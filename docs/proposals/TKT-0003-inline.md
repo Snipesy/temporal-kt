@@ -1,4 +1,4 @@
-# TKT-0003: Typed Workflow Companions + Inline Declarative
+# TKT-0003: Typed Workflow Companions + Inline Activities
 
 ## Goal
 
@@ -83,28 +83,30 @@ val handle: TypedWorkflowHandle<String> = Greeter.start(client, "queue", "World"
 val later: String = handle.result()
 ```
 
-## Inline DSL (deferred)
+## Inline activities
 
-The earlier draft of this proposal also described:
-- inline `taskQueue("q") { workflow("Foo") { ... } }` registration via the plugin lifting the
-  lambda into a synthesised class,
-- inline `activity("name") { ... }` calls inside `@WorkflowRun` methods being lifted into a
-  registered activity function with auto-registration through a companion hook.
+TKT-0003 also supports inline `activity("name") { ... }` calls inside `@WorkflowRun` methods.
+The compiler plugin lifts the activity lambda to a top-level `@Activity("name")` function,
+synthesises a workflow companion registration hook, and rewrites the workflow call site to
+Temporal's standard activity dispatch.
 
-These remain on the roadmap. The plugin currently neutralises stray `workflow(...)` /
-`activity(...)` DSL calls (rewriting them to `Unit` / `error(...)`) so they don't accidentally
-execute the no-op compiler-plugin-runtime stubs at runtime, but does not yet lower them into
-real registered code. To register workflows and activities today, use the existing
-class-based runtime API:
+Inline workflow declarations inside `taskQueue { ... }` are intentionally not supported. To
+register workflows, use the class-based runtime API:
 
 ```kotlin
-@Workflow("Foo") class Foo { @WorkflowRun ... }
-@Activity("Bar") fun doBar(arg: String): String = ...
+@Workflow("Foo")
+class Foo {
+    @WorkflowRun
+    suspend fun WorkflowContext.run(): String {
+        return activity("Bar") {
+            "done"
+        }
+    }
+}
 
 embeddedTemporal {
     taskQueue("q") {
         workflow<Foo>()
-        activity(::doBar)
     }
 }
 ```
@@ -119,7 +121,6 @@ interop.
 
 ## Debugging and stack traces
 
-When future stages add lambda-body lifting (inline workflows, inline activities), the IR pass
-will preserve `IrElement.startOffset`/`endOffset` from the original lambda expressions so that
-JVM line-number tables — and therefore stack traces and IDE breakpoints — point back to the
-user's source location, not the synthesised wrapper class.
+The inline activity IR pass preserves `IrElement.startOffset`/`endOffset` from the original
+lambda expressions so that JVM line-number tables — and therefore stack traces and IDE
+breakpoints — point back to the user's source location, not the synthesised wrapper function.

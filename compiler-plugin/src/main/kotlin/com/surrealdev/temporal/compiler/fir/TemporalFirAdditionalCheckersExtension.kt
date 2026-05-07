@@ -2,7 +2,6 @@ package com.surrealdev.temporal.compiler.fir
 
 import com.surrealdev.temporal.compiler.fir.checkers.TemporalDeterminismFileChecker
 import com.surrealdev.temporal.compiler.fir.checkers.TemporalTaskQueueChecker
-import com.surrealdev.temporal.compiler.fir.checkers.TemporalWorkflowCaptureChecker
 import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.DeclarationCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.FirFileChecker
@@ -22,6 +21,6 @@ class TemporalFirAdditionalCheckersExtension(
     override val expressionCheckers: ExpressionCheckers =
         object : ExpressionCheckers() {
             override val functionCallCheckers: Set<FirFunctionCallChecker> =
-                setOf(TemporalTaskQueueChecker(knownTaskQueues), TemporalWorkflowCaptureChecker())
+                setOf(TemporalTaskQueueChecker(knownTaskQueues))
         }
 }

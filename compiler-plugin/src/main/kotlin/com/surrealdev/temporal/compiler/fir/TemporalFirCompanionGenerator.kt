@@ -1,5 +1,8 @@
 package com.surrealdev.temporal.compiler.fir
 
+import org.jetbrains.kotlin.descriptors.ClassKind
+import org.jetbrains.kotlin.descriptors.Modality
+import org.jetbrains.kotlin.descriptors.Visibilities
 import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.declarations.FirDeclarationOrigin
 import org.jetbrains.kotlin.fir.declarations.FirResolvePhase
@@ -12,10 +15,13 @@ import org.jetbrains.kotlin.fir.extensions.predicate.LookupPredicate
 import org.jetbrains.kotlin.fir.extensions.predicateBasedProvider
 import org.jetbrains.kotlin.fir.plugin.createCompanionObject
 import org.jetbrains.kotlin.fir.plugin.createConeType
+import org.jetbrains.kotlin.fir.plugin.createConstructor
 import org.jetbrains.kotlin.fir.plugin.createDefaultPrivateConstructor
 import org.jetbrains.kotlin.fir.plugin.createMemberFunction
+import org.jetbrains.kotlin.fir.plugin.createNestedClass
 import org.jetbrains.kotlin.fir.resolve.providers.symbolProvider
 import org.jetbrains.kotlin.fir.scopes.impl.declaredMemberScope
+import org.jetbrains.kotlin.fir.scopes.impl.toConeType
 import org.jetbrains.kotlin.fir.scopes.processAllFunctions
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassLikeSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
@@ -29,47 +35,49 @@ import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.SpecialNames
+import org.jetbrains.kotlin.types.Variance
 
 /**
- * Augments every `@com.surrealdev.temporal.annotation.Workflow`-annotated class with a synthesised
- * companion object exposing typed `start(...)` / `execute(...)` helpers.
+ * Augments every `@com.surrealdev.temporal.annotation.Workflow`-annotated class with:
  *
- * For a workflow:
+ * 1. A synthesised `companion object` exposing typed `start(...)` and `handle(...)` helpers.
+ * 2. A nested `Handle` class extending [TypedWorkflowHandle][com.surrealdev.temporal.client.TypedWorkflowHandle]
+ *    with an `@PublishedApi internal` constructor — only callable from generated code.
+ *
+ * Shape:
  *
  * ```
  * @Workflow("Foo")
  * class Foo {
  *     @WorkflowRun suspend fun WorkflowContext.run(arg: A): R = ...
+ *
+ *     // synthesised:
+ *     class Handle @PublishedApi internal constructor(
+ *         handle: WorkflowHandle,
+ *         resultType: KType,
+ *     ) : TypedWorkflowHandle<R>(handle, resultType)
+ *
+ *     companion object {
+ *         suspend fun start(client, taskQueue, arg, options): Foo.Handle
+ *         fun handle(client, workflowId, runId): Foo.Handle
+ *     }
  * }
  * ```
  *
- * the companion gains:
+ * Bodies are stubbed at FIR (`withGeneratedDefaultBody()`) and filled by the IR body filler.
  *
- * ```
- * companion object {
- *     suspend fun start(client, taskQueue, arg, options): TypedWorkflowHandle<R>
- *     suspend fun execute(client, taskQueue, arg, options): R
- * }
- * ```
- *
- * Bodies are stubbed at FIR (`withGeneratedDefaultBody()`) and filled by the IR body filler
- * (Stage 8.5).
- *
- * **Companion handling:**
- * - If the user did NOT write a companion object, the generator emits one (origin = plugin) plus
- *   a private no-arg constructor.
- * - If the user already wrote one, the generator augments it: it emits no nested classifier name
- *   (which would crash `FirCompanionGenerationProcessor` with "duplicated companion object"),
- *   adds `start`/`execute` to the existing companion via [getCallableNamesForClass], and skips
- *   constructor synthesis (the user-written companion has its own).
+ * **Companion handling:** if the user wrote a `companion object`, the generator augments it
+ * (adds `start`/`handle`) without crashing the compiler's duplicate-companion check.
  *
  * **Phase ordering:**
- * - [getNestedClassifiersNames] runs at SUPERTYPES — must NOT read user method types here.
- * - [getCallableNamesForClass] may run at SUPERTYPES — return fixed names, defer type reading.
- * - [generateFunctions] runs at STATUS, which is past TYPES — safe to read
- *   `funcSymbol.resolvedReturnType` and value parameter types.
+ * - [getNestedClassifiersNames] runs at COMPANION_GENERATION — uses `predicateBasedProvider` (safe)
+ *   not `hasAnnotation` (which forward-resolves to TYPES and crashes LL-FIR's lazy contract).
+ * - [getCallableNamesForClass] may run at SUPERTYPES — return fixed names; defer type reading.
+ * - [generateFunctions] runs at STATUS (past TYPES) — safe to read user method types.
  */
-class TemporalFirCompanionGenerator(session: FirSession) : FirDeclarationGenerationExtension(session) {
+class TemporalFirCompanionGenerator(
+    session: FirSession,
+) : FirDeclarationGenerationExtension(session) {
     private val workflowAnnotationClassId =
         ClassId.topLevel(FqName("com.surrealdev.temporal.annotation.Workflow"))
     private val workflowRunAnnotationClassId =
@@ -80,13 +88,24 @@ class TemporalFirCompanionGenerator(session: FirSession) : FirDeclarationGenerat
         ClassId.topLevel(FqName("com.surrealdev.temporal.client.WorkflowStartOptions"))
     private val typedWorkflowHandleClassId =
         ClassId.topLevel(FqName("com.surrealdev.temporal.client.TypedWorkflowHandle"))
+    private val workflowHandleClassId =
+        ClassId.topLevel(FqName("com.surrealdev.temporal.client.WorkflowHandle"))
+    private val kTypeClassId =
+        ClassId.topLevel(FqName("kotlin.reflect.KType"))
 
+    private val stringClassId = ClassId.topLevel(FqName("kotlin.String"))
+
+    private val handleClassName = Name.identifier("Handle")
     private val startName = Name.identifier("start")
-    private val executeName = Name.identifier("execute")
+    private val handleMethodName = Name.identifier("handle")
     private val clientParamName = Name.identifier("client")
     private val taskQueueParamName = Name.identifier("taskQueue")
     private val argParamName = Name.identifier("arg")
     private val optionsParamName = Name.identifier("options")
+    private val workflowIdParamName = Name.identifier("workflowId")
+    private val runIdParamName = Name.identifier("runId")
+    private val handleCtorParamName = Name.identifier("handle")
+    private val resultTypeCtorParamName = Name.identifier("resultType")
 
     private companion object {
         private val WORKFLOW_PREDICATE =
@@ -103,18 +122,18 @@ class TemporalFirCompanionGenerator(session: FirSession) : FirDeclarationGenerat
         classSymbol: FirClassSymbol<*>,
         context: NestedClassGenerationContext,
     ): Set<Name> {
-        // Must use predicateBasedProvider here, NOT `hasAnnotation`. This callback runs at
-        // COMPANION_GENERATION phase. `FirBasedSymbol.hasAnnotation` internally calls
-        // `lazyResolveToPhase(TYPES)`, and TYPES > COMPANION_GENERATION — LL-FIR's IDE engine
-        // enforces the lazy-resolve contract strictly and throws
-        // `FirLazyResolveContractViolationException`. The predicate provider is indexed during
-        // COMPILER_REQUIRED_ANNOTATIONS (one phase earlier) and is safe at any point afterward.
         if (!session.predicateBasedProvider.matches(WORKFLOW_PREDICATE, classSymbol)) return emptySet()
-        // Skip if user already wrote a companion — emitting a name here causes
-        // FirCompanionGenerationProcessor to throw "duplicated companion object".
         val existingNested = context.declaredScope?.getClassifierNames().orEmpty()
-        if (SpecialNames.DEFAULT_NAME_FOR_COMPANION_OBJECT in existingNested) return emptySet()
-        return setOf(SpecialNames.DEFAULT_NAME_FOR_COMPANION_OBJECT)
+        return buildSet {
+            // Companion: skip if user already wrote one (would crash duplicate-companion check).
+            if (SpecialNames.DEFAULT_NAME_FOR_COMPANION_OBJECT !in existingNested) {
+                add(SpecialNames.DEFAULT_NAME_FOR_COMPANION_OBJECT)
+            }
+            // Handle: also skip if user happened to write a `class Handle` themselves (rare).
+            if (handleClassName !in existingNested) {
+                add(handleClassName)
+            }
+        }
     }
 
     override fun generateNestedClassLikeDeclaration(
@@ -122,60 +141,104 @@ class TemporalFirCompanionGenerator(session: FirSession) : FirDeclarationGenerat
         name: Name,
         context: NestedClassGenerationContext,
     ): FirClassLikeSymbol<*>? {
-        if (name != SpecialNames.DEFAULT_NAME_FOR_COMPANION_OBJECT) return null
-        // See note in getNestedClassifiersNames: this also runs at COMPANION_GENERATION.
         if (!session.predicateBasedProvider.matches(WORKFLOW_PREDICATE, owner)) return null
-        return createCompanionObject(owner, TemporalCompanionKey).symbol
+        return when (name) {
+            SpecialNames.DEFAULT_NAME_FOR_COMPANION_OBJECT -> {
+                createCompanionObject(owner, TemporalCompanionKey).symbol
+            }
+
+            handleClassName -> {
+                createNestedClass(owner, handleClassName, TemporalCompanionKey, ClassKind.CLASS) {
+                    modality = Modality.OPEN
+                    // `Handle<out R> : TypedWorkflowHandle<R>` — R propagates from the workflow's
+                    // `@WorkflowRun` return type when the companion's `start()` method specifies it
+                    // at STATUS phase. Without this, `Handle.result()` would be locked to `Any?`.
+                    typeParameter(Name.identifier("R"), Variance.OUT_VARIANCE)
+                    superType { typeParams ->
+                        typedWorkflowHandleClassId.createConeType(
+                            session,
+                            arrayOf(typeParams[0].toConeType()),
+                        )
+                    }
+                }.symbol
+            }
+
+            else -> {
+                null
+            }
+        }
     }
 
     override fun getCallableNamesForClass(
         classSymbol: FirClassSymbol<*>,
         context: MemberGenerationContext,
     ): Set<Name> {
-        if (!isWorkflowCompanion(classSymbol)) return emptySet()
-        val isPluginGenerated = (classSymbol.origin as? FirDeclarationOrigin.Plugin)?.key == TemporalCompanionKey
-        return buildSet {
-            add(startName)
-            add(executeName)
-            if (isPluginGenerated) add(SpecialNames.INIT)
+        if (isWorkflowCompanion(classSymbol)) {
+            val isPluginGenerated =
+                (classSymbol.origin as? FirDeclarationOrigin.Plugin)?.key == TemporalCompanionKey
+            return buildSet {
+                add(startName)
+                add(handleMethodName)
+                if (isPluginGenerated) add(SpecialNames.INIT)
+            }
         }
+        if (isWorkflowHandle(classSymbol)) {
+            return setOf(SpecialNames.INIT)
+        }
+        return emptySet()
     }
 
     override fun generateConstructors(context: MemberGenerationContext): List<FirConstructorSymbol> {
-        // Only emit a constructor for plugin-generated companion. User-written companions have
-        // their own constructor from source.
-        val isPluginGenerated = (context.owner.origin as? FirDeclarationOrigin.Plugin)?.key == TemporalCompanionKey
-        if (!isPluginGenerated) return emptyList()
-        val ctor = createDefaultPrivateConstructor(context.owner, TemporalCompanionKey)
-        return listOf(ctor.symbol)
+        val owner = context.owner
+        if (isWorkflowCompanion(owner)) {
+            val isPluginGenerated = (owner.origin as? FirDeclarationOrigin.Plugin)?.key == TemporalCompanionKey
+            if (!isPluginGenerated) return emptyList()
+            return listOf(createDefaultPrivateConstructor(owner, TemporalCompanionKey).symbol)
+        }
+        if (isWorkflowHandle(owner)) {
+            // Primary constructor: `internal constructor(handle: WorkflowHandle, resultType: KType)`
+            // delegating to TypedWorkflowHandle's primary constructor. The delegating-call body
+            // is filled by the IR pass since `generateDelegatedNoArgConstructorCall = false`
+            // (parent has no no-arg ctor).
+            val ctor =
+                createConstructor(
+                    owner = owner,
+                    key = TemporalCompanionKey,
+                    isPrimary = true,
+                    generateDelegatedNoArgConstructorCall = false,
+                ) {
+                    visibility = Visibilities.Internal
+                    valueParameter(handleCtorParamName, workflowHandleType())
+                    valueParameter(resultTypeCtorParamName, kTypeType())
+                }
+            return listOf(ctor.symbol)
+        }
+        return emptyList()
     }
 
     override fun generateFunctions(
         callableId: CallableId,
         context: MemberGenerationContext?,
     ): List<FirNamedFunctionSymbol> {
-        val companion = context?.owner ?: return emptyList()
-        if (!isWorkflowCompanion(companion)) return emptyList()
-        val ownerClassId = companion.classId.outerClassId ?: return emptyList()
+        val owner = context?.owner ?: return emptyList()
+        if (!isWorkflowCompanion(owner)) return emptyList()
+        val ownerClassId = owner.classId.outerClassId ?: return emptyList()
         val ownerClassSymbol =
             session.symbolProvider.getClassLikeSymbolByClassId(ownerClassId)
                 as? FirRegularClassSymbol ?: return emptyList()
         val workflowRunSymbol = findWorkflowRunMethod(ownerClassSymbol) ?: return emptyList()
 
-        val returnType: ConeKotlinType = workflowRunSymbol.resolvedReturnType
         val argParam: FirValueParameterSymbol? = workflowRunSymbol.valueParameterSymbols.firstOrNull()
+        val resultType = workflowRunSymbol.resolvedReturnType
+        val handleType = workflowHandleTypeFor(ownerClassId, resultType)
 
         return when (callableId.callableName) {
-            startName -> listOf(buildStart(companion, returnType, argParam).symbol)
-            executeName -> listOf(buildExecute(companion, returnType, argParam).symbol)
+            startName -> listOf(buildStart(owner, handleType, argParam).symbol)
+            handleMethodName -> listOf(buildHandleMethod(owner, handleType).symbol)
             else -> emptyList()
         }
     }
 
-    /**
-     * @return true iff [classSymbol] is a companion (plugin-generated or user-written) of a class
-     * carrying the `@Workflow` annotation.
-     */
     private fun isWorkflowCompanion(classSymbol: FirClassSymbol<*>): Boolean {
         val classId = classSymbol.classId
         if (classId.shortClassName != SpecialNames.DEFAULT_NAME_FOR_COMPANION_OBJECT) return false
@@ -183,8 +246,16 @@ class TemporalFirCompanionGenerator(session: FirSession) : FirDeclarationGenerat
         val outerSymbol =
             session.symbolProvider.getClassLikeSymbolByClassId(outer) as? FirRegularClassSymbol
                 ?: return false
-        // Predicate-based check is safe at any callback phase (≥ COMPANION_GENERATION).
-        // `hasAnnotation` is not — it forward-resolves to TYPES.
+        return session.predicateBasedProvider.matches(WORKFLOW_PREDICATE, outerSymbol)
+    }
+
+    private fun isWorkflowHandle(classSymbol: FirClassSymbol<*>): Boolean {
+        val classId = classSymbol.classId
+        if (classId.shortClassName != handleClassName) return false
+        val outer = classId.outerClassId ?: return false
+        val outerSymbol =
+            session.symbolProvider.getClassLikeSymbolByClassId(outer) as? FirRegularClassSymbol
+                ?: return false
         return session.predicateBasedProvider.matches(WORKFLOW_PREDICATE, outerSymbol)
     }
 
@@ -200,16 +271,16 @@ class TemporalFirCompanionGenerator(session: FirSession) : FirDeclarationGenerat
         return found
     }
 
-    /** `suspend fun start(client, taskQueue[, arg], options): TypedWorkflowHandle<R>` */
+    /** `suspend fun start(client, taskQueue[, arg], options): <Workflow>.Handle` */
     private fun buildStart(
         companionSymbol: FirClassSymbol<*>,
-        returnType: ConeKotlinType,
+        handleType: ConeKotlinType,
         argParam: FirValueParameterSymbol?,
     ) = createMemberFunction(
         owner = companionSymbol,
         key = TemporalCompanionKey,
         name = startName,
-        returnType = typedHandleType(returnType),
+        returnType = handleType,
     ) {
         status { isSuspend = true }
         valueParameter(clientParamName, temporalClientType())
@@ -221,33 +292,40 @@ class TemporalFirCompanionGenerator(session: FirSession) : FirDeclarationGenerat
         withGeneratedDefaultBody()
     }
 
-    /** `suspend fun execute(client, taskQueue[, arg], options): R` */
-    private fun buildExecute(
+    /** `fun handle(client, workflowId, runId): <Workflow>.Handle` */
+    private fun buildHandleMethod(
         companionSymbol: FirClassSymbol<*>,
-        returnType: ConeKotlinType,
-        argParam: FirValueParameterSymbol?,
+        handleType: ConeKotlinType,
     ) = createMemberFunction(
         owner = companionSymbol,
         key = TemporalCompanionKey,
-        name = executeName,
-        returnType = returnType,
+        name = handleMethodName,
+        returnType = handleType,
     ) {
-        status { isSuspend = true }
         valueParameter(clientParamName, temporalClientType())
-        valueParameter(taskQueueParamName, session.builtinTypes.stringType.coneType)
-        if (argParam != null) {
-            valueParameter(argParamName, argParam.resolvedReturnType)
-        }
-        valueParameter(optionsParamName, workflowStartOptionsType(), hasDefaultValue = true)
+        valueParameter(workflowIdParamName, session.builtinTypes.stringType.coneType)
+        valueParameter(
+            runIdParamName,
+            stringClassId.createConeType(session, emptyArray(), nullable = true),
+            hasDefaultValue = true,
+        )
         withGeneratedDefaultBody()
     }
 
-    private fun typedHandleType(returnType: ConeKotlinType): ConeKotlinType =
-        typedWorkflowHandleClassId.createConeType(session, arrayOf(returnType))
+    private fun workflowHandleTypeFor(
+        workflowClassId: ClassId,
+        resultType: ConeKotlinType,
+    ): ConeKotlinType {
+        val handleClassId = workflowClassId.createNestedClassId(handleClassName)
+        return handleClassId.createConeType(session, arrayOf(resultType))
+    }
 
-    private fun temporalClientType(): ConeKotlinType =
-        temporalClientClassId.createConeType(session, emptyArray())
+    private fun temporalClientType(): ConeKotlinType = temporalClientClassId.createConeType(session, emptyArray())
 
     private fun workflowStartOptionsType(): ConeKotlinType =
         workflowStartOptionsClassId.createConeType(session, emptyArray())
+
+    private fun workflowHandleType(): ConeKotlinType = workflowHandleClassId.createConeType(session, emptyArray())
+
+    private fun kTypeType(): ConeKotlinType = kTypeClassId.createConeType(session, emptyArray())
 }

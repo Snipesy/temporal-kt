@@ -2,14 +2,14 @@
 
 The Temporal Kotlin compiler plugin provides:
 
-- **FIR-time determinism validation** — calls inside `@Workflow` classes (and inside the inline
-  `workflow(...) { ... }` DSL block) are checked against `determinism-rules.json`; violations
-  surface as `TEMPORAL_NONDETERMINISTIC_CALL` diagnostics. Activity bodies are exempt.
-- **Workflow-lambda capture validation** — `workflow(...) { ... }` lambdas may not capture
-  values from enclosing scopes; violations surface as `TEMPORAL_WORKFLOW_LAMBDA_CAPTURES_NOT_SUPPORTED`.
+- **FIR-time determinism validation** — calls inside `@Workflow` classes are checked against
+  `determinism-rules.json`; violations surface as `TEMPORAL_NONDETERMINISTIC_CALL` diagnostics.
+  Inline activity bodies are exempt.
 - **Typed workflow companions** — for every `@Workflow` class, the plugin synthesises (or
   augments) a companion object exposing typed `start(...)` / `execute(...)` helpers that
   capture the workflow's return type. See [TKT-0003](proposals/TKT-0003-inline.md) for details.
+- **Inline activity lifting** — `activity("name") { ... }` calls inside `@WorkflowRun` methods
+  are lifted to registered activities and dispatched through Temporal's normal activity path.
 
 ```kotlin
 @Workflow("Greeter")
@@ -105,4 +105,3 @@ temporal {
 
 Development will be slow until Kotlin stabilizes the compiler plugin API.
 Tracking the API across versions is unsustainable for external projects.
-

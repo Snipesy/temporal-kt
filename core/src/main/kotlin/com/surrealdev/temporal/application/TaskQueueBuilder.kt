@@ -303,34 +303,6 @@ class TaskQueueBuilder internal constructor(
     }
 
     /**
-     * Non-reified helper to register a workflow class. Used by the IR-time inline-workflow
-     * lowering: when the plugin synthesises an anonymous workflow class from a
-     * `taskQueue { workflow("Name") { ... } }` block, the rewritten call site becomes a call to
-     * this method with the synthesised class. Validation and prefix checking match
-     * [workflow]'s behaviour.
-     */
-    @PublishedApi
-    internal fun registerWorkflowClass(
-        workflowType: String,
-        klass: kotlin.reflect.KClass<out Any>,
-    ) {
-        val hasNoArgConstructor = klass.constructors.any { it.parameters.isEmpty() }
-        require(hasNoArgConstructor) {
-            "Workflow class ${klass.qualifiedName ?: klass.simpleName} must have a no-arg constructor"
-        }
-        require(!workflowType.startsWith("__temporal_")) {
-            "Workflow type name '$workflowType' cannot start with '__temporal_' (reserved for internal use)"
-        }
-        workflows.add(
-            WorkflowRegistration(
-                workflowType = workflowType,
-                workflowClass = klass,
-            ),
-        )
-        invokeInlineActivityHookIfPresent(klass)
-    }
-
-    /**
      * Non-reified helper to register an activity function reference. Used by the IR-time
      * inline-activity lowering when lifting `activity("Name") { ... }` lambda bodies to top-level
      * `@Activity` functions.

@@ -22,22 +22,6 @@ public class TemporalDiagnosticTestGenerated extends AbstractTemporalDiagnosticT
   }
 
   @Nested
-  @TestMetadata("src/test/resources/testData/diagnostics/captures")
-  @TestDataPath("$PROJECT_ROOT")
-  public class Captures {
-    @Test
-    public void testAllFilesPresentInCaptures() {
-      KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("src/test/resources/testData/diagnostics/captures"), Pattern.compile("^(.+)\\.kt$"), null, true);
-    }
-
-    @Test
-    @TestMetadata("WorkflowLambdaCapture.kt")
-    public void testWorkflowLambdaCapture() {
-      runTest("src/test/resources/testData/diagnostics/captures/WorkflowLambdaCapture.kt");
-    }
-  }
-
-  @Nested
   @TestMetadata("src/test/resources/testData/diagnostics/companion")
   @TestDataPath("$PROJECT_ROOT")
   public class Companion {
@@ -144,22 +128,6 @@ public class TemporalDiagnosticTestGenerated extends AbstractTemporalDiagnosticT
     @TestMetadata("WithContextIoUsage.kt")
     public void testWithContextIoUsage() {
       runTest("src/test/resources/testData/diagnostics/determinism/WithContextIoUsage.kt");
-    }
-  }
-
-  @Nested
-  @TestMetadata("src/test/resources/testData/diagnostics/inlineDsl")
-  @TestDataPath("$PROJECT_ROOT")
-  public class InlineDsl {
-    @Test
-    public void testAllFilesPresentInInlineDsl() {
-      KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("src/test/resources/testData/diagnostics/inlineDsl"), Pattern.compile("^(.+)\\.kt$"), null, true);
-    }
-
-    @Test
-    @TestMetadata("InlineWorkflowDeterminism.kt")
-    public void testInlineWorkflowDeterminism() {
-      runTest("src/test/resources/testData/diagnostics/inlineDsl/InlineWorkflowDeterminism.kt");
     }
   }
 

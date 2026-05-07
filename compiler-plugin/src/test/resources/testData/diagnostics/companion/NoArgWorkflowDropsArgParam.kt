@@ -11,8 +11,8 @@ class NoArg {
     suspend fun WorkflowContext.run(): String = "no args"
 }
 
-// No-arg workflow's companion exposes start/execute WITHOUT an `arg` parameter.
-// Calling them with an arg should NOT typecheck.
+// No-arg workflow's companion exposes start WITHOUT an `arg` parameter.
 suspend fun useNoArg(client: TemporalClient) {
-    val result: String = NoArg.execute(client, "queue")
+    val handle: NoArg.Handle<String> = NoArg.start(client, "queue")
+    val result: String = handle.result()
 }

@@ -4,6 +4,7 @@ import com.surrealdev.temporal.compiler.fir.TemporalCompanionKey
 import org.jetbrains.kotlin.backend.common.extensions.IrPluginContext
 import org.jetbrains.kotlin.ir.IrStatement
 import org.jetbrains.kotlin.ir.declarations.IrClass
+import org.jetbrains.kotlin.ir.declarations.IrConstructor
 import org.jetbrains.kotlin.ir.declarations.IrDeclarationOrigin
 import org.jetbrains.kotlin.ir.declarations.IrModuleFragment
 import org.jetbrains.kotlin.ir.declarations.IrParameterKind
@@ -17,10 +18,12 @@ import org.jetbrains.kotlin.ir.expressions.impl.IrCallImpl
 import org.jetbrains.kotlin.ir.expressions.impl.IrClassReferenceImpl
 import org.jetbrains.kotlin.ir.expressions.impl.IrConstImpl
 import org.jetbrains.kotlin.ir.expressions.impl.IrConstructorCallImpl
-import org.jetbrains.kotlin.ir.expressions.impl.IrExpressionBodyImpl
+import org.jetbrains.kotlin.ir.expressions.impl.IrDelegatingConstructorCallImpl
 import org.jetbrains.kotlin.ir.expressions.impl.IrGetValueImpl
+import org.jetbrains.kotlin.ir.expressions.impl.IrInstanceInitializerCallImpl
 import org.jetbrains.kotlin.ir.expressions.impl.IrReturnImpl
 import org.jetbrains.kotlin.ir.symbols.IrClassSymbol
+import org.jetbrains.kotlin.ir.symbols.IrConstructorSymbol
 import org.jetbrains.kotlin.ir.symbols.IrSimpleFunctionSymbol
 import org.jetbrains.kotlin.ir.symbols.UnsafeDuringIrConstructionAPI
 import org.jetbrains.kotlin.ir.types.IrSimpleType
@@ -33,6 +36,7 @@ import org.jetbrains.kotlin.ir.types.impl.IrSimpleTypeImpl
 import org.jetbrains.kotlin.ir.types.impl.makeTypeProjection
 import org.jetbrains.kotlin.ir.types.starProjectedType
 import org.jetbrains.kotlin.ir.util.constructors
+import org.jetbrains.kotlin.ir.util.defaultType
 import org.jetbrains.kotlin.ir.util.functions
 import org.jetbrains.kotlin.ir.util.kotlinFqName
 import org.jetbrains.kotlin.ir.util.parentClassOrNull
@@ -44,22 +48,38 @@ import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.types.Variance
 
 /**
- * Fills bodies of FIR-synthesised companion functions (Stage 8.5).
+ * Fills bodies of FIR-synthesised companion + Handle declarations.
  *
- * For each function with origin `IrDeclarationOrigin.GeneratedByPlugin(TemporalCompanionKey)`,
- * matches by simple name and emits the right body:
+ * For each FIR-generated declaration with `IrDeclarationOrigin.GeneratedByPlugin(TemporalCompanionKey)`:
  *
- * - `start(client, taskQueue, [arg], options): TypedWorkflowHandle<R>`
- *   → `return startTypedWorkflow(client, "WorkflowType", taskQueue, newWorkflowId(),
- *           arg, typeFromClass(ArgT::class) | null, options, typeFromClass(R::class))`
+ * - **Companion `start(...)`**:
+ *   ```
+ *   suspend fun start(client, taskQueue, [arg], options): <UserClass>.Handle =
+ *       <UserClass>.Handle(
+ *           startWorkflowGetHandle(client, "<WorkflowType>", taskQueue, newWorkflowId(),
+ *               arg, argType, options),
+ *           typeFromClass(<R>::class),
+ *       )
+ *   ```
  *
- * - `execute(client, taskQueue, [arg], options): R`
- *   → `return start(client, taskQueue, [arg], options).result()`
+ * - **Companion `handle(client, workflowId, runId)`**:
+ *   ```
+ *   fun handle(client, workflowId, runId): <UserClass>.Handle =
+ *       <UserClass>.Handle(
+ *           client.getWorkflowHandle(workflowId, runId),
+ *           typeFromClass(<R>::class),
+ *       )
+ *   ```
  *
- * - `options` parameter default value → `WorkflowStartOptions()`
+ * - **`<UserClass>.Handle.<init>(handle, resultType)`**:
+ *   ```
+ *   internal constructor(handle: WorkflowHandle, resultType: KType) :
+ *       super(handle, resultType)
+ *   ```
+ *   Just a delegating call to `TypedWorkflowHandle`'s primary constructor + the standard
+ *   instance-initializer marker.
  *
- * The workflow type name comes from the parent class's `@Workflow("name")` annotation argument
- * (with the user's class simple name as fallback).
+ * - **`options` parameter default value**: `WorkflowStartOptions()`.
  */
 @OptIn(UnsafeDuringIrConstructionAPI::class)
 internal class TemporalCompanionIrBodyFiller(
@@ -69,13 +89,14 @@ internal class TemporalCompanionIrBodyFiller(
 
     private val finder by lazy { pluginContext.finderForBuiltins() }
 
-    // Lazy because not every compilation has @Workflow classes — the IR pipeline runs the body
-    // filler unconditionally, but the lookups are only needed when an actual companion body
-    // needs filling. Eagerly resolving in the constructor would fail compilation of any module
-    // without :core on its classpath, including unrelated test fixtures.
     private val typedHandleClass: IrClassSymbol by lazy {
         finder.findClass(ClassId.topLevel(FqName("com.surrealdev.temporal.client.TypedWorkflowHandle")))
             ?: error("TypedWorkflowHandle class not on classpath — :core dependency missing")
+    }
+
+    private val typedHandleCtor: IrConstructorSymbol by lazy {
+        typedHandleClass.constructors.firstOrNull()
+            ?: error("TypedWorkflowHandle constructor not found")
     }
 
     private val workflowStartOptionsClass: IrClassSymbol by lazy {
@@ -83,39 +104,45 @@ internal class TemporalCompanionIrBodyFiller(
             ?: error("WorkflowStartOptions class not on classpath")
     }
 
-    private val startTypedWorkflowFn: IrSimpleFunctionSymbol by lazy {
-        finder.findFunctions(
-            CallableId(FqName("com.surrealdev.temporal.client"), Name.identifier("startTypedWorkflow")),
-        ).firstOrNull()
-            ?: error("startTypedWorkflow runtime helper not on classpath")
-    }
-
-    private val newWorkflowIdFn: IrSimpleFunctionSymbol by lazy {
-        finder.findFunctions(
-            CallableId(FqName("com.surrealdev.temporal.client"), Name.identifier("newWorkflowId")),
-        ).firstOrNull()
-            ?: error("newWorkflowId runtime helper not on classpath")
-    }
-
-    private val typeFromClassFn: IrSimpleFunctionSymbol by lazy {
-        finder.findFunctions(
-            CallableId(FqName("com.surrealdev.temporal.client"), Name.identifier("typeFromClass")),
-        ).firstOrNull()
-            ?: error("typeFromClass runtime helper not on classpath")
-    }
-
-    private val resultFn: IrSimpleFunctionSymbol by lazy {
-        typedHandleClass.functions.firstOrNull { it.owner.name.asString() == "result" }
-            ?: error("TypedWorkflowHandle.result not found")
-    }
-
-    private val workflowStartOptionsCtor by lazy {
+    private val workflowStartOptionsCtor: IrConstructorSymbol by lazy {
         workflowStartOptionsClass.constructors
             .firstOrNull { ctor ->
                 val regularParams = ctor.owner.parameters.filter { p -> p.kind == IrParameterKind.Regular }
                 regularParams.isEmpty() || regularParams.all { it.defaultValue != null }
             }
             ?: error("WorkflowStartOptions has no usable no-arg constructor")
+    }
+
+    private val startWorkflowGetHandleFn: IrSimpleFunctionSymbol by lazy {
+        finder
+            .findFunctions(
+                CallableId(FqName("com.surrealdev.temporal.client"), Name.identifier("startWorkflowGetHandle")),
+            ).firstOrNull()
+            ?: error("startWorkflowGetHandle runtime helper not on classpath")
+    }
+
+    private val getWorkflowHandleFn: IrSimpleFunctionSymbol by lazy {
+        finder
+            .findFunctions(
+                CallableId(FqName("com.surrealdev.temporal.client"), Name.identifier("getWorkflowHandle")),
+            ).firstOrNull()
+            ?: error("getWorkflowHandle runtime helper not on classpath")
+    }
+
+    private val newWorkflowIdFn: IrSimpleFunctionSymbol by lazy {
+        finder
+            .findFunctions(
+                CallableId(FqName("com.surrealdev.temporal.client"), Name.identifier("newWorkflowId")),
+            ).firstOrNull()
+            ?: error("newWorkflowId runtime helper not on classpath")
+    }
+
+    private val typeFromClassFn: IrSimpleFunctionSymbol by lazy {
+        finder
+            .findFunctions(
+                CallableId(FqName("com.surrealdev.temporal.client"), Name.identifier("typeFromClass")),
+            ).firstOrNull()
+            ?: error("typeFromClass runtime helper not on classpath")
     }
 
     private val kClassClassSymbol: IrClassSymbol by lazy {
@@ -132,30 +159,51 @@ internal class TemporalCompanionIrBodyFiller(
             val origin = declaration.origin
             val pluginKey = (origin as? IrDeclarationOrigin.GeneratedByPlugin)?.pluginKey
             if (pluginKey == TemporalCompanionKey) {
-                fillIfMatch(declaration)
+                fillFunctionIfMatch(declaration)
             }
             return super.visitSimpleFunction(declaration)
         }
-    }
 
-    private fun fillIfMatch(function: IrSimpleFunction) {
-        val name = function.name.asString()
-        // Default value for `options` parameter — applied to every plugin-generated function
-        // that has it (FIR builder produced a `Stub` body in its place).
-        regularParam(function, "options")?.let { fillOptionsDefault(it) }
-        when (name) {
-            "start" -> fillStart(function)
-            "execute" -> fillExecute(function)
-            // Constructor body is produced by `createDefaultPrivateConstructor` already.
+        override fun visitConstructor(declaration: IrConstructor): IrStatement {
+            val origin = declaration.origin
+            val pluginKey = (origin as? IrDeclarationOrigin.GeneratedByPlugin)?.pluginKey
+            if (pluginKey == TemporalCompanionKey) {
+                fillConstructorIfMatch(declaration)
+            }
+            return super.visitConstructor(declaration)
         }
     }
 
-    private fun regularParam(function: IrSimpleFunction, paramName: String): IrValueParameter? =
+    private fun fillFunctionIfMatch(function: IrSimpleFunction) {
+        regularParam(function, "options")?.let { fillOptionsDefault(it) }
+        when (function.name.asString()) {
+            "start" -> fillStart(function)
+            "handle" -> fillHandleMethod(function)
+        }
+    }
+
+    private fun fillConstructorIfMatch(constructor: IrConstructor) {
+        val parent = constructor.parentClassOrNull ?: return
+        // Only fill the Handle class's primary constructor — companion's private ctor is
+        // generated correctly by the FIR builder (delegating no-arg).
+        if (parent.name.asString() != "Handle") return
+        if (parent.parentClassOrNull?.let(::isWorkflowClass) != true) return
+        fillHandleConstructor(constructor, parent)
+    }
+
+    private fun isWorkflowClass(klass: IrClass): Boolean =
+        klass.annotations.any {
+            it.symbol.owner.parentClassOrNull
+                ?.kotlinFqName == workflowAnnotationFqn
+        }
+
+    private fun regularParam(
+        function: IrSimpleFunction,
+        paramName: String,
+    ): IrValueParameter? =
         function.parameters.firstOrNull { it.kind == IrParameterKind.Regular && it.name.asString() == paramName }
 
     private fun fillOptionsDefault(param: IrValueParameter) {
-        // Always overwrite — FIR generator's stub default (`throw Throwable("Stub")`) needs
-        // replacing whether or not it was set.
         val ctorCall =
             IrConstructorCallImpl(
                 startOffset = param.startOffset,
@@ -172,6 +220,8 @@ internal class TemporalCompanionIrBodyFiller(
     private fun fillStart(function: IrSimpleFunction) {
         val parentCompanion = function.parentClassOrNull ?: return
         val workflowClass = parentCompanion.parentClassOrNull ?: return
+        val handleClass = findHandleClass(workflowClass) ?: return
+        val handleCtor = handleClass.primaryConstructorOrNull() ?: return
         val workflowTypeName = readWorkflowTypeName(workflowClass) ?: workflowClass.name.asString()
 
         val clientParam = regularParam(function, "client") ?: return
@@ -179,19 +229,19 @@ internal class TemporalCompanionIrBodyFiller(
         val argParam = regularParam(function, "arg")
         val optionsParam = regularParam(function, "options") ?: return
 
-        val resultType = extractResultType(function.returnType) ?: pluginContext.irBuiltIns.anyNType
+        val resultType = function.returnTypeResultArg() ?: pluginContext.irBuiltIns.anyNType
         val so = function.startOffset
         val eo = function.endOffset
 
+        // startWorkflowGetHandle(client, "Test", taskQueue, newWorkflowId(), arg, argType, options)
         val startCall =
             IrCallImpl(
                 startOffset = so,
                 endOffset = eo,
-                type = function.returnType,
-                symbol = startTypedWorkflowFn,
+                type = startWorkflowGetHandleFn.owner.returnType,
+                symbol = startWorkflowGetHandleFn,
                 typeArgumentsCount = 0,
             )
-        // Signature: client, workflowType, taskQueue, workflowId, arg, argType, options, resultType
         startCall.arguments[0] = IrGetValueImpl(so, eo, clientParam.symbol)
         startCall.arguments[1] = stringConst(workflowTypeName, so, eo)
         startCall.arguments[2] = IrGetValueImpl(so, eo, taskQueueParam.symbol)
@@ -199,72 +249,182 @@ internal class TemporalCompanionIrBodyFiller(
         startCall.arguments[4] = argParam?.let { IrGetValueImpl(so, eo, it.symbol) } ?: nullExpr(so, eo)
         startCall.arguments[5] = argParam?.let { typeFromClassCall(it.type, so, eo) } ?: nullExpr(so, eo)
         startCall.arguments[6] = IrGetValueImpl(so, eo, optionsParam.symbol)
-        startCall.arguments[7] = typeFromClassCall(resultType, so, eo)
+
+        // <UserClass>.Handle<R>(startCall, typeFromClass(R::class))
+        val handleCtorCall = buildHandleCtorCall(handleCtor, function.returnType, resultType, startCall, so, eo)
 
         function.body =
             pluginContext.irFactory.createBlockBody(
-                so, eo,
-                listOf(IrReturnImpl(so, eo, pluginContext.irBuiltIns.nothingType, function.symbol, startCall)),
+                so,
+                eo,
+                listOf(IrReturnImpl(so, eo, pluginContext.irBuiltIns.nothingType, function.symbol, handleCtorCall)),
             )
     }
 
-    private fun fillExecute(function: IrSimpleFunction) {
+    private fun fillHandleMethod(function: IrSimpleFunction) {
         val parentCompanion = function.parentClassOrNull ?: return
-        val startSymbol =
-            parentCompanion.functions.firstOrNull { it.name.asString() == "start" }?.symbol ?: return
+        val workflowClass = parentCompanion.parentClassOrNull ?: return
+        val handleClass = findHandleClass(workflowClass) ?: return
+        val handleCtor = handleClass.primaryConstructorOrNull() ?: return
 
         val clientParam = regularParam(function, "client") ?: return
-        val taskQueueParam = regularParam(function, "taskQueue") ?: return
-        val argParam = regularParam(function, "arg")
-        val optionsParam = regularParam(function, "options") ?: return
+        val workflowIdParam = regularParam(function, "workflowId") ?: return
+        val runIdParam = regularParam(function, "runId") ?: return
 
+        // Default value for runId: null.
+        if (runIdParam.defaultValue == null) {
+            val nullDefault = nullExpr(runIdParam.startOffset, runIdParam.endOffset)
+            runIdParam.defaultValue =
+                pluginContext.irFactory.createExpressionBody(
+                    runIdParam.startOffset,
+                    runIdParam.endOffset,
+                    nullDefault,
+                )
+        }
+
+        val resultType = function.returnTypeResultArg() ?: pluginContext.irBuiltIns.anyNType
         val so = function.startOffset
         val eo = function.endOffset
 
-        val typedHandleType = startSymbol.owner.returnType
-        val startCall =
+        // client.getWorkflowHandle(workflowId, runId)
+        val getHandleCall =
             IrCallImpl(
                 startOffset = so,
                 endOffset = eo,
-                type = typedHandleType,
-                symbol = startSymbol,
+                type = getWorkflowHandleFn.owner.returnType,
+                symbol = getWorkflowHandleFn,
                 typeArgumentsCount = 0,
             )
-        // arguments[0] is the dispatch receiver — pass execute's own dispatch receiver since
-        // both functions live on the same companion.
-        val dispatchReceiver = function.dispatchReceiverParameter
-            ?: error("Companion-generated function must have dispatch receiver")
-        startCall.arguments[0] = IrGetValueImpl(so, eo, dispatchReceiver.symbol)
-        startCall.arguments[1] = IrGetValueImpl(so, eo, clientParam.symbol)
-        startCall.arguments[2] = IrGetValueImpl(so, eo, taskQueueParam.symbol)
-        var idx = 3
-        if (argParam != null) {
-            startCall.arguments[idx++] = IrGetValueImpl(so, eo, argParam.symbol)
-        }
-        startCall.arguments[idx] = IrGetValueImpl(so, eo, optionsParam.symbol)
+        getHandleCall.arguments[0] = IrGetValueImpl(so, eo, clientParam.symbol)
+        getHandleCall.arguments[1] = IrGetValueImpl(so, eo, workflowIdParam.symbol)
+        getHandleCall.arguments[2] = IrGetValueImpl(so, eo, runIdParam.symbol)
 
-        val resultCall =
-            IrCallImpl(
-                startOffset = so,
-                endOffset = eo,
-                type = function.returnType,
-                symbol = resultFn,
-                typeArgumentsCount = 0,
-            )
-        resultCall.arguments[0] = startCall
+        val handleCtorCall = buildHandleCtorCall(handleCtor, function.returnType, resultType, getHandleCall, so, eo)
 
         function.body =
             pluginContext.irFactory.createBlockBody(
-                so, eo,
-                listOf(IrReturnImpl(so, eo, pluginContext.irBuiltIns.nothingType, function.symbol, resultCall)),
+                so,
+                eo,
+                listOf(IrReturnImpl(so, eo, pluginContext.irBuiltIns.nothingType, function.symbol, handleCtorCall)),
             )
+    }
+
+    /**
+     * Build `<UserClass>.Handle<R>(handleArg, typeFromClass(R::class))`.
+     *
+     * `handleType` is the function's return type — `Handle<R>` — used both as the result type
+     * of the constructor call AND as the source for the type argument R.
+     */
+    private fun buildHandleCtorCall(
+        handleCtor: IrConstructor,
+        handleType: IrType,
+        resultIrType: IrType,
+        handleArg: IrExpression,
+        startOffset: Int,
+        endOffset: Int,
+    ): IrConstructorCallImpl {
+        val ctorCall =
+            IrConstructorCallImpl(
+                startOffset = startOffset,
+                endOffset = endOffset,
+                type = handleType,
+                symbol = handleCtor.symbol,
+                typeArgumentsCount = 1,
+                constructorTypeArgumentsCount = 0,
+            )
+        ctorCall.typeArguments[0] = resultIrType
+        ctorCall.arguments[0] = handleArg
+        ctorCall.arguments[1] = typeFromClassCall(resultIrType, startOffset, endOffset)
+        return ctorCall
+    }
+
+    /**
+     * Build:
+     * ```
+     * super<TypedWorkflowHandle>(handle, resultType)
+     * <instance-init>
+     * ```
+     */
+    private fun fillHandleConstructor(
+        constructor: IrConstructor,
+        handleClass: IrClass,
+    ) {
+        val handleParam =
+            constructor.parameters.firstOrNull { it.kind == IrParameterKind.Regular && it.name.asString() == "handle" }
+                ?: return
+        val resultTypeParam =
+            constructor.parameters.firstOrNull {
+                it.kind == IrParameterKind.Regular &&
+                    it.name.asString() == "resultType"
+            }
+                ?: return
+
+        val so = constructor.startOffset
+        val eo = constructor.endOffset
+
+        val delegating =
+            IrDelegatingConstructorCallImpl(
+                startOffset = so,
+                endOffset = eo,
+                type = pluginContext.irBuiltIns.unitType,
+                symbol = typedHandleCtor,
+                typeArgumentsCount = 1,
+            )
+        // TypedWorkflowHandle<R> super call uses Handle's own R type parameter.
+        val rTypeParam =
+            handleClass.typeParameters.firstOrNull()
+                ?: error("Handle class missing R type parameter")
+        delegating.typeArguments[0] =
+            IrSimpleTypeImpl(
+                classifier = rTypeParam.symbol,
+                nullability = SimpleTypeNullability.NOT_SPECIFIED,
+                arguments = emptyList(),
+                annotations = emptyList(),
+            )
+        delegating.arguments[0] = IrGetValueImpl(so, eo, handleParam.symbol)
+        delegating.arguments[1] = IrGetValueImpl(so, eo, resultTypeParam.symbol)
+
+        val initCall =
+            IrInstanceInitializerCallImpl(
+                startOffset = so,
+                endOffset = eo,
+                classSymbol = handleClass.symbol,
+                type = pluginContext.irBuiltIns.unitType,
+            )
+
+        constructor.body =
+            pluginContext.irFactory.createBlockBody(so, eo, listOf(delegating, initCall))
+    }
+
+    private fun findHandleClass(workflowClass: IrClass): IrClass? =
+        workflowClass.declarations
+            .filterIsInstance<IrClass>()
+            .firstOrNull { it.name.asString() == "Handle" }
+
+    private fun IrClass.primaryConstructorOrNull(): IrConstructor? =
+        declarations.filterIsInstance<IrConstructor>().firstOrNull { it.isPrimary }
+
+    private fun IrSimpleFunction.returnTypeResultArg(): IrType? {
+        // start/handle return `<UserClass>.Handle`. Handle extends `TypedWorkflowHandle<R>`.
+        // To get R, walk the Handle class's super-types and extract the type argument.
+        val handleClass = (returnType as? IrSimpleType)?.classifier?.owner as? IrClass ?: return null
+        val typedHandleSupertype =
+            handleClass.superTypes.firstOrNull {
+                (it.classifierOrNull as? IrClassSymbol)?.owner ==
+                    typedHandleClass.owner
+            }
+                as? IrSimpleType ?: return null
+        return (typedHandleSupertype.arguments.firstOrNull() as? IrTypeProjection)?.type
     }
 
     /** Read the user-supplied `name` argument from `@Workflow("name")`. */
     private fun readWorkflowTypeName(klass: IrClass): String? {
         for (annotation in klass.annotations) {
-            if (annotation.symbol.owner.parentClassOrNull?.kotlinFqName != workflowAnnotationFqn) continue
-            // Annotation's first regular argument is `name` — use positional access.
+            if (annotation.symbol.owner.parentClassOrNull
+                    ?.kotlinFqName != workflowAnnotationFqn
+            ) {
+                continue
+            }
             val firstArg = annotation.arguments.firstOrNull() ?: continue
             val constValue = (firstArg as? IrConst)?.value as? String
             if (!constValue.isNullOrBlank()) return constValue
@@ -272,13 +432,11 @@ internal class TemporalCompanionIrBodyFiller(
         return null
     }
 
-    /** Extract `R` from `TypedWorkflowHandle<R>`. */
-    private fun extractResultType(typedHandleType: IrType): IrType? {
-        val args = (typedHandleType as? IrSimpleType)?.arguments ?: return null
-        return (args.firstOrNull() as? IrTypeProjection)?.type
-    }
-
-    private fun typeFromClassCall(forType: IrType, start: Int, end: Int): IrExpression {
+    private fun typeFromClassCall(
+        forType: IrType,
+        start: Int,
+        end: Int,
+    ): IrExpression {
         val classRef = classRefOf(forType, start, end) ?: return nullExpr(start, end)
         val call =
             IrCallImpl(
@@ -292,7 +450,11 @@ internal class TemporalCompanionIrBodyFiller(
         return call
     }
 
-    private fun classRefOf(type: IrType, start: Int, end: Int): IrExpression? {
+    private fun classRefOf(
+        type: IrType,
+        start: Int,
+        end: Int,
+    ): IrExpression? {
         val classifier = type.classifierOrNull as? IrClassSymbol ?: return null
         val kclassType =
             IrSimpleTypeImpl(
@@ -310,7 +472,10 @@ internal class TemporalCompanionIrBodyFiller(
         )
     }
 
-    private fun newWorkflowIdCall(start: Int, end: Int): IrExpression =
+    private fun newWorkflowIdCall(
+        start: Int,
+        end: Int,
+    ): IrExpression =
         IrCallImpl(
             startOffset = start,
             endOffset = end,
@@ -319,9 +484,14 @@ internal class TemporalCompanionIrBodyFiller(
             typeArgumentsCount = 0,
         )
 
-    private fun stringConst(value: String, start: Int, end: Int): IrExpression =
-        IrConstImpl(start, end, pluginContext.irBuiltIns.stringType, IrConstKind.String, value)
+    private fun stringConst(
+        value: String,
+        start: Int,
+        end: Int,
+    ): IrExpression = IrConstImpl(start, end, pluginContext.irBuiltIns.stringType, IrConstKind.String, value)
 
-    private fun nullExpr(start: Int, end: Int): IrExpression =
-        IrConstImpl(start, end, pluginContext.irBuiltIns.anyNType, IrConstKind.Null, null)
+    private fun nullExpr(
+        start: Int,
+        end: Int,
+    ): IrExpression = IrConstImpl(start, end, pluginContext.irBuiltIns.anyNType, IrConstKind.Null, null)
 }

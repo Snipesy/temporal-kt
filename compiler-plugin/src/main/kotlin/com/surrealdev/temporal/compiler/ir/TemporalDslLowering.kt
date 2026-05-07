@@ -17,19 +17,17 @@ import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 
-private val WORKFLOW_DSL_FQN = FqName("com.surrealdev.temporal.dsl.workflow")
 private val ACTIVITY_DSL_FQN = FqName("com.surrealdev.temporal.dsl.activity")
 
 /**
  * Stage 8.1 fallback rewriter for orphaned DSL calls.
  *
- * The `compiler-plugin-runtime` `workflow(name, body)` / `activity(name, body)` stubs are no-op
- * placeholders so user code typechecks. Once Stages 8.4 (inline workflow synthesis) and 8.6 (inline
- * activity lifting) ship, the real transforms happen before this lowering and consume those calls.
+ * The `compiler-plugin-runtime` `activity(name, body)` stub is a no-op placeholder so user code
+ * typechecks. The inline activity transform runs before this lowering and consumes supported calls.
  *
- * Anything still left as a raw `workflow(...)` / `activity(...)` call after the higher passes ran
- * is an *orphan* — e.g. used outside a `taskQueue { ... }` block, or used in a way the higher
- * passes don't recognise. We neutralise it so it doesn't actually invoke the no-op stub at runtime:
+ * Anything still left as a raw `activity(...)` call after the higher passes ran is an *orphan*,
+ * e.g. used outside a `@WorkflowRun` body or in a way the higher pass doesn't recognise. We
+ * neutralise it so it doesn't actually invoke the no-op stub at runtime:
  *
  * - `Unit`-returning call → `Unit` reference. Silent no-op.
  * - Non-`Unit` call → `kotlin.error("...")`. `Nothing` is assignment-compatible anywhere; the
@@ -53,7 +51,7 @@ internal class TemporalDslLowering(
         val transformed = super.visitCall(expression)
         if (transformed !is IrCall) return transformed
         val fqn = transformed.symbol.owner.kotlinFqName
-        if (fqn != WORKFLOW_DSL_FQN && fqn != ACTIVITY_DSL_FQN) return transformed
+        if (fqn != ACTIVITY_DSL_FQN) return transformed
 
         return if (transformed.type == unitType) {
             IrGetObjectValueImpl(transformed.startOffset, transformed.endOffset, unitType, unitClass)

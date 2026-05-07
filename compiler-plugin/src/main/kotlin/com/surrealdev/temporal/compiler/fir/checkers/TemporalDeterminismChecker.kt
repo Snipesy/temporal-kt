@@ -18,7 +18,6 @@ import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
 import org.jetbrains.kotlin.fir.declarations.FirProperty
 import org.jetbrains.kotlin.fir.declarations.FirRegularClass
 import org.jetbrains.kotlin.fir.declarations.hasAnnotation
-import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
 import org.jetbrains.kotlin.fir.expressions.toResolvedCallableSymbol
@@ -34,7 +33,6 @@ private val WORKFLOW_ANNOTATION_CLASS_ID =
     ClassId.topLevel(FqName("com.surrealdev.temporal.annotation.Workflow"))
 
 private val TEMPORAL_DSL_PACKAGE = FqName("com.surrealdev.temporal.dsl")
-private val WORKFLOW_DSL_NAME = Name.identifier("workflow")
 private val ACTIVITY_DSL_NAME = Name.identifier("activity")
 
 private fun FirFunctionCall.dslCalleeName(): Name? {
@@ -42,11 +40,6 @@ private fun FirFunctionCall.dslCalleeName(): Name? {
     val callableId = callable.callableId ?: return null
     if (callableId.packageName != TEMPORAL_DSL_PACKAGE) return null
     return callableId.callableName
-}
-
-private fun FirFunctionCall.trailingLambda(): org.jetbrains.kotlin.fir.declarations.FirAnonymousFunction? {
-    val arg = argumentList.arguments.lastOrNull() ?: return null
-    return (arg as? FirAnonymousFunctionExpression)?.anonymousFunction
 }
 
 /**
@@ -78,51 +71,15 @@ object TemporalDeterminismFileChecker : FirFileChecker(MppCheckerKind.Common) {
             declaration.declarations
                 .filterIsInstance<FirRegularClass>()
                 .filter { it.symbol.hasAnnotation(WORKFLOW_ANNOTATION_CLASS_ID, context.session) }
-        val inlineWorkflowLambdas = collectInlineWorkflowLambdas(declaration)
-        if (workflowClasses.isEmpty() && inlineWorkflowLambdas.isEmpty()) return
+        if (workflowClasses.isEmpty()) return
 
         val sameFileCallables = collectSameFileCallables(declaration)
-        val seedFunctions =
-            workflowClasses.flatMap { it.collectFunctionLikeMembers() } + inlineWorkflowLambdas
+        val seedFunctions = workflowClasses.flatMap { it.collectFunctionLikeMembers() }
         val tainted = bfsTaint(seedFunctions, sameFileCallables, context.session)
 
         for (decl in tainted) {
             scanForViolations(decl, context, reporter)
         }
-    }
-
-    /**
-     * Collects every `com.surrealdev.temporal.dsl.workflow("Name") { ... }` lambda body in the file.
-     * Nested `activity("Name") { ... }` lambdas are intentionally excluded — activities are allowed
-     * to perform non-deterministic work, only the workflow body is constrained.
-     */
-    private fun collectInlineWorkflowLambdas(file: FirFile): List<FirDeclaration> {
-        val result = mutableListOf<FirDeclaration>()
-        file.accept(
-            object : FirVisitorVoid() {
-                override fun visitElement(element: FirElement) {
-                    if (element is FirFunctionCall) {
-                        when (element.dslCalleeName()) {
-                            WORKFLOW_DSL_NAME -> {
-                                element.trailingLambda()?.let { result += it }
-                                // do not descend into the workflow lambda again — the seed walker
-                                // will scan it. Other args (the name) are non-interesting.
-                                return
-                            }
-
-                            ACTIVITY_DSL_NAME -> {
-                                // activity bodies are permitted to be non-deterministic; do not
-                                // collect or descend further along this branch.
-                                return
-                            }
-                        }
-                    }
-                    element.acceptChildren(this)
-                }
-            },
-            null,
-        )
-        return result
     }
 
     @OptIn(DirectDeclarationsAccess::class)

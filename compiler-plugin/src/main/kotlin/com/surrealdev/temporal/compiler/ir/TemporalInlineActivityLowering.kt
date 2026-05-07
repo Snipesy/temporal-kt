@@ -78,8 +78,8 @@ import org.jetbrains.kotlin.types.Variance
  *
  * Limitations (v1):
  * - No-arg activities only (the DSL stub doesn't support arg yet).
- * - The lifted activity function is `static` (top-level) and may not capture state from the
- *   workflow class — captures are forbidden by [TemporalWorkflowCaptureChecker], so this is OK.
+ * - The lifted activity function is `static` (top-level) and may not capture workflow-instance
+ *   state.
  * - Default activity options: `startToCloseTimeout = 1.minute` (set by the runtime helper).
  */
 @OptIn(UnsafeDuringIrConstructionAPI::class)
@@ -105,16 +105,18 @@ internal class TemporalInlineActivityLowering(
     }
 
     private val startActivityTypedFn by lazy {
-        finder.findFunctions(
-            CallableId(FqName("com.surrealdev.temporal.client"), Name.identifier("startActivityTyped")),
-        ).firstOrNull()
+        finder
+            .findFunctions(
+                CallableId(FqName("com.surrealdev.temporal.client"), Name.identifier("startActivityTyped")),
+            ).firstOrNull()
             ?: error("startActivityTyped runtime helper not on classpath")
     }
 
     private val typeFromClassFn by lazy {
-        finder.findFunctions(
-            CallableId(FqName("com.surrealdev.temporal.client"), Name.identifier("typeFromClass")),
-        ).firstOrNull()
+        finder
+            .findFunctions(
+                CallableId(FqName("com.surrealdev.temporal.client"), Name.identifier("typeFromClass")),
+            ).firstOrNull()
             ?: error("typeFromClass runtime helper not on classpath")
     }
 
@@ -188,7 +190,8 @@ internal class TemporalInlineActivityLowering(
 
                 private fun captureActivity(call: IrCall): InlineActivity? {
                     // Args: [extension receiver (WorkflowContext), name, body]
-                    val nameArg = call.arguments.firstOrNull { it is IrConst && it.kind == IrConstKind.String }
+                    val nameArg =
+                        call.arguments.firstOrNull { it is IrConst && it.kind == IrConstKind.String }
                             as? IrConst ?: return null
                     val name = nameArg.value as? String ?: return null
                     val bodyArg = call.arguments.firstNotNullOfOrNull { it as? IrFunctionExpression } ?: return null
@@ -355,7 +358,11 @@ internal class TemporalInlineActivityLowering(
         return method
     }
 
-    private fun functionRef(symbol: IrSimpleFunctionSymbol, start: Int, end: Int): IrExpression {
+    private fun functionRef(
+        symbol: IrSimpleFunctionSymbol,
+        start: Int,
+        end: Int,
+    ): IrExpression {
         // KFunction0<R> for no-arg lifted activity, KFunction1<A, R> if it had an arg.
         // For v1 — no-arg only — type is KFunction<R>.
         val kFunctionType =
@@ -414,7 +421,11 @@ internal class TemporalInlineActivityLowering(
         }
     }
 
-    private fun typeFromClassCall(forType: IrType, start: Int, end: Int): IrExpression {
+    private fun typeFromClassCall(
+        forType: IrType,
+        start: Int,
+        end: Int,
+    ): IrExpression {
         val classifier = forType.classifierOrNull as? IrClassSymbol ?: return nullExpr(start, end)
         val kclassType =
             IrSimpleTypeImpl(
@@ -445,11 +456,16 @@ internal class TemporalInlineActivityLowering(
         return call
     }
 
-    private fun stringConst(value: String, start: Int, end: Int): IrExpression =
-        IrConstImpl(start, end, pluginContext.irBuiltIns.stringType, IrConstKind.String, value)
+    private fun stringConst(
+        value: String,
+        start: Int,
+        end: Int,
+    ): IrExpression = IrConstImpl(start, end, pluginContext.irBuiltIns.stringType, IrConstKind.String, value)
 
-    private fun nullExpr(start: Int, end: Int): IrExpression =
-        IrConstImpl(start, end, pluginContext.irBuiltIns.anyNType, IrConstKind.Null, null)
+    private fun nullExpr(
+        start: Int,
+        end: Int,
+    ): IrExpression = IrConstImpl(start, end, pluginContext.irBuiltIns.anyNType, IrConstKind.Null, null)
 
     private val ORIGIN: IrDeclarationOrigin = IrDeclarationOrigin.GeneratedByPlugin(InlineActivityKey)
 

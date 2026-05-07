@@ -19,12 +19,5 @@ object TemporalDiagnosticRendererFactory : BaseDiagnosticRendererFactory() {
             message = "[TEMPORAL] Unknown task queue: ''{0}''. Not declared in this module.",
             rendererA = null,
         )
-        map.put(
-            factory = TemporalDiagnostics.TEMPORAL_WORKFLOW_LAMBDA_CAPTURES_NOT_SUPPORTED,
-            message =
-                "[TEMPORAL] Workflow lambdas cannot capture values from their enclosing scope. " +
-                    "Workflows are deterministic and re-entrant; the declaring scope runs once at " +
-                    "registration time but the workflow body is replayed from history.",
-        )
     }
 }
