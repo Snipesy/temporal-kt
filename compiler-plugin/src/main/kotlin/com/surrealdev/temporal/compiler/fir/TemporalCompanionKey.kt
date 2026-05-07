@@ -13,3 +13,18 @@ import org.jetbrains.kotlin.GeneratedDeclarationKey
 object TemporalCompanionKey : GeneratedDeclarationKey() {
     override fun toString(): String = "TemporalCompanionKey"
 }
+
+/** Origin key for typed `@Signal` wrapper methods on `<UserClass>.Handle<R>`. */
+object TemporalSignalKey : GeneratedDeclarationKey() {
+    override fun toString(): String = "TemporalSignalKey"
+}
+
+/** Origin key for typed `@Query` wrapper methods on `<UserClass>.Handle<R>`. */
+object TemporalQueryKey : GeneratedDeclarationKey() {
+    override fun toString(): String = "TemporalQueryKey"
+}
+
+/** Origin key for typed `@Update` wrapper methods on `<UserClass>.Handle<R>`. */
+object TemporalUpdateKey : GeneratedDeclarationKey() {
+    override fun toString(): String = "TemporalUpdateKey"
+}

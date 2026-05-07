@@ -21,6 +21,18 @@ public class TemporalBoxTestGenerated extends AbstractTemporalBoxTest {
   }
 
   @Test
+  @TestMetadata("HandleWrapperClassLoads.kt")
+  public void testHandleWrapperClassLoads() {
+    runTest("src/test/resources/testData/box/HandleWrapperClassLoads.kt");
+  }
+
+  @Test
+  @TestMetadata("InlineActivityCapturesAsArgs.kt")
+  public void testInlineActivityCapturesAsArgs() {
+    runTest("src/test/resources/testData/box/InlineActivityCapturesAsArgs.kt");
+  }
+
+  @Test
   @TestMetadata("InlineActivityClassLoads.kt")
   public void testInlineActivityClassLoads() {
     runTest("src/test/resources/testData/box/InlineActivityClassLoads.kt");

@@ -92,7 +92,8 @@ internal class TemporalInlineActivityLowering(
     private val workflowRunAnnotationFqn = FqName("com.surrealdev.temporal.annotation.WorkflowRun")
     private val activityAnnotationClassId =
         ClassId.topLevel(FqName("com.surrealdev.temporal.annotation.Activity"))
-    private val activityDslFqn = FqName("com.surrealdev.temporal.dsl.activity")
+    private val inlineActivityDslFqn = FqName("com.surrealdev.temporal.dsl.inlineActivity")
+    private val inlineLocalActivityDslFqn = FqName("com.surrealdev.temporal.dsl.inlineLocalActivity")
 
     private val workflowContextClassId =
         ClassId.topLevel(FqName("com.surrealdev.temporal.workflow.WorkflowContext"))
@@ -110,6 +111,14 @@ internal class TemporalInlineActivityLowering(
                 CallableId(FqName("com.surrealdev.temporal.client"), Name.identifier("startActivityTyped")),
             ).firstOrNull()
             ?: error("startActivityTyped runtime helper not on classpath")
+    }
+
+    private val startLocalActivityTypedFn by lazy {
+        finder
+            .findFunctions(
+                CallableId(FqName("com.surrealdev.temporal.client"), Name.identifier("startLocalActivityTyped")),
+            ).firstOrNull()
+            ?: error("startLocalActivityTyped runtime helper not on classpath")
     }
 
     private val typeFromClassFn by lazy {
@@ -161,11 +170,22 @@ internal class TemporalInlineActivityLowering(
         for (cls in workflowClasses) processWorkflowClass(cls)
     }
 
+    private enum class ActivityKind { REGULAR, LOCAL }
+
     private data class InlineActivity(
+        val kind: ActivityKind,
         val name: String,
         val callsite: IrCall,
         val lambdaFn: IrSimpleFunction,
         val resultType: IrType,
+        /**
+         * Symbols captured by the lambda body from the enclosing scope. Each becomes:
+         * - a new value parameter on the lifted top-level function (so the activity body can
+         *   reference what it needs);
+         * - a paired `(KType, value)` entry in the call-site `argTypesAndValues` vararg (so the
+         *   captured value gets serialised and passed as an activity arg at dispatch time).
+         */
+        val captures: List<IrValueSymbol>,
     )
 
     private fun processWorkflowClass(workflowClass: IrClass) {
@@ -182,13 +202,19 @@ internal class TemporalInlineActivityLowering(
 
                 override fun visitCall(expression: IrCall) {
                     val fqn = expression.symbol.owner.kotlinFqName
-                    if (fqn == activityDslFqn) {
-                        captureActivity(expression)?.let { activities += it }
+                    val kind =
+                        when (fqn) {
+                            inlineActivityDslFqn -> ActivityKind.REGULAR
+                            inlineLocalActivityDslFqn -> ActivityKind.LOCAL
+                            else -> null
+                        }
+                    if (kind != null) {
+                        captureActivity(expression, kind)?.let { activities += it }
                     }
                     super.visitCall(expression)
                 }
 
-                private fun captureActivity(call: IrCall): InlineActivity? {
+                private fun captureActivity(call: IrCall, kind: ActivityKind): InlineActivity? {
                     // Args: [extension receiver (WorkflowContext), name, body]
                     val nameArg =
                         call.arguments.firstOrNull { it is IrConst && it.kind == IrConstKind.String }
@@ -196,7 +222,8 @@ internal class TemporalInlineActivityLowering(
                     val name = nameArg.value as? String ?: return null
                     val bodyArg = call.arguments.firstNotNullOfOrNull { it as? IrFunctionExpression } ?: return null
                     val lambda = bodyArg.function
-                    return InlineActivity(name, call, lambda, lambda.returnType)
+                    val captures = detectCaptures(lambda)
+                    return InlineActivity(kind, name, call, lambda, lambda.returnType, captures)
                 }
             },
         )
@@ -258,12 +285,39 @@ internal class TemporalInlineActivityLowering(
         lifted.annotations =
             listOf(buildActivityAnnotation(activity.name, lifted.startOffset, lifted.endOffset))
 
-        // Walk the adopted body and rewrite each `IrReturn` so it targets `lifted.symbol`
-        // explicitly. Even though the lambda's IrReturns ALREADY targeted the lambda's symbol —
-        // and that IrSimpleFunction object is now `lifted` — the JVM codegen's
-        // `methodSignatureMapper.mapFunctionName(returnTargetSymbol.owner)` was producing
-        // `<anonymous>` (the lambda's pre-rename name). Rebuilding the IrReturn nodes ensures
-        // the codegen sees a fresh return whose target name resolves correctly.
+        // For each captured value, append a Regular value parameter to the lifted function and
+        // build a remap from the captured symbol → the new parameter's symbol.
+        val captureRemap = mutableMapOf<IrValueSymbol, IrValueSymbol>()
+        if (activity.captures.isNotEmpty()) {
+            val newParams = lifted.parameters.toMutableList()
+            for (captured in activity.captures) {
+                val ownerDecl = captured.owner
+                val capturedType =
+                    when (ownerDecl) {
+                        is IrValueParameter -> ownerDecl.type
+                        is org.jetbrains.kotlin.ir.declarations.IrVariable -> ownerDecl.type
+                        else -> continue // unsupported declaration kind — skip
+                    }
+                val newParam =
+                    buildValueParameter(lifted) {
+                        kind = IrParameterKind.Regular
+                        name = ownerDecl.name
+                        type = capturedType
+                    }
+                newParams += newParam
+                captureRemap[captured] = newParam.symbol
+            }
+            lifted.parameters = newParams
+        }
+
+        // Walk the adopted body and:
+        // 1. Rebuild every `IrReturn` so `returnTargetSymbol = lifted.symbol`. The lambda's
+        //    IrReturns already target the lambda's symbol — and that IrSimpleFunction object is
+        //    now `lifted` — but JVM codegen's `methodSignatureMapper.mapFunctionName(...)`
+        //    surfaces the lambda's pre-rename `<anonymous>` as a non-local return label
+        //    sentinel unless we rebuild the IrReturn explicitly.
+        // 2. Replace every `IrGetValue(captured)` with `IrGetValue(newParam)` so the lifted
+        //    function reads its own parameters, not the (now-out-of-scope) outer locals.
         lifted.body?.transform(
             object : IrElementTransformerVoid() {
                 override fun visitReturn(expression: org.jetbrains.kotlin.ir.expressions.IrReturn): IrExpression {
@@ -277,11 +331,52 @@ internal class TemporalInlineActivityLowering(
                         value = transformed.value,
                     )
                 }
+
+                override fun visitGetValue(
+                    expression: org.jetbrains.kotlin.ir.expressions.IrGetValue,
+                ): IrExpression {
+                    val newSymbol = captureRemap[expression.symbol]
+                        ?: return super.visitGetValue(expression)
+                    return IrGetValueImpl(expression.startOffset, expression.endOffset, newSymbol)
+                }
             },
             null,
         )
 
         return lifted
+    }
+
+    /**
+     * Detect captures: walk the lambda body for `IrGetValue` references whose declaring symbol
+     * sits OUTSIDE the lambda's own scope. Returns each captured symbol once, in first-encountered
+     * order — order matters for the call-site arg layout.
+     */
+    private fun detectCaptures(lambda: IrSimpleFunction): List<IrValueSymbol> {
+        val ownSymbols = mutableSetOf<IrValueSymbol>()
+        // Lambda's own value parameters (incl. extension/dispatch receivers, if any).
+        for (param in lambda.parameters) ownSymbols += param.symbol
+        // Locals declared inside the lambda body get added as we walk.
+        val captured = LinkedHashSet<IrValueSymbol>()
+        lambda.body?.acceptChildrenVoid(
+            object : IrVisitorVoid() {
+                override fun visitElement(element: org.jetbrains.kotlin.ir.IrElement) {
+                    element.acceptChildrenVoid(this)
+                }
+
+                override fun visitVariable(declaration: org.jetbrains.kotlin.ir.declarations.IrVariable) {
+                    ownSymbols += declaration.symbol
+                    super.visitVariable(declaration)
+                }
+
+                override fun visitGetValue(expression: org.jetbrains.kotlin.ir.expressions.IrGetValue) {
+                    if (expression.symbol !in ownSymbols) {
+                        captured += expression.symbol
+                    }
+                    super.visitGetValue(expression)
+                }
+            },
+        )
+        return captured.toList()
     }
 
     private fun buildActivityAnnotation(
@@ -363,13 +458,32 @@ internal class TemporalInlineActivityLowering(
         start: Int,
         end: Int,
     ): IrExpression {
-        // KFunction0<R> for no-arg lifted activity, KFunction1<A, R> if it had an arg.
-        // For v1 — no-arg only — type is KFunction<R>.
+        // The reference's type must be `KFunctionN<P1, ..., PN, R>` where N is the lifted
+        // function's regular-parameter count. Building it as the generic `KFunction<R>`
+        // (no arity) makes the JVM codegen synthesise a `FunctionReferenceImpl` that
+        // extends `Function0` regardless of actual arity — and at runtime the captured
+        // activity registration would only know how to invoke a 0-arg function, blowing up
+        // for any captured-arg activity.
+        // KFunction arity must include both the extension receiver (ActivityContext, since the
+        // lifted function is `suspend fun ActivityContext.__<class>_<name>(...)`) and regular
+        // params. Counting only `Regular` would produce a `KFunction0` reference whose synthetic
+        // `invoke` wouldn't pass the receiver, blowing up codegen.
+        val params =
+            symbol.owner.parameters.filter {
+                it.kind == IrParameterKind.Regular || it.kind == IrParameterKind.ExtensionReceiver
+            }
+        val arity = params.size
+        val kFunctionNClass = pluginContext.irBuiltIns.kFunctionN(arity).symbol
+        val typeArgs =
+            buildList {
+                for (p in params) add(makeTypeProjection(p.type, Variance.INVARIANT))
+                add(makeTypeProjection(symbol.owner.returnType, Variance.INVARIANT))
+            }
         val kFunctionType =
             IrSimpleTypeImpl(
-                classifier = kFunctionClass,
+                classifier = kFunctionNClass,
                 nullability = SimpleTypeNullability.NOT_SPECIFIED,
-                arguments = listOf(makeTypeProjection(symbol.owner.returnType, Variance.OUT_VARIANCE)),
+                arguments = typeArgs,
                 annotations = emptyList(),
             )
         return IrFunctionReferenceImpl(
@@ -402,24 +516,72 @@ internal class TemporalInlineActivityLowering(
                 workflowRunMethod.parameters.firstOrNull { it.kind == IrParameterKind.ExtensionReceiver }
                     ?: error("@WorkflowRun method must have WorkflowContext extension receiver")
 
+            val runtimeFn =
+                when (activity.kind) {
+                    ActivityKind.REGULAR -> startActivityTypedFn
+                    ActivityKind.LOCAL -> startLocalActivityTypedFn
+                }
             val call =
                 IrCallImpl(
                     startOffset = so,
                     endOffset = eo,
                     type = activity.resultType,
-                    symbol = startActivityTypedFn,
+                    symbol = runtimeFn,
                     typeArgumentsCount = 0,
                 )
-            // startActivityTyped(workflowContext, activityType, arg, argType, resultType, startToCloseMs=default)
+            // startActivityTyped(workflowContext, activityType, resultType, startToCloseMs, vararg argTypesAndValues)
             call.arguments[0] = IrGetValueImpl(so, eo, workflowContextParam.symbol)
             call.arguments[1] = stringConst(activity.name, so, eo)
-            call.arguments[2] = nullExpr(so, eo) // arg — no-arg only in v1
-            call.arguments[3] = nullExpr(so, eo) // argType
-            call.arguments[4] = typeFromClassCall(activity.resultType, so, eo) // resultType
-            // arg 5 (startToCloseMs) defaults — leave unset; default value applied by IR
+            call.arguments[2] = typeFromClassCall(activity.resultType, so, eo)
+            call.arguments[3] = longConst(60_000L, so, eo) // startToCloseMs default
+            call.arguments[4] = buildArgTypesAndValuesArray(activity.captures, so, eo)
             return call
         }
     }
+
+    /**
+     * Build `arrayOf(typeFromClass(C1::class), <captureValueExpr1>, typeFromClass(C2::class),
+     * <captureValueExpr2>, ...)` for the activity-call site. Each capture contributes a
+     * `(KType, value)` pair. The captured *value expression* is a fresh `IrGetValue` of the
+     * original outer symbol — read at activity-call time so the value snapshots the workflow's
+     * current state, not the value at later replay points.
+     */
+    private fun buildArgTypesAndValuesArray(
+        captures: List<IrValueSymbol>,
+        start: Int,
+        end: Int,
+    ): IrExpression {
+        val anyNType = pluginContext.irBuiltIns.anyNType
+        val arrayType =
+            IrSimpleTypeImpl(
+                classifier = pluginContext.irBuiltIns.arrayClass,
+                nullability = SimpleTypeNullability.NOT_SPECIFIED,
+                arguments = listOf(makeTypeProjection(anyNType, Variance.OUT_VARIANCE)),
+                annotations = emptyList(),
+            )
+        val elements = mutableListOf<org.jetbrains.kotlin.ir.expressions.IrVarargElement>()
+        for (captured in captures) {
+            val ownerDecl = captured.owner
+            val capturedType =
+                when (ownerDecl) {
+                    is IrValueParameter -> ownerDecl.type
+                    is org.jetbrains.kotlin.ir.declarations.IrVariable -> ownerDecl.type
+                    else -> continue
+                }
+            elements += typeFromClassCall(capturedType, start, end)
+            elements += IrGetValueImpl(start, end, captured)
+        }
+        return org.jetbrains.kotlin.ir.expressions.impl.IrVarargImpl(
+            startOffset = start,
+            endOffset = end,
+            type = arrayType,
+            varargElementType = anyNType,
+            elements = elements,
+        )
+    }
+
+    private fun longConst(value: Long, start: Int, end: Int): IrExpression =
+        IrConstImpl(start, end, pluginContext.irBuiltIns.longType, IrConstKind.Long, value)
 
     private fun typeFromClassCall(
         forType: IrType,

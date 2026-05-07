@@ -1,6 +1,9 @@
 package com.surrealdev.temporal.compiler.ir
 
 import com.surrealdev.temporal.compiler.fir.TemporalCompanionKey
+import com.surrealdev.temporal.compiler.fir.TemporalQueryKey
+import com.surrealdev.temporal.compiler.fir.TemporalSignalKey
+import com.surrealdev.temporal.compiler.fir.TemporalUpdateKey
 import org.jetbrains.kotlin.backend.common.extensions.IrPluginContext
 import org.jetbrains.kotlin.ir.IrStatement
 import org.jetbrains.kotlin.ir.declarations.IrClass
@@ -150,6 +153,37 @@ internal class TemporalCompanionIrBodyFiller(
             ?: error("kotlin.reflect.KClass not found")
     }
 
+    private val signalTypedFn: IrSimpleFunctionSymbol by lazy {
+        finder
+            .findFunctions(CallableId(FqName("com.surrealdev.temporal.client"), Name.identifier("signalTyped")))
+            .firstOrNull()
+            ?: error("signalTyped runtime helper not on classpath")
+    }
+
+    private val queryTypedFn: IrSimpleFunctionSymbol by lazy {
+        finder
+            .findFunctions(CallableId(FqName("com.surrealdev.temporal.client"), Name.identifier("queryTyped")))
+            .firstOrNull()
+            ?: error("queryTyped runtime helper not on classpath")
+    }
+
+    private val updateTypedFn: IrSimpleFunctionSymbol by lazy {
+        finder
+            .findFunctions(CallableId(FqName("com.surrealdev.temporal.client"), Name.identifier("updateTyped")))
+            .firstOrNull()
+            ?: error("updateTyped runtime helper not on classpath")
+    }
+
+    private val anyClass: IrClassSymbol by lazy {
+        finder.findClass(ClassId.topLevel(FqName("kotlin.Any")))
+            ?: error("kotlin.Any not found")
+    }
+
+    /** Annotation FQNs for `@Signal` / `@Query` / `@Update` — used to read wire names from user methods. */
+    private val signalAnnotationFqn = FqName("com.surrealdev.temporal.annotation.Signal")
+    private val queryAnnotationFqn = FqName("com.surrealdev.temporal.annotation.Query")
+    private val updateAnnotationFqn = FqName("com.surrealdev.temporal.annotation.Update")
+
     fun lower(moduleFragment: IrModuleFragment) {
         moduleFragment.transform(BodyFiller(), null)
     }
@@ -158,8 +192,11 @@ internal class TemporalCompanionIrBodyFiller(
         override fun visitSimpleFunction(declaration: IrSimpleFunction): IrStatement {
             val origin = declaration.origin
             val pluginKey = (origin as? IrDeclarationOrigin.GeneratedByPlugin)?.pluginKey
-            if (pluginKey == TemporalCompanionKey) {
-                fillFunctionIfMatch(declaration)
+            when (pluginKey) {
+                TemporalCompanionKey -> fillFunctionIfMatch(declaration)
+                TemporalSignalKey -> fillSignalWrapper(declaration)
+                TemporalQueryKey -> fillQueryOrUpdateWrapper(declaration, queryTypedFn)
+                TemporalUpdateKey -> fillQueryOrUpdateWrapper(declaration, updateTypedFn)
             }
             return super.visitSimpleFunction(declaration)
         }
@@ -405,16 +442,13 @@ internal class TemporalCompanionIrBodyFiller(
         declarations.filterIsInstance<IrConstructor>().firstOrNull { it.isPrimary }
 
     private fun IrSimpleFunction.returnTypeResultArg(): IrType? {
-        // start/handle return `<UserClass>.Handle`. Handle extends `TypedWorkflowHandle<R>`.
-        // To get R, walk the Handle class's super-types and extract the type argument.
-        val handleClass = (returnType as? IrSimpleType)?.classifier?.owner as? IrClass ?: return null
-        val typedHandleSupertype =
-            handleClass.superTypes.firstOrNull {
-                (it.classifierOrNull as? IrClassSymbol)?.owner ==
-                    typedHandleClass.owner
-            }
-                as? IrSimpleType ?: return null
-        return (typedHandleSupertype.arguments.firstOrNull() as? IrTypeProjection)?.type
+        // `start` / `handle` return `<UserClass>.Handle<R>`. Extract R directly from the
+        // function's return type — its first type argument is the substituted R (e.g. `String`
+        // for a workflow returning `String`). Walking Handle's *declared* superTypes returns
+        // the unsubstituted type parameter, which is useless at IR-construction time (typeFromClass
+        // requires a real IrClassSymbol, not an IrTypeParameter).
+        val rt = returnType as? IrSimpleType ?: return null
+        return (rt.arguments.firstOrNull() as? IrTypeProjection)?.type
     }
 
     /** Read the user-supplied `name` argument from `@Workflow("name")`. */
@@ -494,4 +528,187 @@ internal class TemporalCompanionIrBodyFiller(
         start: Int,
         end: Int,
     ): IrExpression = IrConstImpl(start, end, pluginContext.irBuiltIns.anyNType, IrConstKind.Null, null)
+
+    // ------------------------------------------------------------------------
+    // Stage 9: typed @Signal / @Query / @Update wrapper bodies on Handle
+    // ------------------------------------------------------------------------
+
+    /**
+     * Fill the body of a synthesised `Handle.<wrapperName>(...)` Unit-returning signal wrapper:
+     * ```
+     * suspend fun cancel(reason: String) {
+     *     signalTyped(this.handle, "<wireName>", arrayOf(typeFromClass(String::class), reason))
+     * }
+     * ```
+     */
+    private fun fillSignalWrapper(function: IrSimpleFunction) {
+        val handleClass = function.parentClassOrNull ?: return
+        val workflowClass = handleClass.parentClassOrNull ?: return
+        val handlerName = readHandlerWireName(workflowClass, function.name.asString(), signalAnnotationFqn)
+            ?: function.name.asString()
+        val so = function.startOffset
+        val eo = function.endOffset
+
+        val handleField = handleField(function, handleClass) ?: return
+
+        val argsArray = buildArgTypesAndValuesArray(function, so, eo)
+
+        val signalCall =
+            IrCallImpl(
+                startOffset = so,
+                endOffset = eo,
+                type = pluginContext.irBuiltIns.unitType,
+                symbol = signalTypedFn,
+                typeArgumentsCount = 0,
+            )
+        signalCall.arguments[0] = handleField
+        signalCall.arguments[1] = stringConst(handlerName, so, eo)
+        signalCall.arguments[2] = argsArray
+
+        function.body =
+            pluginContext.irFactory.createBlockBody(so, eo, listOf(signalCall))
+    }
+
+    /**
+     * Fill the body of a synthesised query/update wrapper:
+     * ```
+     * suspend fun status(): Int {
+     *     return queryTyped(this.handle, "<wireName>", typeFromClass(Int::class), arrayOf(...)) as Int
+     * }
+     * ```
+     */
+    private fun fillQueryOrUpdateWrapper(
+        function: IrSimpleFunction,
+        runtimeFn: IrSimpleFunctionSymbol,
+    ) {
+        val handleClass = function.parentClassOrNull ?: return
+        val workflowClass = handleClass.parentClassOrNull ?: return
+        val annotationFqn =
+            if (runtimeFn == queryTypedFn) queryAnnotationFqn else updateAnnotationFqn
+        val handlerName = readHandlerWireName(workflowClass, function.name.asString(), annotationFqn)
+            ?: function.name.asString()
+        val so = function.startOffset
+        val eo = function.endOffset
+
+        val handleField = handleField(function, handleClass) ?: return
+        val argsArray = buildArgTypesAndValuesArray(function, so, eo)
+        val resultTypeExpr = typeFromClassCall(function.returnType, so, eo)
+
+        val rtCall =
+            IrCallImpl(
+                startOffset = so,
+                endOffset = eo,
+                type = pluginContext.irBuiltIns.anyNType,
+                symbol = runtimeFn,
+                typeArgumentsCount = 0,
+            )
+        rtCall.arguments[0] = handleField
+        rtCall.arguments[1] = stringConst(handlerName, so, eo)
+        rtCall.arguments[2] = resultTypeExpr
+        rtCall.arguments[3] = argsArray
+
+        // The runtime helper returns `Any?` — cast/coerce to the function's declared return type.
+        // Use IrTypeOperatorCall(IMPLICIT_CAST) to narrow the result.
+        val coerced =
+            org.jetbrains.kotlin.ir.expressions.impl.IrTypeOperatorCallImpl(
+                startOffset = so,
+                endOffset = eo,
+                type = function.returnType,
+                operator = org.jetbrains.kotlin.ir.expressions.IrTypeOperator.IMPLICIT_CAST,
+                typeOperand = function.returnType,
+                argument = rtCall,
+            )
+
+        function.body =
+            pluginContext.irFactory.createBlockBody(
+                so, eo,
+                listOf(IrReturnImpl(so, eo, pluginContext.irBuiltIns.nothingType, function.symbol, coerced)),
+            )
+    }
+
+    /**
+     * Build `arrayOf(typeFromClass(P1::class), arg1, typeFromClass(P2::class), arg2, ...)`
+     * for the function's regular parameters (excluding dispatch receiver).
+     */
+    private fun buildArgTypesAndValuesArray(
+        function: IrSimpleFunction,
+        start: Int,
+        end: Int,
+    ): IrExpression {
+        val params = function.parameters.filter { it.kind == IrParameterKind.Regular }
+        val anyNType = pluginContext.irBuiltIns.anyNType
+        val varargElementType = anyNType
+        val arrayType =
+            IrSimpleTypeImpl(
+                classifier = pluginContext.irBuiltIns.arrayClass,
+                nullability = SimpleTypeNullability.NOT_SPECIFIED,
+                arguments = listOf(makeTypeProjection(anyNType, Variance.OUT_VARIANCE)),
+                annotations = emptyList(),
+            )
+        val varargElements = mutableListOf<org.jetbrains.kotlin.ir.expressions.IrVarargElement>()
+        for (param in params) {
+            varargElements += typeFromClassCall(param.type, start, end)
+            varargElements += IrGetValueImpl(start, end, param.symbol)
+        }
+        return org.jetbrains.kotlin.ir.expressions.impl.IrVarargImpl(
+            startOffset = start,
+            endOffset = end,
+            type = arrayType,
+            varargElementType = varargElementType,
+            elements = varargElements,
+        )
+    }
+
+    /**
+     * Returns an IR expression for `this.handle` (the inherited `WorkflowHandle` field on
+     * `TypedWorkflowHandle`, accessible from any Handle subclass).
+     */
+    private fun handleField(
+        function: IrSimpleFunction,
+        handleClass: IrClass,
+    ): IrExpression? {
+        val dispatchReceiver = function.dispatchReceiverParameter ?: return null
+        val handleProperty =
+            typedHandleClass.owner.declarations
+                .filterIsInstance<org.jetbrains.kotlin.ir.declarations.IrProperty>()
+                .firstOrNull { it.name.asString() == "handle" }
+                ?: return null
+        val getter = handleProperty.getter ?: return null
+        val so = function.startOffset
+        val eo = function.endOffset
+        val call =
+            IrCallImpl(
+                startOffset = so,
+                endOffset = eo,
+                type = getter.returnType,
+                symbol = getter.symbol,
+                typeArgumentsCount = 0,
+            )
+        call.arguments[0] = IrGetValueImpl(so, eo, dispatchReceiver.symbol)
+        return call
+    }
+
+    /**
+     * Look up the wire name for a `@Signal` / `@Query` / `@Update` handler on the workflow
+     * class. Falls back to the Kotlin method name if the annotation has no `name` argument.
+     */
+    private fun readHandlerWireName(
+        workflowClass: IrClass,
+        methodName: String,
+        annotationFqn: FqName,
+    ): String? {
+        val handler =
+            workflowClass.declarations
+                .filterIsInstance<IrSimpleFunction>()
+                .firstOrNull { it.name.asString() == methodName }
+                ?: return null
+        for (annotation in handler.annotations) {
+            val annClass = annotation.symbol.owner.parentClassOrNull ?: continue
+            if (annClass.kotlinFqName != annotationFqn) continue
+            val firstArg = annotation.arguments.firstOrNull() ?: continue
+            val constValue = (firstArg as? IrConst)?.value as? String
+            if (!constValue.isNullOrBlank()) return constValue
+        }
+        return methodName
+    }
 }

@@ -75,13 +75,57 @@ If the user already wrote `companion object { ... }`, the plugin **augments** it
 ## Client-side usage
 
 ```kotlin
-// Direct execute — start + await result in one call.
-val result: String = Greeter.execute(client, "queue", "World")
+// `start(...)` returns a typed `Greeter.Handle<String>`. The result type R is captured —
+// `.result()` is statically `String` without `<R>` ceremony.
+val handle: Greeter.Handle<String> = Greeter.start(client, "queue", "World")
+val result: String = handle.result()
 
-// Or split — start, signal/query/cancel through the handle, await later.
-val handle: TypedWorkflowHandle<String> = Greeter.start(client, "queue", "World")
-val later: String = handle.result()
+// Or wrap an existing run by ID:
+val existing: Greeter.Handle<String> = Greeter.handle(client, "some-workflow-id")
+val ongoing: String = existing.result()
 ```
+
+## Typed signal / query / update wrappers
+
+Each `@Signal` / `@Query` / `@Update` method on the workflow class projects to a typed wrapper
+on `<UserClass>.Handle<R>`. The wrapper:
+
+- mirrors the user's value parameters (same names + types),
+- drops any `WorkflowContext` extension receiver (Handle is client-side),
+- is always `suspend` (the runtime dispatch goes through `signalWithPayloads` etc.),
+- returns `Unit` for `@Signal`; the user's declared return type for `@Query` / `@Update`,
+- uses `@Signal("wire-name")` / `@Query("wire-name")` / `@Update("wire-name")` as the wire
+  name when sending to the server. The Kotlin method on Handle keeps the user's method name
+  (which is always a valid identifier).
+
+```kotlin
+@Workflow("Cart")
+class Cart {
+    @WorkflowRun
+    suspend fun WorkflowContext.run(): Int = 0
+
+    @Signal("cancel")
+    fun WorkflowContext.cancel(reason: String) { /* ... */ }
+
+    @Query("status")
+    fun status(): Int = 42
+
+    @Update("addItem")
+    suspend fun WorkflowContext.addItem(item: String): Int = 1
+}
+
+suspend fun useCart(client: TemporalClient) {
+    val handle: Cart.Handle<Int> = Cart.start(client, "queue")
+    handle.cancel("user requested")     // typed signal — no string, no untyped args
+    val n: Int = handle.status()         // typed query — no <Int>
+    val s: Int = handle.addItem("milk")  // typed update — both arg + return are typed
+}
+```
+
+`@Signal(dynamic = true)` / `@Query(dynamic = true)` / `@Update(dynamic = true)` handlers do
+**not** get typed wrappers — they catch all unhandled names by accepting the wire name as a
+parameter, so there's no fixed dispatch target. `@UpdateValidator` methods are server-side
+only and never produce wrappers.
 
 ## Inline activities
 

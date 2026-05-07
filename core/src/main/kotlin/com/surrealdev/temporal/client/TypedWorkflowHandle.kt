@@ -123,36 +123,27 @@ internal suspend fun startWorkflowGetHandle(
 }
 
 /**
- * Non-reified, single-arg activity dispatch used by the compiler plugin to fill
- * `activity("name") { ... }` call sites that have been lifted by Stage 8.6 inline-activity
- * lowering. The lifted lambda body lives in a top-level `@Activity` function registered on the
- * same task queue; this helper is what the rewritten call site invokes from inside the workflow
- * body.
+ * Compiler-plugin helper used to fill the rewritten `activity("name") { ... }` call sites
+ * inside `@WorkflowRun` methods after Stage 8.6 inline-activity lowering. The lifted lambda
+ * body lives in a top-level `@Activity` function registered on the same task queue.
  *
- * `null` [argType] means the inline activity took no value parameters; dispatched with empty
- * payloads.
+ * `argTypesAndValues` is laid out as `[KType_1, value_1, KType_2, value_2, ...]` (alternating
+ * pairs) and may be empty for no-arg activities. Captures inside the inline lambda are passed
+ * as activity args via this same vararg, one pair per captured value.
  *
  * @param startToCloseMs default 1 minute. Inline activities have no syntactic place to set
- * options yet; this default keeps things working for development. Future stages can add
- * `activity(name, options=...) { ... }` overloads.
+ * options yet; this default keeps things working for development.
  */
 @PublishedApi
 @OptIn(InternalTemporalApi::class)
 internal suspend fun startActivityTyped(
     workflowContext: com.surrealdev.temporal.workflow.WorkflowContext,
     activityType: String,
-    arg: Any?,
-    argType: KType?,
     resultType: KType,
-    startToCloseMs: Long = 60_000,
+    startToCloseMs: Long,
+    argTypesAndValues: Array<out Any?>,
 ): Any? {
-    val payloads =
-        if (argType == null) {
-            TemporalPayloads.EMPTY
-        } else {
-            val payload = workflowContext.serializer.serialize(argType, arg)
-            TemporalPayloads.of(listOf(payload))
-        }
+    val payloads = serializeArgs(workflowContext.serializer, argTypesAndValues)
     val options =
         com.surrealdev.temporal.workflow.ActivityOptions(
             startToCloseTimeout = Duration.run { startToCloseMs.milliseconds },
@@ -165,4 +156,114 @@ internal suspend fun startActivityTyped(
         )
     val resultPayload = handle.resultPayload()
     return deserializeWithKType(resultPayload, resultType, workflowContext.serializer)
+}
+
+/**
+ * Local-activity counterpart of [startActivityTyped] — fills the `inlineLocalActivity(...)`
+ * call sites. Local activities run in the workflow worker process (no separate task queue
+ * dispatch), suitable for short deterministic side effects.
+ */
+@PublishedApi
+@OptIn(InternalTemporalApi::class)
+internal suspend fun startLocalActivityTyped(
+    workflowContext: com.surrealdev.temporal.workflow.WorkflowContext,
+    activityType: String,
+    resultType: KType,
+    startToCloseMs: Long,
+    argTypesAndValues: Array<out Any?>,
+): Any? {
+    val payloads = serializeArgs(workflowContext.serializer, argTypesAndValues)
+    val options =
+        com.surrealdev.temporal.workflow.LocalActivityOptions(
+            startToCloseTimeout = Duration.run { startToCloseMs.milliseconds },
+        )
+    val handle =
+        workflowContext.startLocalActivityWithPayloads(
+            activityType = activityType,
+            args = payloads,
+            options = options,
+        )
+    val resultPayload = handle.resultPayload()
+    return deserializeWithKType(resultPayload, resultType, workflowContext.serializer)
+}
+
+/**
+ * Compiler-plugin helpers for typed `@Signal` / `@Query` / `@Update` wrappers on
+ * `<UserClass>.Handle<R>`. Each takes a `vararg` of pairs `(KType, Any?)` so the IR pass
+ * can build call sites without constructing two parallel lists.
+ *
+ * Convention: `argTypesAndValues` is laid out as `[KType, Any?, KType, Any?, ...]` in even/odd
+ * positions. Empty vararg → no payloads. The plugin emits arrays directly via `IrVararg`.
+ */
+@PublishedApi
+@OptIn(InternalTemporalApi::class)
+internal suspend fun signalTyped(
+    handle: WorkflowHandle,
+    signalName: String,
+    argTypesAndValues: Array<out Any?>,
+) {
+    val payloads = serializeArgs(handle.serializer, argTypesAndValues)
+    handle.signalWithPayloads(signalName, payloads)
+}
+
+@PublishedApi
+@OptIn(InternalTemporalApi::class)
+internal suspend fun queryTyped(
+    handle: WorkflowHandle,
+    queryType: String,
+    resultType: KType,
+    argTypesAndValues: Array<out Any?>,
+): Any? {
+    val payloads = serializeArgs(handle.serializer, argTypesAndValues)
+    val resultPayloads = handle.queryWithPayloads(queryType, payloads)
+    return deserializeFirstPayload(resultPayloads, resultType, handle.serializer)
+}
+
+@PublishedApi
+@OptIn(InternalTemporalApi::class)
+internal suspend fun updateTyped(
+    handle: WorkflowHandle,
+    updateName: String,
+    resultType: KType,
+    argTypesAndValues: Array<out Any?>,
+): Any? {
+    val payloads = serializeArgs(handle.serializer, argTypesAndValues)
+    val resultPayloads = handle.updateWithPayloads(updateName, payloads)
+    return deserializeFirstPayload(resultPayloads, resultType, handle.serializer)
+}
+
+private fun serializeArgs(
+    serializer: PayloadSerializer,
+    argTypesAndValues: Array<out Any?>,
+): TemporalPayloads {
+    if (argTypesAndValues.isEmpty()) return TemporalPayloads.EMPTY
+    require(argTypesAndValues.size % 2 == 0) {
+        "argTypesAndValues must have even length (alternating KType, value); got ${argTypesAndValues.size}"
+    }
+    val payloads =
+        buildList(argTypesAndValues.size / 2) {
+            var i = 0
+            while (i < argTypesAndValues.size) {
+                val type = argTypesAndValues[i] as? KType
+                    ?: error("Expected KType at index $i, got ${argTypesAndValues[i]?.javaClass?.name}")
+                val value = argTypesAndValues[i + 1]
+                add(serializer.serialize(type, value))
+                i += 2
+            }
+        }
+    return TemporalPayloads.of(payloads)
+}
+
+private fun deserializeFirstPayload(
+    payloads: TemporalPayloads,
+    resultType: KType,
+    serializer: PayloadSerializer,
+): Any? {
+    if (resultType.classifier == Unit::class) return Unit
+    val first: TemporalPayload? = payloads.firstOrNull()
+    return if (first == null || (first.encoding == null && first.data.isEmpty())) {
+        null
+    } else {
+        serializer.deserialize(resultType, first)
+    }
 }

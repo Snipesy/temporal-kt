@@ -37,9 +37,45 @@ public class TemporalDiagnosticTestGenerated extends AbstractTemporalDiagnosticT
     }
 
     @Test
+    @TestMetadata("HandleQueryWrapper.kt")
+    public void testHandleQueryWrapper() {
+      runTest("src/test/resources/testData/diagnostics/companion/HandleQueryWrapper.kt");
+    }
+
+    @Test
+    @TestMetadata("HandleSignalWrapper.kt")
+    public void testHandleSignalWrapper() {
+      runTest("src/test/resources/testData/diagnostics/companion/HandleSignalWrapper.kt");
+    }
+
+    @Test
+    @TestMetadata("HandleSkipsDynamicHandlers.kt")
+    public void testHandleSkipsDynamicHandlers() {
+      runTest("src/test/resources/testData/diagnostics/companion/HandleSkipsDynamicHandlers.kt");
+    }
+
+    @Test
+    @TestMetadata("HandleSkipsValidators.kt")
+    public void testHandleSkipsValidators() {
+      runTest("src/test/resources/testData/diagnostics/companion/HandleSkipsValidators.kt");
+    }
+
+    @Test
+    @TestMetadata("HandleUpdateWrapper.kt")
+    public void testHandleUpdateWrapper() {
+      runTest("src/test/resources/testData/diagnostics/companion/HandleUpdateWrapper.kt");
+    }
+
+    @Test
     @TestMetadata("InlineActivityLifting.kt")
     public void testInlineActivityLifting() {
       runTest("src/test/resources/testData/diagnostics/companion/InlineActivityLifting.kt");
+    }
+
+    @Test
+    @TestMetadata("InlineActivityWithCaptures.kt")
+    public void testInlineActivityWithCaptures() {
+      runTest("src/test/resources/testData/diagnostics/companion/InlineActivityWithCaptures.kt");
     }
 
     @Test

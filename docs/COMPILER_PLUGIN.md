@@ -6,8 +6,12 @@ The Temporal Kotlin compiler plugin provides:
   `determinism-rules.json`; violations surface as `TEMPORAL_NONDETERMINISTIC_CALL` diagnostics.
   Inline activity bodies are exempt.
 - **Typed workflow companions** — for every `@Workflow` class, the plugin synthesises (or
-  augments) a companion object exposing typed `start(...)` / `execute(...)` helpers that
+  augments) a companion object exposing typed `start(...)` / `handle(...)` helpers that
   capture the workflow's return type. See [TKT-0003](proposals/TKT-0003-inline.md) for details.
+- **Typed handle with signal / query / update wrappers** — each `@Signal` / `@Query` / `@Update`
+  method on the workflow class projects to a typed wrapper on the synthesised `Handle<R>`
+  inner class, so `handle.cancel(reason)` / `handle.status()` / `handle.addItem("x")` are all
+  fully typed without string-keyed dispatch.
 - **Inline activity lifting** — `activity("name") { ... }` calls inside `@WorkflowRun` methods
   are lifted to registered activities and dispatched through Temporal's normal activity path.
 

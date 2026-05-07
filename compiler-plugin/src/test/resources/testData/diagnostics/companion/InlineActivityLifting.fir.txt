@@ -5,7 +5,7 @@ FILE: InlineActivityLifting.kt
         }
 
         @R|com/surrealdev/temporal/annotation/WorkflowRun|() public final suspend fun R|com/surrealdev/temporal/workflow/WorkflowContext|.run(): R|kotlin/String| {
-            ^run this@R|/Greeter.run|.R|com/surrealdev/temporal/dsl/activity|<R|kotlin/String|>(String(greet), <L> = activity@fun <anonymous>(): R|kotlin/String| <inline=NoInline>  {
+            ^run this@R|/Greeter.run|.R|com/surrealdev/temporal/dsl/inlineActivity|<R|kotlin/String|>(String(greet), <L> = inlineActivity@fun R|com/surrealdev/temporal/activity/ActivityContext|.<anonymous>(): R|kotlin/String| <inline=NoInline>  {
                 ^ <strcat>(String(Hello (random=), Q|kotlin/random/Random|.R|kotlin/random/Random.Default.nextInt|(), String()))
             }
             )

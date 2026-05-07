@@ -1,4 +1,4 @@
-FILE fqName:<root> fileName:/InlineActivityClassLoads.kt
+FILE fqName:<root> fileName:/HandleWrapperClassLoads.kt
   CLASS CLASS name:Greeter modality:FINAL visibility:public superTypes:[kotlin.Any]
     annotations:
       Workflow(name = <null>)
@@ -33,6 +33,46 @@ FILE fqName:<root> fileName:/InlineActivityClassLoads.kt
         VALUE_PARAMETER kind:DispatchReceiver name:<this> index:0 type:kotlin.Any
         overridden:
           public open fun toString (): kotlin.String declared in com.surrealdev.temporal.client.TypedWorkflowHandle
+      FUN GENERATED[com.surrealdev.temporal.compiler.fir.TemporalQueryKey] name:status visibility:public modality:FINAL returnType:kotlin.Int [suspend]
+        VALUE_PARAMETER kind:DispatchReceiver name:<this> index:0 type:<root>.Greeter.Handle<R of <root>.Greeter.Handle>
+        BLOCK_BODY
+          RETURN type=kotlin.Nothing from='public final fun status (): kotlin.Int declared in <root>.Greeter.Handle'
+            TYPE_OP type=kotlin.Int origin=IMPLICIT_CAST typeOperand=kotlin.Int
+              CALL 'internal final fun queryTyped (handle: com.surrealdev.temporal.client.WorkflowHandle, queryType: kotlin.String, resultType: kotlin.reflect.KType, argTypesAndValues: kotlin.Array<out kotlin.Any?>): kotlin.Any? declared in com.surrealdev.temporal.client' type=kotlin.Any? origin=null
+                ARG handle: CALL 'public final fun <get-handle> (): com.surrealdev.temporal.client.WorkflowHandle declared in com.surrealdev.temporal.client.TypedWorkflowHandle' type=com.surrealdev.temporal.client.WorkflowHandle origin=null
+                  ARG <this>: GET_VAR '<this>: <root>.Greeter.Handle<R of <root>.Greeter.Handle> declared in <root>.Greeter.Handle.status' type=<root>.Greeter.Handle<R of <root>.Greeter.Handle> origin=null
+                ARG queryType: CONST String type=kotlin.String value="status"
+                ARG resultType: CALL 'internal final fun typeFromClass (cls: kotlin.reflect.KClass<*>): kotlin.reflect.KType declared in com.surrealdev.temporal.client' type=kotlin.reflect.KType origin=null
+                  ARG cls: CLASS_REFERENCE 'CLASS IR_EXTERNAL_DECLARATION_STUB CLASS name:Int modality:FINAL visibility:public superTypes:[kotlin.Number; kotlin.Comparable<kotlin.Int>; java.io.Serializable]' type=kotlin.reflect.KClass<kotlin.Int>
+                ARG argTypesAndValues: VARARG type=kotlin.Array<out kotlin.Any?> varargElementType=kotlin.Any?
+      FUN GENERATED[com.surrealdev.temporal.compiler.fir.TemporalSignalKey] name:cancel visibility:public modality:FINAL returnType:kotlin.Unit [suspend]
+        VALUE_PARAMETER kind:DispatchReceiver name:<this> index:0 type:<root>.Greeter.Handle<R of <root>.Greeter.Handle>
+        VALUE_PARAMETER GENERATED[com.surrealdev.temporal.compiler.fir.TemporalSignalKey] kind:Regular name:reason index:1 type:kotlin.String
+        BLOCK_BODY
+          CALL 'internal final fun signalTyped (handle: com.surrealdev.temporal.client.WorkflowHandle, signalName: kotlin.String, argTypesAndValues: kotlin.Array<out kotlin.Any?>): kotlin.Unit declared in com.surrealdev.temporal.client' type=kotlin.Unit origin=null
+            ARG handle: CALL 'public final fun <get-handle> (): com.surrealdev.temporal.client.WorkflowHandle declared in com.surrealdev.temporal.client.TypedWorkflowHandle' type=com.surrealdev.temporal.client.WorkflowHandle origin=null
+              ARG <this>: GET_VAR '<this>: <root>.Greeter.Handle<R of <root>.Greeter.Handle> declared in <root>.Greeter.Handle.cancel' type=<root>.Greeter.Handle<R of <root>.Greeter.Handle> origin=null
+            ARG signalName: CONST String type=kotlin.String value="cancel"
+            ARG argTypesAndValues: VARARG type=kotlin.Array<out kotlin.Any?> varargElementType=kotlin.Any?
+              CALL 'internal final fun typeFromClass (cls: kotlin.reflect.KClass<*>): kotlin.reflect.KType declared in com.surrealdev.temporal.client' type=kotlin.reflect.KType origin=null
+                ARG cls: CLASS_REFERENCE 'CLASS IR_EXTERNAL_DECLARATION_STUB CLASS name:String modality:FINAL visibility:public superTypes:[kotlin.Comparable<kotlin.String>; kotlin.CharSequence; java.io.Serializable]' type=kotlin.reflect.KClass<kotlin.String>
+              GET_VAR 'reason: kotlin.String declared in <root>.Greeter.Handle.cancel' type=kotlin.String origin=null
+      FUN GENERATED[com.surrealdev.temporal.compiler.fir.TemporalUpdateKey] name:addItem visibility:public modality:FINAL returnType:kotlin.Int [suspend]
+        VALUE_PARAMETER kind:DispatchReceiver name:<this> index:0 type:<root>.Greeter.Handle<R of <root>.Greeter.Handle>
+        VALUE_PARAMETER GENERATED[com.surrealdev.temporal.compiler.fir.TemporalUpdateKey] kind:Regular name:item index:1 type:kotlin.String
+        BLOCK_BODY
+          RETURN type=kotlin.Nothing from='public final fun addItem (item: kotlin.String): kotlin.Int declared in <root>.Greeter.Handle'
+            TYPE_OP type=kotlin.Int origin=IMPLICIT_CAST typeOperand=kotlin.Int
+              CALL 'internal final fun updateTyped (handle: com.surrealdev.temporal.client.WorkflowHandle, updateName: kotlin.String, resultType: kotlin.reflect.KType, argTypesAndValues: kotlin.Array<out kotlin.Any?>): kotlin.Any? declared in com.surrealdev.temporal.client' type=kotlin.Any? origin=null
+                ARG handle: CALL 'public final fun <get-handle> (): com.surrealdev.temporal.client.WorkflowHandle declared in com.surrealdev.temporal.client.TypedWorkflowHandle' type=com.surrealdev.temporal.client.WorkflowHandle origin=null
+                  ARG <this>: GET_VAR '<this>: <root>.Greeter.Handle<R of <root>.Greeter.Handle> declared in <root>.Greeter.Handle.addItem' type=<root>.Greeter.Handle<R of <root>.Greeter.Handle> origin=null
+                ARG updateName: CONST String type=kotlin.String value="addItem"
+                ARG resultType: CALL 'internal final fun typeFromClass (cls: kotlin.reflect.KClass<*>): kotlin.reflect.KType declared in com.surrealdev.temporal.client' type=kotlin.reflect.KType origin=null
+                  ARG cls: CLASS_REFERENCE 'CLASS IR_EXTERNAL_DECLARATION_STUB CLASS name:Int modality:FINAL visibility:public superTypes:[kotlin.Number; kotlin.Comparable<kotlin.Int>; java.io.Serializable]' type=kotlin.reflect.KClass<kotlin.Int>
+                ARG argTypesAndValues: VARARG type=kotlin.Array<out kotlin.Any?> varargElementType=kotlin.Any?
+                  CALL 'internal final fun typeFromClass (cls: kotlin.reflect.KClass<*>): kotlin.reflect.KType declared in com.surrealdev.temporal.client' type=kotlin.reflect.KType origin=null
+                    ARG cls: CLASS_REFERENCE 'CLASS IR_EXTERNAL_DECLARATION_STUB CLASS name:String modality:FINAL visibility:public superTypes:[kotlin.Comparable<kotlin.String>; kotlin.CharSequence; java.io.Serializable]' type=kotlin.reflect.KClass<kotlin.String>
+                  GET_VAR 'item: kotlin.String declared in <root>.Greeter.Handle.addItem' type=kotlin.String origin=null
       PROPERTY FAKE_OVERRIDE name:handle visibility:public modality:FINAL [fake_override,val]
         overridden:
           public final handle: com.surrealdev.temporal.client.WorkflowHandle declared in com.surrealdev.temporal.client.TypedWorkflowHandle
@@ -116,14 +156,6 @@ FILE fqName:<root> fileName:/InlineActivityClassLoads.kt
                 ARG options: GET_VAR 'options: com.surrealdev.temporal.client.WorkflowStartOptions declared in <root>.Greeter.Companion.start' type=com.surrealdev.temporal.client.WorkflowStartOptions origin=null
               ARG resultType: CALL 'internal final fun typeFromClass (cls: kotlin.reflect.KClass<*>): kotlin.reflect.KType declared in com.surrealdev.temporal.client' type=kotlin.reflect.KType origin=null
                 ARG cls: CLASS_REFERENCE 'CLASS IR_EXTERNAL_DECLARATION_STUB CLASS name:String modality:FINAL visibility:public superTypes:[kotlin.Comparable<kotlin.String>; kotlin.CharSequence; java.io.Serializable]' type=kotlin.reflect.KClass<kotlin.String>
-      FUN GENERATED[com.surrealdev.temporal.compiler.ir.TemporalInlineActivityLowering.InlineActivityKey] name:__registerInlineActivities visibility:public modality:FINAL returnType:kotlin.Unit
-        VALUE_PARAMETER kind:DispatchReceiver name:<this> index:0 type:<root>.Greeter.Companion
-        VALUE_PARAMETER kind:Regular name:builder index:1 type:com.surrealdev.temporal.application.TaskQueueBuilder
-        BLOCK_BODY
-          CALL 'internal final fun registerActivityFunction (activityType: kotlin.String, function: kotlin.reflect.KFunction<*>): kotlin.Unit declared in com.surrealdev.temporal.application.TaskQueueBuilder' type=kotlin.Unit origin=null
-            ARG <this>: GET_VAR 'builder: com.surrealdev.temporal.application.TaskQueueBuilder declared in <root>.Greeter.Companion.__registerInlineActivities' type=com.surrealdev.temporal.application.TaskQueueBuilder origin=null
-            ARG activityType: CONST String type=kotlin.String value="greet"
-            ARG function: FUNCTION_REFERENCE 'public final fun __Greeter_greet ($this$inlineActivity: com.surrealdev.temporal.activity.ActivityContext): kotlin.String declared in <root>' type=kotlin.reflect.KFunction1<com.surrealdev.temporal.activity.ActivityContext, kotlin.String> origin=null reflectionTarget=<same>
     CONSTRUCTOR visibility:public returnType:<root>.Greeter [primary]
       BLOCK_BODY
         DELEGATING_CONSTRUCTOR_CALL 'public constructor <init> () declared in kotlin.Any'
@@ -141,6 +173,22 @@ FILE fqName:<root> fileName:/InlineActivityClassLoads.kt
       VALUE_PARAMETER kind:DispatchReceiver name:<this> index:0 type:kotlin.Any
       overridden:
         public open fun toString (): kotlin.String declared in kotlin.Any
+    FUN name:addItem visibility:public modality:FINAL returnType:kotlin.Int [suspend]
+      VALUE_PARAMETER kind:DispatchReceiver name:<this> index:0 type:<root>.Greeter
+      VALUE_PARAMETER kind:ExtensionReceiver name:<this> index:1 type:com.surrealdev.temporal.workflow.WorkflowContext
+      VALUE_PARAMETER kind:Regular name:item index:2 type:kotlin.String
+      annotations:
+        Update(name = "addItem", dynamic = <null>, unfinishedPolicy = <null>)
+      BLOCK_BODY
+        RETURN type=kotlin.Nothing from='public final fun addItem (<this>: com.surrealdev.temporal.workflow.WorkflowContext, item: kotlin.String): kotlin.Int declared in <root>.Greeter'
+          CONST Int type=kotlin.Int value=1
+    FUN name:cancel visibility:public modality:FINAL returnType:kotlin.Unit
+      VALUE_PARAMETER kind:DispatchReceiver name:<this> index:0 type:<root>.Greeter
+      VALUE_PARAMETER kind:ExtensionReceiver name:<this> index:1 type:com.surrealdev.temporal.workflow.WorkflowContext
+      VALUE_PARAMETER kind:Regular name:reason index:2 type:kotlin.String
+      annotations:
+        Signal(name = "cancel", dynamic = <null>)
+      BLOCK_BODY
     FUN name:run visibility:public modality:FINAL returnType:kotlin.String [suspend]
       VALUE_PARAMETER kind:DispatchReceiver name:<this> index:0 type:<root>.Greeter
       VALUE_PARAMETER kind:ExtensionReceiver name:<this> index:1 type:com.surrealdev.temporal.workflow.WorkflowContext
@@ -148,29 +196,60 @@ FILE fqName:<root> fileName:/InlineActivityClassLoads.kt
         WorkflowRun
       BLOCK_BODY
         RETURN type=kotlin.Nothing from='public final fun run (<this>: com.surrealdev.temporal.workflow.WorkflowContext): kotlin.String declared in <root>.Greeter'
-          CALL 'internal final fun startActivityTyped (workflowContext: com.surrealdev.temporal.workflow.WorkflowContext, activityType: kotlin.String, resultType: kotlin.reflect.KType, startToCloseMs: kotlin.Long, argTypesAndValues: kotlin.Array<out kotlin.Any?>): kotlin.Any? declared in com.surrealdev.temporal.client' type=kotlin.String origin=null
-            ARG workflowContext: GET_VAR '<this>(index:1): com.surrealdev.temporal.workflow.WorkflowContext declared in <root>.Greeter.run' type=com.surrealdev.temporal.workflow.WorkflowContext origin=null
-            ARG activityType: CONST String type=kotlin.String value="greet"
-            ARG resultType: CALL 'internal final fun typeFromClass (cls: kotlin.reflect.KClass<*>): kotlin.reflect.KType declared in com.surrealdev.temporal.client' type=kotlin.reflect.KType origin=null
-              ARG cls: CLASS_REFERENCE 'CLASS IR_EXTERNAL_DECLARATION_STUB CLASS name:String modality:FINAL visibility:public superTypes:[kotlin.Comparable<kotlin.String>; kotlin.CharSequence; java.io.Serializable]' type=kotlin.reflect.KClass<kotlin.String>
-            ARG startToCloseMs: CONST Long type=kotlin.Long value=60000
-            ARG argTypesAndValues: VARARG type=kotlin.Array<out kotlin.Any?> varargElementType=kotlin.Any?
-  FUN GENERATED[com.surrealdev.temporal.compiler.ir.TemporalInlineActivityLowering.InlineActivityKey] name:__Greeter_greet visibility:public modality:FINAL returnType:kotlin.String [suspend]
-    VALUE_PARAMETER kind:ExtensionReceiver name:$this$inlineActivity index:0 type:com.surrealdev.temporal.activity.ActivityContext
-    annotations:
-      Activity(name = "greet")
-    BLOCK_BODY
-      RETURN type=kotlin.Nothing from='public final fun __Greeter_greet ($this$inlineActivity: com.surrealdev.temporal.activity.ActivityContext): kotlin.String declared in <root>'
-        STRING_CONCATENATION type=kotlin.String
-          CONST String type=kotlin.String value="Hello (random="
-          CALL 'public open fun nextInt (): kotlin.Int declared in kotlin.random.Random.Default' type=kotlin.Int origin=null
-            ARG <this>: GET_OBJECT 'CLASS IR_EXTERNAL_DECLARATION_STUB OBJECT name:Default modality:FINAL visibility:public [companion] superTypes:[kotlin.random.Random; java.io.Serializable]' type=kotlin.random.Random.Default
-          CONST String type=kotlin.String value=")"
+          CONST String type=kotlin.String value="ok"
+    FUN name:status visibility:public modality:FINAL returnType:kotlin.Int
+      VALUE_PARAMETER kind:DispatchReceiver name:<this> index:0 type:<root>.Greeter
+      annotations:
+        Query(name = "status", dynamic = <null>, description = <null>)
+      BLOCK_BODY
+        RETURN type=kotlin.Nothing from='public final fun status (): kotlin.Int declared in <root>.Greeter'
+          CONST Int type=kotlin.Int value=42
   FUN name:box visibility:public modality:FINAL returnType:kotlin.String
     BLOCK_BODY
-      VAR name:companion type:<root>.Greeter.Companion [val]
-        GET_OBJECT 'CLASS GENERATED[com.surrealdev.temporal.compiler.fir.TemporalCompanionKey] OBJECT name:Companion modality:FINAL visibility:public [companion] superTypes:[kotlin.Any]' type=<root>.Greeter.Companion
       VAR name:handleCls type:kotlin.reflect.KClass<<root>.Greeter.Handle<*>> [val]
         CLASS_REFERENCE 'CLASS GENERATED[com.surrealdev.temporal.compiler.fir.TemporalCompanionKey] CLASS name:Handle modality:OPEN visibility:public superTypes:[com.surrealdev.temporal.client.TypedWorkflowHandle<R of <root>.Greeter.Handle>]' type=kotlin.reflect.KClass<<root>.Greeter.Handle<*>>
+      VAR name:members type:kotlin.collections.Set<@[FlexibleNullability] kotlin.String?> [val]
+        CALL 'public final fun toSet <T> (<this>: kotlin.collections.Iterable<T of kotlin.collections.toSet>): kotlin.collections.Set<T of kotlin.collections.toSet> declared in kotlin.collections' type=kotlin.collections.Set<@[FlexibleNullability] kotlin.String?> origin=null
+          TYPE_ARG T: @[FlexibleNullability] kotlin.String?
+          ARG <this>: CALL 'public final fun map <T, R> (<this>: kotlin.Array<out T of kotlin.collections.map>, transform: kotlin.Function1<T of kotlin.collections.map, R of kotlin.collections.map>): kotlin.collections.List<R of kotlin.collections.map> declared in kotlin.collections' type=kotlin.collections.List<@[FlexibleNullability] kotlin.String?> origin=null
+            TYPE_ARG T: @[FlexibleNullability] java.lang.reflect.Method?
+            TYPE_ARG R: @[FlexibleNullability] kotlin.String?
+            ARG <this>: TYPE_OP type=@[FlexibleArrayElementVariance] kotlin.Array<out @[FlexibleNullability] java.lang.reflect.Method?> origin=IMPLICIT_NOTNULL typeOperand=@[FlexibleArrayElementVariance] kotlin.Array<out @[FlexibleNullability] java.lang.reflect.Method?>
+              CALL 'public open fun getDeclaredMethods (): @[FlexibleNullability] @[FlexibleArrayElementVariance] kotlin.Array<out @[FlexibleNullability] java.lang.reflect.Method?>? declared in java.lang.Class' type=@[FlexibleNullability] @[FlexibleArrayElementVariance] kotlin.Array<out @[FlexibleNullability] java.lang.reflect.Method?>? origin=GET_PROPERTY
+                ARG <this>: CALL 'public final fun <get-java> <T> (<this>: kotlin.reflect.KClass<T of kotlin.jvm.<get-java>>): java.lang.Class<T of kotlin.jvm.<get-java>> declared in kotlin.jvm' type=java.lang.Class<<root>.Greeter.Handle<*>> origin=GET_PROPERTY
+                  TYPE_ARG T: <root>.Greeter.Handle<*>
+                  ARG <this>: GET_VAR 'val handleCls: kotlin.reflect.KClass<<root>.Greeter.Handle<*>> declared in <root>.box' type=kotlin.reflect.KClass<<root>.Greeter.Handle<*>> origin=null
+            ARG transform: FUN_EXPR type=kotlin.Function1<@[FlexibleNullability] java.lang.reflect.Method?, @[FlexibleNullability] kotlin.String?> origin=LAMBDA
+              FUN LOCAL_FUNCTION_FOR_LAMBDA name:<anonymous> visibility:local modality:FINAL returnType:@[FlexibleNullability] kotlin.String?
+                VALUE_PARAMETER kind:Regular name:it index:0 type:@[FlexibleNullability] java.lang.reflect.Method?
+                BLOCK_BODY
+                  RETURN type=kotlin.Nothing from='local final fun <anonymous> (it: @[FlexibleNullability] java.lang.reflect.Method?): @[FlexibleNullability] kotlin.String? declared in <root>.box'
+                    CALL 'public open fun getName (): @[FlexibleNullability] kotlin.String? declared in java.lang.reflect.Method' type=@[FlexibleNullability] kotlin.String? origin=GET_PROPERTY
+                      ARG <this>: TYPE_OP type=java.lang.reflect.Method origin=IMPLICIT_NOTNULL typeOperand=java.lang.reflect.Method
+                        GET_VAR 'it: @[FlexibleNullability] java.lang.reflect.Method? declared in <root>.box.<anonymous>' type=@[FlexibleNullability] java.lang.reflect.Method? origin=null
+      WHEN type=kotlin.Unit origin=IF
+        BRANCH
+          if: CALL 'public final fun not (): kotlin.Boolean declared in kotlin.Boolean' type=kotlin.Boolean origin=NOT_IN
+            ARG <this>: CALL 'public abstract fun contains (element: E of kotlin.collections.Set): kotlin.Boolean declared in kotlin.collections.Set' type=kotlin.Boolean origin=NOT_IN
+              ARG <this>: GET_VAR 'val members: kotlin.collections.Set<@[FlexibleNullability] kotlin.String?> declared in <root>.box' type=kotlin.collections.Set<@[FlexibleNullability] kotlin.String?> origin=null
+              ARG element: CONST String type=kotlin.String value="cancel"
+          then: RETURN type=kotlin.Nothing from='public final fun box (): kotlin.String declared in <root>'
+            CONST String type=kotlin.String value="FAIL: missing cancel"
+      WHEN type=kotlin.Unit origin=IF
+        BRANCH
+          if: CALL 'public final fun not (): kotlin.Boolean declared in kotlin.Boolean' type=kotlin.Boolean origin=NOT_IN
+            ARG <this>: CALL 'public abstract fun contains (element: E of kotlin.collections.Set): kotlin.Boolean declared in kotlin.collections.Set' type=kotlin.Boolean origin=NOT_IN
+              ARG <this>: GET_VAR 'val members: kotlin.collections.Set<@[FlexibleNullability] kotlin.String?> declared in <root>.box' type=kotlin.collections.Set<@[FlexibleNullability] kotlin.String?> origin=null
+              ARG element: CONST String type=kotlin.String value="status"
+          then: RETURN type=kotlin.Nothing from='public final fun box (): kotlin.String declared in <root>'
+            CONST String type=kotlin.String value="FAIL: missing status"
+      WHEN type=kotlin.Unit origin=IF
+        BRANCH
+          if: CALL 'public final fun not (): kotlin.Boolean declared in kotlin.Boolean' type=kotlin.Boolean origin=NOT_IN
+            ARG <this>: CALL 'public abstract fun contains (element: E of kotlin.collections.Set): kotlin.Boolean declared in kotlin.collections.Set' type=kotlin.Boolean origin=NOT_IN
+              ARG <this>: GET_VAR 'val members: kotlin.collections.Set<@[FlexibleNullability] kotlin.String?> declared in <root>.box' type=kotlin.collections.Set<@[FlexibleNullability] kotlin.String?> origin=null
+              ARG element: CONST String type=kotlin.String value="addItem"
+          then: RETURN type=kotlin.Nothing from='public final fun box (): kotlin.String declared in <root>'
+            CONST String type=kotlin.String value="FAIL: missing addItem"
       RETURN type=kotlin.Nothing from='public final fun box (): kotlin.String declared in <root>'
         CONST String type=kotlin.String value="OK"

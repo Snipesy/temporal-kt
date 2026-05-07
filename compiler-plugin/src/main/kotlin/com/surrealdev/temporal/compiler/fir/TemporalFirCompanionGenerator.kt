@@ -6,6 +6,9 @@ import org.jetbrains.kotlin.descriptors.Visibilities
 import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.declarations.FirDeclarationOrigin
 import org.jetbrains.kotlin.fir.declarations.FirResolvePhase
+import org.jetbrains.kotlin.fir.declarations.findArgumentByName
+import org.jetbrains.kotlin.fir.declarations.getAnnotationByClassId
+import org.jetbrains.kotlin.fir.declarations.getAnnotationWithResolvedArgumentsByClassId
 import org.jetbrains.kotlin.fir.declarations.hasAnnotation
 import org.jetbrains.kotlin.fir.extensions.FirDeclarationGenerationExtension
 import org.jetbrains.kotlin.fir.extensions.FirDeclarationPredicateRegistrar
@@ -82,6 +85,12 @@ class TemporalFirCompanionGenerator(
         ClassId.topLevel(FqName("com.surrealdev.temporal.annotation.Workflow"))
     private val workflowRunAnnotationClassId =
         ClassId.topLevel(FqName("com.surrealdev.temporal.annotation.WorkflowRun"))
+    private val signalAnnotationClassId =
+        ClassId.topLevel(FqName("com.surrealdev.temporal.annotation.Signal"))
+    private val queryAnnotationClassId =
+        ClassId.topLevel(FqName("com.surrealdev.temporal.annotation.Query"))
+    private val updateAnnotationClassId =
+        ClassId.topLevel(FqName("com.surrealdev.temporal.annotation.Update"))
     private val temporalClientClassId =
         ClassId.topLevel(FqName("com.surrealdev.temporal.client.TemporalClient"))
     private val workflowStartOptionsClassId =
@@ -183,9 +192,125 @@ class TemporalFirCompanionGenerator(
             }
         }
         if (isWorkflowHandle(classSymbol)) {
-            return setOf(SpecialNames.INIT)
+            return buildSet {
+                add(SpecialNames.INIT)
+                // Enumerate `@Signal` / `@Query` / `@Update` methods on the outer workflow class
+                // and project their Kotlin names onto Handle. This callback may run at SUPERTYPES,
+                // but reading method NAMES (not parameter types) via `processAllFunctions` is safe
+                // — names are available as soon as the user's class is parsed.
+                val outer = classSymbol.classId.outerClassId
+                val outerSymbol =
+                    outer?.let { session.symbolProvider.getClassLikeSymbolByClassId(it) }
+                        as? FirRegularClassSymbol
+                if (outerSymbol != null) {
+                    addAll(enumerateHandlerNames(outerSymbol))
+                }
+            }
         }
         return emptySet()
+    }
+
+    /**
+     * Walk [outerSymbol]'s declared member scope for methods annotated with `@Signal`, `@Query`,
+     * or `@Update` (excluding `@UpdateValidator` and `dynamic = true` handlers — see plan).
+     * Returns each handler's Kotlin method name.
+     */
+    private fun enumerateHandlerNames(outerSymbol: FirRegularClassSymbol): Set<Name> {
+        val names = mutableSetOf<Name>()
+        val scope = outerSymbol.declaredMemberScope(session, memberRequiredPhase = FirResolvePhase.TYPES)
+        scope.processAllFunctions { funcSymbol ->
+            val annotationKind = handlerKindOf(funcSymbol) ?: return@processAllFunctions
+            if (annotationKind == HandlerKind.NONE) return@processAllFunctions
+            if (isDynamicHandler(funcSymbol, annotationKind)) return@processAllFunctions
+            names += funcSymbol.name
+        }
+        return names
+    }
+
+    private enum class HandlerKind { SIGNAL, QUERY, UPDATE, NONE }
+
+    private fun handlerKindOf(funcSymbol: FirNamedFunctionSymbol): HandlerKind? {
+        return when {
+            funcSymbol.hasAnnotation(signalAnnotationClassId, session) -> HandlerKind.SIGNAL
+            funcSymbol.hasAnnotation(queryAnnotationClassId, session) -> HandlerKind.QUERY
+            funcSymbol.hasAnnotation(updateAnnotationClassId, session) -> HandlerKind.UPDATE
+            else -> null
+        }
+    }
+
+    /**
+     * `@Signal(dynamic = true)` etc. handlers receive the wire name as their first parameter and
+     * cannot be wrapped as typed dispatchers. Read the boolean argument from the annotation.
+     */
+    private fun isDynamicHandler(funcSymbol: FirNamedFunctionSymbol, kind: HandlerKind): Boolean {
+        val classId = annotationClassIdFor(kind) ?: return false
+        // Use the resolved-arguments accessor — annotation arguments are populated into
+        // `argumentMapping.mapping` during ARGUMENTS_OF_ANNOTATIONS phase, and `findArgumentByName`
+        // checks both the mapping (resolved case) and raw arguments (deserialized case).
+        val annotation = funcSymbol.getAnnotationWithResolvedArgumentsByClassId(classId, session)
+            ?: return false
+        val expr = annotation.findArgumentByName(Name.identifier("dynamic")) ?: return false
+        val literal = expr as? org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
+        return literal?.value as? Boolean == true
+    }
+
+    private fun annotationClassIdFor(kind: HandlerKind): ClassId? =
+        when (kind) {
+            HandlerKind.SIGNAL -> signalAnnotationClassId
+            HandlerKind.QUERY -> queryAnnotationClassId
+            HandlerKind.UPDATE -> updateAnnotationClassId
+            HandlerKind.NONE -> null
+        }
+
+    private fun readBooleanNamedArg(
+        annotation: org.jetbrains.kotlin.fir.expressions.FirAnnotation,
+        argName: String,
+    ): Boolean? {
+        val call = annotation as? org.jetbrains.kotlin.fir.expressions.FirAnnotationCall ?: return null
+        val expr =
+            call.argumentList.arguments.firstNotNullOfOrNull { arg ->
+                val named = arg as? org.jetbrains.kotlin.fir.expressions.FirNamedArgumentExpression
+                if (named?.name?.asString() == argName) named.expression else null
+            }
+        val literal = expr as? org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
+        return literal?.value as? Boolean
+    }
+
+    private fun readStringNamedArg(
+        annotation: org.jetbrains.kotlin.fir.expressions.FirAnnotation,
+        argName: String,
+    ): String? {
+        val call = annotation as? org.jetbrains.kotlin.fir.expressions.FirAnnotationCall ?: return null
+        val expr =
+            call.argumentList.arguments.firstNotNullOfOrNull { arg ->
+                when (arg) {
+                    is org.jetbrains.kotlin.fir.expressions.FirNamedArgumentExpression ->
+                        if (arg.name.asString() == argName) arg.expression else null
+                    // First positional argument on @Signal/@Query/@Update is `name`.
+                    else -> if (argName == "name") {
+                        arg.takeIf { it is org.jetbrains.kotlin.fir.expressions.FirLiteralExpression }
+                    } else {
+                        null
+                    }
+                }
+            }
+        val literal = expr as? org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
+        return literal?.value as? String
+    }
+
+    /**
+     * Read the wire name from the annotation's `name` argument. Falls back to the user's Kotlin
+     * method name if the annotation has no explicit name (or `name = ""`).
+     */
+    private fun handlerWireName(funcSymbol: FirNamedFunctionSymbol, kind: HandlerKind): String {
+        val classId = annotationClassIdFor(kind) ?: return funcSymbol.name.asString()
+        val annotation =
+            funcSymbol.getAnnotationWithResolvedArgumentsByClassId(classId, session)
+                ?: return funcSymbol.name.asString()
+        val expr = annotation.findArgumentByName(Name.identifier("name")) ?: return funcSymbol.name.asString()
+        val literal = expr as? org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
+        val value = literal?.value as? String
+        return if (value.isNullOrEmpty()) funcSymbol.name.asString() else value
     }
 
     override fun generateConstructors(context: MemberGenerationContext): List<FirConstructorSymbol> {
@@ -221,21 +346,92 @@ class TemporalFirCompanionGenerator(
         context: MemberGenerationContext?,
     ): List<FirNamedFunctionSymbol> {
         val owner = context?.owner ?: return emptyList()
-        if (!isWorkflowCompanion(owner)) return emptyList()
-        val ownerClassId = owner.classId.outerClassId ?: return emptyList()
-        val ownerClassSymbol =
-            session.symbolProvider.getClassLikeSymbolByClassId(ownerClassId)
-                as? FirRegularClassSymbol ?: return emptyList()
-        val workflowRunSymbol = findWorkflowRunMethod(ownerClassSymbol) ?: return emptyList()
 
-        val argParam: FirValueParameterSymbol? = workflowRunSymbol.valueParameterSymbols.firstOrNull()
-        val resultType = workflowRunSymbol.resolvedReturnType
-        val handleType = workflowHandleTypeFor(ownerClassId, resultType)
+        if (isWorkflowCompanion(owner)) {
+            val ownerClassId = owner.classId.outerClassId ?: return emptyList()
+            val ownerClassSymbol =
+                session.symbolProvider.getClassLikeSymbolByClassId(ownerClassId)
+                    as? FirRegularClassSymbol ?: return emptyList()
+            val workflowRunSymbol = findWorkflowRunMethod(ownerClassSymbol) ?: return emptyList()
+            val argParam: FirValueParameterSymbol? = workflowRunSymbol.valueParameterSymbols.firstOrNull()
+            val resultType = workflowRunSymbol.resolvedReturnType
+            val handleType = workflowHandleTypeFor(ownerClassId, resultType)
+            return when (callableId.callableName) {
+                startName -> listOf(buildStart(owner, handleType, argParam).symbol)
+                handleMethodName -> listOf(buildHandleMethod(owner, handleType).symbol)
+                else -> emptyList()
+            }
+        }
 
-        return when (callableId.callableName) {
-            startName -> listOf(buildStart(owner, handleType, argParam).symbol)
-            handleMethodName -> listOf(buildHandleMethod(owner, handleType).symbol)
-            else -> emptyList()
+        if (isWorkflowHandle(owner)) {
+            val outerClassId = owner.classId.outerClassId ?: return emptyList()
+            val outerSymbol =
+                session.symbolProvider.getClassLikeSymbolByClassId(outerClassId)
+                    as? FirRegularClassSymbol ?: return emptyList()
+            val handler = findHandlerMethod(outerSymbol, callableId.callableName) ?: return emptyList()
+            val kind = handlerKindOf(handler) ?: return emptyList()
+            if (kind == HandlerKind.NONE || isDynamicHandler(handler, kind)) return emptyList()
+            return listOf(buildHandleWrapper(owner, handler, kind).symbol)
+        }
+
+        return emptyList()
+    }
+
+    /**
+     * Find the user's handler method on [outerSymbol] by name. Used by `generateFunctions` for
+     * Handle to look up the source-of-truth signature.
+     */
+    private fun findHandlerMethod(
+        outerSymbol: FirRegularClassSymbol,
+        name: Name,
+    ): FirNamedFunctionSymbol? {
+        val scope = outerSymbol.declaredMemberScope(session, memberRequiredPhase = FirResolvePhase.TYPES)
+        var found: FirNamedFunctionSymbol? = null
+        scope.processFunctionsByName(name) { funcSymbol ->
+            if (found != null) return@processFunctionsByName
+            if (handlerKindOf(funcSymbol) != null) found = funcSymbol
+        }
+        return found
+    }
+
+    /**
+     * Build the typed wrapper on Handle for a `@Signal` / `@Query` / `@Update` handler.
+     *
+     * Signature mirrors the user's method: same value parameters; return type is `Unit` for
+     * signals, the user's return type for queries/updates. Always `suspend` (dispatch goes
+     * through suspend `signalWithPayloads` / `queryWithPayloads` / `updateWithPayloads`). The
+     * extension receiver (`WorkflowContext`) on the user method is dropped — Handle is
+     * client-side and has no `WorkflowContext`.
+     */
+    private fun buildHandleWrapper(
+        handleSymbol: FirClassSymbol<*>,
+        handlerSymbol: FirNamedFunctionSymbol,
+        kind: HandlerKind,
+    ): org.jetbrains.kotlin.fir.declarations.FirNamedFunction {
+        val wrapperReturnType =
+            when (kind) {
+                HandlerKind.SIGNAL -> session.builtinTypes.unitType.coneType
+                HandlerKind.QUERY, HandlerKind.UPDATE -> handlerSymbol.resolvedReturnType
+                HandlerKind.NONE -> session.builtinTypes.unitType.coneType
+            }
+        val key =
+            when (kind) {
+                HandlerKind.SIGNAL -> TemporalSignalKey
+                HandlerKind.QUERY -> TemporalQueryKey
+                HandlerKind.UPDATE -> TemporalUpdateKey
+                HandlerKind.NONE -> TemporalCompanionKey
+            }
+        return createMemberFunction(
+            owner = handleSymbol,
+            key = key,
+            name = handlerSymbol.name,
+            returnType = wrapperReturnType,
+        ) {
+            status { isSuspend = true }
+            for (param in handlerSymbol.valueParameterSymbols) {
+                valueParameter(param.name, param.resolvedReturnType)
+            }
+            withGeneratedDefaultBody()
         }
     }
 
