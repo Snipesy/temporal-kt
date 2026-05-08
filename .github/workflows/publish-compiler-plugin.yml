@@ -39,8 +39,10 @@ on:
   # Snapshot publish on every push to main, mirroring `publish.yml`'s pattern. paths-ignore
   # filters out noise that doesn't affect the artifact (docs, scripts, etc.); JSON changes
   # still trigger so new variants ship immediately as snapshots when discover-bot merges.
+  # `compiler` branch is included temporarily for end-to-end snapshot-publish testing before
+  # this workflow lands on main; remove `compiler` once verified.
   push:
-    branches: [main]
+    branches: [main, compiler]
     paths-ignore:
       - '**.md'
       - 'docs/**'
