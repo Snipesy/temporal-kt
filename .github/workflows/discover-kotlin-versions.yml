@@ -71,6 +71,10 @@ jobs:
         id: find
         shell: bash
         run: |
+          # Both scripts emit `<version>|<source>` lines. Source is `central` for Maven Central
+          # entries or `<idea-build>` (e.g. `261.23567.138`) for IDEA bundles. Carried into the
+          # loop so PR bodies link to the right tagged source — `intellij-community` ref for
+          # IDEA bundles, `kotlin` repo ref for Maven Central.
           CENTRAL=$(./.github/scripts/check-kotlin-versions.sh)
           IDEA=$(./.github/scripts/check-idea-versions.sh)
           ALL=$(printf '%s\n%s\n' "$CENTRAL" "$IDEA" | grep -v '^$' | sort -u || true)
@@ -103,7 +107,7 @@ jobs:
           # and the bootstrap branch never fires.
           cp .github/kotlin-versions.json /tmp/seed-versions.json
 
-          while IFS= read -r KV; do
+          while IFS='|' read -r KV SOURCE; do
             [ -z "$KV" ] && continue
             BRANCH="chore/kotlin/$KV"
 
@@ -123,11 +127,19 @@ jobs:
               git push origin --delete "$BRANCH"
             fi
 
-            # Tag the entry by source for the PR body.
-            if echo "$KV" | grep -q -- '-ij'; then
-              SRC="IDEA bundle (kotlincVersion); KEFS forge prefix"
-            else
+            # Tag the entry by source for the PR body. SOURCE is from the script's pipe-suffix:
+            #   - `central` → Maven Central public release.
+            #   - `<idea-build>` (e.g. `261.23567.138`) → IDEA bundle; build is the
+            #     intellij-community tag where `kotlincVersion=$KV` was first observed.
+            if [ "$SOURCE" = "central" ]; then
               SRC="Maven Central"
+              SOURCE_LINK="https://github.com/JetBrains/kotlin/tree/v${KV}"
+              SOURCE_LABEL="JetBrains/kotlin@v${KV}"
+            else
+              # SOURCE is an IDEA build number like `261.23567.138`.
+              SRC="IDEA bundle (kotlincVersion); KEFS forge prefix"
+              SOURCE_LINK="https://github.com/JetBrains/intellij-community/tree/idea/${SOURCE}"
+              SOURCE_LABEL="JetBrains/intellij-community@idea/${SOURCE}"
             fi
             COMMENT="Auto-discovered from $SRC"
 
@@ -168,14 +180,16 @@ jobs:
             fi
 
             # Build PR body via printf (avoids YAML/heredoc indentation issues).
-            PR_BODY=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \
+            PR_BODY=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \
               "Auto-discovered Kotlin version added with \`publish: true\`." \
               "" \
               "**Source:** $SRC" \
+              "**Source ref:** [$SOURCE_LABEL]($SOURCE_LINK)" \
               "**Classification:** \`$CLASS_LABEL\` ($FATE_NOTE)" \
               "**Auto-merge:** enabled — merges when \`multi-kotlin.yml\` matrix passes for this version." \
               "" \
               "If CI fails, add a \`//##csm\` block in \`compiler-plugin/src/main/templates/.../TemporalIrApi.kt\` and re-push to this branch." \
+              "" \
               "")
 
             PR_NUMBER=$(gh pr create \

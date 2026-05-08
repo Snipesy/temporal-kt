@@ -55,6 +55,9 @@ BUILD_COUNT=$(echo "$ALL_BUILDS" | grep -c '^' || echo 0)
 echo "[check-idea-versions] Querying $BUILD_COUNT IDEA build(s) for kotlincVersion." >&2
 
 # For each build, fetch model.properties from the tagged intellij-community ref.
+# Output format: `<kotlin-version>|<idea-build>` per line (pipe-separated). The IDEA build
+# is the tag where this kotlincVersion was first observed — useful for linking PRs to the
+# exact intellij-community source state.
 DISCOVERED=""
 for BUILD in $ALL_BUILDS; do
   URL="https://raw.githubusercontent.com/JetBrains/intellij-community/refs/tags/idea/${BUILD}/plugins/kotlin/util/project-model-updater/resources/model.properties"
@@ -69,11 +72,23 @@ for BUILD in $ALL_BUILDS; do
     continue
   fi
   echo "[check-idea-versions]   $BUILD: kotlincVersion=$KV" >&2
-  DISCOVERED="$DISCOVERED"$'\n'"$KV"
+  DISCOVERED="$DISCOVERED"$'\n'"${KV}|${BUILD}"
 done
 
-DISCOVERED=$(echo "$DISCOVERED" | { grep -E '^[0-9]+\.[0-9]+\.[0-9]+-ij[0-9]+-[0-9]+$' || true; } | sort -u)
+# Filter to valid `-ij` lines, then dedupe by kotlin-version (keeping the FIRST build that
+# bundled it — usually the earliest IDEA EAP that shipped the version, which gives users the
+# most useful "first-seen" link).
+DISCOVERED=$(echo "$DISCOVERED" \
+  | { grep -E '^[0-9]+\.[0-9]+\.[0-9]+-ij[0-9]+-[0-9]+\|.+$' || true; } \
+  | sort -u \
+  | awk -F'|' '!seen[$1]++ { print }')
 KNOWN=$(jq -r '.versions[].kotlin' "$JSON" | sort -u)
 
-# Print unsupported -ij versions, one per line on stdout.
-comm -23 <(echo "$DISCOVERED") <(echo "$KNOWN") || true
+# Emit only versions not already in JSON. Output preserves the `version|build` format.
+echo "$DISCOVERED" | while IFS='|' read -r KV BUILD; do
+  [ -z "$KV" ] && continue
+  if echo "$KNOWN" | grep -qx -- "$KV"; then
+    continue
+  fi
+  echo "${KV}|${BUILD}"
+done

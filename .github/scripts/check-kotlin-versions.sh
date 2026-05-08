@@ -55,11 +55,15 @@ HIGHEST_MAJMIN=$(echo "$KNOWN" | sed -E 's/^([0-9]+\.[0-9]+).*/\1/' | sort -V | 
 HIGHEST_MAJ=$(echo "$HIGHEST_MAJMIN" | cut -d. -f1)
 HIGHEST_MIN=$(echo "$HIGHEST_MAJMIN" | cut -d. -f2)
 
+# Output format: `<version>|<source>` per line (matches check-idea-versions.sh). For Maven
+# Central, source is literally `central` — discover workflow uses it to pick the right
+# source-link template (kotlin repo tag for `central`, intellij-community for `idea`-suffixed
+# pipe-tail builds).
 comm -23 <(echo "$REMOTE") <(echo "$KNOWN") | while read -r V; do
   [ -z "$V" ] && continue
   V_MAJ=$(echo "$V" | cut -d. -f1)
   V_MIN=$(echo "$V" | cut -d. -f2)
   if [ "$V_MAJ" -gt "$HIGHEST_MAJ" ] || [ "$V_MAJ" -eq "$HIGHEST_MAJ" -a "$V_MIN" -ge "$HIGHEST_MIN" ]; then
-    echo "$V"
+    echo "${V}|central"
   fi
 done
