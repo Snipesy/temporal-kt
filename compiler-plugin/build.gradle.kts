@@ -91,12 +91,16 @@ sourceSets {
 }
 
 // Every task that reads main Kotlin sources must depend on the CSM generator: compileKotlin,
-// the kapt stub generator, and Dokka. Use a broad selector so we don't have to chase new tasks.
+// kapt stub generation, Dokka, ktlint check/format, sourcesJar. Use a broad selector so we don't
+// have to chase new tasks. Gradle 9.x is strict about implicit task dependencies — without these,
+// `runKtlintCheckOverMainSourceSet` (and friends) fail with "uses this output without declaring".
 tasks
     .matching {
         it.name.startsWith("compile") ||
             it.name.startsWith("kapt") ||
             it.name.startsWith("dokka") ||
+            it.name.startsWith("ktlint") ||
+            it.name.startsWith("runKtlint") ||
             it.name == "sourcesJar"
     }.configureEach {
         dependsOn(processCsmTemplates)
