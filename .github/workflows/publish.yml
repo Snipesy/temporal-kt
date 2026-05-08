@@ -294,16 +294,17 @@ jobs:
             fi
           done
 
-      # This fan-out publishes :compiler-plugin once at the default Kotlin version (read from
-      # gradle/libs.versions.toml). Per-Kotlin-version compiler-plugin artifacts (for KEFS users
-      # on different IDEA bundles) are published by the SEPARATE `publish-compiler-plugin.yml`
-      # workflow, which is auto-chained via `workflow_run` after this workflow completes
-      # successfully — and also fires independently on `.github/kotlin-versions.json` changes
-      # (e.g. when the discover PR-bot's PR merges, no full release tag needed).
-      - name: Publish to Maven Central (mainline + compiler-plugin@default)
+      # Mainline publish: core, runtime, gradle-plugin, plugins/* — everything EXCEPT
+      # :compiler-plugin. The per-Kotlin-version compiler-plugin variants (including default)
+      # are owned by `publish-compiler-plugin.yml`, which runs in parallel as a matrix
+      # (one leg per Kotlin entry in `.github/kotlin-versions.json`). The
+      # `-Ptemporal.skipCompilerPluginPublish=true` flag disables :compiler-plugin's Maven
+      # Central publish tasks; see `compiler-plugin/build.gradle.kts`.
+      - name: Publish mainline modules to Maven Central
         run: |
           ./gradlew publishToMavenCentral \
             -PskipNativeBuild=true \
+            -Ptemporal.skipCompilerPluginPublish=true \
             -PsigningInMemoryKey="${{ secrets.SIGNING_KEY }}" \
             -PsigningInMemoryKeyPassword="${{ secrets.SIGNING_PASSWORD }}" \
             -PmavenCentralUsername="${{ secrets.OSSRH_USERNAME }}" \

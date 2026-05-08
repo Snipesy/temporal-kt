@@ -62,6 +62,20 @@ mavenPublishing {
     }
 }
 
+// `-Ptemporal.skipCompilerPluginPublish=true` disables every Maven Central publish task on this
+// module. Used by `publish.yml` to keep its mainline fan-out from shipping `:compiler-plugin` —
+// `publish-compiler-plugin.yml` is the canonical workflow for compiler-plugin variants (matrix
+// over every Kotlin in `.github/kotlin-versions.json`, including the default). Single source of
+// truth, no double-publish risk.
+//
+// Targets the per-publication tasks vanniktech registers (names contain `MavenCentral`). Doesn't
+// touch `publishToMavenLocal` — local development is unaffected.
+if (providers.gradleProperty("temporal.skipCompilerPluginPublish").orNull == "true") {
+    tasks
+        .matching { it.name.startsWith("publish") && it.name.contains("MavenCentral") }
+        .configureEach { enabled = false }
+}
+
 // CSM (Compatibility Service Module) — see Stage 12 in plans/. Templates under `src/main/templates/`
 // contain `//##csm` directive blocks; the `processCsmTemplates` task selects the right block per
 // `kotlin.compiler` version and writes plain `.kt` files into `build/generated-sources/csm/`.
