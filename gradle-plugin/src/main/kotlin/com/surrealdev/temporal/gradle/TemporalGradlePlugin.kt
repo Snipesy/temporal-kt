@@ -69,6 +69,22 @@ class TemporalGradlePlugin : KotlinCompilerPluginSupportPlugin {
                 }
             }
 
+        // Compiler-plugin runtime: @TemporalModule / WorkflowDecl / @TemporalGenerated annotations
+        // and DSL stubs (taskQueue/workflow/activity). Pulled in only when the compiler plugin is
+        // enabled so users who don't opt in don't pay for it.
+        val temporalCompilerRuntime =
+            project.configurations.create(CONFIGURATION_COMPILER_RUNTIME) { config ->
+                config.isCanBeConsumed = false
+                config.isCanBeResolved = false
+                config.defaultDependencies { deps ->
+                    if (extension.compiler.enabled.get()) {
+                        val coordinates =
+                            "${BuildConfig.GROUP_ID}:${BuildConfig.COMPILER_PLUGIN_RUNTIME_ARTIFACT_ID}:${BuildConfig.VERSION}"
+                        deps.add(project.dependencies.create(coordinates))
+                    }
+                }
+            }
+
         // Create a configuration for the native library
         val temporalNative =
             project.configurations.create(CONFIGURATION_NATIVE) { config ->
@@ -98,11 +114,11 @@ class TemporalGradlePlugin : KotlinCompilerPluginSupportPlugin {
 
         // Wire up configurations when Kotlin plugin is applied
         project.pluginManager.withPlugin("org.jetbrains.kotlin.jvm") {
-            project.configurations.getByName("implementation").extendsFrom(temporalApi)
+            project.configurations.getByName("implementation").extendsFrom(temporalApi, temporalCompilerRuntime)
             project.configurations.getByName("runtimeOnly").extendsFrom(temporalNative)
         }
         project.pluginManager.withPlugin("org.jetbrains.kotlin.multiplatform") {
-            project.configurations.getByName("implementation").extendsFrom(temporalApi)
+            project.configurations.getByName("implementation").extendsFrom(temporalApi, temporalCompilerRuntime)
             project.configurations.getByName("runtimeOnly").extendsFrom(temporalNative)
         }
     }
@@ -127,14 +143,18 @@ class TemporalGradlePlugin : KotlinCompilerPluginSupportPlugin {
 
     /**
      * Specifies the compiler plugin artifact coordinates.
-     * This tells Gradle which JAR contains the actual compiler plugin.
+     *
+     * The compiler-plugin artifact follows the KEFS convention
+     * `<kotlinCompilerVersion>-<libraryVersion>` so the IDE's external-FIR-support tool can match
+     * the right artifact to the IDE's bundled compiler. Other Temporal artifacts (`:core`,
+     * `:compiler-plugin-runtime`, etc.) keep plain semver — they aren't Kotlin-version-coupled.
      */
     override fun getPluginArtifact(): SubpluginArtifact {
         val artifact =
             SubpluginArtifact(
                 groupId = BuildConfig.GROUP_ID,
                 artifactId = BuildConfig.COMPILER_PLUGIN_ARTIFACT_ID,
-                version = BuildConfig.VERSION,
+                version = "${BuildConfig.COMPILER_PLUGIN_KOTLIN_VERSION}-${BuildConfig.VERSION}",
             )
         return artifact
     }
@@ -164,6 +184,7 @@ class TemporalGradlePlugin : KotlinCompilerPluginSupportPlugin {
         const val EXTENSION_NAME = "temporal"
         const val CONFIGURATION_API = "temporalApi"
         const val CONFIGURATION_NATIVE = "temporalNative"
+        const val CONFIGURATION_COMPILER_RUNTIME = "temporalCompilerRuntime"
 
         /** All known native classifier suffixes for core-bridge. */
         val ALL_CLASSIFIERS =

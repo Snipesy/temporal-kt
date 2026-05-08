@@ -1,6 +1,30 @@
 # Compiler Plugin Guide
 
-The Temporal Kotlin compiler plugin provides compile-time validation for deterministic workflow code.
+The Temporal Kotlin compiler plugin provides:
+
+- **FIR-time determinism validation** — calls inside `@Workflow` classes are checked against
+  `determinism-rules.json`; violations surface as `TEMPORAL_NONDETERMINISTIC_CALL` diagnostics.
+  Inline activity bodies are exempt.
+- **Typed workflow companions** — for every `@Workflow` class, the plugin synthesises (or
+  augments) a companion object exposing typed `start(...)` / `handle(...)` helpers that
+  capture the workflow's return type. See [TKT-0003](proposals/TKT-0003-inline.md) for details.
+- **Typed handle with signal / query / update wrappers** — each `@Signal` / `@Query` / `@Update`
+  method on the workflow class projects to a typed wrapper on the synthesised `Handle<R>`
+  inner class, so `handle.cancel(reason)` / `handle.status()` / `handle.addItem("x")` are all
+  fully typed without string-keyed dispatch.
+- **Inline activity lifting** — `activity("name") { ... }` calls inside `@WorkflowRun` methods
+  are lifted to registered activities and dispatched through Temporal's normal activity path.
+
+```kotlin
+@Workflow("Greeter")
+class Greeter {
+    @WorkflowRun
+    suspend fun WorkflowContext.run(arg: String): String = "Hello, $arg"
+}
+
+// At the call site — no <String>, no string-keyed start, no .result<String>():
+val result: String = Greeter.execute(client, "my-queue", "World")
+```
 
 ## Quick Start
 
@@ -85,4 +109,3 @@ temporal {
 
 Development will be slow until Kotlin stabilizes the compiler plugin API.
 Tracking the API across versions is unsustainable for external projects.
-

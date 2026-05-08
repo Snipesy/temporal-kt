@@ -7,6 +7,11 @@ on:
       - '**.md'
       - 'docs/**'
       - '.github/workflows/ci.yml'
+      # Discover-bot's PRs touch only kotlin-versions.json. Mainline (core, runtime, etc.) doesn't
+      # need re-publishing for that — `publish-compiler-plugin.yml` handles JSON-driven variant
+      # extension on its own (pinned to latest release tag, not main HEAD).
+      - '.github/kotlin-versions.json'
+      - '.github/scripts/**'
   release:
     types: [published]
   workflow_dispatch:
@@ -289,10 +294,17 @@ jobs:
             fi
           done
 
-      - name: Publish to Maven Central
+      # Mainline publish: core, runtime, gradle-plugin, plugins/* — everything EXCEPT
+      # :compiler-plugin. The per-Kotlin-version compiler-plugin variants (including default)
+      # are owned by `publish-compiler-plugin.yml`, which runs in parallel as a matrix
+      # (one leg per Kotlin entry in `.github/kotlin-versions.json`). The
+      # `-Ptemporal.skipCompilerPluginPublish=true` flag disables :compiler-plugin's Maven
+      # Central publish tasks; see `compiler-plugin/build.gradle.kts`.
+      - name: Publish mainline modules to Maven Central
         run: |
           ./gradlew publishToMavenCentral \
             -PskipNativeBuild=true \
+            -Ptemporal.skipCompilerPluginPublish=true \
             -PsigningInMemoryKey="${{ secrets.SIGNING_KEY }}" \
             -PsigningInMemoryKeyPassword="${{ secrets.SIGNING_PASSWORD }}" \
             -PmavenCentralUsername="${{ secrets.OSSRH_USERNAME }}" \

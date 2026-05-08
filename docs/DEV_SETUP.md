@@ -81,23 +81,45 @@ fun TemporalApplication.module() {
 }
 ```
 
-### Declarative API [TKT-0003](./proposals/TKT-0003-inline.md)
+### Compiler-assisted API [TKT-0003](./proposals/TKT-0003-inline.md)
 
-Temporal TKT-0003 is currently not implemented, and will require Kotlin FIR integration in the form of [a compiler-plugin](../compiler-plugin/)
+Temporal TKT-0003 uses the [compiler plugin](../compiler-plugin/) for typed workflow companions
+and inline activities inside workflow code. Workflows are still registered with the class-based
+task queue API:
 
 ```kotlin
-fun TemporalApplication.module() {
-    install(SerializationPlugin) { json() }
-    taskQueue("my-queue") {
-        workflow<WorkflowArg>("MyWorkflow") { arg ->
-            val greeting = activity<String>("MyActivity") { name ->
-                "Hello, $name"
-            }
-            "$greeting! Count: ${arg.count}"
+@Workflow("MyWorkflow")
+class MyWorkflow {
+    @WorkflowRun
+    suspend fun WorkflowContext.execute(arg: WorkflowArg): String {
+        val greeting = activity("MyActivity") {
+            "Hello, ${arg.name}"
         }
+        return "$greeting! Count: ${arg.count}"
+    }
+}
+
+fun TemporalApplication.module() {
+    taskQueue("my-queue") {
+        workflow<MyWorkflow>()
     }
 }
 ```
+
+
+## IDEA Kotlin Compiler
+
+Since Jetbrains IDEA runs several times ahead you can manually sepcify the compiler like this. Where `2.4.0-ij261-32`
+is your IDEA Kotlin Compiler Version
+
+```bash
+./gradlew :core:jar :compiler-plugin-runtime:jar :compiler-plugin:jar -Pkotlin.compiler=2.4.0-ij261-32
+```
+
+## VS Code LSP Integration
+
+TODO if its even possible.
+
 
 ## Proposals
 
@@ -111,7 +133,7 @@ See [proposals/](./proposals/) for API design proposals:
 |----------------------------------------------------------|-------------|
 | [TKT-0001](./proposals/TKT-0001-annotations.md)          | Annotation-based definitions (primary) |
 | [TKT-0002](./proposals/TKT-0002-interfaces.md)           | Interface-based definitions (interop) |
-| [TKT-0003](./proposals/TKT-0003-inline.md)               | Inline declarative definitions |
+| [TKT-0003](./proposals/TKT-0003-inline.md)               | Typed companions and inline activities |
 | [TKT-0004](./proposals/TKT-0004-dependency-injection.md) | Dependency injection |
 | [TKT-0005](./proposals/TKT-0005-modules.md)              | Module registration |
 | [TKT-0006](./proposals/TKT-0006-dsl-scope.md)            | DSL scope safety |

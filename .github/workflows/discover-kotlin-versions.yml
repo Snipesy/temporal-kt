@@ -1,0 +1,199 @@
+name: Discover new Kotlin versions
+
+# Scheduled job that discovers new Kotlin compiler versions from two sources:
+#   1. Maven Central (Beta / RC / final releases) → check-kotlin-versions.sh
+#   2. IDEA-bundled `-ij` versions → check-idea-versions.sh (queries JetBrains releases API +
+#      intellij-community/model.properties at each IDEA build tag)
+#
+# Both scripts diff against `.github/kotlin-versions.json`. For each new version found, this
+# workflow opens a SEPARATE PR (one PR per Kotlin version) on a versioned branch
+# `chore/kotlin/<version>`. Each PR adds one entry, runs `multi-kotlin.yml` CI, and auto-merges
+# when CI is green. Failing PRs are pruned by `prune-stale-kotlin-versions.yml` after 14 days
+# (prerelease/`-ij` only — stable major releases stay open indefinitely).
+
+on:
+  schedule:
+    - cron: '0 6 * * 1,3,5'   # Mon/Wed/Fri 06:00 UTC
+  workflow_dispatch:
+  # TEMPORARY — fire on every push to `compiler` branch so we can end-to-end test the
+  # discover-bot before this workflow lands on main. Remove once verified.
+  push:
+    branches: [compiler]
+    paths:
+      - '.github/workflows/discover-kotlin-versions.yml'
+      - '.github/scripts/check-*-versions.sh'
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # `fetch-depth: 0` fetches all branches/tags so `git checkout -B <branch> origin/main`
+          # works inside the per-version PR loop. Default `fetch-depth: 1` only has the trigger
+          # commit and `origin/main` isn't a known ref. Keep the default `ref:` (= trigger ref)
+          # so the discover scripts run from the workflow's branch — `origin/main` is just for
+          # branching new PRs off of.
+          fetch-depth: 0
+
+      # GitHub-hosted ubuntu-latest preinstalls jq + python3 + curl; non-GitHub runners (act with
+      # the gradle:9.4.1-jdk25 image, etc.) need explicit installs.
+      - name: Install discovery dependencies (if missing)
+        shell: bash
+        run: |
+          install_pkg() {
+            local pkg=$1
+            if ! command -v "$pkg" >/dev/null 2>&1; then
+              (sudo apt-get update -qq && sudo apt-get install -y -qq "$pkg") \
+                || (apt-get update -qq && apt-get install -y -qq "$pkg")
+            fi
+          }
+          install_pkg jq
+          install_pkg python3
+          install_pkg curl
+
+      # Ensure the labels we attach to PRs exist on the repo. Idempotent — `gh label create
+      # --force` updates the label if it exists, creates it if not. Required because
+      # `gh pr create --label X` fails fast if X is missing. Descriptions cap at 100 chars.
+      - name: Ensure auto-discovery labels exist
+        shell: bash
+        run: |
+          gh label create auto-discovery    --color "0E8A16" --description "Opened by discover-kotlin-versions.yml" --force
+          gh label create kotlin-stable     --color "0366D6" --description "Stable Kotlin release; PR stays open until merged or closed manually" --force
+          gh label create kotlin-prerelease --color "FBCA04" --description "Prerelease/IDE-bundled Kotlin; auto-pruned after 14d unresolved CI" --force
+
+      - name: Find new Kotlin versions
+        id: find
+        shell: bash
+        run: |
+          CENTRAL=$(./.github/scripts/check-kotlin-versions.sh)
+          IDEA=$(./.github/scripts/check-idea-versions.sh)
+          ALL=$(printf '%s\n%s\n' "$CENTRAL" "$IDEA" | grep -v '^$' | sort -u || true)
+          if [ -z "$ALL" ]; then
+            echo "No new versions across either source."
+            echo "any=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "any=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "list<<EOF"
+            echo "$ALL"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "Discovered new versions:"
+          echo "$ALL"
+
+      - name: Open a PR per new version
+        if: steps.find.outputs.any == 'true'
+        shell: bash
+        env:
+          ALL_NEW: ${{ steps.find.outputs.list }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Snapshot the trigger ref's JSON so we can bootstrap if main doesn't have it yet
+          # (first-time setup, or when testing this workflow from a non-main branch before
+          # the JSON has landed on main). In normal steady-state production, main has the JSON
+          # and the bootstrap branch never fires.
+          cp .github/kotlin-versions.json /tmp/seed-versions.json
+
+          while IFS= read -r KV; do
+            [ -z "$KV" ] && continue
+            BRANCH="chore/kotlin/$KV"
+
+            # Skip if a PR for this version already exists (open or closed).
+            # Closed: don't reopen — maintainer or prune workflow already decided.
+            # Open: don't recreate — wait for CI / human / prune.
+            if gh pr list --state all --head "$BRANCH" --json number --jq 'length' | grep -qv '^0$'; then
+              echo "::notice::PR already exists for $KV (branch $BRANCH); skipping"
+              continue
+            fi
+
+            # Recover from orphan branches: prior run pushed the branch but the PR-create step
+            # failed (e.g. missing label). Delete the orphan and start fresh — content is
+            # bot-derived so re-creation is deterministic.
+            if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+              echo "::warning::Orphan branch $BRANCH exists on remote with no PR; deleting and recreating"
+              git push origin --delete "$BRANCH"
+            fi
+
+            # Tag the entry by source for the PR body.
+            if echo "$KV" | grep -q -- '-ij'; then
+              SRC="IDEA bundle (kotlincVersion); KEFS forge prefix"
+            else
+              SRC="Maven Central"
+            fi
+            COMMENT="Auto-discovered from $SRC"
+
+            # Build a fresh branch off main, add ONE version to JSON, commit, push.
+            git checkout -B "$BRANCH" origin/main
+
+            # Bootstrap: if main lacks the JSON (first-time / non-main test trigger), seed it
+            # from the trigger ref's snapshot. Steady-state production: main has the JSON and
+            # this branch is a no-op.
+            if [ ! -f .github/kotlin-versions.json ]; then
+              echo "::notice::main has no kotlin-versions.json; bootstrapping from trigger ref"
+              mkdir -p .github
+              cp /tmp/seed-versions.json .github/kotlin-versions.json
+            fi
+
+            jq --arg kv "$KV" --arg c "$COMMENT" \
+              '.versions += [{kotlin: $kv, publish: true, comment: $c}]' \
+              .github/kotlin-versions.json > /tmp/updated.json
+            mv /tmp/updated.json .github/kotlin-versions.json
+
+            git add .github/kotlin-versions.json
+            git commit -m "chore: add Kotlin $KV"
+            git push -u origin "$BRANCH"
+
+            # Stable releases (e.g. 2.5.0, 2.6.1) stay open indefinitely if CI fails.
+            # Prereleases (-ij, -Beta, -RC, etc.) get auto-pruned after 14 days by
+            # prune-stale-kotlin-versions.yml.
+            if echo "$KV" | grep -qiE -- '-(ij|beta|alpha|rc|snapshot|dev|m[0-9])'; then
+              CLASS_LABEL="kotlin-prerelease"
+            else
+              CLASS_LABEL="kotlin-stable"
+            fi
+
+            if [ "$CLASS_LABEL" = "kotlin-prerelease" ]; then
+              FATE_NOTE="auto-pruned after 14d if CI stays red"
+            else
+              FATE_NOTE="stays open indefinitely until merged or closed manually"
+            fi
+
+            # Build PR body via printf (avoids YAML/heredoc indentation issues).
+            PR_BODY=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \
+              "Auto-discovered Kotlin version added with \`publish: true\`." \
+              "" \
+              "**Source:** $SRC" \
+              "**Classification:** \`$CLASS_LABEL\` ($FATE_NOTE)" \
+              "**Auto-merge:** enabled — merges when \`multi-kotlin.yml\` matrix passes for this version." \
+              "" \
+              "If CI fails, add a \`//##csm\` block in \`compiler-plugin/src/main/templates/.../TemporalIrApi.kt\` and re-push to this branch." \
+              "")
+
+            PR_NUMBER=$(gh pr create \
+              --base main --head "$BRANCH" \
+              --title "chore: add Kotlin $KV" \
+              --label "auto-discovery" \
+              --label "$CLASS_LABEL" \
+              --body "$PR_BODY" \
+              | grep -oE '/pull/[0-9]+' | grep -oE '[0-9]+$')
+
+            if [ -n "$PR_NUMBER" ]; then
+              echo "::notice::Opened PR #$PR_NUMBER for $KV"
+              gh pr merge --auto --squash "$PR_NUMBER" || \
+                echo "::warning::Auto-merge enable failed — check repo Settings → General → Allow auto-merge"
+            else
+              echo "::error::Failed to open PR for $KV"
+            fi
+
+            # Reset to main for the next iteration.
+            git checkout main
+          done <<< "$ALL_NEW"

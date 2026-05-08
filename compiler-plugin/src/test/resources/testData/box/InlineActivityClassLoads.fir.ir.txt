@@ -1,0 +1,176 @@
+FILE fqName:<root> fileName:/InlineActivityClassLoads.kt
+  CLASS CLASS name:Greeter modality:FINAL visibility:public superTypes:[kotlin.Any]
+    annotations:
+      Workflow(name = <null>)
+    thisReceiver: VALUE_PARAMETER INSTANCE_RECEIVER kind:DispatchReceiver name:<this> type:<root>.Greeter
+    CLASS GENERATED[com.surrealdev.temporal.compiler.fir.TemporalCompanionKey] CLASS name:Handle modality:OPEN visibility:public superTypes:[com.surrealdev.temporal.client.TypedWorkflowHandle<R of <root>.Greeter.Handle>]
+      thisReceiver: VALUE_PARAMETER INSTANCE_RECEIVER kind:DispatchReceiver name:<this> type:<root>.Greeter.Handle<R of <root>.Greeter.Handle>
+      TYPE_PARAMETER GENERATED[com.surrealdev.temporal.compiler.fir.TemporalCompanionKey] name:R index:0 variance:out superTypes:[kotlin.Any?] reified:false
+      CONSTRUCTOR GENERATED[com.surrealdev.temporal.compiler.fir.TemporalCompanionKey] visibility:internal returnType:<root>.Greeter.Handle<R of <root>.Greeter.Handle> [primary]
+        VALUE_PARAMETER GENERATED[com.surrealdev.temporal.compiler.fir.TemporalCompanionKey] kind:Regular name:handle index:0 type:com.surrealdev.temporal.client.WorkflowHandle
+        VALUE_PARAMETER GENERATED[com.surrealdev.temporal.compiler.fir.TemporalCompanionKey] kind:Regular name:resultType index:1 type:kotlin.reflect.KType
+        BLOCK_BODY
+          DELEGATING_CONSTRUCTOR_CALL 'public constructor <init> (handle: com.surrealdev.temporal.client.WorkflowHandle, resultType: kotlin.reflect.KType) declared in com.surrealdev.temporal.client.TypedWorkflowHandle'
+            TYPE_ARG R: R of <root>.Greeter.Handle
+            ARG handle: GET_VAR 'handle: com.surrealdev.temporal.client.WorkflowHandle declared in <root>.Greeter.Handle.<init>' type=com.surrealdev.temporal.client.WorkflowHandle origin=null
+            ARG resultType: GET_VAR 'resultType: kotlin.reflect.KType declared in <root>.Greeter.Handle.<init>' type=kotlin.reflect.KType origin=null
+          INSTANCE_INITIALIZER_CALL classDescriptor='CLASS GENERATED[com.surrealdev.temporal.compiler.fir.TemporalCompanionKey] CLASS name:Handle modality:OPEN visibility:public superTypes:[com.surrealdev.temporal.client.TypedWorkflowHandle<R of <root>.Greeter.Handle>]' type=kotlin.Unit
+      FUN FAKE_OVERRIDE name:equals visibility:public modality:OPEN returnType:kotlin.Boolean [fake_override,operator]
+        VALUE_PARAMETER kind:DispatchReceiver name:<this> index:0 type:kotlin.Any
+        VALUE_PARAMETER kind:Regular name:other index:1 type:kotlin.Any?
+        overridden:
+          public open fun equals (other: kotlin.Any?): kotlin.Boolean declared in com.surrealdev.temporal.client.TypedWorkflowHandle
+      FUN FAKE_OVERRIDE name:hashCode visibility:public modality:OPEN returnType:kotlin.Int [fake_override]
+        VALUE_PARAMETER kind:DispatchReceiver name:<this> index:0 type:kotlin.Any
+        overridden:
+          public open fun hashCode (): kotlin.Int declared in com.surrealdev.temporal.client.TypedWorkflowHandle
+      FUN FAKE_OVERRIDE name:result visibility:public modality:FINAL returnType:R of <root>.Greeter.Handle [suspend,fake_override]
+        VALUE_PARAMETER kind:DispatchReceiver name:<this> index:0 type:com.surrealdev.temporal.client.TypedWorkflowHandle<R of <root>.Greeter.Handle>
+        VALUE_PARAMETER kind:Regular name:timeout index:1 type:kotlin.time.Duration
+        overridden:
+          public final fun result (timeout: kotlin.time.Duration): R of com.surrealdev.temporal.client.TypedWorkflowHandle declared in com.surrealdev.temporal.client.TypedWorkflowHandle
+      FUN FAKE_OVERRIDE name:toString visibility:public modality:OPEN returnType:kotlin.String [fake_override]
+        VALUE_PARAMETER kind:DispatchReceiver name:<this> index:0 type:kotlin.Any
+        overridden:
+          public open fun toString (): kotlin.String declared in com.surrealdev.temporal.client.TypedWorkflowHandle
+      PROPERTY FAKE_OVERRIDE name:handle visibility:public modality:FINAL [fake_override,val]
+        overridden:
+          public final handle: com.surrealdev.temporal.client.WorkflowHandle declared in com.surrealdev.temporal.client.TypedWorkflowHandle
+        FUN FAKE_OVERRIDE name:<get-handle> visibility:public modality:FINAL returnType:com.surrealdev.temporal.client.WorkflowHandle [fake_override]
+          VALUE_PARAMETER kind:DispatchReceiver name:<this> index:0 type:com.surrealdev.temporal.client.TypedWorkflowHandle<R of <root>.Greeter.Handle>
+          correspondingProperty: PROPERTY FAKE_OVERRIDE name:handle visibility:public modality:FINAL [fake_override,val]
+          overridden:
+            public final fun <get-handle> (): com.surrealdev.temporal.client.WorkflowHandle declared in com.surrealdev.temporal.client.TypedWorkflowHandle
+      PROPERTY FAKE_OVERRIDE name:runId visibility:public modality:FINAL [fake_override,val]
+        overridden:
+          public final runId: kotlin.String? declared in com.surrealdev.temporal.client.TypedWorkflowHandle
+        FUN FAKE_OVERRIDE name:<get-runId> visibility:public modality:FINAL returnType:kotlin.String? [fake_override]
+          VALUE_PARAMETER kind:DispatchReceiver name:<this> index:0 type:com.surrealdev.temporal.client.TypedWorkflowHandle<R of <root>.Greeter.Handle>
+          correspondingProperty: PROPERTY FAKE_OVERRIDE name:runId visibility:public modality:FINAL [fake_override,val]
+          overridden:
+            public final fun <get-runId> (): kotlin.String? declared in com.surrealdev.temporal.client.TypedWorkflowHandle
+      PROPERTY FAKE_OVERRIDE name:workflowId visibility:public modality:FINAL [fake_override,val]
+        overridden:
+          public final workflowId: kotlin.String declared in com.surrealdev.temporal.client.TypedWorkflowHandle
+        FUN FAKE_OVERRIDE name:<get-workflowId> visibility:public modality:FINAL returnType:kotlin.String [fake_override]
+          VALUE_PARAMETER kind:DispatchReceiver name:<this> index:0 type:com.surrealdev.temporal.client.TypedWorkflowHandle<R of <root>.Greeter.Handle>
+          correspondingProperty: PROPERTY FAKE_OVERRIDE name:workflowId visibility:public modality:FINAL [fake_override,val]
+          overridden:
+            public final fun <get-workflowId> (): kotlin.String declared in com.surrealdev.temporal.client.TypedWorkflowHandle
+    CLASS GENERATED[com.surrealdev.temporal.compiler.fir.TemporalCompanionKey] OBJECT name:Companion modality:FINAL visibility:public [companion] superTypes:[kotlin.Any]
+      thisReceiver: VALUE_PARAMETER INSTANCE_RECEIVER kind:DispatchReceiver name:<this> type:<root>.Greeter.Companion
+      CONSTRUCTOR GENERATED[com.surrealdev.temporal.compiler.fir.TemporalCompanionKey] visibility:private returnType:<root>.Greeter.Companion [primary]
+        BLOCK_BODY
+          DELEGATING_CONSTRUCTOR_CALL 'public constructor <init> () declared in kotlin.Any'
+          INSTANCE_INITIALIZER_CALL classDescriptor='CLASS GENERATED[com.surrealdev.temporal.compiler.fir.TemporalCompanionKey] OBJECT name:Companion modality:FINAL visibility:public [companion] superTypes:[kotlin.Any]' type=kotlin.Unit
+      FUN FAKE_OVERRIDE name:equals visibility:public modality:OPEN returnType:kotlin.Boolean [fake_override,operator]
+        VALUE_PARAMETER kind:DispatchReceiver name:<this> index:0 type:kotlin.Any
+        VALUE_PARAMETER kind:Regular name:other index:1 type:kotlin.Any?
+        overridden:
+          public open fun equals (other: kotlin.Any?): kotlin.Boolean declared in kotlin.Any
+      FUN FAKE_OVERRIDE name:hashCode visibility:public modality:OPEN returnType:kotlin.Int [fake_override]
+        VALUE_PARAMETER kind:DispatchReceiver name:<this> index:0 type:kotlin.Any
+        overridden:
+          public open fun hashCode (): kotlin.Int declared in kotlin.Any
+      FUN FAKE_OVERRIDE name:toString visibility:public modality:OPEN returnType:kotlin.String [fake_override]
+        VALUE_PARAMETER kind:DispatchReceiver name:<this> index:0 type:kotlin.Any
+        overridden:
+          public open fun toString (): kotlin.String declared in kotlin.Any
+      FUN GENERATED[com.surrealdev.temporal.compiler.fir.TemporalCompanionKey] name:handle visibility:public modality:FINAL returnType:<root>.Greeter.Handle<kotlin.String>
+        VALUE_PARAMETER kind:DispatchReceiver name:<this> index:0 type:<root>.Greeter.Companion
+        VALUE_PARAMETER GENERATED[com.surrealdev.temporal.compiler.fir.TemporalCompanionKey] kind:Regular name:client index:1 type:com.surrealdev.temporal.client.TemporalClient
+        VALUE_PARAMETER GENERATED[com.surrealdev.temporal.compiler.fir.TemporalCompanionKey] kind:Regular name:workflowId index:2 type:kotlin.String
+        VALUE_PARAMETER GENERATED[com.surrealdev.temporal.compiler.fir.TemporalCompanionKey] kind:Regular name:runId index:3 type:kotlin.String?
+          EXPRESSION_BODY
+            THROW type=kotlin.Nothing
+              CONSTRUCTOR_CALL 'public constructor <init> (message: kotlin.String?) declared in kotlin.Throwable' type=kotlin.Throwable origin=null
+                ARG message: CONST String type=kotlin.String value="Stub for declaration generated by Plugin[TemporalCompanionKey]"
+        BLOCK_BODY
+          RETURN type=kotlin.Nothing from='public final fun handle (client: com.surrealdev.temporal.client.TemporalClient, workflowId: kotlin.String, runId: kotlin.String?): <root>.Greeter.Handle<kotlin.String> declared in <root>.Greeter.Companion'
+            CONSTRUCTOR_CALL 'internal constructor <init> (handle: com.surrealdev.temporal.client.WorkflowHandle, resultType: kotlin.reflect.KType) declared in <root>.Greeter.Handle' type=<root>.Greeter.Handle<kotlin.String> origin=null
+              TYPE_ARG (of class) R: kotlin.String
+              ARG handle: CALL 'public final fun getWorkflowHandle (<this>: com.surrealdev.temporal.client.TemporalClient, workflowId: kotlin.String, runId: kotlin.String?): com.surrealdev.temporal.client.WorkflowHandle declared in com.surrealdev.temporal.client' type=com.surrealdev.temporal.client.WorkflowHandle origin=null
+                ARG <this>: GET_VAR 'client: com.surrealdev.temporal.client.TemporalClient declared in <root>.Greeter.Companion.handle' type=com.surrealdev.temporal.client.TemporalClient origin=null
+                ARG workflowId: GET_VAR 'workflowId: kotlin.String declared in <root>.Greeter.Companion.handle' type=kotlin.String origin=null
+                ARG runId: GET_VAR 'runId: kotlin.String? declared in <root>.Greeter.Companion.handle' type=kotlin.String? origin=null
+              ARG resultType: CALL 'internal final fun typeFromClass (cls: kotlin.reflect.KClass<*>): kotlin.reflect.KType declared in com.surrealdev.temporal.client' type=kotlin.reflect.KType origin=null
+                ARG cls: CLASS_REFERENCE 'CLASS IR_EXTERNAL_DECLARATION_STUB CLASS name:String modality:FINAL visibility:public superTypes:[kotlin.Comparable<kotlin.String>; kotlin.CharSequence; java.io.Serializable]' type=kotlin.reflect.KClass<kotlin.String>
+      FUN GENERATED[com.surrealdev.temporal.compiler.fir.TemporalCompanionKey] name:start visibility:public modality:FINAL returnType:<root>.Greeter.Handle<kotlin.String> [suspend]
+        VALUE_PARAMETER kind:DispatchReceiver name:<this> index:0 type:<root>.Greeter.Companion
+        VALUE_PARAMETER GENERATED[com.surrealdev.temporal.compiler.fir.TemporalCompanionKey] kind:Regular name:client index:1 type:com.surrealdev.temporal.client.TemporalClient
+        VALUE_PARAMETER GENERATED[com.surrealdev.temporal.compiler.fir.TemporalCompanionKey] kind:Regular name:taskQueue index:2 type:kotlin.String
+        VALUE_PARAMETER GENERATED[com.surrealdev.temporal.compiler.fir.TemporalCompanionKey] kind:Regular name:options index:3 type:com.surrealdev.temporal.client.WorkflowStartOptions
+          EXPRESSION_BODY
+            CONSTRUCTOR_CALL 'public constructor <init> (workflowExecutionTimeout: kotlin.time.Duration?, workflowRunTimeout: kotlin.time.Duration?, workflowTaskTimeout: kotlin.time.Duration?, workflowIdReusePolicy: com.surrealdev.temporal.client.WorkflowIdReusePolicy, workflowIdConflictPolicy: com.surrealdev.temporal.client.WorkflowIdConflictPolicy, retryPolicy: com.surrealdev.temporal.common.RetryPolicy?, cronSchedule: kotlin.String?, memo: kotlin.collections.Map<kotlin.String, kotlin.Any?>?, searchAttributes: com.surrealdev.temporal.common.TypedSearchAttributes?) declared in com.surrealdev.temporal.client.WorkflowStartOptions' type=com.surrealdev.temporal.client.WorkflowStartOptions origin=null
+        BLOCK_BODY
+          RETURN type=kotlin.Nothing from='public final fun start (client: com.surrealdev.temporal.client.TemporalClient, taskQueue: kotlin.String, options: com.surrealdev.temporal.client.WorkflowStartOptions): <root>.Greeter.Handle<kotlin.String> declared in <root>.Greeter.Companion'
+            CONSTRUCTOR_CALL 'internal constructor <init> (handle: com.surrealdev.temporal.client.WorkflowHandle, resultType: kotlin.reflect.KType) declared in <root>.Greeter.Handle' type=<root>.Greeter.Handle<kotlin.String> origin=null
+              TYPE_ARG (of class) R: kotlin.String
+              ARG handle: CALL 'internal final fun startWorkflowGetHandle (client: com.surrealdev.temporal.client.TemporalClient, workflowType: kotlin.String, taskQueue: kotlin.String, workflowId: kotlin.String, arg: kotlin.Any?, argType: kotlin.reflect.KType?, options: com.surrealdev.temporal.client.WorkflowStartOptions): com.surrealdev.temporal.client.WorkflowHandle declared in com.surrealdev.temporal.client' type=com.surrealdev.temporal.client.WorkflowHandle origin=null
+                ARG client: GET_VAR 'client: com.surrealdev.temporal.client.TemporalClient declared in <root>.Greeter.Companion.start' type=com.surrealdev.temporal.client.TemporalClient origin=null
+                ARG workflowType: CONST String type=kotlin.String value="Greeter"
+                ARG taskQueue: GET_VAR 'taskQueue: kotlin.String declared in <root>.Greeter.Companion.start' type=kotlin.String origin=null
+                ARG workflowId: CALL 'internal final fun newWorkflowId (): kotlin.String declared in com.surrealdev.temporal.client' type=kotlin.String origin=null
+                ARG arg: CONST Null type=kotlin.Any? value=null
+                ARG argType: CONST Null type=kotlin.Any? value=null
+                ARG options: GET_VAR 'options: com.surrealdev.temporal.client.WorkflowStartOptions declared in <root>.Greeter.Companion.start' type=com.surrealdev.temporal.client.WorkflowStartOptions origin=null
+              ARG resultType: CALL 'internal final fun typeFromClass (cls: kotlin.reflect.KClass<*>): kotlin.reflect.KType declared in com.surrealdev.temporal.client' type=kotlin.reflect.KType origin=null
+                ARG cls: CLASS_REFERENCE 'CLASS IR_EXTERNAL_DECLARATION_STUB CLASS name:String modality:FINAL visibility:public superTypes:[kotlin.Comparable<kotlin.String>; kotlin.CharSequence; java.io.Serializable]' type=kotlin.reflect.KClass<kotlin.String>
+      FUN GENERATED[com.surrealdev.temporal.compiler.ir.TemporalInlineActivityLowering.InlineActivityKey] name:__registerInlineActivities visibility:public modality:FINAL returnType:kotlin.Unit
+        VALUE_PARAMETER kind:DispatchReceiver name:<this> index:0 type:<root>.Greeter.Companion
+        VALUE_PARAMETER kind:Regular name:builder index:1 type:com.surrealdev.temporal.application.TaskQueueBuilder
+        BLOCK_BODY
+          CALL 'internal final fun registerActivityFunction (activityType: kotlin.String, function: kotlin.reflect.KFunction<*>): kotlin.Unit declared in com.surrealdev.temporal.application.TaskQueueBuilder' type=kotlin.Unit origin=null
+            ARG <this>: GET_VAR 'builder: com.surrealdev.temporal.application.TaskQueueBuilder declared in <root>.Greeter.Companion.__registerInlineActivities' type=com.surrealdev.temporal.application.TaskQueueBuilder origin=null
+            ARG activityType: CONST String type=kotlin.String value="greet"
+            ARG function: FUNCTION_REFERENCE 'public final fun __Greeter_greet ($this$inlineActivity: com.surrealdev.temporal.activity.ActivityContext): kotlin.String declared in <root>' type=kotlin.reflect.KFunction1<com.surrealdev.temporal.activity.ActivityContext, kotlin.String> origin=null reflectionTarget=<same>
+    CONSTRUCTOR visibility:public returnType:<root>.Greeter [primary]
+      BLOCK_BODY
+        DELEGATING_CONSTRUCTOR_CALL 'public constructor <init> () declared in kotlin.Any'
+        INSTANCE_INITIALIZER_CALL classDescriptor='CLASS CLASS name:Greeter modality:FINAL visibility:public superTypes:[kotlin.Any]' type=kotlin.Unit
+    FUN FAKE_OVERRIDE name:equals visibility:public modality:OPEN returnType:kotlin.Boolean [fake_override,operator]
+      VALUE_PARAMETER kind:DispatchReceiver name:<this> index:0 type:kotlin.Any
+      VALUE_PARAMETER kind:Regular name:other index:1 type:kotlin.Any?
+      overridden:
+        public open fun equals (other: kotlin.Any?): kotlin.Boolean declared in kotlin.Any
+    FUN FAKE_OVERRIDE name:hashCode visibility:public modality:OPEN returnType:kotlin.Int [fake_override]
+      VALUE_PARAMETER kind:DispatchReceiver name:<this> index:0 type:kotlin.Any
+      overridden:
+        public open fun hashCode (): kotlin.Int declared in kotlin.Any
+    FUN FAKE_OVERRIDE name:toString visibility:public modality:OPEN returnType:kotlin.String [fake_override]
+      VALUE_PARAMETER kind:DispatchReceiver name:<this> index:0 type:kotlin.Any
+      overridden:
+        public open fun toString (): kotlin.String declared in kotlin.Any
+    FUN name:run visibility:public modality:FINAL returnType:kotlin.String [suspend]
+      VALUE_PARAMETER kind:DispatchReceiver name:<this> index:0 type:<root>.Greeter
+      VALUE_PARAMETER kind:ExtensionReceiver name:<this> index:1 type:com.surrealdev.temporal.workflow.WorkflowContext
+      annotations:
+        WorkflowRun
+      BLOCK_BODY
+        RETURN type=kotlin.Nothing from='public final fun run (<this>: com.surrealdev.temporal.workflow.WorkflowContext): kotlin.String declared in <root>.Greeter'
+          CALL 'internal final fun startActivityTyped (workflowContext: com.surrealdev.temporal.workflow.WorkflowContext, activityType: kotlin.String, resultType: kotlin.reflect.KType, startToCloseMs: kotlin.Long, argTypesAndValues: kotlin.Array<out kotlin.Any?>): kotlin.Any? declared in com.surrealdev.temporal.client' type=kotlin.String origin=null
+            ARG workflowContext: GET_VAR '<this>(index:1): com.surrealdev.temporal.workflow.WorkflowContext declared in <root>.Greeter.run' type=com.surrealdev.temporal.workflow.WorkflowContext origin=null
+            ARG activityType: CONST String type=kotlin.String value="greet"
+            ARG resultType: CALL 'internal final fun typeFromClass (cls: kotlin.reflect.KClass<*>): kotlin.reflect.KType declared in com.surrealdev.temporal.client' type=kotlin.reflect.KType origin=null
+              ARG cls: CLASS_REFERENCE 'CLASS IR_EXTERNAL_DECLARATION_STUB CLASS name:String modality:FINAL visibility:public superTypes:[kotlin.Comparable<kotlin.String>; kotlin.CharSequence; java.io.Serializable]' type=kotlin.reflect.KClass<kotlin.String>
+            ARG startToCloseMs: CONST Long type=kotlin.Long value=60000
+            ARG argTypesAndValues: VARARG type=kotlin.Array<out kotlin.Any?> varargElementType=kotlin.Any?
+  FUN GENERATED[com.surrealdev.temporal.compiler.ir.TemporalInlineActivityLowering.InlineActivityKey] name:__Greeter_greet visibility:public modality:FINAL returnType:kotlin.String [suspend]
+    VALUE_PARAMETER kind:ExtensionReceiver name:$this$inlineActivity index:0 type:com.surrealdev.temporal.activity.ActivityContext
+    annotations:
+      Activity(name = "greet")
+    BLOCK_BODY
+      RETURN type=kotlin.Nothing from='public final fun __Greeter_greet ($this$inlineActivity: com.surrealdev.temporal.activity.ActivityContext): kotlin.String declared in <root>'
+        STRING_CONCATENATION type=kotlin.String
+          CONST String type=kotlin.String value="Hello (random="
+          CALL 'public open fun nextInt (): kotlin.Int declared in kotlin.random.Random.Default' type=kotlin.Int origin=null
+            ARG <this>: GET_OBJECT 'CLASS IR_EXTERNAL_DECLARATION_STUB OBJECT name:Default modality:FINAL visibility:public [companion] superTypes:[kotlin.random.Random; java.io.Serializable]' type=kotlin.random.Random.Default
+          CONST String type=kotlin.String value=")"
+  FUN name:box visibility:public modality:FINAL returnType:kotlin.String
+    BLOCK_BODY
+      VAR name:companion type:<root>.Greeter.Companion [val]
+        GET_OBJECT 'CLASS GENERATED[com.surrealdev.temporal.compiler.fir.TemporalCompanionKey] OBJECT name:Companion modality:FINAL visibility:public [companion] superTypes:[kotlin.Any]' type=<root>.Greeter.Companion
+      VAR name:handleCls type:kotlin.reflect.KClass<<root>.Greeter.Handle<*>> [val]
+        CLASS_REFERENCE 'CLASS GENERATED[com.surrealdev.temporal.compiler.fir.TemporalCompanionKey] CLASS name:Handle modality:OPEN visibility:public superTypes:[com.surrealdev.temporal.client.TypedWorkflowHandle<R of <root>.Greeter.Handle>]' type=kotlin.reflect.KClass<<root>.Greeter.Handle<*>>
+      RETURN type=kotlin.Nothing from='public final fun box (): kotlin.String declared in <root>'
+        CONST String type=kotlin.String value="OK"

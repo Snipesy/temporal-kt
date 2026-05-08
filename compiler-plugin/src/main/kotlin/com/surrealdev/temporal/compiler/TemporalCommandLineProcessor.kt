@@ -16,6 +16,14 @@ object TemporalPluginConfigurationKeys {
 
     val ENABLED: CompilerConfigurationKey<Boolean> =
         CompilerConfigurationKey.create("whether the plugin is enabled")
+
+    /**
+     * Comma-separated list of valid task queue names. Empty (default) disables the
+     * `withTaskQueue("undefined")` check — no false positives for users who haven't enabled
+     * task-queue discovery yet.
+     */
+    val KNOWN_TASK_QUEUES: CompilerConfigurationKey<List<String>> =
+        CompilerConfigurationKey.create("known task queue names")
 }
 
 /**
@@ -39,6 +47,12 @@ class TemporalCommandLineProcessor : CommandLineProcessor {
                 description = "Whether the plugin is enabled",
                 required = false,
             ),
+            CliOption(
+                optionName = OPTION_KNOWN_TASK_QUEUES,
+                valueDescription = "<comma-separated names>",
+                description = "Known task queue names; enables withTaskQueue diagnostic when non-empty",
+                required = false,
+            ),
         )
 
     override fun processOption(
@@ -47,8 +61,20 @@ class TemporalCommandLineProcessor : CommandLineProcessor {
         configuration: CompilerConfiguration,
     ) {
         when (option.optionName) {
-            OPTION_OUTPUT_DIR -> configuration.put(TemporalPluginConfigurationKeys.OUTPUT_DIR, value)
-            OPTION_ENABLED -> configuration.put(TemporalPluginConfigurationKeys.ENABLED, value.toBoolean())
+            OPTION_OUTPUT_DIR -> {
+                configuration.put(TemporalPluginConfigurationKeys.OUTPUT_DIR, value)
+            }
+
+            OPTION_ENABLED -> {
+                configuration.put(TemporalPluginConfigurationKeys.ENABLED, value.toBoolean())
+            }
+
+            OPTION_KNOWN_TASK_QUEUES -> {
+                configuration.put(
+                    TemporalPluginConfigurationKeys.KNOWN_TASK_QUEUES,
+                    value.split(',').map(String::trim).filter(String::isNotEmpty),
+                )
+            }
         }
     }
 
@@ -56,5 +82,6 @@ class TemporalCommandLineProcessor : CommandLineProcessor {
         const val PLUGIN_ID = "com.surrealdev.temporal.compiler"
         const val OPTION_OUTPUT_DIR = "outputDir"
         const val OPTION_ENABLED = "enabled"
+        const val OPTION_KNOWN_TASK_QUEUES = "knownTaskQueues"
     }
 }

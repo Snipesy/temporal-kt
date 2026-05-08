@@ -7,8 +7,12 @@ plugins {
 
 // Configure maven publishing
 mavenPublishing {
-    // Publish to Maven Central via Central Portal
-    publishToMavenCentral()
+    // Publish to Maven Central via Central Portal with auto-release: deployments go
+    // PENDING → VALIDATING → VALIDATED → PUBLISHING → PUBLISHED without a manual UI click.
+    // (Default `publishToMavenCentral()` uses publishingType=USER_MANAGED, which stops at
+    // VALIDATED and requires a button-press at central.sonatype.com/publishing/deployments.)
+    // SNAPSHOTs are unaffected — they bypass the staging flow and auto-publish anyway.
+    publishToMavenCentral(automaticRelease = true)
 
     // Sign all publications (required for Maven Central)
     signAllPublications()

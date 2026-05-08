@@ -1,663 +1,170 @@
-# TKT-0003: Inline Declarative
+# TKT-0003: Typed Workflow Companions + Inline Activities
 
-In many cases, activities and workflows are only defined in one place, and it would be faster to simply
-inline them with their usage.
+## Goal
+
+Eliminate ceremony when calling Temporal workflows from client code. Users should not need to
+restate the workflow's argument or return type at the call site, nor invent an extra annotation
+to declare the wiring. The compiler plugin synthesises typed `start(...)` / `execute(...)`
+helpers on each `@Workflow` class's companion object — modelled after kotlinx.serialization's
+`@Serializable class Foo : Companion : KSerializer<Foo>` pattern — so
 
 ```kotlin
-fun TemporalApplication.myMainModule() {
-    install(SerializationPlugin) {
-        json {
-            prettyPrint = true
-            encodeDefaults = true
-            ignoreUnknownKeys = true
-        }
-    }
-    taskQueue("my-task-queue") {
-
-        workflow<WorkflowArg>("MyWorkflow") { arg ->
-            // Define local activity inline which is directly executed
-            val greeting = activity<String>("MyActivity") { name ->
-                "Hello, $name"
-            }
-            "$greeting! You have requested count: ${arg.count}"
-        }
-
-        activity<String>("UnnestedActivity") { name ->
-            "Hi there, $name"
-        }
-    }
-}
+client.startWorkflow("Greeter", "queue", arg).result<String>()  // before
+Greeter.execute(client, "queue", arg)                           // after
 ```
 
-## Roadblocks
+is the only call you need to write, and the return type is captured automatically.
 
-The above syntax has some problems without compiler support:
+## Source of truth
 
-- No typed client stubs (must specify types at call site)
-- Cannot share workflow/activity definitions across modules
-- Cannot detect nested workflows/activities at run time
-
-This means every time you want to call a workflow or activity, you must specify the types again.
+`@Workflow` class declarations are the **only** source of truth. There are no separate
+`@TemporalModule`, `WorkflowDecl`, or `ActivityDecl` annotations duplicating names or types.
 
 ```kotlin
-val client = app.client { ... }
-val result: String = client.executeWorkflow<WorkflowArg, String>(
-    workflowType = "MyWorkflow",
-    arg = WorkflowArg(name = "Test"),
-)
-```
-
-Thus, the main blocker is not necessarily the DSL syntax, but providing the type-safe client stubs automatically.
-This will require some form of gradle plugin or kotlin compiler.
-
-## Compile Time Resolution
-
-The compiler plugin converts declarative definitions into imperative classes and flattens them.
-This produces three outputs:
-
-1. **Generated implementation classes** — workflow/activity classes with annotations
-2. **Generated client stubs with typed handles** — type-safe objects for calling workflows/activities and interacting with their handles without reflection
-3. **Rewritten registration** — the original DSL block is replaced with factory-based registration (no reflection)
-
-A key goal is eliminating runtime reflection entirely. The imperative API currently relies on reflection
-for annotation scanning, instance creation, and method invocation. The compiler plugin replaces all of
-this with direct factory calls, making the output compatible with GraalVM native image compilation
-without additional reflection configuration.
-
-### Transformation Pipeline
-
-Given this input:
-
-```kotlin
-fun TemporalApplication.myMainModule() {
-    taskQueue("my-task-queue") {
-        workflow<WorkflowArg>("MyWorkflow") { arg ->
-            val greeting = activity<String>("MyActivity") { name ->
-                "Hello, $name"
-            }
-            "$greeting! You have requested count: ${arg.count}"
-        }
-
-        activity<String>("UnnestedActivity") { name ->
-            "Hi there, $name"
-        }
-    }
-}
-```
-
-#### Output 1: Generated Implementation Classes
-
-```kotlin
-@Workflow("MyWorkflow")
-class __MyWorkflow {
+@Workflow("Greeter")
+class Greeter {
     @WorkflowRun
-    suspend fun run(arg: WorkflowArg): String {
-        val greeting = workflow()
-            .startActivity(
-                __MyActivity::greet,
-                arg = arg.name,
-                scheduleToCloseTimeout = 10.seconds,
-            ).result<String>()
-        return "$greeting! You have requested count: ${arg.count}"
-    }
-}
-
-class __MyActivity {
-    @Activity("MyActivity")
-    fun greet(name: String): String {
-        return "Hello, $name"
-    }
-}
-
-class __UnnestedActivity {
-    @Activity("UnnestedActivity")
-    fun execute(name: String): String {
-        return "Hi there, $name"
-    }
+    suspend fun WorkflowContext.run(arg: String): String = "Hello, $arg"
 }
 ```
 
-#### Output 2: Generated Client Stubs with Typed Handles
+The plugin reads:
+- the class's `@Workflow("name")` annotation argument (or the class simple name as fallback),
+- the `@WorkflowRun` method's value-parameter type for the workflow argument type,
+- the `@WorkflowRun` method's return type for the workflow result type.
 
-The stubs return **typed handles** (defined as interfaces for testability) so that downstream
-operations (signals, queries, updates, result awaiting) are fully typed without requiring type
-parameters at the call site.
+Any change to the user class is automatically reflected in the synthesised helpers — no second
+declaration site to drift out of sync.
 
-##### Typed Handle Interfaces
+## Synthesised companion
 
-```kotlin
-// Generated interface — easy to mock in tests
-interface MyWorkflowHandle {
-    val workflowId: String
-    val runId: String
-
-    /** Await the workflow result. */
-    suspend fun result(): String
-
-    /** Signal the workflow (generated per declared signal). */
-    suspend fun approve()
-
-    /** Query the workflow (generated per declared query). */
-    suspend fun status(): String
-}
-
-// Generated internal implementation wrapping the untyped handle
-internal class MyWorkflowHandleImpl(
-    private val handle: WorkflowHandle,
-) : MyWorkflowHandle {
-    override val workflowId: String get() = handle.workflowId
-    override val runId: String get() = handle.runId
-    override suspend fun result(): String = handle.result<String>()
-    override suspend fun approve() = handle.signal("approve")
-    override suspend fun status(): String = handle.query<String>("status")
-}
-```
-
-##### Workflow Stub (Client-Side)
-
+For every `@Workflow`-annotated class the plugin augments (or, if absent, creates) a companion
+object with these members:
 
 ```kotlin
-class MyWorkflowStub(
-    private val client: TemporalClient,
-    private val options: WorkflowStartOptions = WorkflowStartOptions(),
-) : AbstractWorkflowStub<MyWorkflowStub> {
-
-    override fun build(client: TemporalClient, options: WorkflowStartOptions): MyWorkflowStub {
-        return MyWorkflowStub(client, options)
-    }
-
-    /** Start and await result in one call. */
-    suspend fun execute(arg: WorkflowArg): String {
-        return start(arg).result()
-    }
-
-    /** Start the workflow and return a typed handle for further interaction. */
-    fun start(arg: WorkflowArg): MyWorkflowHandle {
-        val handle = client.startWorkflow(
-            workflowType = "MyWorkflow",
-            taskQueue = "my-task-queue",
-            arg = arg,
-            options = options,
-        )
-        return MyWorkflowHandleImpl(handle)
-    }
+class Greeter {
+    // ... user code ...
 
     companion object {
-        /** Workflow type descriptor — single source of truth for method metadata. */
-        val descriptor = WorkflowDescriptor(
-            workflowType = "MyWorkflow",
-            taskQueue = "my-task-queue",
-            argType = typeOf<WorkflowArg>(),
-            returnType = typeOf<String>(),
-            signals = listOf("approve"),
-            queries = listOf("status"),
-        )
+        suspend fun start(
+            client: TemporalClient,
+            taskQueue: String,
+            arg: String,
+            options: WorkflowStartOptions = WorkflowStartOptions(),
+        ): TypedWorkflowHandle<String>
 
-        /** Reflection-free factory for worker-side registration. */
-        fun newInstance(): __MyWorkflow = __MyWorkflow()
+        suspend fun execute(
+            client: TemporalClient,
+            taskQueue: String,
+            arg: String,
+            options: WorkflowStartOptions = WorkflowStartOptions(),
+        ): String
     }
 }
 ```
 
-Client usage becomes:
+If the user's `@WorkflowRun` method is no-arg, the synthesised `start`/`execute` drop the `arg`
+parameter accordingly.
+
+If the user already wrote `companion object { ... }`, the plugin **augments** it — adds
+`start`/`execute` alongside the user's declarations without crashing or replacing.
+
+`TypedWorkflowHandle<R>` is a thin wrapper around the existing `WorkflowHandle` that captures
+`R` so `.result()` doesn't need a reified type parameter at the call site.
+
+## Client-side usage
 
 ```kotlin
-// Before (no stubs — must repeat types, signals are stringly-typed)
-val handle = client.startWorkflow<WorkflowArg>(
-    workflowType = "MyWorkflow",
-    taskQueue = "my-task-queue",
-    arg = WorkflowArg(name = "Test"),
-)
-handle.signal("approve")
-val result: String = handle.result<String>()
+// `start(...)` returns a typed `Greeter.Handle<String>`. The result type R is captured —
+// `.result()` is statically `String` without `<R>` ceremony.
+val handle: Greeter.Handle<String> = Greeter.start(client, "queue", "World")
+val result: String = handle.result()
 
-// After (with generated stub — fully typed, chainable)
-val stub = MyWorkflowStub(client)
-val handle = stub.start(WorkflowArg(name = "Test"))
-handle.approve()            // typed signal, no string
-val result = handle.result() // no type parameter needed
-
-// Builder chaining (like gRPC's withDeadline, withCompression, etc.)
-val handle = stub
-    .withOptions(WorkflowStartOptions(workflowId = "my-id"))
-    .start(WorkflowArg(name = "Test"))
+// Or wrap an existing run by ID:
+val existing: Greeter.Handle<String> = Greeter.handle(client, "some-workflow-id")
+val ongoing: String = existing.result()
 ```
 
-##### Activity Stub (Workflow-Side)
+## Typed signal / query / update wrappers
 
-Activity stubs follow the same pattern, returning typed handles from within workflow code:
+Each `@Signal` / `@Query` / `@Update` method on the workflow class projects to a typed wrapper
+on `<UserClass>.Handle<R>`. The wrapper:
 
-```kotlin
-// Generated interface
-interface MyActivityHandle {
-    suspend fun result(): String
-    fun cancel()
-}
-
-internal class MyActivityHandleImpl(
-    private val handle: ActivityHandle,
-) : MyActivityHandle {
-    override suspend fun result(): String = handle.result<String>()
-    override fun cancel() = handle.cancel()
-}
-
-object MyActivityStub {
-    /** Start the activity and return a typed handle. */
-    suspend fun start(
-        name: String,
-        options: ActivityOptions = ActivityOptions(scheduleToCloseTimeout = 10.seconds),
-    ): MyActivityHandle {
-        val handle = workflow().startActivity(
-            activityType = "MyActivity",
-            arg = name,
-            options = options,
-        )
-        return MyActivityHandleImpl(handle)
-    }
-
-    /** Start and await result in one call. */
-    suspend fun execute(
-        name: String,
-        options: ActivityOptions = ActivityOptions(scheduleToCloseTimeout = 10.seconds),
-    ): String {
-        return start(name, options).result()
-    }
-
-    val descriptor = ActivityDescriptor(
-        activityType = "MyActivity",
-        argType = typeOf<String>(),
-        returnType = typeOf<String>(),
-    )
-
-    fun newInstance(): __MyActivity = __MyActivity()
-}
-```
-
-Workflow-side usage:
+- mirrors the user's value parameters (same names + types),
+- drops any `WorkflowContext` extension receiver (Handle is client-side),
+- is always `suspend` (the runtime dispatch goes through `signalWithPayloads` etc.),
+- returns `Unit` for `@Signal`; the user's declared return type for `@Query` / `@Update`,
+- uses `@Signal("wire-name")` / `@Query("wire-name")` / `@Update("wire-name")` as the wire
+  name when sending to the server. The Kotlin method on Handle keeps the user's method name
+  (which is always a valid identifier).
 
 ```kotlin
-// Before (untyped)
-val handle = workflow().startActivity(
-    activityType = "MyActivity",
-    arg = "World",
-    scheduleToCloseTimeout = 10.seconds,
-)
-val greeting: String = handle.result<String>()
-
-// After (with generated stub — fully typed, resolves WorkflowContext automatically)
-val handle = MyActivityStub.start("World")
-val greeting = handle.result() // typed, no type parameter
-// or one-shot:
-val greeting = MyActivityStub.execute("World")
-```
-
-#### Output 3: Rewritten Registration
-
-```kotlin
-// Generated on the impl class — self-registration via method references
-@Workflow("MyWorkflow")
-class __MyWorkflow {
-    // ... run, signal, query methods ...
-
-    companion object {
-        /** Register this workflow with method references — no reflection. */
-        fun bind(registry: WorkflowRegistry) {
-            val instance = __MyWorkflow()
-            registry.register(
-                workflowType = "MyWorkflow",
-                factory = ::__MyWorkflow,
-                run = __MyWorkflow::run,
-                signals = mapOf("approve" to __MyWorkflow::approve),
-                queries = mapOf("status" to __MyWorkflow::status),
-            )
-        }
-    }
-}
-```
-
-The rewritten module registration:
-
-```kotlin
-fun TemporalApplication.myMainModule() {
-    taskQueue("my-task-queue") {
-        __MyWorkflow.bind(workflowRegistry)
-        __MyActivity.bind(activityRegistry)
-        __UnnestedActivity.bind(activityRegistry)
-    }
-}
-```
-
-## Local vs Regular Activities
-
-Activities defined inside a `workflow { }` block are **local activities** — they execute in the same
-worker process as the workflow and are registered to the same task queue.
-
-Activities defined directly inside a `taskQueue { }` block (but outside any workflow) are
-**regular activities** — they are independently registered and scheduled through the server.
-
-```kotlin
-taskQueue("my-task-queue") {
-    workflow<WorkflowArg>("MyWorkflow") { arg ->
-        // Local activity — same worker, no server round-trip
-        val greeting = activity<String>("MyActivity") { name ->
-            "Hello, $name"
-        }
-        greeting
-    }
-
-    // Regular activity — independently scheduled
-    activity<String>("UnnestedActivity") { name ->
-        "Hi there, $name"
-    }
-}
-```
-
-The compiler plugin tracks this distinction via the `isLocal` flag in `ActivityMetadata` and generates
-the appropriate `startActivity` vs `startLocalActivity` call in the workflow implementation.
-
-## Signals, Queries, and Updates
-
-The imperative API supports `@Signal`, `@Query`, and `@Update` handlers as methods on a workflow class.
-The declarative API needs a way to express these within the lambda.
-
-```kotlin
-taskQueue("my-task-queue") {
-    workflow<WorkflowArg>("MyWorkflow") {
-        var approved = false
-
-        signal("approve") {
-            approved = true
-        }
-
-        query<String>("status") {
-            if (approved) "approved" else "pending"
-        }
-
-        run { arg ->
-            workflow().awaitCondition { approved }
-            "Approved: ${arg.name}"
-        }
-    }
-}
-```
-
-This compiles to:
-
-```kotlin
-@Workflow("MyWorkflow")
-class __MyWorkflow {
-    private var approved = false
-
-    @Signal("approve")
-    fun approve() {
-        approved = true
-    }
-
-    @Query("status")
-    fun status(): String {
-        return if (approved) "approved" else "pending"
-    }
-
+@Workflow("Cart")
+class Cart {
     @WorkflowRun
-    suspend fun run(arg: WorkflowArg): String {
-        workflow().awaitCondition { approved }
-        return "Approved: ${arg.name}"
-    }
-}
-```
-
-When signals/queries/updates are present, the workflow lambda must use an explicit `run { }` block
-to separate the run body from the handler declarations. When there are no handlers, the lambda body
-*is* the run body (the simple case shown earlier).
-
-The generated `MyWorkflowHandle` (from Output 2) includes typed methods for all declared
-signals, queries, and updates — so the client never needs to use string-based `handle.signal("name")`.
-
-## Mix and Match
-
-The declarative and imperative APIs are not mutually exclusive. An imperative workflow class
-can use declaratively-defined activity stubs, and declarative inline activities can be called
-from hand-written workflow classes. The compiler plugin generates stubs for both styles.
-
-### Imperative Workflow Using Declarative Activity Stubs
-
-Define activities inline in the module, then call their generated stubs from a hand-written
-workflow class:
-
-```kotlin
-// Module definition — activities are declarative, workflow is imperative
-fun TemporalApplication.myModule() {
-    taskQueue("order-queue") {
-        // Declarative activity — compiler generates ValidateOrderStub
-        activity<OrderRequest>("ValidateOrder") { order ->
-            ValidationResult(valid = order.total > 0, reason = "OK")
-        }
-
-        // Declarative activity — compiler generates ChargePaymentStub
-        activity<PaymentRequest>("ChargePayment") { payment ->
-            PaymentResult(transactionId = "txn-${payment.orderId}", success = true)
-        }
-
-        // Imperative workflow — hand-written class
-        workflow<OrderWorkflow>()
-    }
-}
-
-// Hand-written workflow using generated activity stubs
-@Workflow("OrderWorkflow")
-class OrderWorkflow {
-    @WorkflowRun
-    suspend fun run(order: OrderRequest): String {
-        // Use generated stubs — fully typed, no strings, no type parameters
-        val validation = ValidateOrderStub.execute(order)
-        if (!validation.valid) return "Rejected: ${validation.reason}"
-
-        val payment = ChargePaymentStub.execute(PaymentRequest(orderId = order.id))
-        return "Charged: ${payment.transactionId}"
-    }
-}
-```
-
-### Generated Stubs for Imperative Workflows
-
-The compiler plugin also generates stubs for imperative `@Workflow` and `@Activity` classes —
-not just declarative lambdas. Any workflow or activity registered in a module gets a typed stub,
-a typed handle, and a descriptor.
-
-```kotlin
-// Hand-written imperative workflow
-@Workflow("OrderWorkflow")
-class OrderWorkflow {
-    @WorkflowRun
-    suspend fun run(order: OrderRequest): String { ... }
+    suspend fun WorkflowContext.run(): Int = 0
 
     @Signal("cancel")
-    fun cancel(reason: String) { ... }
+    fun WorkflowContext.cancel(reason: String) { /* ... */ }
 
     @Query("status")
-    fun status(): OrderStatus { ... }
+    fun status(): Int = 42
+
+    @Update("addItem")
+    suspend fun WorkflowContext.addItem(item: String): Int = 1
 }
 
-// Compiler generates all of these automatically:
-
-interface OrderWorkflowHandle {
-    val workflowId: String
-    val runId: String
-    suspend fun result(): String
-    suspend fun cancel(reason: String)    // typed signal
-    suspend fun status(): OrderStatus     // typed query
-}
-
-class OrderWorkflowStub(
-    private val client: TemporalClient,
-    private val options: WorkflowStartOptions = WorkflowStartOptions(),
-) : AbstractWorkflowStub<OrderWorkflowStub> {
-
-    override fun build(client: TemporalClient, options: WorkflowStartOptions): OrderWorkflowStub {
-        return OrderWorkflowStub(client, options)
-    }
-
-    suspend fun execute(order: OrderRequest): String = start(order).result()
-
-    fun start(order: OrderRequest): OrderWorkflowHandle { ... }
-
-    companion object {
-        val descriptor = WorkflowDescriptor(
-            workflowType = "OrderWorkflow",
-            taskQueue = "order-queue",
-            argType = typeOf<OrderRequest>(),
-            returnType = typeOf<String>(),
-            signals = listOf("cancel"),
-            queries = listOf("status"),
-        )
-
-        fun newInstance(): OrderWorkflow = OrderWorkflow()
-    }
+suspend fun useCart(client: TemporalClient) {
+    val handle: Cart.Handle<Int> = Cart.start(client, "queue")
+    handle.cancel("user requested")     // typed signal — no string, no untyped args
+    val n: Int = handle.status()         // typed query — no <Int>
+    val s: Int = handle.addItem("milk")  // typed update — both arg + return are typed
 }
 ```
 
-Client code is the same regardless of whether the workflow was defined declaratively or imperatively:
+`@Signal(dynamic = true)` / `@Query(dynamic = true)` / `@Update(dynamic = true)` handlers do
+**not** get typed wrappers — they catch all unhandled names by accepting the wire name as a
+parameter, so there's no fixed dispatch target. `@UpdateValidator` methods are server-side
+only and never produce wrappers.
+
+## Inline activities
+
+TKT-0003 also supports inline `activity("name") { ... }` calls inside `@WorkflowRun` methods.
+The compiler plugin lifts the activity lambda to a top-level `@Activity("name")` function,
+synthesises a workflow companion registration hook, and rewrites the workflow call site to
+Temporal's standard activity dispatch.
+
+Inline workflow declarations inside `taskQueue { ... }` are intentionally not supported. To
+register workflows, use the class-based runtime API:
 
 ```kotlin
-val stub = OrderWorkflowStub(client)
-val handle = stub.start(OrderRequest(id = "order-123", total = 99.99))
-
-val status = handle.status()       // typed query
-handle.cancel("out of stock")      // typed signal
-val result = handle.result()       // typed result
-```
-
-## Debugging and Stack Traces
-
-Generated code must not pollute stack traces. When a workflow or activity fails, the developer
-should see their original source location — not generated class names like `__MyWorkflow.run()`.
-
-### Source Offset Preservation
-
-When the compiler plugin extracts a lambda body into a generated class method, it must **copy the
-IR source offsets** (`startOffset`/`endOffset`) from the original lambda expressions. This causes
-the JVM to emit line number table entries pointing back to the user's original source file, so
-stack traces and debugger breakpoints land in the right place.
-
-```
-// User writes this at MyModule.kt:17
-workflow<WorkflowArg>("MyWorkflow") { arg ->
-    val greeting = activity<String>("MyActivity") { name ->   // line 19
-        "Hello, $name"                                         // line 20
-    }
-    "$greeting! Count: ${arg.count}"                           // line 22
-}
-
-// Generated __MyWorkflow.run() preserves source mapping:
-//   line 19 → startActivity call
-//   line 22 → return statement
-// Stack trace on failure shows: MyModule.kt:22, not __MyWorkflow.kt:5
-```
-
-If an IR element is purely synthetic (registration wiring, factory methods), use `UNDEFINED_OFFSET`
-so the JVM knows there is no corresponding source location.
-
-### Temporal Enhanced Stack Traces
-
-Temporal already supports an `EnhancedStackTrace` protocol with an `internal_code` flag on each
-`StackTraceFileLocation`. The compiler plugin should mark all generated frames as `internal_code = true`
-so the Temporal UI hides them by default in the stack trace view.
-
-```protobuf
-message StackTraceFileLocation {
-    string file_path = 1;
-    int32 line = 2;
-    int32 column = 3;
-    string function_name = 4;
-    bool internal_code = 5;  // ← set true for generated frames
-}
-```
-
-The SDK's stack trace capture should detect generated classes (e.g. by a marker annotation) and
-set `internal_code = true` automatically.
-
-### Annotation Strategy
-
-Generated classes and methods should be annotated to support filtering:
-
-```kotlin
-@TemporalGenerated  // custom marker — SDK uses this to set internal_code in stack traces
-@JvmSynthetic       // hides from Java tooling, filtered by some stack trace tools
-class __MyWorkflow {
+@Workflow("Foo")
+class Foo {
     @WorkflowRun
-    suspend fun run(arg: WorkflowArg): String { ... }
-    // ↑ NOT @JvmSynthetic — this is the actual user logic, must be visible in traces
-}
-```
-
-- **`@TemporalGenerated`** on the class — the SDK's enhanced stack trace builder checks for this
-  and sets `internal_code = true` on matching frames.
-- **`@JvmSynthetic`** on internal wiring (handle impls, `bind()`, `newInstance()`, descriptors) —
-  hides plumbing from Java callers and IDE completion.
-- **Not on `@WorkflowRun`/`@Activity` methods** — these contain the user's actual logic and must
-  remain visible in stack traces and debuggers.
-
-### Coroutine Debug Metadata
-
-Kotlin automatically attaches `@DebugMetadata` to coroutine continuation classes, recording the
-source file, line numbers at suspension points, and local variable names. As long as the generated
-`suspend fun run()` preserves the original file's `IrFileEntry`, coroutine debuggers (IntelliJ,
-`DebugProbes`) will show the correct source location when stepping through suspended workflows.
-
-## Nested Task Queue Resolution
-
-By default, nested activities and workflows register themselves to their parent task queue.
-But we may want to call an activity or workflow on another task queue.
-
-Since task queues have configuration options, only one task queue definition should declare config
-in a similar manner to how Auth is handled in Ktor.
-
-```kotlin
-taskQueue("other-queue") {
-    configuration {
-        // custom config here
-    }
-}
-
-taskQueue("my-task-queue") {
-    configuration {
-        // default config here
-    }
-    workflow<WorkflowArg>("MyWorkflow") { arg ->
-        val greeting = withTaskQueue("other-queue") {
-            activity<String>("MyActivity") { name ->
-                "Hello, $name"
-            }
+    suspend fun WorkflowContext.run(): String {
+        return activity("Bar") {
+            "done"
         }
     }
 }
-```
 
-If you use `withTaskQueue` to define an activity or workflow, and the named task queue does not exist in that module
-then it should be a compile time error.
-
-```kotlin
-taskQueue("my-task-queue") {
-    workflow<WorkflowArg>("MyWorkflow") { arg ->
-        // Compile time error: "Task queue 'other-queue' not defined in this module"
-        val greeting = withTaskQueue("other-queue") {
-            activity<String>("MyActivity") { name ->
-                "Hello, $name"
-            }
-        }
+embeddedTemporal {
+    taskQueue("q") {
+        workflow<Foo>()
     }
 }
 ```
 
-For these cases you should use the generated stubs (or explicit imperative definitions) to call activities/workflows
-on other task queues outside the current module.
+## Annotation strategy (carry-over)
 
-```kotlin
-taskQueue("my-task-queue") {
-    workflow<WorkflowArg>("MyWorkflow") { arg ->
-        withTaskQueue("external-queue") {
-            ExternalActivityStub.execute(arg.param)
-        }
-    }
-}
-```
+`@WorkflowRun`, `@Signal`, `@Query`, `@Update` methods are **not** marked `@JvmSynthetic` —
+they contain user logic and must remain visible in stack traces and tooling. Plugin-synthesised
+plumbing (the companion's `start`/`execute`, future inline-activity hooks) is internal but
+remains visible to Kotlin callers; `@JvmSynthetic` would unnecessarily hide it from Java
+interop.
+
+## Debugging and stack traces
+
+The inline activity IR pass preserves `IrElement.startOffset`/`endOffset` from the original
+lambda expressions so that JVM line-number tables — and therefore stack traces and IDE
+breakpoints — point back to the user's source location, not the synthesised wrapper function.
