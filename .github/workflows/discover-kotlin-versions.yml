@@ -33,6 +33,13 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # `fetch-depth: 0` fetches all branches/tags so `git checkout -B <branch> origin/main`
+          # works inside the per-version PR loop. Default `fetch-depth: 1` only has the trigger
+          # commit and `origin/main` isn't a known ref. Keep the default `ref:` (= trigger ref)
+          # so the discover scripts run from the workflow's branch — `origin/main` is just for
+          # branching new PRs off of.
+          fetch-depth: 0
 
       # GitHub-hosted ubuntu-latest preinstalls jq + python3 + curl; non-GitHub runners (act with
       # the gradle:9.4.1-jdk25 image, etc.) need explicit installs.
