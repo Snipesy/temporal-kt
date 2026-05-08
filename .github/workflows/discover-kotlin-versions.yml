@@ -4,14 +4,24 @@ name: Discover new Kotlin versions
 #   1. Maven Central (Beta / RC / final releases) → check-kotlin-versions.sh
 #   2. IDEA-bundled `-ij` versions → check-idea-versions.sh (queries JetBrains releases API +
 #      intellij-community/model.properties at each IDEA build tag)
-# Both scripts diff against `.github/kotlin-versions.json`. If new versions are found, this
-# workflow opens a single PR adding them as `test:false, publish:true`. A human reviews the PR,
-# verifies CI passes for each new version, and flips `test:true` once goldens are updated.
+#
+# Both scripts diff against `.github/kotlin-versions.json`. For each new version found, this
+# workflow opens a SEPARATE PR (one PR per Kotlin version) on a versioned branch
+# `chore/kotlin/<version>`. Each PR adds one entry, runs `multi-kotlin.yml` CI, and auto-merges
+# when CI is green. Failing PRs are pruned by `prune-stale-kotlin-versions.yml` after 14 days
+# (prerelease/`-ij` only — stable major releases stay open indefinitely).
 
 on:
   schedule:
     - cron: '0 6 * * 1,3,5'   # Mon/Wed/Fri 06:00 UTC
   workflow_dispatch:
+  # TEMPORARY — fire on every push to `compiler` branch so we can end-to-end test the
+  # discover-bot before this workflow lands on main. Remove once verified.
+  push:
+    branches: [compiler]
+    paths:
+      - '.github/workflows/discover-kotlin-versions.yml'
+      - '.github/scripts/check-*-versions.sh'
 
 jobs:
   discover:
@@ -19,13 +29,13 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
       # GitHub-hosted ubuntu-latest preinstalls jq + python3 + curl; non-GitHub runners (act with
-      # the gradle:9.4.1-jdk25 image, etc.) need explicit installs. Idempotent — short-circuits on
-      # hosted runners. python3 is required by `check-idea-versions.sh` for parsing the JetBrains
-      # releases API JSON.
+      # the gradle:9.4.1-jdk25 image, etc.) need explicit installs.
       - name: Install discovery dependencies (if missing)
         shell: bash
         run: |
@@ -40,35 +50,13 @@ jobs:
           install_pkg python3
           install_pkg curl
 
-      - name: Find new Kotlin versions (Maven Central)
-        id: find-central
+      - name: Find new Kotlin versions
+        id: find
+        shell: bash
         run: |
-          NEW=$(./.github/scripts/check-kotlin-versions.sh)
-          echo "Found from Maven Central:"
-          echo "$NEW"
-          {
-            echo "new<<EOF"
-            echo "$NEW"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Find new IDEA-bundled Kotlin versions
-        id: find-idea
-        run: |
-          NEW=$(./.github/scripts/check-idea-versions.sh)
-          echo "Found from IDEA bundles:"
-          echo "$NEW"
-          {
-            echo "new<<EOF"
-            echo "$NEW"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Combine + check
-        id: combine
-        run: |
-          ALL=$(printf '%s\n%s\n' "${{ steps.find-central.outputs.new }}" "${{ steps.find-idea.outputs.new }}" \
-            | grep -v '^$' | sort -u || true)
+          CENTRAL=$(./.github/scripts/check-kotlin-versions.sh)
+          IDEA=$(./.github/scripts/check-idea-versions.sh)
+          ALL=$(printf '%s\n%s\n' "$CENTRAL" "$IDEA" | grep -v '^$' | sort -u || true)
           if [ -z "$ALL" ]; then
             echo "No new versions across either source."
             echo "any=false" >> "$GITHUB_OUTPUT"
@@ -76,83 +64,95 @@ jobs:
           fi
           echo "any=true" >> "$GITHUB_OUTPUT"
           {
-            echo "all<<EOF"
+            echo "list<<EOF"
             echo "$ALL"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
+          echo "Discovered new versions:"
+          echo "$ALL"
 
-      - name: Update kotlin-versions.json
-        if: steps.combine.outputs.any == 'true'
-        # Pass discovered versions via env vars rather than `${{ … }}` shell interpolation. Belt
-        # and braces: the upstream scripts already filter via strict regex, so a JetBrains-API
-        # response containing shell metachars would have been rejected. But env-var passing keeps
-        # the heredoc from ever expanding command substitutions even if filtering ever loosens.
+      - name: Open a PR per new version
+        if: steps.find.outputs.any == 'true'
+        shell: bash
         env:
-          ALL_NEW: ${{ steps.combine.outputs.all }}
+          ALL_NEW: ${{ steps.find.outputs.list }}
         run: |
-          while read -r KV; do
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          while IFS= read -r KV; do
             [ -z "$KV" ] && continue
-            # Tag -ij entries differently so the PR review surface knows what came from where.
-            if echo "$KV" | grep -q -- '-ij'; then
-              COMMENT="Auto-discovered from IDEA bundle (kotlincVersion); KEFS forge prefix"
-            else
-              COMMENT="Auto-discovered from Maven Central; verify CI before merge"
+            BRANCH="chore/kotlin/$KV"
+
+            # Skip if a PR for this version already exists (open or closed).
+            # Closed: don't reopen — maintainer or prune workflow already decided.
+            # Open: don't recreate — wait for CI / human / prune.
+            if gh pr list --state all --head "$BRANCH" --json number --jq 'length' | grep -qv '^0$'; then
+              echo "::notice::PR already exists for $KV (branch $BRANCH); skipping"
+              continue
             fi
+
+            # Tag the entry by source for the PR body.
+            if echo "$KV" | grep -q -- '-ij'; then
+              SRC="IDEA bundle (kotlincVersion); KEFS forge prefix"
+            else
+              SRC="Maven Central"
+            fi
+            COMMENT="Auto-discovered from $SRC"
+
+            # Build a fresh branch off main, add ONE version to JSON, commit, push.
+            git checkout -B "$BRANCH" origin/main
             jq --arg kv "$KV" --arg c "$COMMENT" \
-              '.versions += [{kotlin: $kv, test: false, publish: true, comment: $c}]' \
+              '.versions += [{kotlin: $kv, publish: true, comment: $c}]' \
               .github/kotlin-versions.json > /tmp/updated.json
             mv /tmp/updated.json .github/kotlin-versions.json
+
+            git add .github/kotlin-versions.json
+            git commit -m "chore: add Kotlin $KV"
+            git push -u origin "$BRANCH"
+
+            # Stable releases (e.g. 2.5.0, 2.6.1) stay open indefinitely if CI fails.
+            # Prereleases (-ij, -Beta, -RC, etc.) get auto-pruned after 14 days by
+            # prune-stale-kotlin-versions.yml.
+            if echo "$KV" | grep -qiE -- '-(ij|beta|alpha|rc|snapshot|dev|m[0-9])'; then
+              CLASS_LABEL="kotlin-prerelease"
+            else
+              CLASS_LABEL="kotlin-stable"
+            fi
+
+            if [ "$CLASS_LABEL" = "kotlin-prerelease" ]; then
+              FATE_NOTE="auto-pruned after 14d if CI stays red"
+            else
+              FATE_NOTE="stays open indefinitely until merged or closed manually"
+            fi
+
+            # Build PR body via printf (avoids YAML/heredoc indentation issues).
+            PR_BODY=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \
+              "Auto-discovered Kotlin version added with \`publish: true\`." \
+              "" \
+              "**Source:** $SRC" \
+              "**Classification:** \`$CLASS_LABEL\` ($FATE_NOTE)" \
+              "**Auto-merge:** enabled — merges when \`multi-kotlin.yml\` matrix passes for this version." \
+              "" \
+              "If CI fails, add a \`//##csm\` block in \`compiler-plugin/src/main/templates/.../TemporalIrApi.kt\` and re-push to this branch." \
+              "")
+
+            PR_NUMBER=$(gh pr create \
+              --base main --head "$BRANCH" \
+              --title "chore: add Kotlin $KV" \
+              --label "auto-discovery" \
+              --label "$CLASS_LABEL" \
+              --body "$PR_BODY" \
+              | grep -oE '/pull/[0-9]+' | grep -oE '[0-9]+$')
+
+            if [ -n "$PR_NUMBER" ]; then
+              echo "::notice::Opened PR #$PR_NUMBER for $KV"
+              gh pr merge --auto --squash "$PR_NUMBER" || \
+                echo "::warning::Auto-merge enable failed — check repo Settings → General → Allow auto-merge"
+            else
+              echo "::error::Failed to open PR for $KV"
+            fi
+
+            # Reset to main for the next iteration.
+            git checkout main
           done <<< "$ALL_NEW"
-          echo "Updated kotlin-versions.json:"
-          cat .github/kotlin-versions.json
-
-      - name: Open PR
-        if: steps.combine.outputs.any == 'true'
-        id: cpr
-        uses: peter-evans/create-pull-request@v6
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          branch: chore/kotlin-versions-update
-          title: "chore: discover new Kotlin versions"
-          body: |
-            Auto-discovered. Each new entry added with `test: false, publish: true`.
-
-            **Auto-merge enabled** — this PR will merge itself once `multi-kotlin.yml` matrix
-            checks pass. Human intervention is only required if CI goes red (typically means
-            real ABI drift — a `//##csm` block update is needed).
-
-            **From Maven Central:**
-            ```
-            ${{ steps.find-central.outputs.new }}
-            ```
-
-            **From IDEA bundles** (KEFS forge prefixes):
-            ```
-            ${{ steps.find-idea.outputs.new }}
-            ```
-
-            Discovery sources:
-            - `.github/scripts/check-kotlin-versions.sh` — polls Maven Central for `2.x.y(-Beta|-RC)?` releases at-or-above the highest known minor.
-            - `.github/scripts/check-idea-versions.sh` — polls JetBrains releases API → fetches `model.properties` at each IDEA build tag → extracts `kotlincVersion`.
-
-            **Repo-settings prerequisites for auto-merge** (one-time):
-            - Settings → General → Pull Requests → "Allow auto-merge" enabled.
-            - Settings → Branches → main → branch protection: `multi-kotlin.yml` matrix legs
-              required as status checks. Without this, auto-merge fires immediately without CI.
-          commit-message: "chore: discover new Kotlin versions"
-          delete-branch: true
-
-      # Enable GitHub's native auto-merge on the PR. GitHub waits for required status checks
-      # (set up via branch protection) and merges automatically when they pass. CI-green is the
-      # validation gate — multi-kotlin.yml proves the new Kotlin version compiles cleanly. If CI
-      # fails, the PR sits open until a human adds a CSM template fix.
-      - name: Enable auto-merge on PR
-        if: steps.combine.outputs.any == 'true' && steps.cpr.outputs.pull-request-number != ''
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          PR="${{ steps.cpr.outputs.pull-request-number }}"
-          echo "Enabling auto-merge on PR #${PR}"
-          gh pr merge --auto --squash "$PR" || \
-            echo "::warning::Auto-merge enable failed — check repo Settings → General → Allow auto-merge"

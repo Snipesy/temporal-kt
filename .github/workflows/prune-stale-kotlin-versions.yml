@@ -1,0 +1,143 @@
+name: Prune stale auto-discovered Kotlin versions
+
+# Daily janitor for auto-discovery PRs that the discover bot opened but couldn't get green:
+#
+#   1. PRs labeled `auto-discovery` are scanned daily.
+#   2. PRs labeled `kotlin-stable` (e.g. `2.5.0`, `2.6.1`) are LEFT OPEN regardless of age —
+#      stable releases warrant manual triage; closing them silently would lose user-visible work.
+#   3. PRs labeled `kotlin-prerelease` (-ij, -Beta, -RC, -Alpha, -SNAPSHOT, -dev, -M*) older
+#      than STALE_DAYS get pruned: the version is committed to main's `kotlin-versions.json`
+#      with `publish: false`, then the PR is closed (with branch deletion).
+#
+# Why mark the version with `publish: false` in main rather than just close the PR?
+# The discover script's `comm -23` filter excludes any version already present in JSON. Without
+# the `publish: false` entry, the next discover cron would re-propose the same version and
+# the cycle repeats. Adding it as `publish: false` tells discover "we know about this; don't
+# propose again" while keeping it ineligible for `publish-compiler-plugin.yml`'s matrix.
+#
+# To revive a pruned version: human edits `kotlin-versions.json` to flip `publish: false` →
+# `publish: true` (after landing the CSM template fix).
+
+on:
+  schedule:
+    - cron: '0 5 * * *'   # daily 05:00 UTC
+  workflow_dispatch:
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      STALE_DAYS: '14'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install jq (if missing)
+        shell: bash
+        run: |
+          if ! command -v jq >/dev/null 2>&1; then
+            (sudo apt-get update -qq && sudo apt-get install -y -qq jq) \
+              || (apt-get update -qq && apt-get install -y -qq jq)
+          fi
+
+      - name: Prune stale prerelease PRs
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Pull the latest main; we'll commit publish:false entries to it for stale prereleases.
+          git fetch origin main:main 2>/dev/null || git fetch origin main
+          git checkout main
+
+          # Find open PRs labeled `auto-discovery`. Stable PRs filter out via the label check
+          # below; we still list them so workflow logs reflect every PR considered.
+          PRS_JSON=$(gh pr list \
+            --label auto-discovery \
+            --state open \
+            --limit 100 \
+            --json number,title,headRefName,createdAt,labels)
+
+          if [ "$(echo "$PRS_JSON" | jq 'length')" = "0" ]; then
+            echo "::notice::No open auto-discovery PRs to consider."
+            exit 0
+          fi
+
+          NOW_SEC=$(date -u +%s)
+          STALE_SEC=$(( STALE_DAYS * 86400 ))
+
+          ANY_PRUNED=false
+
+          echo "$PRS_JSON" | jq -c '.[]' | while read -r pr; do
+            NUM=$(echo "$pr" | jq -r .number)
+            BRANCH=$(echo "$pr" | jq -r .headRefName)
+            CREATED=$(echo "$pr" | jq -r .createdAt)
+            LABELS=$(echo "$pr" | jq -r '.labels[].name')
+
+            # Branch convention: `chore/kotlin/<version>`
+            KV="${BRANCH#chore/kotlin/}"
+
+            # Stable Kotlin PRs stay open indefinitely.
+            if echo "$LABELS" | grep -qx 'kotlin-stable'; then
+              echo "PR #$NUM ($KV): kotlin-stable — leaving open"
+              continue
+            fi
+
+            # Only prune kotlin-prerelease — defensive: skip if the label is missing entirely.
+            if ! echo "$LABELS" | grep -qx 'kotlin-prerelease'; then
+              echo "PR #$NUM ($KV): no classification label — skipping"
+              continue
+            fi
+
+            # Age check.
+            CREATED_SEC=$(date -u -d "$CREATED" +%s 2>/dev/null || python3 -c "
+          import sys, datetime
+          print(int(datetime.datetime.fromisoformat('$CREATED'.replace('Z','+00:00')).timestamp()))
+          ")
+            AGE_SEC=$(( NOW_SEC - CREATED_SEC ))
+            AGE_DAYS=$(( AGE_SEC / 86400 ))
+
+            if [ "$AGE_SEC" -lt "$STALE_SEC" ]; then
+              echo "PR #$NUM ($KV): age=${AGE_DAYS}d < ${STALE_DAYS}d — not stale yet"
+              continue
+            fi
+
+            echo "::warning::PR #$NUM ($KV): age=${AGE_DAYS}d ≥ ${STALE_DAYS}d — pruning"
+
+            # Add the version to main's JSON with publish:false so the discover script doesn't
+            # re-propose it. If the version is somehow already in main with publish:true (race
+            # with auto-merge?), flip its publish flag instead of duplicating the entry.
+            EXISTING=$(jq --arg kv "$KV" '[.versions[] | select(.kotlin == $kv)] | length' \
+              .github/kotlin-versions.json)
+            if [ "$EXISTING" = "0" ]; then
+              jq --arg kv "$KV" \
+                '.versions += [{kotlin: $kv, publish: false,
+                                comment: ("Auto-marked publish:false after ${STALE_DAYS}d stale CI; flip to true and add CSM template if support is wanted.")}]' \
+                .github/kotlin-versions.json > /tmp/updated.json
+            else
+              jq --arg kv "$KV" \
+                '(.versions[] | select(.kotlin == $kv) | .publish) = false' \
+                .github/kotlin-versions.json > /tmp/updated.json
+            fi
+            mv /tmp/updated.json .github/kotlin-versions.json
+
+            git add .github/kotlin-versions.json
+            git commit -m "chore: skip stale Kotlin $KV (PR #$NUM, ${AGE_DAYS}d unresolved)"
+
+            ANY_PRUNED=true
+
+            gh pr close "$NUM" --delete-branch \
+              --comment "Auto-closed after ${AGE_DAYS} days of unresolved CI. Added \`publish: false\` to \`.github/kotlin-versions.json\` on \`main\` so discover-bot won't re-propose. To revive: edit JSON to flip \`publish: true\` (after landing any CSM template updates needed)."
+          done
+
+          if [ "$ANY_PRUNED" = "true" ]; then
+            git push origin main
+            echo "::notice::Pushed publish:false markers for pruned versions"
+          else
+            echo "::notice::No prereleases to prune today"
+          fi
