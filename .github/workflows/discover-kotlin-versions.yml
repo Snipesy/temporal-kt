@@ -87,6 +87,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+          # Snapshot the trigger ref's JSON so we can bootstrap if main doesn't have it yet
+          # (first-time setup, or when testing this workflow from a non-main branch before
+          # the JSON has landed on main). In normal steady-state production, main has the JSON
+          # and the bootstrap branch never fires.
+          cp .github/kotlin-versions.json /tmp/seed-versions.json
+
           while IFS= read -r KV; do
             [ -z "$KV" ] && continue
             BRANCH="chore/kotlin/$KV"
@@ -109,6 +115,16 @@ jobs:
 
             # Build a fresh branch off main, add ONE version to JSON, commit, push.
             git checkout -B "$BRANCH" origin/main
+
+            # Bootstrap: if main lacks the JSON (first-time / non-main test trigger), seed it
+            # from the trigger ref's snapshot. Steady-state production: main has the JSON and
+            # this branch is a no-op.
+            if [ ! -f .github/kotlin-versions.json ]; then
+              echo "::notice::main has no kotlin-versions.json; bootstrapping from trigger ref"
+              mkdir -p .github
+              cp /tmp/seed-versions.json .github/kotlin-versions.json
+            fi
+
             jq --arg kv "$KV" --arg c "$COMMENT" \
               '.versions += [{kotlin: $kv, publish: true, comment: $c}]' \
               .github/kotlin-versions.json > /tmp/updated.json
