@@ -57,6 +57,16 @@ jobs:
           install_pkg python3
           install_pkg curl
 
+      # Ensure the labels we attach to PRs exist on the repo. Idempotent — `gh label create
+      # --force` updates the label if it exists, creates it if not. Required because
+      # `gh pr create --label X` fails fast if X is missing.
+      - name: Ensure auto-discovery labels exist
+        shell: bash
+        run: |
+          gh label create auto-discovery     --color "0E8A16" --description "PR opened by discover-kotlin-versions.yml" --force
+          gh label create kotlin-stable      --color "0366D6" --description "Auto-discovered stable Kotlin release (e.g. 2.5.0)" --force
+          gh label create kotlin-prerelease  --color "FBCA04" --description "Auto-discovered prerelease/IDE-bundled Kotlin (-ij, -Beta, -RC, -Alpha, -SNAPSHOT, -dev, -M*); auto-pruned after 14d if CI fails" --force
+
       - name: Find new Kotlin versions
         id: find
         shell: bash
