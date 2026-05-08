@@ -606,6 +606,7 @@ internal class TemporalInlineActivityLowering(
         end: Int,
     ): IrExpression = IrConstImpl(start, end, pluginContext.irBuiltIns.anyNType, IrConstKind.Null, null)
 
+    @Suppress("ktlint:standard:property-naming")
     private val ORIGIN: IrDeclarationOrigin = IrDeclarationOrigin.GeneratedByPlugin(InlineActivityKey)
 
     private object InlineActivityKey : GeneratedDeclarationKey()
