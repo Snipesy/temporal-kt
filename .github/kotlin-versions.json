@@ -1,0 +1,25 @@
+{
+  "default": "2.3.21",
+  "versions": [
+    {
+      "kotlin": "2.3.21",
+      "publish": true,
+      "comment": "Pinned default; full test suite runs via publish.yml (gradle build)"
+    },
+    {
+      "kotlin": "2.4.0-Beta2",
+      "publish": true,
+      "comment": "CSM 2.4 branch active (IrAnnotation conversion via fromSymbolOwner)"
+    },
+    {
+      "kotlin": "2.4.0-ij261-32",
+      "publish": true,
+      "comment": "IDEA 2026.1.1 bundle; KEFS forge prefix (compiles against pinned ABI per build.gradle.kts requestedIsIdeOnly guard)"
+    },
+    {
+      "kotlin": "2.4.0-ij261-50",
+      "publish": true,
+      "comment": "Auto-discovered from IDEA bundle (kotlincVersion); KEFS forge prefix"
+    }
+  ]
+}
