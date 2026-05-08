@@ -115,6 +115,14 @@ jobs:
               continue
             fi
 
+            # Recover from orphan branches: prior run pushed the branch but the PR-create step
+            # failed (e.g. missing label). Delete the orphan and start fresh — content is
+            # bot-derived so re-creation is deterministic.
+            if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+              echo "::warning::Orphan branch $BRANCH exists on remote with no PR; deleting and recreating"
+              git push origin --delete "$BRANCH"
+            fi
+
             # Tag the entry by source for the PR body.
             if echo "$KV" | grep -q -- '-ij'; then
               SRC="IDEA bundle (kotlincVersion); KEFS forge prefix"
