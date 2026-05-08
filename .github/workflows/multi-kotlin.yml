@@ -66,5 +66,11 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      # `-PskipNativeBuild=true` decouples compiler-plugin tests from the Rust core-bridge natives:
+      # `processTestResources` defaults to `dependsOn(":core-bridge:copyNativeLib")` (set in
+      # `buildSrc/src/main/kotlin/kotlin-jvm.gradle.kts`), which transitively triggers `cargoBuild`
+      # and requires `protoc` on the runner. The compiler-plugin tests don't actually load native
+      # libs — that's an SDK-runtime concern. Skipping cuts ~3 minutes per leg AND removes the
+      # protoc/Rust toolchain prerequisite.
       - name: Compile / test against Kotlin ${{ matrix.kotlin }}
-        run: ./gradlew ${{ matrix.gradle-task }} -Pkotlin.lang=${{ matrix.kotlin }} -Pkotlin.compiler=${{ matrix.kotlin }}
+        run: ./gradlew ${{ matrix.gradle-task }} -Pkotlin.lang=${{ matrix.kotlin }} -Pkotlin.compiler=${{ matrix.kotlin }} -PskipNativeBuild=true
