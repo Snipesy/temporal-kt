@@ -7,6 +7,11 @@ on:
       - '**.md'
       - 'docs/**'
       - '.github/workflows/ci.yml'
+      # Discover-bot's PRs touch only kotlin-versions.json. Mainline (core, runtime, etc.) doesn't
+      # need re-publishing for that — `publish-compiler-plugin.yml` handles JSON-driven variant
+      # extension on its own (pinned to latest release tag, not main HEAD).
+      - '.github/kotlin-versions.json'
+      - '.github/scripts/**'
   release:
     types: [published]
   workflow_dispatch:

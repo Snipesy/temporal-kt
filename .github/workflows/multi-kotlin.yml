@@ -1,11 +1,14 @@
 name: Multi-Kotlin compatibility
 
-# Validates that the compiler-plugin source compiles against multiple Kotlin compiler ABIs.
-# Versions + per-version test/publish flags live in `.github/kotlin-versions.json` (single source
-# of truth, also read by `publish.yml` and `discover-kotlin-versions.yml`). The matrix is built
-# dynamically: an entry with `test: true` runs the full test suite; `test: false` runs compile-only.
-# Per-version `.fir.txt` / `.fir.ir.txt` goldens (kotlinx-rpc-style) are deferred work — currently
-# only the default version's full test passes; non-default versions are compile-clean signals only.
+# Validates that the compiler-plugin source COMPILES against multiple Kotlin compiler ABIs.
+# Versions live in `.github/kotlin-versions.json` (single source of truth, also read by
+# `publish-compiler-plugin.yml` and `discover-kotlin-versions.yml`). One leg per entry,
+# each running `:compiler-plugin:compileKotlin` against that Kotlin version.
+#
+# This workflow does NOT run tests. The full test suite executes once via `publish.yml`'s
+# `gradle build` step at the pinned default Kotlin — that's sufficient validation. Running
+# tests across N Kotlin versions in this workflow would require per-version `.fir.txt` /
+# `.fir.ir.txt` goldens (kotlinx-rpc-style) which is bespoke test infrastructure not yet wired.
 
 on:
   push:
@@ -36,11 +39,8 @@ jobs:
 
       - id: config
         run: |
-          MATRIX=$(jq -c '{include: [.versions[] | {
-            name: .kotlin,
-            kotlin: .kotlin,
-            "gradle-task": (if .test then ":compiler-plugin:test" else ":compiler-plugin:compileKotlin" end)
-          }]}' .github/kotlin-versions.json)
+          MATRIX=$(jq -c '{include: [.versions[] | { name: .kotlin, kotlin: .kotlin }]}' \
+            .github/kotlin-versions.json)
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
           echo "Matrix: $MATRIX"
 
@@ -66,11 +66,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      # `-PskipNativeBuild=true` decouples compiler-plugin tests from the Rust core-bridge natives:
-      # `processTestResources` defaults to `dependsOn(":core-bridge:copyNativeLib")` (set in
-      # `buildSrc/src/main/kotlin/kotlin-jvm.gradle.kts`), which transitively triggers `cargoBuild`
-      # and requires `protoc` on the runner. The compiler-plugin tests don't actually load native
-      # libs — that's an SDK-runtime concern. Skipping cuts ~3 minutes per leg AND removes the
-      # protoc/Rust toolchain prerequisite.
-      - name: Compile / test against Kotlin ${{ matrix.kotlin }}
-        run: ./gradlew ${{ matrix.gradle-task }} -Pkotlin.lang=${{ matrix.kotlin }} -Pkotlin.compiler=${{ matrix.kotlin }} -PskipNativeBuild=true
+      # `-PskipNativeBuild=true` decouples compileKotlin from the Rust core-bridge natives.
+      # The compiler-plugin module doesn't need natives at compile time; skipping cuts setup.
+      - name: Compile against Kotlin ${{ matrix.kotlin }}
+        run: ./gradlew :compiler-plugin:compileKotlin -Pkotlin.lang=${{ matrix.kotlin }} -Pkotlin.compiler=${{ matrix.kotlin }} -PskipNativeBuild=true

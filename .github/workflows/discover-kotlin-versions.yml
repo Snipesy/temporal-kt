@@ -108,6 +108,7 @@ jobs:
 
       - name: Open PR
         if: steps.combine.outputs.any == 'true'
+        id: cpr
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -115,6 +116,10 @@ jobs:
           title: "chore: discover new Kotlin versions"
           body: |
             Auto-discovered. Each new entry added with `test: false, publish: true`.
+
+            **Auto-merge enabled** — this PR will merge itself once `multi-kotlin.yml` matrix
+            checks pass. Human intervention is only required if CI goes red (typically means
+            real ABI drift — a `//##csm` block update is needed).
 
             **From Maven Central:**
             ```
@@ -126,14 +131,28 @@ jobs:
             ${{ steps.find-idea.outputs.new }}
             ```
 
-            Before merging:
-            - [ ] CI compile-check passes for non-`-ij` Maven Central entries (multi-kotlin.yml leg).
-            - [ ] `-ij` entries auto-publish under forged prefix at the pinned ABI — no compile-check needed (see `compiler-plugin/build.gradle.kts:19-26`).
-            - [ ] If a Maven Central entry fails compile, add a `//##csm` block in `compiler-plugin/src/main/templates/.../TemporalIrApi.kt` and re-push.
-            - [ ] Optional: flip `test: true` once per-version goldens are captured (Stage 13 deferred work).
-
             Discovery sources:
             - `.github/scripts/check-kotlin-versions.sh` — polls Maven Central for `2.x.y(-Beta|-RC)?` releases at-or-above the highest known minor.
             - `.github/scripts/check-idea-versions.sh` — polls JetBrains releases API → fetches `model.properties` at each IDEA build tag → extracts `kotlincVersion`.
+
+            **Repo-settings prerequisites for auto-merge** (one-time):
+            - Settings → General → Pull Requests → "Allow auto-merge" enabled.
+            - Settings → Branches → main → branch protection: `multi-kotlin.yml` matrix legs
+              required as status checks. Without this, auto-merge fires immediately without CI.
           commit-message: "chore: discover new Kotlin versions"
           delete-branch: true
+
+      # Enable GitHub's native auto-merge on the PR. GitHub waits for required status checks
+      # (set up via branch protection) and merges automatically when they pass. CI-green is the
+      # validation gate — multi-kotlin.yml proves the new Kotlin version compiles cleanly. If CI
+      # fails, the PR sits open until a human adds a CSM template fix.
+      - name: Enable auto-merge on PR
+        if: steps.combine.outputs.any == 'true' && steps.cpr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          PR="${{ steps.cpr.outputs.pull-request-number }}"
+          echo "Enabling auto-merge on PR #${PR}"
+          gh pr merge --auto --squash "$PR" || \
+            echo "::warning::Auto-merge enable failed — check repo Settings → General → Allow auto-merge"
