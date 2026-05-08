@@ -30,6 +30,29 @@ kotlin {
     jvmToolchain(25)
 }
 
+// -Pkotlin.lang=<X> retargets every `org.jetbrains.kotlin:*` dependency to that version across
+// every module that applies this convention. Mirrors the KGP override in
+// `buildSrc/settings.gradle.kts`; together they make `./gradlew … -Pkotlin.lang=2.4.0-Beta2` build
+// the entire project at the requested Kotlin. Used by CI matrix legs to validate compatibility
+// against upcoming Kotlin releases. compiler-plugin/build.gradle.kts has a narrower
+// `-Pkotlin.compiler` override that only affects its compileOnly classpath + CSM template selection.
+//
+// Skip `-ij` values for the same reason as the buildSrc settings file: those Kotlin builds aren't
+// published as kotlin-gradle-plugin / kotlin-stdlib / etc. artifacts. The KEFS forge model
+// publishes our compiler-plugin under an `-ij`-prefixed coordinate built against pinned ABI.
+providers.gradleProperty("kotlin.lang").orNull
+    ?.takeIf { !it.contains("-ij") }
+    ?.let { kotlinLangOverride ->
+        configurations.configureEach {
+            resolutionStrategy.eachDependency {
+                if (requested.group == "org.jetbrains.kotlin" && requested.name.startsWith("kotlin-")) {
+                    useVersion(kotlinLangOverride)
+                    because("kotlin.lang override → $kotlinLangOverride")
+                }
+            }
+        }
+    }
+
 // Enable native access for FFM (Foreign Function & Memory) API
 val nativeAccessArgs = listOf("--enable-native-access=ALL-UNNAMED")
 

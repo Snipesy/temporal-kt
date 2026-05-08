@@ -244,8 +244,9 @@ private fun serializeArgs(
         buildList(argTypesAndValues.size / 2) {
             var i = 0
             while (i < argTypesAndValues.size) {
-                val type = argTypesAndValues[i] as? KType
-                    ?: error("Expected KType at index $i, got ${argTypesAndValues[i]?.javaClass?.name}")
+                val type =
+                    argTypesAndValues[i] as? KType
+                        ?: error("Expected KType at index $i, got ${argTypesAndValues[i]?.javaClass?.name}")
                 val value = argTypesAndValues[i + 1]
                 add(serializer.serialize(type, value))
                 i += 2

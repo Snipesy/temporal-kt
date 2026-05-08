@@ -1,0 +1,23 @@
+{
+  "default": "2.3.21",
+  "versions": [
+    {
+      "kotlin": "2.3.21",
+      "test": true,
+      "publish": true,
+      "comment": "Pinned default; full test suite asserts goldens"
+    },
+    {
+      "kotlin": "2.4.0-Beta2",
+      "test": false,
+      "publish": true,
+      "comment": "Compile-only at CI (goldens are 2.3.21-captured); CSM 2.4 branch active"
+    },
+    {
+      "kotlin": "2.4.0-ij261-32",
+      "test": false,
+      "publish": true,
+      "comment": "IDEA 2026.1.1 bundle; KEFS forge prefix (compiles against pinned ABI per build.gradle.kts requestedIsIdeOnly guard)"
+    }
+  ]
+}

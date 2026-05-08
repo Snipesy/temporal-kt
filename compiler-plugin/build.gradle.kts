@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+import util.csm.ProcessCsmTemplate
 
 plugins {
     id("buildsrc.convention.kotlin-jvm")
@@ -61,11 +62,45 @@ mavenPublishing {
     }
 }
 
+// CSM (Compatibility Service Module) — see Stage 12 in plans/. Templates under `src/main/templates/`
+// contain `//##csm` directive blocks; the `processCsmTemplates` task selects the right block per
+// `kotlin.compiler` version and writes plain `.kt` files into `build/generated-sources/csm/`.
+val csmGeneratedSources = layout.buildDirectory.dir("generated-sources/csm").map { it.asFile.toPath() }
+val csmTemplatesDir =
+    layout.projectDirectory
+        .dir("src/main/templates")
+        .asFile
+        .toPath()
+
+val processCsmTemplates =
+    tasks.register<ProcessCsmTemplate>(
+        "processCsmTemplates",
+        resolvedKotlinVersion,
+        emptyMap<String, String>(),
+        provider { csmTemplatesDir },
+        csmGeneratedSources,
+    )
+
 sourceSets {
+    main {
+        kotlin.srcDir(csmGeneratedSources)
+    }
     test {
         java.srcDir("src/test-gen")
     }
 }
+
+// Every task that reads main Kotlin sources must depend on the CSM generator: compileKotlin,
+// the kapt stub generator, and Dokka. Use a broad selector so we don't have to chase new tasks.
+tasks
+    .matching {
+        it.name.startsWith("compile") ||
+            it.name.startsWith("kapt") ||
+            it.name.startsWith("dokka") ||
+            it.name == "sourcesJar"
+    }.configureEach {
+        dependsOn(processCsmTemplates)
+    }
 
 // `kotlin-compiler` ships com.intellij.openapi.util.io.NioFiles with `deleteRecursively` stripped by Proguard.
 // The test framework calls that method. To fix, we load the proper NioFiles from `com.jetbrains.intellij.platform:util`
@@ -88,6 +123,16 @@ val testArtifacts: Configuration by configurations.creating
 // swap every `org.jetbrains.kotlin:*` dependency in this module to that version. For IDE-internal
 // `-ij` versions (which aren't on any public Maven repo), keep the pinned version — the artifact
 // is published with the forged prefix, but the bytecode is built against our default ABI.
+//
+// CAVEAT: even with this rewrite, you cannot actually compile against a different Kotlin compiler
+// ABI in-place. The Kotlin Gradle Plugin (KGP) is loaded via buildSrc at the pinned 2.3.21 version
+// and calls into `kotlin-build-tools-api` / `IncrementalJvmCompilerRunner` whose ABI drifts between
+// Kotlin minors. Setting `-Pkotlin.compiler=2.4.0-Beta2` will fail at `kaptGenerateStubsKotlin` with
+// NoSuchMethodError. To actually compile against 2.4 ABI, also bump KGP in `buildSrc/build.gradle.kts`
+// — but that breaks 2.3.21 compilation for everyone else. Realistic options for true multi-version
+// support: (a) Mr3zee/kotlin-external-fir-support (KEFS) for reflective IDE-side shimming, or (b)
+// per-version Gradle build with its own KGP. CSM templates in `src/main/templates/` are staged for
+// when one of these approaches is wired.
 if (resolvedKotlinVersion != pinnedKotlinVersion) {
     configurations.configureEach {
         resolutionStrategy.eachDependency {

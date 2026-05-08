@@ -38,8 +38,10 @@ suspend fun <Return> WorkflowContext.inlineActivity(
     name: String,
     body: suspend ActivityContext.() -> Return,
 ): Return {
-    @Suppress("UNUSED_PARAMETER", "UNUSED_EXPRESSION") name
-    @Suppress("UNUSED_EXPRESSION") body
+    @Suppress("UNUSED_PARAMETER", "UNUSED_EXPRESSION")
+    name
+    @Suppress("UNUSED_EXPRESSION")
+    body
     throw UnsupportedOperationException(PLUGIN_REQUIRED)
 }
 
@@ -57,7 +59,9 @@ suspend fun <Return> WorkflowContext.inlineLocalActivity(
     name: String,
     body: suspend ActivityContext.() -> Return,
 ): Return {
-    @Suppress("UNUSED_PARAMETER", "UNUSED_EXPRESSION") name
-    @Suppress("UNUSED_EXPRESSION") body
+    @Suppress("UNUSED_PARAMETER", "UNUSED_EXPRESSION")
+    name
+    @Suppress("UNUSED_EXPRESSION")
+    body
     throw UnsupportedOperationException(PLUGIN_REQUIRED)
 }

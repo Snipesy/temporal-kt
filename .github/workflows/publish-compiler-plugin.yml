@@ -1,0 +1,194 @@
+name: Publish compiler-plugin per Kotlin version
+
+# Publishes per-Kotlin-version compiler-plugin artifacts to Maven Central. Iterates entries in
+# `.github/kotlin-versions.json` where `publish == true`, skipping the default Kotlin version
+# (already published by the mainline `publish.yml` fan-out).
+#
+# WHY A SEPARATE WORKFLOW: mainline library releases (core, runtime, gradle-plugin) and
+# per-Kotlin-version compiler-plugin variants have different cadences and failure surfaces.
+# Mixing them means a per-version loop blip taints the mainline release perception and pulls
+# mainline into the retry blast radius. Splitting lets:
+# - The discover-kotlin-versions PR-bot trigger only this workflow when a new IDE-bundle entry
+#   merges (no library bump needed).
+# - Mainline releases trigger this workflow at the end via `workflow_run` chaining.
+# - Manual `workflow_dispatch` re-runs target only specific versions.
+#
+# IDEMPOTENCY: pre-checks Maven Central's search API for each coordinate before attempting to
+# publish; skips already-shipped versions. Failures are collected (not aborted) so one bad
+# version doesn't block the rest. Post-failure re-check handles the search-index-stale race
+# window. See `central.sonatype.org/publish/publish-portal-api/` — there's no Portal endpoint
+# to query "is this coordinate published?", search.maven.org is the canonical primitive.
+
+on:
+  workflow_dispatch:
+    inputs:
+      versions:
+        description: 'Comma-separated Kotlin versions to publish (default: all publish:true entries from kotlin-versions.json, except the default version)'
+        required: false
+        type: string
+
+  push:
+    branches: [main]
+    paths:
+      - '.github/kotlin-versions.json'
+      - 'compiler-plugin/**'
+      - '!compiler-plugin/**.md'
+
+  workflow_run:
+    workflows: ['Publish to Maven Central']
+    types: [completed]
+
+# Don't run multiple per-version publish loops simultaneously — Maven Central staging contention.
+concurrency:
+  group: publish-compiler-plugin
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish compiler-plugin per Kotlin version
+    runs-on: ubuntu-latest
+    # Skip if the upstream Publish workflow that triggered us actually failed.
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install jq (if missing)
+        shell: bash
+        run: |
+          if ! command -v jq >/dev/null 2>&1; then
+            (sudo apt-get update -qq && sudo apt-get install -y -qq jq) \
+              || (apt-get update -qq && apt-get install -y -qq jq)
+          fi
+
+      - name: Resolve target Kotlin versions
+        id: targets
+        shell: bash
+        run: |
+          DEFAULT=$(jq -r '.default' .github/kotlin-versions.json)
+          if [ -n "${{ inputs.versions }}" ]; then
+            # Manual override: use the comma-list verbatim.
+            echo "::notice::Using explicit versions input: ${{ inputs.versions }}"
+            TARGETS=$(echo "${{ inputs.versions }}" | tr ',' '\n' | grep -v '^$')
+          else
+            # Default: every publish:true entry except the default Kotlin (mainline ships that one).
+            TARGETS=$(jq -r --arg d "$DEFAULT" \
+              '.versions[] | select(.publish == true and .kotlin != $d) | .kotlin' \
+              .github/kotlin-versions.json)
+          fi
+          if [ -z "$TARGETS" ]; then
+            echo "::notice::No versions to publish; exiting cleanly."
+            echo "any=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "any=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "list<<EOF"
+            echo "$TARGETS"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "Will publish:"
+          echo "$TARGETS"
+
+      - name: Publish (idempotent loop with search.maven.org pre-check)
+        if: steps.targets.outputs.any == 'true'
+        env:
+          TARGETS: ${{ steps.targets.outputs.list }}
+        shell: bash
+        run: |
+          # Read library version from gradle.properties so we can construct the full coordinate
+          # for the idempotency check. Compiler-plugin's `version` is `"$kotlinVersion-$libVersion"`
+          # per its build.gradle.kts (~line 47).
+          LIB=$(grep '^version=' gradle.properties | cut -d= -f2)
+          GROUP="com.surrealdev.temporal"
+          ARTIFACT="compiler-plugin"
+
+          # search.maven.org soft rate limit: ~1 req/sec. The 30s post-failure recheck and the
+          # 1s sleep at end-of-iter respect that.
+          exists_on_central() {
+            local KV=$1
+            local COORD="${KV}-${LIB}"
+            local URL="https://search.maven.org/solrsearch/select?q=g:${GROUP}+AND+a:${ARTIFACT}+AND+v:${COORD}&rows=1&wt=json"
+            local RESP
+            RESP=$(curl -s --max-time 10 "$URL" || echo '{"response":{"numFound":0}}')
+            local FOUND
+            FOUND=$(echo "$RESP" | jq -r '.response.numFound // 0')
+            [ "$FOUND" -gt 0 ]
+          }
+
+          # Three counters; surfaced as job summary at end. Failed → exit 1.
+          published=()
+          skipped=()
+          failed=()
+
+          while IFS= read -r KV; do
+            [ -z "$KV" ] && continue
+
+            # Layer 1: pre-check. If already on Central, skip silently — re-runnable after
+            # partial failure.
+            if exists_on_central "$KV"; then
+              echo "::notice::Skipping ${KV}-${LIB} — already on Maven Central"
+              skipped+=("$KV")
+              sleep 1
+              continue
+            fi
+
+            # Layer 2: real publish via vanniktech.
+            echo "::group::Publishing :compiler-plugin@${KV}-${LIB}"
+            if ./gradlew :compiler-plugin:publishToMavenCentral \
+                -Pkotlin.compiler="$KV" \
+                -Pkotlin.lang="$KV" \
+                -PskipNativeBuild=true \
+                -PsigningInMemoryKey="${{ secrets.SIGNING_KEY }}" \
+                -PsigningInMemoryKeyPassword="${{ secrets.SIGNING_PASSWORD }}" \
+                -PmavenCentralUsername="${{ secrets.OSSRH_USERNAME }}" \
+                -PmavenCentralPassword="${{ secrets.OSSRH_TOKEN }}" \
+                --no-configuration-cache --no-daemon; then
+              published+=("$KV")
+              echo "::endgroup::"
+              sleep 1
+              continue
+            fi
+            echo "::endgroup::"
+
+            # Layer 3: post-failure recheck. Vanniktech reports the publish as failed but the
+            # Portal may have raced through validation+publishing. Re-query search.maven.org
+            # after a short delay; if the coordinate now exists, treat as success (the failure
+            # was a transient gradle/network blip, not an actual publish failure).
+            echo "::warning::Publish reported failure for ${KV}; re-checking Maven Central in 30s…"
+            sleep 30
+            if exists_on_central "$KV"; then
+              echo "::notice::${KV}-${LIB} found on Central post-failure → marking as success"
+              skipped+=("$KV")
+              sleep 1
+              continue
+            fi
+
+            failed+=("$KV")
+            sleep 1
+          done <<< "$TARGETS"
+
+          # Summary in the job log AND in the run summary panel.
+          {
+            echo "## Compiler-plugin per-version publish summary"
+            echo "| Kotlin | Result |"
+            echo "|---|---|"
+            for v in "${published[@]:-}"; do [ -n "$v" ] && echo "| ${v}-${LIB} | ✅ published |"; done
+            for v in "${skipped[@]:-}";   do [ -n "$v" ] && echo "| ${v}-${LIB} | ⏭️  skipped (already on Central) |"; done
+            for v in "${failed[@]:-}";    do [ -n "$v" ] && echo "| ${v}-${LIB} | ❌ failed |"; done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ ${#failed[@]} -gt 0 ] && [ -n "${failed[0]}" ]; then
+            echo "::error::Failed to publish: ${failed[*]}"
+            exit 1
+          fi
+          echo "All versions handled. Published: ${#published[@]}; Skipped: ${#skipped[@]}."

@@ -229,26 +229,29 @@ class TemporalFirCompanionGenerator(
 
     private enum class HandlerKind { SIGNAL, QUERY, UPDATE, NONE }
 
-    private fun handlerKindOf(funcSymbol: FirNamedFunctionSymbol): HandlerKind? {
-        return when {
+    private fun handlerKindOf(funcSymbol: FirNamedFunctionSymbol): HandlerKind? =
+        when {
             funcSymbol.hasAnnotation(signalAnnotationClassId, session) -> HandlerKind.SIGNAL
             funcSymbol.hasAnnotation(queryAnnotationClassId, session) -> HandlerKind.QUERY
             funcSymbol.hasAnnotation(updateAnnotationClassId, session) -> HandlerKind.UPDATE
             else -> null
         }
-    }
 
     /**
      * `@Signal(dynamic = true)` etc. handlers receive the wire name as their first parameter and
      * cannot be wrapped as typed dispatchers. Read the boolean argument from the annotation.
      */
-    private fun isDynamicHandler(funcSymbol: FirNamedFunctionSymbol, kind: HandlerKind): Boolean {
+    private fun isDynamicHandler(
+        funcSymbol: FirNamedFunctionSymbol,
+        kind: HandlerKind,
+    ): Boolean {
         val classId = annotationClassIdFor(kind) ?: return false
         // Use the resolved-arguments accessor — annotation arguments are populated into
         // `argumentMapping.mapping` during ARGUMENTS_OF_ANNOTATIONS phase, and `findArgumentByName`
         // checks both the mapping (resolved case) and raw arguments (deserialized case).
-        val annotation = funcSymbol.getAnnotationWithResolvedArgumentsByClassId(classId, session)
-            ?: return false
+        val annotation =
+            funcSymbol.getAnnotationWithResolvedArgumentsByClassId(classId, session)
+                ?: return false
         val expr = annotation.findArgumentByName(Name.identifier("dynamic")) ?: return false
         val literal = expr as? org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
         return literal?.value as? Boolean == true
@@ -284,13 +287,17 @@ class TemporalFirCompanionGenerator(
         val expr =
             call.argumentList.arguments.firstNotNullOfOrNull { arg ->
                 when (arg) {
-                    is org.jetbrains.kotlin.fir.expressions.FirNamedArgumentExpression ->
+                    is org.jetbrains.kotlin.fir.expressions.FirNamedArgumentExpression -> {
                         if (arg.name.asString() == argName) arg.expression else null
+                    }
+
                     // First positional argument on @Signal/@Query/@Update is `name`.
-                    else -> if (argName == "name") {
-                        arg.takeIf { it is org.jetbrains.kotlin.fir.expressions.FirLiteralExpression }
-                    } else {
-                        null
+                    else -> {
+                        if (argName == "name") {
+                            arg.takeIf { it is org.jetbrains.kotlin.fir.expressions.FirLiteralExpression }
+                        } else {
+                            null
+                        }
                     }
                 }
             }
@@ -302,7 +309,10 @@ class TemporalFirCompanionGenerator(
      * Read the wire name from the annotation's `name` argument. Falls back to the user's Kotlin
      * method name if the annotation has no explicit name (or `name = ""`).
      */
-    private fun handlerWireName(funcSymbol: FirNamedFunctionSymbol, kind: HandlerKind): String {
+    private fun handlerWireName(
+        funcSymbol: FirNamedFunctionSymbol,
+        kind: HandlerKind,
+    ): String {
         val classId = annotationClassIdFor(kind) ?: return funcSymbol.name.asString()
         val annotation =
             funcSymbol.getAnnotationWithResolvedArgumentsByClassId(classId, session)

@@ -289,7 +289,13 @@ jobs:
             fi
           done
 
-      - name: Publish to Maven Central
+      # This fan-out publishes :compiler-plugin once at the default Kotlin version (read from
+      # gradle/libs.versions.toml). Per-Kotlin-version compiler-plugin artifacts (for KEFS users
+      # on different IDEA bundles) are published by the SEPARATE `publish-compiler-plugin.yml`
+      # workflow, which is auto-chained via `workflow_run` after this workflow completes
+      # successfully — and also fires independently on `.github/kotlin-versions.json` changes
+      # (e.g. when the discover PR-bot's PR merges, no full release tag needed).
+      - name: Publish to Maven Central (mainline + compiler-plugin@default)
         run: |
           ./gradlew publishToMavenCentral \
             -PskipNativeBuild=true \

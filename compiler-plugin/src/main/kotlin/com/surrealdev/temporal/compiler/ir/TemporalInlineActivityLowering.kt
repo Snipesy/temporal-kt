@@ -1,48 +1,22 @@
 package com.surrealdev.temporal.compiler.ir
 
+import com.surrealdev.temporal.compiler.vs.TemporalIrApi
 import org.jetbrains.kotlin.GeneratedDeclarationKey
 import org.jetbrains.kotlin.backend.common.extensions.IrPluginContext
 import org.jetbrains.kotlin.descriptors.DescriptorVisibilities
 import org.jetbrains.kotlin.descriptors.Modality
-import org.jetbrains.kotlin.ir.IrStatement
 import org.jetbrains.kotlin.ir.builders.declarations.buildFun
 import org.jetbrains.kotlin.ir.builders.declarations.buildValueParameter
-import org.jetbrains.kotlin.ir.declarations.IrClass
-import org.jetbrains.kotlin.ir.declarations.IrDeclarationOrigin
-import org.jetbrains.kotlin.ir.declarations.IrFile
-import org.jetbrains.kotlin.ir.declarations.IrModuleFragment
-import org.jetbrains.kotlin.ir.declarations.IrParameterKind
-import org.jetbrains.kotlin.ir.declarations.IrSimpleFunction
-import org.jetbrains.kotlin.ir.declarations.IrValueParameter
-import org.jetbrains.kotlin.ir.declarations.createBlockBody
-import org.jetbrains.kotlin.ir.expressions.IrCall
-import org.jetbrains.kotlin.ir.expressions.IrConst
-import org.jetbrains.kotlin.ir.expressions.IrConstKind
-import org.jetbrains.kotlin.ir.expressions.IrExpression
-import org.jetbrains.kotlin.ir.expressions.IrFunctionAccessExpression
-import org.jetbrains.kotlin.ir.expressions.IrFunctionExpression
-import org.jetbrains.kotlin.ir.expressions.IrStatementOrigin
-import org.jetbrains.kotlin.ir.expressions.impl.IrCallImpl
-import org.jetbrains.kotlin.ir.expressions.impl.IrClassReferenceImpl
-import org.jetbrains.kotlin.ir.expressions.impl.IrConstImpl
-import org.jetbrains.kotlin.ir.expressions.impl.IrConstructorCallImpl
-import org.jetbrains.kotlin.ir.expressions.impl.IrFunctionReferenceImpl
-import org.jetbrains.kotlin.ir.expressions.impl.IrGetValueImpl
-import org.jetbrains.kotlin.ir.expressions.impl.IrReturnImpl
+import org.jetbrains.kotlin.ir.declarations.*
+import org.jetbrains.kotlin.ir.expressions.*
+import org.jetbrains.kotlin.ir.expressions.impl.*
 import org.jetbrains.kotlin.ir.symbols.IrClassSymbol
 import org.jetbrains.kotlin.ir.symbols.IrSimpleFunctionSymbol
 import org.jetbrains.kotlin.ir.symbols.IrValueSymbol
 import org.jetbrains.kotlin.ir.symbols.UnsafeDuringIrConstructionAPI
-import org.jetbrains.kotlin.ir.types.IrSimpleType
-import org.jetbrains.kotlin.ir.types.IrType
-import org.jetbrains.kotlin.ir.types.SimpleTypeNullability
-import org.jetbrains.kotlin.ir.types.classifierOrNull
-import org.jetbrains.kotlin.ir.types.defaultType
+import org.jetbrains.kotlin.ir.types.*
 import org.jetbrains.kotlin.ir.types.impl.IrSimpleTypeImpl
 import org.jetbrains.kotlin.ir.types.impl.makeTypeProjection
-import org.jetbrains.kotlin.ir.types.starProjectedType
-import org.jetbrains.kotlin.ir.util.constructors
-import org.jetbrains.kotlin.ir.util.deepCopyWithSymbols
 import org.jetbrains.kotlin.ir.util.defaultType
 import org.jetbrains.kotlin.ir.util.functions
 import org.jetbrains.kotlin.ir.util.hasAnnotation
@@ -214,7 +188,10 @@ internal class TemporalInlineActivityLowering(
                     super.visitCall(expression)
                 }
 
-                private fun captureActivity(call: IrCall, kind: ActivityKind): InlineActivity? {
+                private fun captureActivity(
+                    call: IrCall,
+                    kind: ActivityKind,
+                ): InlineActivity? {
                     // Args: [extension receiver (WorkflowContext), name, body]
                     val nameArg =
                         call.arguments.firstOrNull { it is IrConst && it.kind == IrConstKind.String }
@@ -282,8 +259,10 @@ internal class TemporalInlineActivityLowering(
         lifted.modality = Modality.FINAL
         lifted.parent = file
         lifted.origin = ORIGIN
-        lifted.annotations =
-            listOf(buildActivityAnnotation(activity.name, lifted.startOffset, lifted.endOffset))
+        TemporalIrApi.setAnnotations(
+            lifted,
+            listOf(buildActivityAnnotation(activity.name, lifted.startOffset, lifted.endOffset)),
+        )
 
         // For each captured value, append a Regular value parameter to the lifted function and
         // build a remap from the captured symbol → the new parameter's symbol.
@@ -332,11 +311,10 @@ internal class TemporalInlineActivityLowering(
                     )
                 }
 
-                override fun visitGetValue(
-                    expression: org.jetbrains.kotlin.ir.expressions.IrGetValue,
-                ): IrExpression {
-                    val newSymbol = captureRemap[expression.symbol]
-                        ?: return super.visitGetValue(expression)
+                override fun visitGetValue(expression: org.jetbrains.kotlin.ir.expressions.IrGetValue): IrExpression {
+                    val newSymbol =
+                        captureRemap[expression.symbol]
+                            ?: return super.visitGetValue(expression)
                     return IrGetValueImpl(expression.startOffset, expression.endOffset, newSymbol)
                 }
             },
@@ -383,19 +361,15 @@ internal class TemporalInlineActivityLowering(
         activityName: String,
         startOffset: Int,
         endOffset: Int,
-    ): IrConstructorCallImpl {
+    ): IrConstructorCall {
         val annotationClassType = (activityAnnotationCtor.owner.parent as IrClass).defaultType
-        val annotationCall =
-            IrConstructorCallImpl(
-                startOffset = startOffset,
-                endOffset = endOffset,
-                type = annotationClassType,
-                symbol = activityAnnotationCtor,
-                typeArgumentsCount = 0,
-                constructorTypeArgumentsCount = 0,
-            )
-        annotationCall.arguments[0] = stringConst(activityName, startOffset, endOffset)
-        return annotationCall
+        return TemporalIrApi.newAnnotation(
+            startOffset = startOffset,
+            endOffset = endOffset,
+            type = annotationClassType,
+            symbol = activityAnnotationCtor,
+            arguments = listOf(stringConst(activityName, startOffset, endOffset)),
+        )
     }
 
     private fun buildRegistrationMethod(
@@ -580,8 +554,11 @@ internal class TemporalInlineActivityLowering(
         )
     }
 
-    private fun longConst(value: Long, start: Int, end: Int): IrExpression =
-        IrConstImpl(start, end, pluginContext.irBuiltIns.longType, IrConstKind.Long, value)
+    private fun longConst(
+        value: Long,
+        start: Int,
+        end: Int,
+    ): IrExpression = IrConstImpl(start, end, pluginContext.irBuiltIns.longType, IrConstKind.Long, value)
 
     private fun typeFromClassCall(
         forType: IrType,

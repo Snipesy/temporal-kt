@@ -1,0 +1,70 @@
+name: Multi-Kotlin compatibility
+
+# Validates that the compiler-plugin source compiles against multiple Kotlin compiler ABIs.
+# Versions + per-version test/publish flags live in `.github/kotlin-versions.json` (single source
+# of truth, also read by `publish.yml` and `discover-kotlin-versions.yml`). The matrix is built
+# dynamically: an entry with `test: true` runs the full test suite; `test: false` runs compile-only.
+# Per-version `.fir.txt` / `.fir.ir.txt` goldens (kotlinx-rpc-style) are deferred work — currently
+# only the default version's full test passes; non-default versions are compile-clean signals only.
+
+on:
+  push:
+    branches: [main, compiler]
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+
+jobs:
+  matrix-config:
+    name: Build matrix from kotlin-versions.json
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.config.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # GitHub-hosted ubuntu-latest preinstalls jq; non-GitHub runners (act with the
+      # gradle:9.4.1-jdk25 image, etc.) don't. Install idempotently — the `command -v` guard
+      # short-circuits on hosted runners.
+      - name: Install jq (if missing)
+        shell: bash
+        run: |
+          if ! command -v jq >/dev/null 2>&1; then
+            (sudo apt-get update -qq && sudo apt-get install -y -qq jq) \
+              || (apt-get update -qq && apt-get install -y -qq jq)
+          fi
+
+      - id: config
+        run: |
+          MATRIX=$(jq -c '{include: [.versions[] | {
+            name: .kotlin,
+            kotlin: .kotlin,
+            "gradle-task": (if .test then ":compiler-plugin:test" else ":compiler-plugin:compileKotlin" end)
+          }]}' .github/kotlin-versions.json)
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "Matrix: $MATRIX"
+
+  matrix:
+    name: Kotlin ${{ matrix.name }}
+    needs: matrix-config
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix-config.outputs.matrix) }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Compile / test against Kotlin ${{ matrix.kotlin }}
+        run: ./gradlew ${{ matrix.gradle-task }} -Pkotlin.lang=${{ matrix.kotlin }} -Pkotlin.compiler=${{ matrix.kotlin }}

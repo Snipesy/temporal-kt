@@ -4,6 +4,7 @@ import com.surrealdev.temporal.compiler.fir.TemporalCompanionKey
 import com.surrealdev.temporal.compiler.fir.TemporalQueryKey
 import com.surrealdev.temporal.compiler.fir.TemporalSignalKey
 import com.surrealdev.temporal.compiler.fir.TemporalUpdateKey
+import com.surrealdev.temporal.compiler.vs.TemporalIrApi
 import org.jetbrains.kotlin.backend.common.extensions.IrPluginContext
 import org.jetbrains.kotlin.ir.IrStatement
 import org.jetbrains.kotlin.ir.declarations.IrClass
@@ -16,11 +17,11 @@ import org.jetbrains.kotlin.ir.declarations.IrValueParameter
 import org.jetbrains.kotlin.ir.declarations.createBlockBody
 import org.jetbrains.kotlin.ir.expressions.IrConst
 import org.jetbrains.kotlin.ir.expressions.IrConstKind
+import org.jetbrains.kotlin.ir.expressions.IrConstructorCall
 import org.jetbrains.kotlin.ir.expressions.IrExpression
 import org.jetbrains.kotlin.ir.expressions.impl.IrCallImpl
 import org.jetbrains.kotlin.ir.expressions.impl.IrClassReferenceImpl
 import org.jetbrains.kotlin.ir.expressions.impl.IrConstImpl
-import org.jetbrains.kotlin.ir.expressions.impl.IrConstructorCallImpl
 import org.jetbrains.kotlin.ir.expressions.impl.IrDelegatingConstructorCallImpl
 import org.jetbrains.kotlin.ir.expressions.impl.IrGetValueImpl
 import org.jetbrains.kotlin.ir.expressions.impl.IrInstanceInitializerCallImpl
@@ -242,13 +243,11 @@ internal class TemporalCompanionIrBodyFiller(
 
     private fun fillOptionsDefault(param: IrValueParameter) {
         val ctorCall =
-            IrConstructorCallImpl(
+            TemporalIrApi.newConstructorCall(
                 startOffset = param.startOffset,
                 endOffset = param.endOffset,
                 type = workflowStartOptionsClass.defaultType,
                 symbol = workflowStartOptionsCtor,
-                typeArgumentsCount = 0,
-                constructorTypeArgumentsCount = 0,
             )
         param.defaultValue =
             pluginContext.irFactory.createExpressionBody(param.startOffset, param.endOffset, ctorCall)
@@ -359,15 +358,14 @@ internal class TemporalCompanionIrBodyFiller(
         handleArg: IrExpression,
         startOffset: Int,
         endOffset: Int,
-    ): IrConstructorCallImpl {
+    ): IrConstructorCall {
         val ctorCall =
-            IrConstructorCallImpl(
+            TemporalIrApi.newConstructorCall(
                 startOffset = startOffset,
                 endOffset = endOffset,
                 type = handleType,
                 symbol = handleCtor.symbol,
                 typeArgumentsCount = 1,
-                constructorTypeArgumentsCount = 0,
             )
         ctorCall.typeArguments[0] = resultIrType
         ctorCall.arguments[0] = handleArg
@@ -544,8 +542,9 @@ internal class TemporalCompanionIrBodyFiller(
     private fun fillSignalWrapper(function: IrSimpleFunction) {
         val handleClass = function.parentClassOrNull ?: return
         val workflowClass = handleClass.parentClassOrNull ?: return
-        val handlerName = readHandlerWireName(workflowClass, function.name.asString(), signalAnnotationFqn)
-            ?: function.name.asString()
+        val handlerName =
+            readHandlerWireName(workflowClass, function.name.asString(), signalAnnotationFqn)
+                ?: function.name.asString()
         val so = function.startOffset
         val eo = function.endOffset
 
@@ -585,8 +584,9 @@ internal class TemporalCompanionIrBodyFiller(
         val workflowClass = handleClass.parentClassOrNull ?: return
         val annotationFqn =
             if (runtimeFn == queryTypedFn) queryAnnotationFqn else updateAnnotationFqn
-        val handlerName = readHandlerWireName(workflowClass, function.name.asString(), annotationFqn)
-            ?: function.name.asString()
+        val handlerName =
+            readHandlerWireName(workflowClass, function.name.asString(), annotationFqn)
+                ?: function.name.asString()
         val so = function.startOffset
         val eo = function.endOffset
 
@@ -621,7 +621,8 @@ internal class TemporalCompanionIrBodyFiller(
 
         function.body =
             pluginContext.irFactory.createBlockBody(
-                so, eo,
+                so,
+                eo,
                 listOf(IrReturnImpl(so, eo, pluginContext.irBuiltIns.nothingType, function.symbol, coerced)),
             )
     }

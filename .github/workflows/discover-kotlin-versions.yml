@@ -1,0 +1,139 @@
+name: Discover new Kotlin versions
+
+# Scheduled job that discovers new Kotlin compiler versions from two sources:
+#   1. Maven Central (Beta / RC / final releases) → check-kotlin-versions.sh
+#   2. IDEA-bundled `-ij` versions → check-idea-versions.sh (queries JetBrains releases API +
+#      intellij-community/model.properties at each IDEA build tag)
+# Both scripts diff against `.github/kotlin-versions.json`. If new versions are found, this
+# workflow opens a single PR adding them as `test:false, publish:true`. A human reviews the PR,
+# verifies CI passes for each new version, and flips `test:true` once goldens are updated.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1,3,5'   # Mon/Wed/Fri 06:00 UTC
+  workflow_dispatch:
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # GitHub-hosted ubuntu-latest preinstalls jq + python3 + curl; non-GitHub runners (act with
+      # the gradle:9.4.1-jdk25 image, etc.) need explicit installs. Idempotent — short-circuits on
+      # hosted runners. python3 is required by `check-idea-versions.sh` for parsing the JetBrains
+      # releases API JSON.
+      - name: Install discovery dependencies (if missing)
+        shell: bash
+        run: |
+          install_pkg() {
+            local pkg=$1
+            if ! command -v "$pkg" >/dev/null 2>&1; then
+              (sudo apt-get update -qq && sudo apt-get install -y -qq "$pkg") \
+                || (apt-get update -qq && apt-get install -y -qq "$pkg")
+            fi
+          }
+          install_pkg jq
+          install_pkg python3
+          install_pkg curl
+
+      - name: Find new Kotlin versions (Maven Central)
+        id: find-central
+        run: |
+          NEW=$(./.github/scripts/check-kotlin-versions.sh)
+          echo "Found from Maven Central:"
+          echo "$NEW"
+          {
+            echo "new<<EOF"
+            echo "$NEW"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Find new IDEA-bundled Kotlin versions
+        id: find-idea
+        run: |
+          NEW=$(./.github/scripts/check-idea-versions.sh)
+          echo "Found from IDEA bundles:"
+          echo "$NEW"
+          {
+            echo "new<<EOF"
+            echo "$NEW"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Combine + check
+        id: combine
+        run: |
+          ALL=$(printf '%s\n%s\n' "${{ steps.find-central.outputs.new }}" "${{ steps.find-idea.outputs.new }}" \
+            | grep -v '^$' | sort -u || true)
+          if [ -z "$ALL" ]; then
+            echo "No new versions across either source."
+            echo "any=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "any=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "all<<EOF"
+            echo "$ALL"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Update kotlin-versions.json
+        if: steps.combine.outputs.any == 'true'
+        # Pass discovered versions via env vars rather than `${{ … }}` shell interpolation. Belt
+        # and braces: the upstream scripts already filter via strict regex, so a JetBrains-API
+        # response containing shell metachars would have been rejected. But env-var passing keeps
+        # the heredoc from ever expanding command substitutions even if filtering ever loosens.
+        env:
+          ALL_NEW: ${{ steps.combine.outputs.all }}
+        run: |
+          while read -r KV; do
+            [ -z "$KV" ] && continue
+            # Tag -ij entries differently so the PR review surface knows what came from where.
+            if echo "$KV" | grep -q -- '-ij'; then
+              COMMENT="Auto-discovered from IDEA bundle (kotlincVersion); KEFS forge prefix"
+            else
+              COMMENT="Auto-discovered from Maven Central; verify CI before merge"
+            fi
+            jq --arg kv "$KV" --arg c "$COMMENT" \
+              '.versions += [{kotlin: $kv, test: false, publish: true, comment: $c}]' \
+              .github/kotlin-versions.json > /tmp/updated.json
+            mv /tmp/updated.json .github/kotlin-versions.json
+          done <<< "$ALL_NEW"
+          echo "Updated kotlin-versions.json:"
+          cat .github/kotlin-versions.json
+
+      - name: Open PR
+        if: steps.combine.outputs.any == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: chore/kotlin-versions-update
+          title: "chore: discover new Kotlin versions"
+          body: |
+            Auto-discovered. Each new entry added with `test: false, publish: true`.
+
+            **From Maven Central:**
+            ```
+            ${{ steps.find-central.outputs.new }}
+            ```
+
+            **From IDEA bundles** (KEFS forge prefixes):
+            ```
+            ${{ steps.find-idea.outputs.new }}
+            ```
+
+            Before merging:
+            - [ ] CI compile-check passes for non-`-ij` Maven Central entries (multi-kotlin.yml leg).
+            - [ ] `-ij` entries auto-publish under forged prefix at the pinned ABI — no compile-check needed (see `compiler-plugin/build.gradle.kts:19-26`).
+            - [ ] If a Maven Central entry fails compile, add a `//##csm` block in `compiler-plugin/src/main/templates/.../TemporalIrApi.kt` and re-push.
+            - [ ] Optional: flip `test: true` once per-version goldens are captured (Stage 13 deferred work).
+
+            Discovery sources:
+            - `.github/scripts/check-kotlin-versions.sh` — polls Maven Central for `2.x.y(-Beta|-RC)?` releases at-or-above the highest known minor.
+            - `.github/scripts/check-idea-versions.sh` — polls JetBrains releases API → fetches `model.properties` at each IDEA build tag → extracts `kotlincVersion`.
+          commit-message: "chore: discover new Kotlin versions"
+          delete-branch: true

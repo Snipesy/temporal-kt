@@ -51,7 +51,7 @@ TODO
 
 ### Powerful Plugins
 
-Depdendency injection, advanced hooks, health monitoring? You got it!
+Dependency injection, advanced hooks, health monitoring? You got it!
 
 * ...
 * ...
