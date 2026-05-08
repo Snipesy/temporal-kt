@@ -31,9 +31,9 @@ import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.types.Variance
 
 /**
- * Stage 8.6: lift inline `activity("name") { ... }` calls inside `@WorkflowRun` methods.
+ * Lifts inline `activity("name") { ... }` calls inside `@WorkflowRun` methods.
  *
- * Three passes per `@Workflow`-annotated class:
+ * For each `@Workflow`-annotated class:
  *
  * 1. **Discover** — walk the class's `@WorkflowRun` method body for `IrCall`s to
  *    `com.surrealdev.temporal.dsl.activity` (the receiver-bound DSL stub). For each, capture the
@@ -73,6 +73,13 @@ internal class TemporalInlineActivityLowering(
         ClassId.topLevel(FqName("com.surrealdev.temporal.workflow.WorkflowContext"))
     private val taskQueueBuilderClassId =
         ClassId.topLevel(FqName("com.surrealdev.temporal.application.TaskQueueBuilder"))
+    private val activityContextClassId =
+        ClassId.topLevel(FqName("com.surrealdev.temporal.activity.ActivityContext"))
+
+    private val activityContextClass by lazy {
+        finder.findClass(activityContextClassId)
+            ?: error("com.surrealdev.temporal.activity.ActivityContext not found on classpath")
+    }
 
     private val activityAnnotationCtor by lazy {
         finder.findConstructors(activityAnnotationClassId).firstOrNull()
@@ -101,6 +108,17 @@ internal class TemporalInlineActivityLowering(
                 CallableId(FqName("com.surrealdev.temporal.client"), Name.identifier("typeFromClass")),
             ).firstOrNull()
             ?: error("typeFromClass runtime helper not on classpath")
+    }
+
+    private val workflowGetterFn by lazy {
+        finder
+            .findFunctions(
+                CallableId(FqName("com.surrealdev.temporal.workflow"), Name.identifier("workflow")),
+            ).firstOrNull {
+                it.owner.parameters.isEmpty() ||
+                    it.owner.parameters.all { p -> p.kind != IrParameterKind.Regular }
+            }
+            ?: error("workflow() helper not on classpath")
     }
 
     private val workflowContextClass by lazy {
@@ -210,7 +228,7 @@ internal class TemporalInlineActivityLowering(
         val workflowFile = workflowClass.fileOrNull ?: return
         val workflowSimpleName = workflowClass.name.asString()
 
-        // Pass 2a: lift each lambda body to a top-level @Activity function.
+        // Lift each lambda body to a top-level @Activity function.
         val liftedFns = mutableMapOf<String, IrSimpleFunctionSymbol>()
         for (activity in activities) {
             val lifted = liftActivity(workflowFile, workflowSimpleName, activity)
@@ -222,7 +240,7 @@ internal class TemporalInlineActivityLowering(
             pluginContext.metadataDeclarationRegistrar.registerFunctionAsMetadataVisible(lifted)
         }
 
-        // Pass 2b: synthesise __registerInlineActivities on companion object.
+        // Synthesize __registerInlineActivities on the companion object.
         val companion = workflowClass.declarations.filterIsInstance<IrClass>().firstOrNull { it.isCompanion }
         if (companion != null) {
             val regMethod = buildRegistrationMethod(companion, liftedFns)
@@ -230,7 +248,7 @@ internal class TemporalInlineActivityLowering(
             pluginContext.metadataDeclarationRegistrar.registerFunctionAsMetadataVisible(regMethod)
         }
 
-        // Pass 3: rewrite each `activity(...)` call site.
+        // Rewrite each `activity(...)` call site.
         val rewriter = CallsiteRewriter(activities, workflowRunMethod)
         workflowRunMethod.body?.transform(rewriter, null)
     }
@@ -264,11 +282,53 @@ internal class TemporalInlineActivityLowering(
             listOf(buildActivityAnnotation(activity.name, lifted.startOffset, lifted.endOffset)),
         )
 
+        // Ensure the lifted function's first regular parameter is `ActivityContext`. The DSL
+        // declares `body: suspend ActivityContext.() -> Return` so the user can write `info` /
+        // `heartbeat(...)` directly via the lambda's `this`. At IR level the lambda has an
+        // ExtensionReceiver param of type ActivityContext. We adopt that param's symbol as the
+        // lifted function's leading regular param (changing `kind` from ExtensionReceiver →
+        // Regular). The same IrValueSymbol stays in place so the body's `this`-references resolve
+        // unchanged. If the lambda has no ActivityContext param at all (e.g. body never used
+        // `this`, materializer dropped it), we synthesise a fresh one.
+        // The Temporal SDK requires `@Activity` methods to take ActivityContext as a regular
+        // parameter (extension-receiver activity methods are no longer supported).
+        val activityContextType = activityContextClass.defaultType
+        val activityContextOwner = activityContextClass.owner
+        val existingActivityCtxParam =
+            lifted.parameters.firstOrNull { p ->
+                (p.kind == IrParameterKind.Regular || p.kind == IrParameterKind.ExtensionReceiver) &&
+                    (p.type.classifierOrNull as? IrClassSymbol)?.owner === activityContextOwner
+            }
+        val activityCtxParam =
+            if (existingActivityCtxParam != null) {
+                // Reuse the lambda's ActivityContext param — same symbol so body refs still bind.
+                // Promote ExtensionReceiver → Regular so the lifted function is a regular method
+                // (the SDK rejects extension-receiver activity methods).
+                if (existingActivityCtxParam.kind == IrParameterKind.ExtensionReceiver) {
+                    existingActivityCtxParam.kind = IrParameterKind.Regular
+                    existingActivityCtxParam.name = Name.identifier("activityContext")
+                }
+                existingActivityCtxParam
+            } else {
+                buildValueParameter(lifted) {
+                    kind = IrParameterKind.Regular
+                    name = Name.identifier("activityContext")
+                    type = activityContextType
+                }
+            }
+
         // For each captured value, append a Regular value parameter to the lifted function and
         // build a remap from the captured symbol → the new parameter's symbol.
         val captureRemap = mutableMapOf<IrValueSymbol, IrValueSymbol>()
-        if (activity.captures.isNotEmpty()) {
+        run {
             val newParams = lifted.parameters.toMutableList()
+            // Drop the existing ActivityContext (it's about to lead the new param list) plus any
+            // other regular params (we'll re-add captures after). Other kinds (dispatch receiver —
+            // shouldn't be any on a top-level lifted fn, but defensive) stay.
+            newParams.remove(activityCtxParam)
+            newParams.removeAll { it.kind == IrParameterKind.Regular }
+            // Lead with ActivityContext.
+            newParams += activityCtxParam
             for (captured in activity.captures) {
                 val ownerDecl = captured.owner
                 val capturedType =
@@ -485,10 +545,17 @@ internal class TemporalInlineActivityLowering(
             val so = activity.callsite.startOffset
             val eo = activity.callsite.endOffset
 
-            // Locate the WorkflowContext extension receiver of the enclosing @WorkflowRun method.
-            val workflowContextParam =
-                workflowRunMethod.parameters.firstOrNull { it.kind == IrParameterKind.ExtensionReceiver }
-                    ?: error("@WorkflowRun method must have WorkflowContext extension receiver")
+            // Stage 17.5: @WorkflowRun no longer has a WorkflowContext extension receiver.
+            // Pull the current context via the `workflow()` runtime helper which reads
+            // `coroutineContext[WorkflowContext]` (throws IllegalStateException outside a workflow).
+            val workflowCtxCall =
+                IrCallImpl(
+                    startOffset = so,
+                    endOffset = eo,
+                    type = workflowGetterFn.owner.returnType,
+                    symbol = workflowGetterFn,
+                    typeArgumentsCount = 0,
+                )
 
             val runtimeFn =
                 when (activity.kind) {
@@ -504,7 +571,7 @@ internal class TemporalInlineActivityLowering(
                     typeArgumentsCount = 0,
                 )
             // startActivityTyped(workflowContext, activityType, resultType, startToCloseMs, vararg argTypesAndValues)
-            call.arguments[0] = IrGetValueImpl(so, eo, workflowContextParam.symbol)
+            call.arguments[0] = workflowCtxCall
             call.arguments[1] = stringConst(activity.name, so, eo)
             call.arguments[2] = typeFromClassCall(activity.resultType, so, eo)
             call.arguments[3] = longConst(60_000L, so, eo) // startToCloseMs default

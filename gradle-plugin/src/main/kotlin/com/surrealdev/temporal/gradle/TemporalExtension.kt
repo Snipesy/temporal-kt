@@ -65,8 +65,8 @@ abstract class CompilerExtension
     ) {
         /**
          * Whether the Temporal compiler plugin is enabled.
-         * Defaults to false to avoid errors across Kotlin version changes.
-         * Set to true to enable determinism validation and code generation.
+         * Defaults to true to enable determinism validation and code generation.
+         * Set to false to disable compiler-plugin integration.
          */
         abstract val enabled: Property<Boolean>
 
@@ -77,7 +77,7 @@ abstract class CompilerExtension
         abstract val outputDir: DirectoryProperty
 
         init {
-            enabled.convention(false)
+            enabled.convention(true)
             outputDir.convention(project.layout.buildDirectory.dir("generated/temporal"))
         }
     }

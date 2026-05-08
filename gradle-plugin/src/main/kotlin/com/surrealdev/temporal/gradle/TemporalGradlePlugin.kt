@@ -29,7 +29,7 @@ import org.jetbrains.kotlin.gradle.plugin.SubpluginOption
  *
  * temporal {
  *     compiler {
- *         enabled = true  // Enable/disable compiler plugin (default: false)
+ *         enabled = true  // Enable/disable compiler plugin (default: true)
  *         outputDir = layout.buildDirectory.dir("generated/temporal")
  *     }
  *     native {
@@ -126,7 +126,7 @@ class TemporalGradlePlugin : KotlinCompilerPluginSupportPlugin {
     /**
      * Determines if this plugin should apply to the given compilation.
      * We apply to all JVM and multiplatform compilations where compiler.enabled=true.
-     * Defaults to false to avoid errors across Kotlin version changes.
+     * Defaults to true.
      */
     override fun isApplicable(kotlinCompilation: KotlinCompilation<*>): Boolean {
         val project = kotlinCompilation.target.project

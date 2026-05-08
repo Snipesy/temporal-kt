@@ -11,14 +11,14 @@ import kotlin.reflect.full.starProjectedType
 import kotlin.time.Duration
 
 /**
- * A [WorkflowHandle] that knows the workflow's typed return type at construction time.
+ * A [WorkflowHandle] that knows the workflow's typed return type at construction time. Used as
+ * the supertype of the per-`@Workflow`-class `Handle` nested class synthesised by the compiler
+ * plugin.
  *
- * The compiler plugin synthesises a `start(...)` function on each `@Workflow` class's companion
- * object that returns a (subtype of) `TypedWorkflowHandle<R>`, where `R` is read from the user's
- * `@WorkflowRun` method's return type. Callers can then write
+ * Call sites use the synthesised companion entry points:
  *
  * ```
- * val handle = MyWorkflow.start(client, "queue", arg)
+ * val handle: MyWorkflow.Handle<String> = MyWorkflow.start(client, "queue", arg)
  * val result: String = handle.result()   // no <R> at the call site
  * ```
  *
@@ -29,21 +29,28 @@ import kotlin.time.Duration
  * Subclasses synthesized per workflow expose typed signal/query/update methods that delegate to
  * the underlying [WorkflowHandle].
  */
-open class TypedWorkflowHandle<out R>
-    @InternalTemporalApi
-    constructor(
-        val handle: WorkflowHandle,
-        @PublishedApi internal val resultType: KType,
-    ) {
-        val workflowId: String get() = handle.workflowId
-        val runId: String? get() = handle.runId
+interface TypedWorkflowHandle<out R> {
+    @InternalTemporalApi val handle: WorkflowHandle
 
-        @Suppress("UNCHECKED_CAST")
-        suspend fun result(timeout: Duration = Duration.INFINITE): R {
-            val payload: TemporalPayload? = handle.resultPayload(timeout)
-            return deserializeWithKType(payload, resultType, handle.serializer) as R
-        }
-    }
+    @InternalTemporalApi val resultType: KType
+
+    val workflowId: String get() = handle.workflowId
+    val runId: String? get() = handle.runId
+
+    suspend fun result(timeout: Duration = Duration.INFINITE): R
+}
+
+@PublishedApi
+@OptIn(InternalTemporalApi::class)
+@Suppress("UNCHECKED_CAST")
+internal suspend fun <R> typedResultImpl(
+    handle: WorkflowHandle,
+    resultType: KType,
+    timeout: Duration,
+): R {
+    val payload: TemporalPayload? = handle.resultPayload(timeout)
+    return deserializeWithKType(payload, resultType, handle.serializer) as R
+}
 
 /**
  * Non-reified deserialize for [TypedWorkflowHandle]. Mirrors the semantics of the existing
@@ -123,9 +130,9 @@ internal suspend fun startWorkflowGetHandle(
 }
 
 /**
- * Compiler-plugin helper used to fill the rewritten `activity("name") { ... }` call sites
- * inside `@WorkflowRun` methods after Stage 8.6 inline-activity lowering. The lifted lambda
- * body lives in a top-level `@Activity` function registered on the same task queue.
+ * Compiler-plugin helper used to fill rewritten `activity("name") { ... }` call sites inside
+ * `@WorkflowRun` methods. The lifted lambda body lives in a top-level `@Activity` function
+ * registered on the same task queue.
  *
  * `argTypesAndValues` is laid out as `[KType_1, value_1, KType_2, value_2, ...]` (alternating
  * pairs) and may be empty for no-arg activities. Captures inside the inline lambda are passed
@@ -232,7 +239,7 @@ internal suspend fun updateTyped(
     return deserializeFirstPayload(resultPayloads, resultType, handle.serializer)
 }
 
-private fun serializeArgs(
+internal fun serializeArgs(
     serializer: PayloadSerializer,
     argTypesAndValues: Array<out Any?>,
 ): TemporalPayloads {

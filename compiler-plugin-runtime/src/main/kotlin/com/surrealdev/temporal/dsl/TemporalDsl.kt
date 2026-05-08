@@ -2,18 +2,18 @@
 //
 // Two flavors of inline activity, both declared from workflow code:
 //
-// - `@WorkflowRun suspend fun WorkflowContext.run() {`
-//      `inlineActivity("Bar") { /* ActivityContext.() -> R */ }`         — dispatched on the
-//                                                                          activity worker
-//      `inlineLocalActivity("Baz") { /* ActivityContext.() -> R */ }`    — dispatched in-process
-//                                                                          on the workflow worker
+// - `@WorkflowRun suspend fun run() {`
+//      `workflow().inlineActivity("Bar") { /* this: ActivityContext */ info.activityId }`
+//      `workflow().inlineLocalActivity("Baz") { /* this: ActivityContext */ heartbeat(x) }`
 //   `}`
 //
-// **The compiler plugin transforms these calls at IR-gen time.** The lambda body is lifted into
-// a real Temporal-managed `@Activity` function (with `ActivityContext` extension receiver) and
-// the call site is rewritten to standard `startActivity*` / `startLocalActivity*` dispatch.
-// Captures from the workflow body become activity arguments. Without the plugin enabled the
-// stubs throw at runtime — the compiler plugin must be active.
+// The lambda is declared with an `ActivityContext` extension receiver so users can refer to
+// `info`, `heartbeat(...)`, etc. directly via `this`. The compiler plugin lifts the lambda body
+// to a top-level `@Activity` function with `ActivityContext` as a regular leading parameter (the
+// SDK rejects extension-receiver activity methods). Captures from the workflow body become
+// additional activity arguments. The call site is rewritten to standard `startActivity*` /
+// `startLocalActivity*` dispatch. Without the plugin enabled the stubs throw at runtime — the
+// compiler plugin must be active.
 
 package com.surrealdev.temporal.dsl
 
@@ -27,9 +27,10 @@ private const val PLUGIN_REQUIRED =
 /**
  * Declares an activity callable from inside a `@WorkflowRun` method body. The lambda runs as
  * a real Temporal activity (separate dispatch, retry policy, slot accounting). Inside the
- * lambda, `this` is [ActivityContext] — call `heartbeat(...)`, check cancellation, etc.
+ * lambda, `this` is the [ActivityContext] — call `info.activityId`, `heartbeat(...)`, check
+ * cancellation, etc.
  *
- * The plugin lifts the lambda to a top-level `suspend fun ActivityContext.__<class>_<name>(...): R`
+ * The plugin lifts the lambda to a top-level `suspend fun __<class>_<name>(ctx: ActivityContext, ...): R`
  * annotated `@Activity("name")`, auto-registers it via the workflow class's companion hook,
  * and rewrites this call site to invoke through `WorkflowContext.startActivityWithPayloads`.
  */
@@ -48,9 +49,9 @@ suspend fun <Return> WorkflowContext.inlineActivity(
 /**
  * Declares a **local** activity callable from inside a `@WorkflowRun` method body. The lambda
  * runs in-process on the workflow worker (no separate task queue dispatch) — use this for
- * short, deterministic side effects. Inside the lambda, `this` is [ActivityContext].
+ * short, deterministic side effects. Inside the lambda, `this` is the [ActivityContext].
  *
- * The plugin lifts the lambda to a top-level `suspend fun ActivityContext.__<class>_<name>(...): R`
+ * The plugin lifts the lambda to a top-level `suspend fun __<class>_<name>(ctx: ActivityContext, ...): R`
  * annotated `@Activity("name")`, auto-registers it via the workflow class's companion hook,
  * and rewrites this call site to invoke through `WorkflowContext.startLocalActivityWithPayloads`.
  */

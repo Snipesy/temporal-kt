@@ -4,10 +4,7 @@ plugins {
 }
 
 dependencies {
-    // Empty by design. This module is the *runtime* surface for the temporal-kt compiler plugin:
-    // the @TemporalModule / WorkflowDecl / ActivityDecl annotations, the @TemporalGenerated marker,
-    // and the no-op DSL stubs (taskQueue/workflow/activity). It must stay tiny so end users only
-    // pay for it when they enable the compiler plugin.
+    api(project(":core"))
 }
 
 mavenPublishing {

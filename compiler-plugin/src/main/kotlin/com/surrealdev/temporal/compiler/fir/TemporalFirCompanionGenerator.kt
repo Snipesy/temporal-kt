@@ -21,6 +21,7 @@ import org.jetbrains.kotlin.fir.plugin.createConeType
 import org.jetbrains.kotlin.fir.plugin.createConstructor
 import org.jetbrains.kotlin.fir.plugin.createDefaultPrivateConstructor
 import org.jetbrains.kotlin.fir.plugin.createMemberFunction
+import org.jetbrains.kotlin.fir.plugin.createMemberProperty
 import org.jetbrains.kotlin.fir.plugin.createNestedClass
 import org.jetbrains.kotlin.fir.resolve.providers.symbolProvider
 import org.jetbrains.kotlin.fir.scopes.impl.declaredMemberScope
@@ -30,6 +31,7 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirClassLikeSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirConstructorSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirRegularClassSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirValueParameterSymbol
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
@@ -72,7 +74,7 @@ import org.jetbrains.kotlin.types.Variance
  * **Companion handling:** if the user wrote a `companion object`, the generator augments it
  * (adds `start`/`handle`) without crashing the compiler's duplicate-companion check.
  *
- * **Phase ordering:**
+ * FIR callback ordering:
  * - [getNestedClassifiersNames] runs at COMPANION_GENERATION — uses `predicateBasedProvider` (safe)
  *   not `hasAnnotation` (which forward-resolves to TYPES and crashes LL-FIR's lazy contract).
  * - [getCallableNamesForClass] may run at SUPERTYPES — return fixed names; defer type reading.
@@ -102,10 +104,32 @@ class TemporalFirCompanionGenerator(
     private val kTypeClassId =
         ClassId.topLevel(FqName("kotlin.reflect.KType"))
 
+    // Child workflow surface. Lives in `com.surrealdev.temporal.workflow` because `startChild`
+    // is invoked from workflow code with `WorkflowContext` in scope, not from client code.
+    private val typedChildWorkflowHandleClassId =
+        ClassId.topLevel(FqName("com.surrealdev.temporal.workflow.TypedChildWorkflowHandle"))
+    private val childWorkflowHandleClassId =
+        ClassId.topLevel(FqName("com.surrealdev.temporal.workflow.ChildWorkflowHandle"))
+    private val childWorkflowOptionsClassId =
+        ClassId.topLevel(FqName("com.surrealdev.temporal.workflow.ChildWorkflowOptions"))
+    private val workflowContextClassId =
+        ClassId.topLevel(FqName("com.surrealdev.temporal.workflow.WorkflowContext"))
+
+    // External workflow surface. Stage 17.6: `WorkflowContext.externalHandle<W>(...)` — typed
+    // signal dispatch to another running workflow execution by ID.
+    private val typedExternalWorkflowHandleClassId =
+        ClassId.topLevel(FqName("com.surrealdev.temporal.workflow.TypedExternalWorkflowHandle"))
+    private val externalWorkflowHandleClassId =
+        ClassId.topLevel(FqName("com.surrealdev.temporal.workflow.ExternalWorkflowHandle"))
+
     private val stringClassId = ClassId.topLevel(FqName("kotlin.String"))
 
     private val handleClassName = Name.identifier("Handle")
+    private val childHandleClassName = Name.identifier("ChildHandle")
+    private val externalHandleClassName = Name.identifier("ExternalHandle")
     private val startName = Name.identifier("start")
+    private val startChildName = Name.identifier("startChild")
+    private val externalName = Name.identifier("external")
     private val handleMethodName = Name.identifier("handle")
     private val clientParamName = Name.identifier("client")
     private val taskQueueParamName = Name.identifier("taskQueue")
@@ -115,6 +139,14 @@ class TemporalFirCompanionGenerator(
     private val runIdParamName = Name.identifier("runId")
     private val handleCtorParamName = Name.identifier("handle")
     private val resultTypeCtorParamName = Name.identifier("resultType")
+    private val handlePropertyName = Name.identifier("handle")
+    private val resultTypePropertyName = Name.identifier("resultType")
+    private val resultMethodName = Name.identifier("result")
+    private val awaitStartMethodName = Name.identifier("awaitStart")
+    private val cancelMethodName = Name.identifier("cancel")
+    private val timeoutParamName = Name.identifier("timeout")
+    private val reasonParamName = Name.identifier("reason")
+    private val durationClassId = ClassId.topLevel(FqName("kotlin.time.Duration"))
 
     private companion object {
         private val WORKFLOW_PREDICATE =
@@ -142,6 +174,14 @@ class TemporalFirCompanionGenerator(
             if (handleClassName !in existingNested) {
                 add(handleClassName)
             }
+            // ChildHandle: same skip-if-user-wrote contract as Handle.
+            if (childHandleClassName !in existingNested) {
+                add(childHandleClassName)
+            }
+            // ExternalHandle (Stage 17.6): signal-only handle for cross-workflow signaling.
+            if (externalHandleClassName !in existingNested) {
+                add(externalHandleClassName)
+            }
         }
     }
 
@@ -157,11 +197,12 @@ class TemporalFirCompanionGenerator(
             }
 
             handleClassName -> {
+                // `Handle<out R> : TypedWorkflowHandle<R>` — typed wrapper returned by
+                // `Foo.start(client, ...)` / `Foo.handle(client, id)`. Holds the live
+                // `WorkflowHandle` + reified `KType` of `R`. No polymorphism: callers receive a
+                // concrete `Foo.Handle<R>` directly from the synthesised companion methods.
                 createNestedClass(owner, handleClassName, TemporalCompanionKey, ClassKind.CLASS) {
-                    modality = Modality.OPEN
-                    // `Handle<out R> : TypedWorkflowHandle<R>` — R propagates from the workflow's
-                    // `@WorkflowRun` return type when the companion's `start()` method specifies it
-                    // at STATUS phase. Without this, `Handle.result()` would be locked to `Any?`.
+                    modality = Modality.FINAL
                     typeParameter(Name.identifier("R"), Variance.OUT_VARIANCE)
                     superType { typeParams ->
                         typedWorkflowHandleClassId.createConeType(
@@ -169,6 +210,30 @@ class TemporalFirCompanionGenerator(
                             arrayOf(typeParams[0].toConeType()),
                         )
                     }
+                }.symbol
+            }
+
+            childHandleClassName -> {
+                // `ChildHandle<out R> : TypedChildWorkflowHandle<R>` — typed wrapper returned by
+                // `Foo.startChild(...)`.
+                createNestedClass(owner, childHandleClassName, TemporalChildCompanionKey, ClassKind.CLASS) {
+                    modality = Modality.FINAL
+                    typeParameter(Name.identifier("R"), Variance.OUT_VARIANCE)
+                    superType { typeParams ->
+                        typedChildWorkflowHandleClassId.createConeType(
+                            session,
+                            arrayOf(typeParams[0].toConeType()),
+                        )
+                    }
+                }.symbol
+            }
+
+            externalHandleClassName -> {
+                // `ExternalHandle : TypedExternalWorkflowHandle` — signal-only wrapper for
+                // cross-workflow signaling, returned by `Foo.external(workflowId, runId)`.
+                createNestedClass(owner, externalHandleClassName, TemporalExternalCompanionKey, ClassKind.CLASS) {
+                    modality = Modality.FINAL
+                    superType(typedExternalWorkflowHandleClassId.createConeType(session, emptyArray()))
                 }.symbol
             }
 
@@ -183,17 +248,30 @@ class TemporalFirCompanionGenerator(
         context: MemberGenerationContext,
     ): Set<Name> {
         if (isWorkflowCompanion(classSymbol)) {
+            // Stage 17.5: companion hosts BOTH the legacy companion entry points
+            // (Foo.start / Foo.handle / Foo.startChild) AND the new central reified API
+            // (client.startWorkflow<Foo> / etc. in :compiler-plugin-runtime). Companion forms
+            // remain primarily so handlers with `WorkflowContext` extension receivers stay
+            // callable client-side via Handle (the reified path requires the polymorphism
+            // Handle:Foo + receiverless handlers).
             val isPluginGenerated =
                 (classSymbol.origin as? FirDeclarationOrigin.Plugin)?.key == TemporalCompanionKey
             return buildSet {
                 add(startName)
                 add(handleMethodName)
+                add(startChildName)
+                add(externalName)
                 if (isPluginGenerated) add(SpecialNames.INIT)
             }
         }
         if (isWorkflowHandle(classSymbol)) {
             return buildSet {
                 add(SpecialNames.INIT)
+                // Backing properties for the TypedWorkflowHandle interface.
+                add(handlePropertyName)
+                add(resultTypePropertyName)
+                // Interface method overrides on Handle.
+                add(resultMethodName)
                 // Enumerate `@Signal` / `@Query` / `@Update` methods on the outer workflow class
                 // and project their Kotlin names onto Handle. This callback may run at SUPERTYPES,
                 // but reading method NAMES (not parameter types) via `processAllFunctions` is safe
@@ -207,20 +285,113 @@ class TemporalFirCompanionGenerator(
                 }
             }
         }
+        if (isWorkflowChildHandle(classSymbol)) {
+            return buildSet {
+                add(SpecialNames.INIT)
+                add(handlePropertyName)
+                add(resultTypePropertyName)
+                add(resultMethodName)
+                add(awaitStartMethodName)
+                add(cancelMethodName)
+                // Signal-only on ChildHandle: child workflows can't be queried/updated from inside
+                // workflow code (synchronous RPC breaks determinism per ChildWorkflowHandle docs).
+                val outer = classSymbol.classId.outerClassId
+                val outerSymbol =
+                    outer?.let { session.symbolProvider.getClassLikeSymbolByClassId(it) }
+                        as? FirRegularClassSymbol
+                if (outerSymbol != null) {
+                    addAll(enumerateHandlerNames(outerSymbol, signalOnly = true))
+                }
+            }
+        }
+        if (isWorkflowExternalHandle(classSymbol)) {
+            return buildSet {
+                add(SpecialNames.INIT)
+                add(handlePropertyName)        // override val handle: ExternalWorkflowHandle
+                add(cancelMethodName)          // override suspend fun cancel(reason)
+                // Signal-only — no result/awaitStart/resultType. Cross-workflow synchronous RPC
+                // isn't a Temporal primitive.
+                val outer = classSymbol.classId.outerClassId
+                val outerSymbol =
+                    outer?.let { session.symbolProvider.getClassLikeSymbolByClassId(it) }
+                        as? FirRegularClassSymbol
+                if (outerSymbol != null) {
+                    addAll(enumerateHandlerNames(outerSymbol, signalOnly = true))
+                }
+            }
+        }
         return emptySet()
+    }
+
+    override fun generateProperties(
+        callableId: CallableId,
+        context: MemberGenerationContext?,
+    ): List<FirPropertySymbol> {
+        val owner = context?.owner ?: return emptyList()
+        val isHandle = isWorkflowHandle(owner)
+        val isChild = isWorkflowChildHandle(owner)
+        val isExternal = isWorkflowExternalHandle(owner)
+        if (!isHandle && !isChild && !isExternal) return emptyList()
+        val key =
+            when {
+                isExternal -> TemporalExternalCompanionKey
+                isChild -> TemporalChildCompanionKey
+                else -> TemporalCompanionKey
+            }
+        return when (callableId.callableName) {
+            handlePropertyName -> {
+                val handleType =
+                    when {
+                        isExternal -> externalWorkflowHandleType()
+                        isChild -> childWorkflowHandleType()
+                        else -> workflowHandleType()
+                    }
+                listOf(
+                    createMemberProperty(owner, key, handlePropertyName, handleType) {
+                        modality = Modality.OPEN
+                        status { isOverride = true }
+                        withGeneratedDefaultInitializer()
+                    }.symbol,
+                )
+            }
+
+            resultTypePropertyName -> {
+                // ExternalHandle has no resultType (signal-only); only Handle/ChildHandle.
+                if (isExternal) return emptyList()
+                listOf(
+                    createMemberProperty(owner, key, resultTypePropertyName, kTypeType()) {
+                        modality = Modality.OPEN
+                        status { isOverride = true }
+                        withGeneratedDefaultInitializer()
+                    }.symbol,
+                )
+            }
+
+            else -> {
+                emptyList()
+            }
+        }
     }
 
     /**
      * Walk [outerSymbol]'s declared member scope for methods annotated with `@Signal`, `@Query`,
-     * or `@Update` (excluding `@UpdateValidator` and `dynamic = true` handlers — see plan).
+     * or `@Update` (excluding `@UpdateValidator` and `dynamic = true` handlers).
      * Returns each handler's Kotlin method name.
+     *
+     * When [signalOnly] is true, only `@Signal` handlers are returned — used for `ChildHandle`,
+     * which doesn't support query/update on child workflows (architectural per
+     * `ChildWorkflowHandle` docs).
      */
-    private fun enumerateHandlerNames(outerSymbol: FirRegularClassSymbol): Set<Name> {
+    private fun enumerateHandlerNames(
+        outerSymbol: FirRegularClassSymbol,
+        signalOnly: Boolean = false,
+    ): Set<Name> {
         val names = mutableSetOf<Name>()
         val scope = outerSymbol.declaredMemberScope(session, memberRequiredPhase = FirResolvePhase.TYPES)
         scope.processAllFunctions { funcSymbol ->
             val annotationKind = handlerKindOf(funcSymbol) ?: return@processAllFunctions
             if (annotationKind == HandlerKind.NONE) return@processAllFunctions
+            if (signalOnly && annotationKind != HandlerKind.SIGNAL) return@processAllFunctions
             if (isDynamicHandler(funcSymbol, annotationKind)) return@processAllFunctions
             names += funcSymbol.name
         }
@@ -348,6 +519,37 @@ class TemporalFirCompanionGenerator(
                 }
             return listOf(ctor.symbol)
         }
+        if (isWorkflowChildHandle(owner)) {
+            // Mirror of Handle's ctor but takes the child runtime type:
+            // `internal constructor(handle: ChildWorkflowHandle, resultType: KType)`.
+            val ctor =
+                createConstructor(
+                    owner = owner,
+                    key = TemporalChildCompanionKey,
+                    isPrimary = true,
+                    generateDelegatedNoArgConstructorCall = false,
+                ) {
+                    visibility = Visibilities.Internal
+                    valueParameter(handleCtorParamName, childWorkflowHandleType())
+                    valueParameter(resultTypeCtorParamName, kTypeType())
+                }
+            return listOf(ctor.symbol)
+        }
+        if (isWorkflowExternalHandle(owner)) {
+            // Single-param ctor: `internal constructor(handle: ExternalWorkflowHandle)`.
+            // No `resultType` — ExternalHandle is signal-only.
+            val ctor =
+                createConstructor(
+                    owner = owner,
+                    key = TemporalExternalCompanionKey,
+                    isPrimary = true,
+                    generateDelegatedNoArgConstructorCall = false,
+                ) {
+                    visibility = Visibilities.Internal
+                    valueParameter(handleCtorParamName, externalWorkflowHandleType())
+                }
+            return listOf(ctor.symbol)
+        }
         return emptyList()
     }
 
@@ -366,9 +568,13 @@ class TemporalFirCompanionGenerator(
             val argParam: FirValueParameterSymbol? = workflowRunSymbol.valueParameterSymbols.firstOrNull()
             val resultType = workflowRunSymbol.resolvedReturnType
             val handleType = workflowHandleTypeFor(ownerClassId, resultType)
+            val childHandleType = childHandleTypeFor(ownerClassId, resultType)
+            val externalHandleType = externalHandleTypeFor(ownerClassId)
             return when (callableId.callableName) {
                 startName -> listOf(buildStart(owner, handleType, argParam).symbol)
                 handleMethodName -> listOf(buildHandleMethod(owner, handleType).symbol)
+                startChildName -> listOf(buildStartChild(owner, childHandleType, argParam).symbol)
+                externalName -> listOf(buildExternal(owner, externalHandleType).symbol)
                 else -> emptyList()
             }
         }
@@ -378,10 +584,56 @@ class TemporalFirCompanionGenerator(
             val outerSymbol =
                 session.symbolProvider.getClassLikeSymbolByClassId(outerClassId)
                     as? FirRegularClassSymbol ?: return emptyList()
+            // Interface-method overrides on Handle.
+            if (callableId.callableName == resultMethodName) {
+                val workflowRunSymbol = findWorkflowRunMethod(outerSymbol) ?: return emptyList()
+                val resultType = workflowRunSymbol.resolvedReturnType
+                return listOf(buildHandleResultOverride(owner, resultType).symbol)
+            }
             val handler = findHandlerMethod(outerSymbol, callableId.callableName) ?: return emptyList()
             val kind = handlerKindOf(handler) ?: return emptyList()
             if (kind == HandlerKind.NONE || isDynamicHandler(handler, kind)) return emptyList()
             return listOf(buildHandleWrapper(owner, handler, kind).symbol)
+        }
+
+        if (isWorkflowChildHandle(owner)) {
+            val outerClassId = owner.classId.outerClassId ?: return emptyList()
+            val outerSymbol =
+                session.symbolProvider.getClassLikeSymbolByClassId(outerClassId)
+                    as? FirRegularClassSymbol ?: return emptyList()
+            if (callableId.callableName == resultMethodName) {
+                val workflowRunSymbol = findWorkflowRunMethod(outerSymbol) ?: return emptyList()
+                val resultType = workflowRunSymbol.resolvedReturnType
+                return listOf(buildChildHandleResultOverride(owner, resultType).symbol)
+            }
+            if (callableId.callableName == awaitStartMethodName) {
+                return listOf(buildChildHandleAwaitStartOverride(owner).symbol)
+            }
+            if (callableId.callableName == cancelMethodName) {
+                return listOf(buildChildHandleCancelOverride(owner).symbol)
+            }
+            val handler = findHandlerMethod(outerSymbol, callableId.callableName) ?: return emptyList()
+            val kind = handlerKindOf(handler) ?: return emptyList()
+            // Signal-only on ChildHandle. Query/Update intentionally not generated.
+            if (kind != HandlerKind.SIGNAL) return emptyList()
+            if (isDynamicHandler(handler, kind)) return emptyList()
+            return listOf(buildChildHandleSignalWrapper(owner, handler).symbol)
+        }
+
+        if (isWorkflowExternalHandle(owner)) {
+            val outerClassId = owner.classId.outerClassId ?: return emptyList()
+            val outerSymbol =
+                session.symbolProvider.getClassLikeSymbolByClassId(outerClassId)
+                    as? FirRegularClassSymbol ?: return emptyList()
+            if (callableId.callableName == cancelMethodName) {
+                return listOf(buildExternalHandleCancelOverride(owner).symbol)
+            }
+            val handler = findHandlerMethod(outerSymbol, callableId.callableName) ?: return emptyList()
+            val kind = handlerKindOf(handler) ?: return emptyList()
+            // Signal-only on ExternalHandle (cross-workflow synchronous RPC isn't a Temporal primitive).
+            if (kind != HandlerKind.SIGNAL) return emptyList()
+            if (isDynamicHandler(handler, kind)) return emptyList()
+            return listOf(buildExternalHandleSignalWrapper(owner, handler).symbol)
         }
 
         return emptyList()
@@ -465,6 +717,26 @@ class TemporalFirCompanionGenerator(
         return session.predicateBasedProvider.matches(WORKFLOW_PREDICATE, outerSymbol)
     }
 
+    private fun isWorkflowChildHandle(classSymbol: FirClassSymbol<*>): Boolean {
+        val classId = classSymbol.classId
+        if (classId.shortClassName != childHandleClassName) return false
+        val outer = classId.outerClassId ?: return false
+        val outerSymbol =
+            session.symbolProvider.getClassLikeSymbolByClassId(outer) as? FirRegularClassSymbol
+                ?: return false
+        return session.predicateBasedProvider.matches(WORKFLOW_PREDICATE, outerSymbol)
+    }
+
+    private fun isWorkflowExternalHandle(classSymbol: FirClassSymbol<*>): Boolean {
+        val classId = classSymbol.classId
+        if (classId.shortClassName != externalHandleClassName) return false
+        val outer = classId.outerClassId ?: return false
+        val outerSymbol =
+            session.symbolProvider.getClassLikeSymbolByClassId(outer) as? FirRegularClassSymbol
+                ?: return false
+        return session.predicateBasedProvider.matches(WORKFLOW_PREDICATE, outerSymbol)
+    }
+
     private fun findWorkflowRunMethod(ownerSymbol: FirRegularClassSymbol): FirNamedFunctionSymbol? {
         val scope = ownerSymbol.declaredMemberScope(session, memberRequiredPhase = FirResolvePhase.TYPES)
         var found: FirNamedFunctionSymbol? = null
@@ -498,6 +770,25 @@ class TemporalFirCompanionGenerator(
         withGeneratedDefaultBody()
     }
 
+    /** `suspend fun startChild([arg], options): <Workflow>.ChildHandle<R>` (uses workflow() runtime helper). */
+    private fun buildStartChild(
+        companionSymbol: FirClassSymbol<*>,
+        childHandleType: ConeKotlinType,
+        argParam: FirValueParameterSymbol?,
+    ) = createMemberFunction(
+        owner = companionSymbol,
+        key = TemporalChildCompanionKey,
+        name = startChildName,
+        returnType = childHandleType,
+    ) {
+        status { isSuspend = true }
+        if (argParam != null) {
+            valueParameter(argParamName, argParam.resolvedReturnType)
+        }
+        valueParameter(optionsParamName, childWorkflowOptionsType(), hasDefaultValue = true)
+        withGeneratedDefaultBody()
+    }
+
     /** `fun handle(client, workflowId, runId): <Workflow>.Handle` */
     private fun buildHandleMethod(
         companionSymbol: FirClassSymbol<*>,
@@ -526,6 +817,69 @@ class TemporalFirCompanionGenerator(
         return handleClassId.createConeType(session, arrayOf(resultType))
     }
 
+    private fun childHandleTypeFor(
+        workflowClassId: ClassId,
+        resultType: ConeKotlinType,
+    ): ConeKotlinType {
+        val nestedId = workflowClassId.createNestedClassId(childHandleClassName)
+        return nestedId.createConeType(session, arrayOf(resultType))
+    }
+
+    private fun externalHandleTypeFor(workflowClassId: ClassId): ConeKotlinType {
+        val nestedId = workflowClassId.createNestedClassId(externalHandleClassName)
+        return nestedId.createConeType(session, emptyArray())
+    }
+
+    /**
+     * `fun external(workflowId: String, runId: String? = null): <Workflow>.ExternalHandle`
+     *
+     * Reaches the ambient [WorkflowContext] via the `workflow()` runtime helper at IR fill time,
+     * mirroring [buildStartChild]. Signal-only — cross-workflow synchronous RPC isn't a Temporal
+     * primitive, so the returned handle exposes only `@Signal` wrappers + `cancel(reason)`.
+     */
+    private fun buildExternal(
+        companionSymbol: FirClassSymbol<*>,
+        externalHandleType: ConeKotlinType,
+    ) = createMemberFunction(
+        owner = companionSymbol,
+        key = TemporalExternalCompanionKey,
+        name = externalName,
+        returnType = externalHandleType,
+    ) {
+        // Suspend so the IR fill body can call the suspend `workflow()` runtime helper to read
+        // the ambient WorkflowContext. (Same pattern as `startChild`.)
+        status { isSuspend = true }
+        valueParameter(workflowIdParamName, session.builtinTypes.stringType.coneType)
+        valueParameter(
+            runIdParamName,
+            stringClassId.createConeType(session, emptyArray(), nullable = true),
+            hasDefaultValue = true,
+        )
+        withGeneratedDefaultBody()
+    }
+
+    /**
+     * Build the typed signal wrapper on `<Workflow>.ChildHandle`. Mirrors [buildHandleWrapper]
+     * but always SIGNAL kind (callers filter that), keyed via [TemporalChildSignalKey] so the IR
+     * filler dispatches to `signalChildTyped` (workflow-context API) instead of `signalTyped`
+     * (client API).
+     */
+    private fun buildChildHandleSignalWrapper(
+        childHandleSymbol: FirClassSymbol<*>,
+        handlerSymbol: FirNamedFunctionSymbol,
+    ) = createMemberFunction(
+        owner = childHandleSymbol,
+        key = TemporalChildSignalKey,
+        name = handlerSymbol.name,
+        returnType = session.builtinTypes.unitType.coneType,
+    ) {
+        status { isSuspend = true }
+        for (param in handlerSymbol.valueParameterSymbols) {
+            valueParameter(param.name, param.resolvedReturnType)
+        }
+        withGeneratedDefaultBody()
+    }
+
     private fun temporalClientType(): ConeKotlinType = temporalClientClassId.createConeType(session, emptyArray())
 
     private fun workflowStartOptionsType(): ConeKotlinType =
@@ -533,5 +887,127 @@ class TemporalFirCompanionGenerator(
 
     private fun workflowHandleType(): ConeKotlinType = workflowHandleClassId.createConeType(session, emptyArray())
 
+    private fun childWorkflowHandleType(): ConeKotlinType =
+        childWorkflowHandleClassId.createConeType(session, emptyArray())
+
+    private fun childWorkflowOptionsType(): ConeKotlinType =
+        childWorkflowOptionsClassId.createConeType(session, emptyArray())
+
+    private fun externalWorkflowHandleType(): ConeKotlinType =
+        externalWorkflowHandleClassId.createConeType(session, emptyArray())
+
+    private fun workflowContextType(): ConeKotlinType = workflowContextClassId.createConeType(session, emptyArray())
+
     private fun kTypeType(): ConeKotlinType = kTypeClassId.createConeType(session, emptyArray())
+
+    private fun durationType(): ConeKotlinType = durationClassId.createConeType(session, emptyArray())
+
+    /** `override suspend fun result(timeout: Duration = Duration.INFINITE): R` */
+    private fun buildHandleResultOverride(
+        handleSymbol: FirClassSymbol<*>,
+        resultType: ConeKotlinType,
+    ) = createMemberFunction(
+        owner = handleSymbol,
+        key = TemporalCompanionKey,
+        name = resultMethodName,
+        returnType = resultType,
+    ) {
+        modality = Modality.OPEN
+        status {
+            isSuspend = true
+            isOverride = true
+        }
+        valueParameter(timeoutParamName, durationType(), hasDefaultValue = true)
+        withGeneratedDefaultBody()
+    }
+
+    /** `override suspend fun result(): R` */
+    private fun buildChildHandleResultOverride(
+        handleSymbol: FirClassSymbol<*>,
+        resultType: ConeKotlinType,
+    ) = createMemberFunction(
+        owner = handleSymbol,
+        key = TemporalChildCompanionKey,
+        name = resultMethodName,
+        returnType = resultType,
+    ) {
+        modality = Modality.OPEN
+        status {
+            isSuspend = true
+            isOverride = true
+        }
+        withGeneratedDefaultBody()
+    }
+
+    /** `override suspend fun awaitStart(): String` */
+    private fun buildChildHandleAwaitStartOverride(handleSymbol: FirClassSymbol<*>) =
+        createMemberFunction(
+            owner = handleSymbol,
+            key = TemporalChildCompanionKey,
+            name = awaitStartMethodName,
+            returnType = session.builtinTypes.stringType.coneType,
+        ) {
+            modality = Modality.OPEN
+            status {
+                isSuspend = true
+                isOverride = true
+            }
+            withGeneratedDefaultBody()
+        }
+
+    /** `override fun cancel(reason: String = "Cancelled by parent workflow")` */
+    private fun buildChildHandleCancelOverride(handleSymbol: FirClassSymbol<*>) =
+        createMemberFunction(
+            owner = handleSymbol,
+            key = TemporalChildCompanionKey,
+            name = cancelMethodName,
+            returnType = session.builtinTypes.unitType.coneType,
+        ) {
+            modality = Modality.OPEN
+            status { isOverride = true }
+            valueParameter(reasonParamName, session.builtinTypes.stringType.coneType, hasDefaultValue = true)
+            withGeneratedDefaultBody()
+        }
+
+    /**
+     * `override suspend fun cancel(reason: String = "")` — note the suspend modifier (matches
+     * [com.surrealdev.temporal.workflow.ExternalWorkflowHandle.cancel], unlike ChildHandle's
+     * non-suspend cancel).
+     */
+    private fun buildExternalHandleCancelOverride(handleSymbol: FirClassSymbol<*>) =
+        createMemberFunction(
+            owner = handleSymbol,
+            key = TemporalExternalCompanionKey,
+            name = cancelMethodName,
+            returnType = session.builtinTypes.unitType.coneType,
+        ) {
+            modality = Modality.OPEN
+            status {
+                isSuspend = true
+                isOverride = true
+            }
+            valueParameter(reasonParamName, session.builtinTypes.stringType.coneType, hasDefaultValue = true)
+            withGeneratedDefaultBody()
+        }
+
+    /**
+     * Build the typed signal wrapper on `<UserClass>.ExternalHandle`. Mirror of
+     * [buildChildHandleSignalWrapper] but keyed via [TemporalExternalSignalKey] so the IR filler
+     * dispatches to `signalExternalTyped`.
+     */
+    private fun buildExternalHandleSignalWrapper(
+        externalHandleSymbol: FirClassSymbol<*>,
+        handlerSymbol: FirNamedFunctionSymbol,
+    ) = createMemberFunction(
+        owner = externalHandleSymbol,
+        key = TemporalExternalSignalKey,
+        name = handlerSymbol.name,
+        returnType = session.builtinTypes.unitType.coneType,
+    ) {
+        status { isSuspend = true }
+        for (param in handlerSymbol.valueParameterSymbols) {
+            valueParameter(param.name, param.resolvedReturnType)
+        }
+        withGeneratedDefaultBody()
+    }
 }

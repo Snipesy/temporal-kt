@@ -31,9 +31,39 @@ public class TemporalDiagnosticTestGenerated extends AbstractTemporalDiagnosticT
     }
 
     @Test
+    @TestMetadata("ChildHandleSignalWrapper.kt")
+    public void testChildHandleSignalWrapper() {
+      runTest("src/test/resources/testData/diagnostics/companion/ChildHandleSignalWrapper.kt");
+    }
+
+    @Test
+    @TestMetadata("ChildHandleSkipsQueryUpdate.kt")
+    public void testChildHandleSkipsQueryUpdate() {
+      runTest("src/test/resources/testData/diagnostics/companion/ChildHandleSkipsQueryUpdate.kt");
+    }
+
+    @Test
+    @TestMetadata("ChildWorkflowStartResolves.kt")
+    public void testChildWorkflowStartResolves() {
+      runTest("src/test/resources/testData/diagnostics/companion/ChildWorkflowStartResolves.kt");
+    }
+
+    @Test
     @TestMetadata("ExistingCompanionAugmented.kt")
     public void testExistingCompanionAugmented() {
       runTest("src/test/resources/testData/diagnostics/companion/ExistingCompanionAugmented.kt");
+    }
+
+    @Test
+    @TestMetadata("ExternalHandleResolves.kt")
+    public void testExternalHandleResolves() {
+      runTest("src/test/resources/testData/diagnostics/companion/ExternalHandleResolves.kt");
+    }
+
+    @Test
+    @TestMetadata("ExternalHandleSkipsQueryUpdate.kt")
+    public void testExternalHandleSkipsQueryUpdate() {
+      runTest("src/test/resources/testData/diagnostics/companion/ExternalHandleSkipsQueryUpdate.kt");
     }
 
     @Test
@@ -88,12 +118,6 @@ public class TemporalDiagnosticTestGenerated extends AbstractTemporalDiagnosticT
     @TestMetadata("NoArgWorkflowNoExplicitName.kt")
     public void testNoArgWorkflowNoExplicitName() {
       runTest("src/test/resources/testData/diagnostics/companion/NoArgWorkflowNoExplicitName.kt");
-    }
-
-    @Test
-    @TestMetadata("WorkflowCompanionStartResolves.kt")
-    public void testWorkflowCompanionStartResolves() {
-      runTest("src/test/resources/testData/diagnostics/companion/WorkflowCompanionStartResolves.kt");
     }
   }
 

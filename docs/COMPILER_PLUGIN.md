@@ -5,25 +5,36 @@ The Temporal Kotlin compiler plugin provides:
 - **FIR-time determinism validation** — calls inside `@Workflow` classes are checked against
   `determinism-rules.json`; violations surface as `TEMPORAL_NONDETERMINISTIC_CALL` diagnostics.
   Inline activity bodies are exempt.
-- **Typed workflow companions** — for every `@Workflow` class, the plugin synthesises (or
-  augments) a companion object exposing typed `start(...)` / `handle(...)` helpers that
-  capture the workflow's return type. See [TKT-0003](proposals/TKT-0003-inline.md) for details.
+- **Central reified workflow API** (kotlinx-rpc-style) — `client.startWorkflow<W>("queue", arg)`,
+  `client.workflowHandle<W>(id)`, `WorkflowContext.startChildWorkflow<W>(arg)`, and
+  `WorkflowContext.externalHandle<W>(id)` return a value typeable as `W` (the user's `@Workflow`
+  class). The runtime instance is `W.Handle<R>` / `W.ChildHandle<R>` / `W.ExternalHandle` —
+  nested classes the plugin synthesises that extend `W` for virtual dispatch.
+- **Auto-open `@Workflow` classes** — the FIR status transformer marks every `@Workflow` class
+  and its members `open` so the synthesised handle can extend the class.
 - **Typed handle with signal / query / update wrappers** — each `@Signal` / `@Query` / `@Update`
-  method on the workflow class projects to a typed wrapper on the synthesised `Handle<R>`
-  inner class, so `handle.cancel(reason)` / `handle.status()` / `handle.addItem("x")` are all
-  fully typed without string-keyed dispatch.
-- **Inline activity lifting** — `activity("name") { ... }` calls inside `@WorkflowRun` methods
-  are lifted to registered activities and dispatched through Temporal's normal activity path.
+  method projects to a typed wrapper on the synthesised handle. Cast to `W.Handle<R>` to call
+  them (the wrappers are suspend; user handlers are typically not — they don't override).
+- **Inline activity lifting** — `workflow().inlineActivity("name") { ... }` calls inside
+  `@WorkflowRun` methods are lifted to registered activities.
+- **Receiver-shape diagnostic** — declaring `@WorkflowRun` / `@Signal` / `@Query` / `@Update`
+  with a `WorkflowContext` extension receiver triggers `TEMPORAL_HANDLER_HAS_EXTENSION_RECEIVER`.
+  Top-level handlers must be receiverless; use `workflow()` inside the body when needed.
 
 ```kotlin
+import com.surrealdev.temporal.client.startWorkflow
+
 @Workflow("Greeter")
 class Greeter {
     @WorkflowRun
-    suspend fun WorkflowContext.run(arg: String): String = "Hello, $arg"
+    suspend fun run(arg: String): String = "Hello, $arg"
 }
 
-// At the call site — no <String>, no string-keyed start, no .result<String>():
-val result: String = Greeter.execute(client, "my-queue", "World")
+// Returns a value typeable as Greeter (runtime: Greeter.Handle<String>):
+val greeter: Greeter = client.startWorkflow<Greeter>("my-queue", "World")
+@Suppress("UNCHECKED_CAST")
+val handle = greeter as Greeter.Handle<String>
+val result: String = handle.result()
 ```
 
 ## Quick Start
@@ -36,7 +47,7 @@ plugins {
 
 temporal {
     compiler {
-        enabled = true  // Default: false - must explicitly enable
+        enabled = true  // Default: true
     }
     native {
         enabled = true  // Default: true - auto-detects platform

@@ -194,6 +194,7 @@ dependencies {
     testDataClasspath(project(":core"))
     testDataClasspath(project(":compiler-plugin-runtime"))
     testDataClasspath(libs.kotlinxCoroutines)
+    testDataClasspath(libs.kotlinReflect)
 }
 
 val updateTestData = (project.findProperty("kotlin.test.update.test.data") as? String) ?: "false"
