@@ -5,24 +5,21 @@ name: Publish compiler-plugin per Kotlin version
 # (already published by the mainline `publish.yml` fan-out).
 #
 # Trigger semantics — mirrors `publish.yml`, with an extra release-against-latest-tag phase
-# baked into the push trigger so new IDEA bundles ship at the released library version
+# baked into the push-to-main trigger so new IDEA bundles ship at the released library version
 # automatically (not just as snapshots from main HEAD):
 #
 #   - Push to main: BOTH a snapshot publish from HEAD's source/JSON, AND a release publish
 #     against the latest release tag with main's JSON grafted on top. Snapshot ships
 #     `<KV>-<libVersion>-SNAPSHOT` immediately; release ships `<KV>-<latestTag>` if missing
 #     (idempotent — already-shipped variants skip).
+#   - Push to other branches (e.g. `compiler`): SNAPSHOT phase only. Release phase is gated to
+#     prevent test pushes from touching real release coords.
 #   - Release tag: release publish from the tag's source. (No snapshot phase — tag IS released.)
 #   - workflow_dispatch: manual override; `tag` input pins to a specific release tag,
 #     `versions` input narrows to specific Kotlin versions.
 #
-# Snapshot vs release phase differs in idempotency: the snapshot phase always re-uploads
-# (snapshots replace freely; search.maven.org doesn't index them anyway), the release phase
-# pre-checks search.maven.org and skips already-published coords.
-#
-# WHY A SEPARATE WORKFLOW: mainline (core, runtime, gradle-plugin) and per-Kotlin-version
-# compiler-plugin variants have different failure surfaces. A loop blip on one variant
-# shouldn't taint the mainline release perception.
+# PARALLELISM: runs as a matrix — one leg per Kotlin version. Each leg processes both phases
+# for its single version, so the wall-clock time is dominated by one publish, not N.
 
 on:
   workflow_dispatch:
@@ -62,10 +59,58 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
-    name: Publish compiler-plugin per Kotlin version
+  matrix-config:
+    name: Build matrix from kotlin-versions.json
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    outputs:
+      matrix: ${{ steps.config.outputs.matrix }}
+      any: ${{ steps.config.outputs.any }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install jq (if missing)
+        shell: bash
+        run: |
+          if ! command -v jq >/dev/null 2>&1; then
+            (sudo apt-get update -qq && sudo apt-get install -y -qq jq) \
+              || (apt-get update -qq && apt-get install -y -qq jq)
+          fi
+
+      - id: config
+        env:
+          INPUT_VERSIONS: ${{ inputs.versions }}
+        shell: bash
+        run: |
+          DEFAULT=$(jq -r '.default' .github/kotlin-versions.json)
+          if [ -n "${INPUT_VERSIONS:-}" ]; then
+            echo "::notice::Using explicit versions input: ${INPUT_VERSIONS}"
+            TARGETS=$(echo "${INPUT_VERSIONS}" | tr ',' '\n' | grep -v '^$')
+          else
+            TARGETS=$(jq -r --arg d "$DEFAULT" \
+              '.versions[] | select(.publish == true and .kotlin != $d) | .kotlin' \
+              .github/kotlin-versions.json)
+          fi
+          if [ -z "$TARGETS" ]; then
+            echo "::notice::No versions to publish; matrix is empty."
+            echo "any=false" >> "$GITHUB_OUTPUT"
+            echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          MATRIX=$(echo "$TARGETS" | jq -R . | jq -cs '{include: [.[] | {kotlin: .}]}')
+          echo "any=true" >> "$GITHUB_OUTPUT"
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "Will publish:"
+          echo "$TARGETS"
+
+  publish:
+    name: Publish ${{ matrix.kotlin }}
+    needs: matrix-config
+    if: needs.matrix-config.outputs.any == 'true'
+    strategy:
+      fail-fast: false   # one bad version doesn't block the others
+      matrix: ${{ fromJSON(needs.matrix-config.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
       SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
@@ -74,7 +119,7 @@ jobs:
     steps:
       # Resolve which git ref the SNAPSHOT phase should use:
       #   - release event:        the released tag itself (no snapshot phase will run anyway).
-      #   - push to main:         current HEAD (snapshots from main's source).
+      #   - push:                 current HEAD (snapshots from the branch's source).
       #   - workflow_dispatch:    explicit `tag` input → that tag; else current HEAD.
       - name: Resolve initial ref
         id: ref
@@ -91,7 +136,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ steps.ref.outputs.ref }}
-          fetch-depth: 0   # need history + tags for the release-against-latest phase below
+          fetch-depth: 0
 
       - name: Set up JDK 25
         uses: actions/setup-java@v4
@@ -110,75 +155,45 @@ jobs:
               || (apt-get update -qq && apt-get install -y -qq jq)
           fi
 
-      - name: Resolve target Kotlin versions
-        id: targets
-        shell: bash
-        run: |
-          DEFAULT=$(jq -r '.default' .github/kotlin-versions.json)
-          if [ -n "${{ inputs.versions }}" ]; then
-            echo "::notice::Using explicit versions input: ${{ inputs.versions }}"
-            TARGETS=$(echo "${{ inputs.versions }}" | tr ',' '\n' | grep -v '^$')
-          else
-            TARGETS=$(jq -r --arg d "$DEFAULT" \
-              '.versions[] | select(.publish == true and .kotlin != $d) | .kotlin' \
-              .github/kotlin-versions.json)
-          fi
-          if [ -z "$TARGETS" ]; then
-            echo "::notice::No versions to publish; exiting cleanly."
-            echo "any=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "any=true" >> "$GITHUB_OUTPUT"
-          {
-            echo "list<<EOF"
-            echo "$TARGETS"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-          echo "Will publish:"
-          echo "$TARGETS"
-
       # =========================================================================================
       # SNAPSHOT PHASE — push event, or workflow_dispatch without an explicit tag.
       # Uses HEAD's source + gradle.properties version (typically `<lib>-SNAPSHOT`).
       # No idempotency check — snapshots replace freely.
       # =========================================================================================
-      - name: Snapshot publish
+      - name: Snapshot publish ${{ matrix.kotlin }}
         if: |
-          steps.targets.outputs.any == 'true' &&
-          (github.event_name == 'push' ||
-           (github.event_name == 'workflow_dispatch' && inputs.tag == ''))
+          github.event_name == 'push' ||
+          (github.event_name == 'workflow_dispatch' && inputs.tag == '')
         env:
           MODE: snapshot
-          TARGETS: ${{ steps.targets.outputs.list }}
+          TARGETS: ${{ matrix.kotlin }}
         shell: bash
         run: ./.github/scripts/publish-compiler-plugin-loop.sh
 
       # =========================================================================================
-      # RELEASE PHASE — three sub-steps:
-      # 1. Discover the release tag (release event = the tag itself; push = latest release;
+      # RELEASE PHASE — three sub-steps, gated to MAIN branch / release tag / explicit dispatch:
+      # 1. Discover the release tag (release event = the tag itself; main push = latest release;
       #    workflow_dispatch with tag = inputs.tag).
       # 2. Switch the working tree to that tag's source while preserving main's JSON.
       # 3. Run the publish loop with idempotency.
-      # Skipped entirely if there's no usable release tag (e.g. fresh repo with zero releases).
+      # Test branches (e.g. `compiler`) deliberately SKIP this entire phase — they should only
+      # exercise the snapshot path.
       # =========================================================================================
       - name: Resolve release tag
         id: release_tag
-        if: steps.targets.outputs.any == 'true'
+        if: |
+          github.event_name == 'release' ||
+          (github.event_name == 'workflow_dispatch' && inputs.tag != '') ||
+          (github.event_name == 'push' && github.ref == 'refs/heads/main')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           TAG=""
           case "${{ github.event_name }}" in
-            release)
-              TAG="${{ github.event.release.tag_name }}"
-              ;;
-            workflow_dispatch)
-              TAG="${{ inputs.tag }}"
-              ;;
-            push)
-              TAG=$(gh release view --json tagName -q .tagName --repo "${{ github.repository }}" 2>/dev/null || echo "")
-              ;;
+            release)            TAG="${{ github.event.release.tag_name }}" ;;
+            workflow_dispatch)  TAG="${{ inputs.tag }}" ;;
+            push)               TAG=$(gh release view --json tagName -q .tagName --repo "${{ github.repository }}" 2>/dev/null || echo "") ;;
           esac
           if [ -n "$TAG" ]; then
             echo "tag=$TAG" >> "$GITHUB_OUTPUT"
@@ -189,9 +204,9 @@ jobs:
 
       - name: Switch working tree to release tag (graft main's JSON)
         if: |
-          steps.targets.outputs.any == 'true' &&
           steps.release_tag.outputs.tag != '' &&
-          github.event_name == 'push'
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/main'
         shell: bash
         run: |
           # Save main's JSON before switching trees; we want the tag's source but main's
@@ -203,12 +218,10 @@ jobs:
           cp /tmp/main-versions.json .github/kotlin-versions.json
           echo "Working tree now at tag ${{ steps.release_tag.outputs.tag }} with main's JSON applied"
 
-      - name: Release publish
-        if: |
-          steps.targets.outputs.any == 'true' &&
-          steps.release_tag.outputs.tag != ''
+      - name: Release publish ${{ matrix.kotlin }}
+        if: steps.release_tag.outputs.tag != ''
         env:
           MODE: release
-          TARGETS: ${{ steps.targets.outputs.list }}
+          TARGETS: ${{ matrix.kotlin }}
         shell: bash
         run: ./.github/scripts/publish-compiler-plugin-loop.sh
