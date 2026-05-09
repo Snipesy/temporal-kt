@@ -307,8 +307,8 @@ class TemporalFirCompanionGenerator(
         if (isWorkflowExternalHandle(classSymbol)) {
             return buildSet {
                 add(SpecialNames.INIT)
-                add(handlePropertyName)        // override val handle: ExternalWorkflowHandle
-                add(cancelMethodName)          // override suspend fun cancel(reason)
+                add(handlePropertyName) // override val handle: ExternalWorkflowHandle
+                add(cancelMethodName) // override suspend fun cancel(reason)
                 // Signal-only — no result/awaitStart/resultType. Cross-workflow synchronous RPC
                 // isn't a Temporal primitive.
                 val outer = classSymbol.classId.outerClassId

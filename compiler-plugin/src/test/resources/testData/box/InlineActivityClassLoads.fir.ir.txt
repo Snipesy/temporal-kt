@@ -287,7 +287,7 @@ FILE fqName:<root> fileName:/InlineActivityClassLoads.kt
           CALL 'internal final fun registerActivityFunction (activityType: kotlin.String, function: kotlin.reflect.KFunction<*>): kotlin.Unit declared in com.surrealdev.temporal.application.TaskQueueBuilder' type=kotlin.Unit origin=null
             ARG <this>: GET_VAR 'builder: com.surrealdev.temporal.application.TaskQueueBuilder declared in <root>.Greeter.Companion.__registerInlineActivities' type=com.surrealdev.temporal.application.TaskQueueBuilder origin=null
             ARG activityType: CONST String type=kotlin.String value="greet"
-            ARG function: FUNCTION_REFERENCE 'public final fun __Greeter_greet (activityContext: com.surrealdev.temporal.activity.ActivityContext): kotlin.String declared in <root>' type=kotlin.reflect.KFunction1<com.surrealdev.temporal.activity.ActivityContext, kotlin.String> origin=null reflectionTarget=<same>
+            ARG function: FUNCTION_REFERENCE 'public final fun __Greeter_greet ($this$inlineActivity: com.surrealdev.temporal.activity.ActivityContext): kotlin.String declared in <root>' type=kotlin.reflect.KFunction1<com.surrealdev.temporal.activity.ActivityContext, kotlin.String> origin=null reflectionTarget=<same>
     CLASS GENERATED[com.surrealdev.temporal.compiler.fir.TemporalExternalCompanionKey] CLASS name:ExternalHandle modality:FINAL visibility:public superTypes:[com.surrealdev.temporal.workflow.TypedExternalWorkflowHandle]
       thisReceiver: VALUE_PARAMETER INSTANCE_RECEIVER kind:DispatchReceiver name:<this> type:<root>.Greeter.ExternalHandle
       PROPERTY GENERATED[com.surrealdev.temporal.compiler.fir.TemporalExternalCompanionKey] name:handle visibility:public modality:OPEN [val]
@@ -391,11 +391,11 @@ FILE fqName:<root> fileName:/InlineActivityClassLoads.kt
             ARG startToCloseMs: CONST Long type=kotlin.Long value=60000
             ARG argTypesAndValues: VARARG type=kotlin.Array<out kotlin.Any?> varargElementType=kotlin.Any?
   FUN GENERATED[com.surrealdev.temporal.compiler.ir.TemporalInlineActivityLowering.InlineActivityKey] name:__Greeter_greet visibility:public modality:FINAL returnType:kotlin.String [suspend]
-    VALUE_PARAMETER kind:Regular name:activityContext index:0 type:com.surrealdev.temporal.activity.ActivityContext
+    VALUE_PARAMETER kind:ExtensionReceiver name:$this$inlineActivity index:0 type:com.surrealdev.temporal.activity.ActivityContext
     annotations:
       Activity(name = "greet")
     BLOCK_BODY
-      RETURN type=kotlin.Nothing from='public final fun __Greeter_greet (activityContext: com.surrealdev.temporal.activity.ActivityContext): kotlin.String declared in <root>'
+      RETURN type=kotlin.Nothing from='public final fun __Greeter_greet ($this$inlineActivity: com.surrealdev.temporal.activity.ActivityContext): kotlin.String declared in <root>'
         STRING_CONCATENATION type=kotlin.String
           CONST String type=kotlin.String value="Hello (random="
           CALL 'public open fun nextInt (): kotlin.Int declared in kotlin.random.Random.Default' type=kotlin.Int origin=null

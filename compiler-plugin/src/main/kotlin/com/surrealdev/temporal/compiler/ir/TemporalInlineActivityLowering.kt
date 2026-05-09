@@ -73,13 +73,6 @@ internal class TemporalInlineActivityLowering(
         ClassId.topLevel(FqName("com.surrealdev.temporal.workflow.WorkflowContext"))
     private val taskQueueBuilderClassId =
         ClassId.topLevel(FqName("com.surrealdev.temporal.application.TaskQueueBuilder"))
-    private val activityContextClassId =
-        ClassId.topLevel(FqName("com.surrealdev.temporal.activity.ActivityContext"))
-
-    private val activityContextClass by lazy {
-        finder.findClass(activityContextClassId)
-            ?: error("com.surrealdev.temporal.activity.ActivityContext not found on classpath")
-    }
 
     private val activityAnnotationCtor by lazy {
         finder.findConstructors(activityAnnotationClassId).firstOrNull()
@@ -282,53 +275,11 @@ internal class TemporalInlineActivityLowering(
             listOf(buildActivityAnnotation(activity.name, lifted.startOffset, lifted.endOffset)),
         )
 
-        // Ensure the lifted function's first regular parameter is `ActivityContext`. The DSL
-        // declares `body: suspend ActivityContext.() -> Return` so the user can write `info` /
-        // `heartbeat(...)` directly via the lambda's `this`. At IR level the lambda has an
-        // ExtensionReceiver param of type ActivityContext. We adopt that param's symbol as the
-        // lifted function's leading regular param (changing `kind` from ExtensionReceiver →
-        // Regular). The same IrValueSymbol stays in place so the body's `this`-references resolve
-        // unchanged. If the lambda has no ActivityContext param at all (e.g. body never used
-        // `this`, materializer dropped it), we synthesise a fresh one.
-        // The Temporal SDK requires `@Activity` methods to take ActivityContext as a regular
-        // parameter (extension-receiver activity methods are no longer supported).
-        val activityContextType = activityContextClass.defaultType
-        val activityContextOwner = activityContextClass.owner
-        val existingActivityCtxParam =
-            lifted.parameters.firstOrNull { p ->
-                (p.kind == IrParameterKind.Regular || p.kind == IrParameterKind.ExtensionReceiver) &&
-                    (p.type.classifierOrNull as? IrClassSymbol)?.owner === activityContextOwner
-            }
-        val activityCtxParam =
-            if (existingActivityCtxParam != null) {
-                // Reuse the lambda's ActivityContext param — same symbol so body refs still bind.
-                // Promote ExtensionReceiver → Regular so the lifted function is a regular method
-                // (the SDK rejects extension-receiver activity methods).
-                if (existingActivityCtxParam.kind == IrParameterKind.ExtensionReceiver) {
-                    existingActivityCtxParam.kind = IrParameterKind.Regular
-                    existingActivityCtxParam.name = Name.identifier("activityContext")
-                }
-                existingActivityCtxParam
-            } else {
-                buildValueParameter(lifted) {
-                    kind = IrParameterKind.Regular
-                    name = Name.identifier("activityContext")
-                    type = activityContextType
-                }
-            }
-
         // For each captured value, append a Regular value parameter to the lifted function and
         // build a remap from the captured symbol → the new parameter's symbol.
         val captureRemap = mutableMapOf<IrValueSymbol, IrValueSymbol>()
-        run {
+        if (activity.captures.isNotEmpty()) {
             val newParams = lifted.parameters.toMutableList()
-            // Drop the existing ActivityContext (it's about to lead the new param list) plus any
-            // other regular params (we'll re-add captures after). Other kinds (dispatch receiver —
-            // shouldn't be any on a top-level lifted fn, but defensive) stay.
-            newParams.remove(activityCtxParam)
-            newParams.removeAll { it.kind == IrParameterKind.Regular }
-            // Lead with ActivityContext.
-            newParams += activityCtxParam
             for (captured in activity.captures) {
                 val ownerDecl = captured.owner
                 val capturedType =

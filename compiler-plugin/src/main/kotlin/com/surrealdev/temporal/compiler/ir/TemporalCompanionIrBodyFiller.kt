@@ -1503,5 +1503,4 @@ internal class TemporalCompanionIrBodyFiller(
         call.arguments[0] = IrGetValueImpl(so, eo, dispatchReceiver.symbol)
         return call
     }
-
 }

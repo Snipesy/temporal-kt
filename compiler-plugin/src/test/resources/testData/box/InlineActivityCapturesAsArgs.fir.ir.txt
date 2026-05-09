@@ -291,7 +291,7 @@ FILE fqName:<root> fileName:/InlineActivityCapturesAsArgs.kt
           CALL 'internal final fun registerActivityFunction (activityType: kotlin.String, function: kotlin.reflect.KFunction<*>): kotlin.Unit declared in com.surrealdev.temporal.application.TaskQueueBuilder' type=kotlin.Unit origin=null
             ARG <this>: GET_VAR 'builder: com.surrealdev.temporal.application.TaskQueueBuilder declared in <root>.Capturing.Companion.__registerInlineActivities' type=com.surrealdev.temporal.application.TaskQueueBuilder origin=null
             ARG activityType: CONST String type=kotlin.String value="nestedActivity"
-            ARG function: FUNCTION_REFERENCE 'public final fun __Capturing_nestedActivity (activityContext: com.surrealdev.temporal.activity.ActivityContext, capture: kotlin.String, arg: kotlin.String, n: kotlin.Int): kotlin.String declared in <root>' type=kotlin.reflect.KFunction4<com.surrealdev.temporal.activity.ActivityContext, kotlin.String, kotlin.String, kotlin.Int, kotlin.String> origin=null reflectionTarget=<same>
+            ARG function: FUNCTION_REFERENCE 'public final fun __Capturing_nestedActivity ($this$inlineActivity: com.surrealdev.temporal.activity.ActivityContext, capture: kotlin.String, arg: kotlin.String, n: kotlin.Int): kotlin.String declared in <root>' type=kotlin.reflect.KFunction4<com.surrealdev.temporal.activity.ActivityContext, kotlin.String, kotlin.String, kotlin.Int, kotlin.String> origin=null reflectionTarget=<same>
     CLASS GENERATED[com.surrealdev.temporal.compiler.fir.TemporalExternalCompanionKey] CLASS name:ExternalHandle modality:FINAL visibility:public superTypes:[com.surrealdev.temporal.workflow.TypedExternalWorkflowHandle]
       thisReceiver: VALUE_PARAMETER INSTANCE_RECEIVER kind:DispatchReceiver name:<this> type:<root>.Capturing.ExternalHandle
       PROPERTY GENERATED[com.surrealdev.temporal.compiler.fir.TemporalExternalCompanionKey] name:handle visibility:public modality:OPEN [val]
@@ -410,14 +410,14 @@ FILE fqName:<root> fileName:/InlineActivityCapturesAsArgs.kt
                 ARG cls: CLASS_REFERENCE 'CLASS IR_EXTERNAL_DECLARATION_STUB CLASS name:Int modality:FINAL visibility:public superTypes:[kotlin.Number; kotlin.Comparable<kotlin.Int>; java.io.Serializable]' type=kotlin.reflect.KClass<kotlin.Int>
               GET_VAR 'val n: kotlin.Int declared in <root>.Capturing.run' type=kotlin.Int origin=null
   FUN GENERATED[com.surrealdev.temporal.compiler.ir.TemporalInlineActivityLowering.InlineActivityKey] name:__Capturing_nestedActivity visibility:public modality:FINAL returnType:kotlin.String [suspend]
-    VALUE_PARAMETER kind:Regular name:activityContext index:0 type:com.surrealdev.temporal.activity.ActivityContext
+    VALUE_PARAMETER kind:ExtensionReceiver name:$this$inlineActivity index:0 type:com.surrealdev.temporal.activity.ActivityContext
     VALUE_PARAMETER kind:Regular name:capture index:1 type:kotlin.String
     VALUE_PARAMETER kind:Regular name:arg index:2 type:kotlin.String
     VALUE_PARAMETER kind:Regular name:n index:3 type:kotlin.Int
     annotations:
       Activity(name = "nestedActivity")
     BLOCK_BODY
-      RETURN type=kotlin.Nothing from='public final fun __Capturing_nestedActivity (activityContext: com.surrealdev.temporal.activity.ActivityContext, capture: kotlin.String, arg: kotlin.String, n: kotlin.Int): kotlin.String declared in <root>'
+      RETURN type=kotlin.Nothing from='public final fun __Capturing_nestedActivity ($this$inlineActivity: com.surrealdev.temporal.activity.ActivityContext, capture: kotlin.String, arg: kotlin.String, n: kotlin.Int): kotlin.String declared in <root>'
         STRING_CONCATENATION type=kotlin.String
           CONST String type=kotlin.String value="Hello "
           GET_VAR 'capture: kotlin.String declared in <root>.__Capturing_nestedActivity' type=kotlin.String origin=null
