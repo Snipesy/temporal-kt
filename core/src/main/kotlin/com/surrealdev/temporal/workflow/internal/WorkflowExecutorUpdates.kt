@@ -8,6 +8,7 @@ import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.failure.FAILURE_SOURCE
+import com.surrealdev.temporal.internal.isFatalError
 import com.surrealdev.temporal.serialization.safeDecode
 import com.surrealdev.temporal.serialization.safeEncodeSingle
 import com.surrealdev.temporal.serialization.safeSerialize
@@ -129,7 +130,11 @@ internal suspend fun WorkflowExecutor.handleUpdate(
             pendingActivationFailure = e
         } catch (e: Throwable) {
             val cause = (e as? java.lang.reflect.InvocationTargetException)?.targetException ?: e
-            if (!accepted || cause.isWorkflowFailureException()) {
+            if (cause.isFatalError()) {
+                // A fatal JVM error (OOM etc.) must shut the worker down, never
+                // become a rejection: fail the task so activate() surfaces it.
+                pendingActivationFailure = cause
+            } else if (!accepted || cause.isWorkflowFailureException()) {
                 // Validation-phase exceptions reject the update (that's what validators
                 // are for); after acceptance, only failure-typed exceptions resolve the
                 // update as failed. The proto explicitly permits rejected-after-accepted.

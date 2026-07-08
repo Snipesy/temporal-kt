@@ -766,6 +766,50 @@ class UpdateHandlerTest {
             )
         }
 
+    @Workflow("FatalValidatorWorkflow")
+    class FatalValidatorWorkflow {
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String = "done"
+
+        @UpdateValidator("fatalUpdate")
+        fun validateFatalUpdate(): Unit = throw OutOfMemoryError("simulated heap exhaustion")
+
+        @Update("fatalUpdate")
+        fun WorkflowContext.fatalUpdate(): String = "unreachable"
+    }
+
+    @Test
+    fun `fatal error during update validation fails the workflow task fatally`() =
+        runTest {
+            // An OutOfMemoryError during validation means the JVM is compromised: the
+            // worker must shut down, not report the update as permanently rejected.
+            val (executor, runId) = createInitializedExecutor(FatalValidatorWorkflow())
+
+            val protocolId = "test-protocol-id"
+            val updateActivation =
+                createActivation(
+                    runId = runId,
+                    jobs =
+                        listOf(
+                            doUpdateJob(
+                                name = "fatalUpdate",
+                                protocolInstanceId = protocolId,
+                                runValidator = true,
+                            ),
+                        ),
+                )
+            val dispatch = executor.activate(updateActivation)
+
+            assertTrue(
+                dispatch.completion.hasFailed(),
+                "expected workflow task failure, got: ${dispatch.completion}",
+            )
+            assertTrue(
+                dispatch.fatalError is OutOfMemoryError,
+                "expected OutOfMemoryError as fatalError, got: ${dispatch.fatalError}",
+            )
+        }
+
     @Test
     fun `unknown update type returns rejected immediately`() =
         runTest {
