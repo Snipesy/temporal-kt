@@ -12,6 +12,7 @@ import com.surrealdev.temporal.common.exceptions.ChildWorkflowFailureException
 import com.surrealdev.temporal.common.exceptions.ClientWorkflowFailedException
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityFailureException
 import com.surrealdev.temporal.testing.assertHistory
+import com.surrealdev.temporal.testing.awaitHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.ActivityOptions
 import com.surrealdev.temporal.workflow.ChildWorkflowOptions
@@ -533,18 +534,9 @@ class ExceptionPropagationIntegrationTest {
             // Non-failure-typed exceptions are bugs: they fail the workflow TASK (retryable)
             // and the workflow stays running, matching Python/Java SDK semantics. Only
             // failure-typed exceptions (ApplicationFailure etc.) fail the workflow.
-            val deadline = System.currentTimeMillis() + 10_000
-            var taskFailure: TemporalHistoryEvent.WorkflowTaskFailed? = null
-            while (System.currentTimeMillis() < deadline) {
-                val history = handle.getHistory()
-                taskFailure =
-                    history
-                        .filterByType<TemporalHistoryEvent.WorkflowTaskFailed>()
-                        .firstOrNull()
-                if (taskFailure != null) break
-                kotlinx.coroutines.delay(200)
+            handle.awaitHistory(description = "a WorkflowTaskFailed event") {
+                it.filterByType<TemporalHistoryEvent.WorkflowTaskFailed>().isNotEmpty()
             }
-            assertNotNull(taskFailure, "Expected a WorkflowTaskFailed event in history")
 
             val description = handle.describe()
             assertEquals(

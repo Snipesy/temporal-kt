@@ -5,6 +5,7 @@ import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.taskQueue
 import com.surrealdev.temporal.client.startWorkflow
 import com.surrealdev.temporal.testing.assertHistory
+import com.surrealdev.temporal.testing.awaitHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.ChildWorkflowOptions
 import com.surrealdev.temporal.workflow.WorkflowContext
@@ -353,18 +354,16 @@ class ContextEscape {
             // An EscapedDispatcherException is a coding bug, not a business failure:
             // the workflow TASK fails (retryable, TKT1108 visible in history) and the
             // workflow stays running rather than failing permanently.
-            val deadline = System.currentTimeMillis() + 15_000
-            var taskFailure: com.surrealdev.temporal.client.history.TemporalHistoryEvent.WorkflowTaskFailed? = null
-            while (System.currentTimeMillis() < deadline) {
-                taskFailure =
-                    handle
-                        .getHistory()
+            val history =
+                handle.awaitHistory(timeout = 15.seconds, description = "a WorkflowTaskFailed event") {
+                    it
                         .filterByType<com.surrealdev.temporal.client.history.TemporalHistoryEvent.WorkflowTaskFailed>()
-                        .firstOrNull()
-                if (taskFailure != null) break
-                delay(200.milliseconds)
-            }
-            assertTrue(taskFailure != null, "Expected a WorkflowTaskFailed event in history")
+                        .isNotEmpty()
+                }
+            val taskFailure =
+                history
+                    .filterByType<com.surrealdev.temporal.client.history.TemporalHistoryEvent.WorkflowTaskFailed>()
+                    .first()
             assertEquals(
                 taskFailure.failureMessage?.contains("TKT1108"),
                 true,

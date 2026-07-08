@@ -2,6 +2,11 @@ package com.surrealdev.temporal.testing
 
 import com.surrealdev.temporal.client.WorkflowHandle
 import com.surrealdev.temporal.client.history.WorkflowHistory
+import kotlinx.coroutines.delay
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeSource
 
 /**
  * DSL for making assertions about workflow execution history.
@@ -255,4 +260,43 @@ suspend fun WorkflowHandle.assertHistoryAndReturn(assertions: HistoryAssertionSc
     scope.assertions()
     scope.validate()
     return history
+}
+
+/**
+ * Polls the workflow history until [predicate] matches, returning the matching history.
+ *
+ * Use this to await a non-terminal history condition (e.g. a WorkflowTaskFailed event
+ * appearing while the workflow keeps running) where [WorkflowHandle.result]'s close-event
+ * long poll doesn't apply.
+ *
+ * Example:
+ * ```kotlin
+ * val history = handle.awaitHistory(description = "a WorkflowTaskFailed event") {
+ *     it.filterByType<TemporalHistoryEvent.WorkflowTaskFailed>().isNotEmpty()
+ * }
+ * ```
+ *
+ * @param timeout Maximum time to wait before failing the test
+ * @param pollInterval Delay between history fetches
+ * @param description Shown in the failure message when the timeout elapses
+ * @throws AssertionError if the predicate doesn't match within [timeout]
+ */
+suspend fun WorkflowHandle.awaitHistory(
+    timeout: Duration = 10.seconds,
+    pollInterval: Duration = 200.milliseconds,
+    description: String = "history condition",
+    predicate: (WorkflowHistory) -> Boolean,
+): WorkflowHistory {
+    val deadline = TimeSource.Monotonic.markNow() + timeout
+    var last: WorkflowHistory? = null
+    while (deadline.hasNotPassedNow()) {
+        val history = getHistory()
+        last = history
+        if (predicate(history)) return history
+        delay(pollInterval)
+    }
+    throw AssertionError(
+        "Timed out after $timeout waiting for $description. " +
+            "Last seen events: ${last?.events?.map { it::class.simpleName }}",
+    )
 }

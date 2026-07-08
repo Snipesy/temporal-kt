@@ -7,6 +7,7 @@ import com.surrealdev.temporal.client.history.TemporalHistoryEvent
 import com.surrealdev.temporal.client.startWorkflow
 import com.surrealdev.temporal.common.exceptions.ApplicationFailure
 import com.surrealdev.temporal.testing.assertHistory
+import com.surrealdev.temporal.testing.awaitHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.result
@@ -618,17 +619,9 @@ class WorkflowFailureHandlingTest {
 
             // A plain NPE is a bug, not a business failure: the workflow TASK fails
             // (retryable) and the workflow stays running rather than failing permanently.
-            val deadline = System.currentTimeMillis() + 10_000
-            var sawTaskFailure = false
-            while (System.currentTimeMillis() < deadline) {
-                val history = handle.getHistory()
-                if (history.filterByType<TemporalHistoryEvent.WorkflowTaskFailed>().isNotEmpty()) {
-                    sawTaskFailure = true
-                    break
-                }
-                kotlinx.coroutines.delay(200.milliseconds)
+            handle.awaitHistory(description = "a WorkflowTaskFailed event") {
+                it.filterByType<TemporalHistoryEvent.WorkflowTaskFailed>().isNotEmpty()
             }
-            assertTrue(sawTaskFailure, "Expected a WorkflowTaskFailed event in history")
 
             val description = handle.describe()
             assertEquals(
