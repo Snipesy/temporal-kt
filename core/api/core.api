@@ -1494,15 +1494,18 @@ public final class com/surrealdev/temporal/application/plugin/interceptor/Schedu
 }
 
 public final class com/surrealdev/temporal/application/plugin/interceptor/ScheduleActivityInput {
-	public synthetic fun <init> (Ljava/lang/String;Lio/temporal/api/common/v1/Payloads;Lcom/surrealdev/temporal/workflow/ActivityOptions;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/lang/String;Lio/temporal/api/common/v1/Payloads;Lcom/surrealdev/temporal/workflow/ActivityOptions;Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/lang/String;Lio/temporal/api/common/v1/Payloads;Lcom/surrealdev/temporal/workflow/ActivityOptions;Ljava/util/Map;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/lang/String;
 	public final fun component2-LsIyt50 ()Lio/temporal/api/common/v1/Payloads;
 	public final fun component3 ()Lcom/surrealdev/temporal/workflow/ActivityOptions;
-	public final fun copy-7Kc-crE (Ljava/lang/String;Lio/temporal/api/common/v1/Payloads;Lcom/surrealdev/temporal/workflow/ActivityOptions;)Lcom/surrealdev/temporal/application/plugin/interceptor/ScheduleActivityInput;
-	public static synthetic fun copy-7Kc-crE$default (Lcom/surrealdev/temporal/application/plugin/interceptor/ScheduleActivityInput;Ljava/lang/String;Lio/temporal/api/common/v1/Payloads;Lcom/surrealdev/temporal/workflow/ActivityOptions;ILjava/lang/Object;)Lcom/surrealdev/temporal/application/plugin/interceptor/ScheduleActivityInput;
+	public final fun component4 ()Ljava/util/Map;
+	public final fun copy-vMcdwC0 (Ljava/lang/String;Lio/temporal/api/common/v1/Payloads;Lcom/surrealdev/temporal/workflow/ActivityOptions;Ljava/util/Map;)Lcom/surrealdev/temporal/application/plugin/interceptor/ScheduleActivityInput;
+	public static synthetic fun copy-vMcdwC0$default (Lcom/surrealdev/temporal/application/plugin/interceptor/ScheduleActivityInput;Ljava/lang/String;Lio/temporal/api/common/v1/Payloads;Lcom/surrealdev/temporal/workflow/ActivityOptions;Ljava/util/Map;ILjava/lang/Object;)Lcom/surrealdev/temporal/application/plugin/interceptor/ScheduleActivityInput;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getActivityType ()Ljava/lang/String;
 	public final fun getArgs-LsIyt50 ()Lio/temporal/api/common/v1/Payloads;
+	public final fun getHeaders ()Ljava/util/Map;
 	public final fun getOptions ()Lcom/surrealdev/temporal/workflow/ActivityOptions;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
@@ -1595,12 +1598,15 @@ public final class com/surrealdev/temporal/application/plugin/interceptor/Sleep 
 }
 
 public final class com/surrealdev/temporal/application/plugin/interceptor/SleepInput {
-	public synthetic fun <init> (JLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (JLjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (JLjava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1-UwyO8pc ()J
-	public final fun copy-LRDsOJo (J)Lcom/surrealdev/temporal/application/plugin/interceptor/SleepInput;
-	public static synthetic fun copy-LRDsOJo$default (Lcom/surrealdev/temporal/application/plugin/interceptor/SleepInput;JILjava/lang/Object;)Lcom/surrealdev/temporal/application/plugin/interceptor/SleepInput;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy-VtjQ1oo (JLjava/lang/String;)Lcom/surrealdev/temporal/application/plugin/interceptor/SleepInput;
+	public static synthetic fun copy-VtjQ1oo$default (Lcom/surrealdev/temporal/application/plugin/interceptor/SleepInput;JLjava/lang/String;ILjava/lang/Object;)Lcom/surrealdev/temporal/application/plugin/interceptor/SleepInput;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getDuration-UwyO8pc ()J
+	public final fun getSummary ()Ljava/lang/String;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
@@ -4361,12 +4367,13 @@ public final class com/surrealdev/temporal/workflow/ActivityHandle$DefaultImpls 
 }
 
 public final class com/surrealdev/temporal/workflow/ActivityOptions {
-	public synthetic fun <init> (Lkotlin/time/Duration;Lkotlin/time/Duration;Lkotlin/time/Duration;Lkotlin/time/Duration;Ljava/lang/String;Ljava/lang/String;Lcom/surrealdev/temporal/common/RetryPolicy;Lcom/surrealdev/temporal/workflow/ActivityCancellationType;Lcom/surrealdev/temporal/workflow/VersioningIntent;Ljava/util/Map;IZILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public synthetic fun <init> (Lkotlin/time/Duration;Lkotlin/time/Duration;Lkotlin/time/Duration;Lkotlin/time/Duration;Ljava/lang/String;Ljava/lang/String;Lcom/surrealdev/temporal/common/RetryPolicy;Lcom/surrealdev/temporal/workflow/ActivityCancellationType;Lcom/surrealdev/temporal/workflow/VersioningIntent;Ljava/util/Map;IZLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Lkotlin/time/Duration;Lkotlin/time/Duration;Lkotlin/time/Duration;Lkotlin/time/Duration;Ljava/lang/String;Ljava/lang/String;Lcom/surrealdev/temporal/common/RetryPolicy;Lcom/surrealdev/temporal/workflow/ActivityCancellationType;Lcom/surrealdev/temporal/workflow/VersioningIntent;Ljava/util/Map;IZLjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Lkotlin/time/Duration;Lkotlin/time/Duration;Lkotlin/time/Duration;Lkotlin/time/Duration;Ljava/lang/String;Ljava/lang/String;Lcom/surrealdev/temporal/common/RetryPolicy;Lcom/surrealdev/temporal/workflow/ActivityCancellationType;Lcom/surrealdev/temporal/workflow/VersioningIntent;Ljava/util/Map;IZLjava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1-FghU774 ()Lkotlin/time/Duration;
 	public final fun component10 ()Ljava/util/Map;
 	public final fun component11 ()I
 	public final fun component12 ()Z
+	public final fun component13 ()Ljava/lang/String;
 	public final fun component2-FghU774 ()Lkotlin/time/Duration;
 	public final fun component3-FghU774 ()Lkotlin/time/Duration;
 	public final fun component4-FghU774 ()Lkotlin/time/Duration;
@@ -4375,8 +4382,8 @@ public final class com/surrealdev/temporal/workflow/ActivityOptions {
 	public final fun component7 ()Lcom/surrealdev/temporal/common/RetryPolicy;
 	public final fun component8 ()Lcom/surrealdev/temporal/workflow/ActivityCancellationType;
 	public final fun component9 ()Lcom/surrealdev/temporal/workflow/VersioningIntent;
-	public final fun copy-_R-IIuk (Lkotlin/time/Duration;Lkotlin/time/Duration;Lkotlin/time/Duration;Lkotlin/time/Duration;Ljava/lang/String;Ljava/lang/String;Lcom/surrealdev/temporal/common/RetryPolicy;Lcom/surrealdev/temporal/workflow/ActivityCancellationType;Lcom/surrealdev/temporal/workflow/VersioningIntent;Ljava/util/Map;IZ)Lcom/surrealdev/temporal/workflow/ActivityOptions;
-	public static synthetic fun copy-_R-IIuk$default (Lcom/surrealdev/temporal/workflow/ActivityOptions;Lkotlin/time/Duration;Lkotlin/time/Duration;Lkotlin/time/Duration;Lkotlin/time/Duration;Ljava/lang/String;Ljava/lang/String;Lcom/surrealdev/temporal/common/RetryPolicy;Lcom/surrealdev/temporal/workflow/ActivityCancellationType;Lcom/surrealdev/temporal/workflow/VersioningIntent;Ljava/util/Map;IZILjava/lang/Object;)Lcom/surrealdev/temporal/workflow/ActivityOptions;
+	public final fun copy-7_HE9y0 (Lkotlin/time/Duration;Lkotlin/time/Duration;Lkotlin/time/Duration;Lkotlin/time/Duration;Ljava/lang/String;Ljava/lang/String;Lcom/surrealdev/temporal/common/RetryPolicy;Lcom/surrealdev/temporal/workflow/ActivityCancellationType;Lcom/surrealdev/temporal/workflow/VersioningIntent;Ljava/util/Map;IZLjava/lang/String;)Lcom/surrealdev/temporal/workflow/ActivityOptions;
+	public static synthetic fun copy-7_HE9y0$default (Lcom/surrealdev/temporal/workflow/ActivityOptions;Lkotlin/time/Duration;Lkotlin/time/Duration;Lkotlin/time/Duration;Lkotlin/time/Duration;Ljava/lang/String;Ljava/lang/String;Lcom/surrealdev/temporal/common/RetryPolicy;Lcom/surrealdev/temporal/workflow/ActivityCancellationType;Lcom/surrealdev/temporal/workflow/VersioningIntent;Ljava/util/Map;IZLjava/lang/String;ILjava/lang/Object;)Lcom/surrealdev/temporal/workflow/ActivityOptions;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getActivityId ()Ljava/lang/String;
 	public final fun getCancellationType ()Lcom/surrealdev/temporal/workflow/ActivityCancellationType;
@@ -4388,6 +4395,7 @@ public final class com/surrealdev/temporal/workflow/ActivityOptions {
 	public final fun getScheduleToCloseTimeout-FghU774 ()Lkotlin/time/Duration;
 	public final fun getScheduleToStartTimeout-FghU774 ()Lkotlin/time/Duration;
 	public final fun getStartToCloseTimeout-FghU774 ()Lkotlin/time/Duration;
+	public final fun getSummary ()Ljava/lang/String;
 	public final fun getTaskQueue ()Ljava/lang/String;
 	public final fun getVersioningIntent ()Lcom/surrealdev/temporal/workflow/VersioningIntent;
 	public fun hashCode ()I
@@ -4420,9 +4428,15 @@ public final class com/surrealdev/temporal/workflow/ChildWorkflowHandle$DefaultI
 }
 
 public final class com/surrealdev/temporal/workflow/ChildWorkflowOptions {
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Lkotlin/time/Duration;Lkotlin/time/Duration;Lcom/surrealdev/temporal/common/RetryPolicy;Lcom/surrealdev/temporal/workflow/ParentClosePolicy;Lcom/surrealdev/temporal/workflow/ChildWorkflowCancellationType;Lcom/surrealdev/temporal/common/TypedSearchAttributes;Lcom/surrealdev/temporal/client/WorkflowIdReusePolicy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Lkotlin/time/Duration;Lkotlin/time/Duration;Lcom/surrealdev/temporal/common/RetryPolicy;Lcom/surrealdev/temporal/workflow/ParentClosePolicy;Lcom/surrealdev/temporal/workflow/ChildWorkflowCancellationType;Lcom/surrealdev/temporal/common/TypedSearchAttributes;Lcom/surrealdev/temporal/client/WorkflowIdReusePolicy;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Lkotlin/time/Duration;Lkotlin/time/Duration;Lcom/surrealdev/temporal/common/RetryPolicy;Lcom/surrealdev/temporal/workflow/ParentClosePolicy;Lcom/surrealdev/temporal/workflow/ChildWorkflowCancellationType;Lcom/surrealdev/temporal/common/TypedSearchAttributes;Lcom/surrealdev/temporal/client/WorkflowIdReusePolicy;Lkotlin/time/Duration;Ljava/lang/String;Ljava/util/Map;Lcom/surrealdev/temporal/workflow/VersioningIntent;ILjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Lkotlin/time/Duration;Lkotlin/time/Duration;Lcom/surrealdev/temporal/common/RetryPolicy;Lcom/surrealdev/temporal/workflow/ParentClosePolicy;Lcom/surrealdev/temporal/workflow/ChildWorkflowCancellationType;Lcom/surrealdev/temporal/common/TypedSearchAttributes;Lcom/surrealdev/temporal/client/WorkflowIdReusePolicy;Lkotlin/time/Duration;Ljava/lang/String;Ljava/util/Map;Lcom/surrealdev/temporal/workflow/VersioningIntent;ILjava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/lang/String;
+	public final fun component10-FghU774 ()Lkotlin/time/Duration;
+	public final fun component11 ()Ljava/lang/String;
+	public final fun component12 ()Ljava/util/Map;
+	public final fun component13 ()Lcom/surrealdev/temporal/workflow/VersioningIntent;
+	public final fun component14 ()I
+	public final fun component15 ()Ljava/lang/String;
 	public final fun component2 ()Ljava/lang/String;
 	public final fun component3-FghU774 ()Lkotlin/time/Duration;
 	public final fun component4-FghU774 ()Lkotlin/time/Duration;
@@ -4431,18 +4445,24 @@ public final class com/surrealdev/temporal/workflow/ChildWorkflowOptions {
 	public final fun component7 ()Lcom/surrealdev/temporal/workflow/ChildWorkflowCancellationType;
 	public final fun component8 ()Lcom/surrealdev/temporal/common/TypedSearchAttributes;
 	public final fun component9 ()Lcom/surrealdev/temporal/client/WorkflowIdReusePolicy;
-	public final fun copy-imR-fxc (Ljava/lang/String;Ljava/lang/String;Lkotlin/time/Duration;Lkotlin/time/Duration;Lcom/surrealdev/temporal/common/RetryPolicy;Lcom/surrealdev/temporal/workflow/ParentClosePolicy;Lcom/surrealdev/temporal/workflow/ChildWorkflowCancellationType;Lcom/surrealdev/temporal/common/TypedSearchAttributes;Lcom/surrealdev/temporal/client/WorkflowIdReusePolicy;)Lcom/surrealdev/temporal/workflow/ChildWorkflowOptions;
-	public static synthetic fun copy-imR-fxc$default (Lcom/surrealdev/temporal/workflow/ChildWorkflowOptions;Ljava/lang/String;Ljava/lang/String;Lkotlin/time/Duration;Lkotlin/time/Duration;Lcom/surrealdev/temporal/common/RetryPolicy;Lcom/surrealdev/temporal/workflow/ParentClosePolicy;Lcom/surrealdev/temporal/workflow/ChildWorkflowCancellationType;Lcom/surrealdev/temporal/common/TypedSearchAttributes;Lcom/surrealdev/temporal/client/WorkflowIdReusePolicy;ILjava/lang/Object;)Lcom/surrealdev/temporal/workflow/ChildWorkflowOptions;
+	public final fun copy-K9v0jNc (Ljava/lang/String;Ljava/lang/String;Lkotlin/time/Duration;Lkotlin/time/Duration;Lcom/surrealdev/temporal/common/RetryPolicy;Lcom/surrealdev/temporal/workflow/ParentClosePolicy;Lcom/surrealdev/temporal/workflow/ChildWorkflowCancellationType;Lcom/surrealdev/temporal/common/TypedSearchAttributes;Lcom/surrealdev/temporal/client/WorkflowIdReusePolicy;Lkotlin/time/Duration;Ljava/lang/String;Ljava/util/Map;Lcom/surrealdev/temporal/workflow/VersioningIntent;ILjava/lang/String;)Lcom/surrealdev/temporal/workflow/ChildWorkflowOptions;
+	public static synthetic fun copy-K9v0jNc$default (Lcom/surrealdev/temporal/workflow/ChildWorkflowOptions;Ljava/lang/String;Ljava/lang/String;Lkotlin/time/Duration;Lkotlin/time/Duration;Lcom/surrealdev/temporal/common/RetryPolicy;Lcom/surrealdev/temporal/workflow/ParentClosePolicy;Lcom/surrealdev/temporal/workflow/ChildWorkflowCancellationType;Lcom/surrealdev/temporal/common/TypedSearchAttributes;Lcom/surrealdev/temporal/client/WorkflowIdReusePolicy;Lkotlin/time/Duration;Ljava/lang/String;Ljava/util/Map;Lcom/surrealdev/temporal/workflow/VersioningIntent;ILjava/lang/String;ILjava/lang/Object;)Lcom/surrealdev/temporal/workflow/ChildWorkflowOptions;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getCancellationType ()Lcom/surrealdev/temporal/workflow/ChildWorkflowCancellationType;
+	public final fun getCronSchedule ()Ljava/lang/String;
+	public final fun getMemo ()Ljava/util/Map;
 	public final fun getParentClosePolicy ()Lcom/surrealdev/temporal/workflow/ParentClosePolicy;
+	public final fun getPriority ()I
 	public final fun getRetryPolicy ()Lcom/surrealdev/temporal/common/RetryPolicy;
 	public final fun getSearchAttributes ()Lcom/surrealdev/temporal/common/TypedSearchAttributes;
+	public final fun getSummary ()Ljava/lang/String;
 	public final fun getTaskQueue ()Ljava/lang/String;
+	public final fun getVersioningIntent ()Lcom/surrealdev/temporal/workflow/VersioningIntent;
 	public final fun getWorkflowExecutionTimeout-FghU774 ()Lkotlin/time/Duration;
 	public final fun getWorkflowId ()Ljava/lang/String;
 	public final fun getWorkflowIdReusePolicy ()Lcom/surrealdev/temporal/client/WorkflowIdReusePolicy;
 	public final fun getWorkflowRunTimeout-FghU774 ()Lkotlin/time/Duration;
+	public final fun getWorkflowTaskTimeout-FghU774 ()Lkotlin/time/Duration;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
@@ -4511,8 +4531,8 @@ public abstract interface class com/surrealdev/temporal/workflow/LocalActivityHa
 }
 
 public final class com/surrealdev/temporal/workflow/LocalActivityOptions {
-	public synthetic fun <init> (Lkotlin/time/Duration;Lkotlin/time/Duration;Lkotlin/time/Duration;Ljava/lang/String;Lcom/surrealdev/temporal/common/RetryPolicy;JLcom/surrealdev/temporal/workflow/ActivityCancellationType;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public synthetic fun <init> (Lkotlin/time/Duration;Lkotlin/time/Duration;Lkotlin/time/Duration;Ljava/lang/String;Lcom/surrealdev/temporal/common/RetryPolicy;JLcom/surrealdev/temporal/workflow/ActivityCancellationType;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Lkotlin/time/Duration;Lkotlin/time/Duration;Lkotlin/time/Duration;Ljava/lang/String;Lcom/surrealdev/temporal/common/RetryPolicy;JLcom/surrealdev/temporal/workflow/ActivityCancellationType;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Lkotlin/time/Duration;Lkotlin/time/Duration;Lkotlin/time/Duration;Ljava/lang/String;Lcom/surrealdev/temporal/common/RetryPolicy;JLcom/surrealdev/temporal/workflow/ActivityCancellationType;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1-FghU774 ()Lkotlin/time/Duration;
 	public final fun component2-FghU774 ()Lkotlin/time/Duration;
 	public final fun component3-FghU774 ()Lkotlin/time/Duration;
@@ -4520,8 +4540,9 @@ public final class com/surrealdev/temporal/workflow/LocalActivityOptions {
 	public final fun component5 ()Lcom/surrealdev/temporal/common/RetryPolicy;
 	public final fun component6-UwyO8pc ()J
 	public final fun component7 ()Lcom/surrealdev/temporal/workflow/ActivityCancellationType;
-	public final fun copy-Ujx4CJs (Lkotlin/time/Duration;Lkotlin/time/Duration;Lkotlin/time/Duration;Ljava/lang/String;Lcom/surrealdev/temporal/common/RetryPolicy;JLcom/surrealdev/temporal/workflow/ActivityCancellationType;)Lcom/surrealdev/temporal/workflow/LocalActivityOptions;
-	public static synthetic fun copy-Ujx4CJs$default (Lcom/surrealdev/temporal/workflow/LocalActivityOptions;Lkotlin/time/Duration;Lkotlin/time/Duration;Lkotlin/time/Duration;Ljava/lang/String;Lcom/surrealdev/temporal/common/RetryPolicy;JLcom/surrealdev/temporal/workflow/ActivityCancellationType;ILjava/lang/Object;)Lcom/surrealdev/temporal/workflow/LocalActivityOptions;
+	public final fun component8 ()Ljava/lang/String;
+	public final fun copy-ZDPINwc (Lkotlin/time/Duration;Lkotlin/time/Duration;Lkotlin/time/Duration;Ljava/lang/String;Lcom/surrealdev/temporal/common/RetryPolicy;JLcom/surrealdev/temporal/workflow/ActivityCancellationType;Ljava/lang/String;)Lcom/surrealdev/temporal/workflow/LocalActivityOptions;
+	public static synthetic fun copy-ZDPINwc$default (Lcom/surrealdev/temporal/workflow/LocalActivityOptions;Lkotlin/time/Duration;Lkotlin/time/Duration;Lkotlin/time/Duration;Ljava/lang/String;Lcom/surrealdev/temporal/common/RetryPolicy;JLcom/surrealdev/temporal/workflow/ActivityCancellationType;Ljava/lang/String;ILjava/lang/Object;)Lcom/surrealdev/temporal/workflow/LocalActivityOptions;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getActivityId ()Ljava/lang/String;
 	public final fun getCancellationType ()Lcom/surrealdev/temporal/workflow/ActivityCancellationType;
@@ -4530,6 +4551,7 @@ public final class com/surrealdev/temporal/workflow/LocalActivityOptions {
 	public final fun getScheduleToCloseTimeout-FghU774 ()Lkotlin/time/Duration;
 	public final fun getScheduleToStartTimeout-FghU774 ()Lkotlin/time/Duration;
 	public final fun getStartToCloseTimeout-FghU774 ()Lkotlin/time/Duration;
+	public final fun getSummary ()Ljava/lang/String;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
@@ -4571,6 +4593,7 @@ public abstract interface class com/surrealdev/temporal/workflow/WorkflowContext
 	public abstract fun awaitCondition-rnQQ1Ag (JLjava/lang/String;Lkotlin/jvm/functions/Function0;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun awaitCondition-rnQQ1Ag$default (Lcom/surrealdev/temporal/workflow/WorkflowContext;JLjava/lang/String;Lkotlin/jvm/functions/Function0;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public abstract fun continueAsNewInternal (Lcom/surrealdev/temporal/workflow/ContinueAsNewOptions;Ljava/util/List;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun deprecatePatch (Ljava/lang/String;)V
 	public abstract fun getContinueAsNewSuggestedReasons ()Ljava/util/Set;
 	public abstract fun getExternalWorkflowHandle (Ljava/lang/String;Ljava/lang/String;)Lcom/surrealdev/temporal/workflow/ExternalWorkflowHandle;
 	public static synthetic fun getExternalWorkflowHandle$default (Lcom/surrealdev/temporal/workflow/WorkflowContext;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lcom/surrealdev/temporal/workflow/ExternalWorkflowHandle;
@@ -4593,7 +4616,8 @@ public abstract interface class com/surrealdev/temporal/workflow/WorkflowContext
 	public abstract fun setSignalHandlerWithPayloads (Ljava/lang/String;Lkotlin/jvm/functions/Function2;)V
 	public abstract fun setUpdateHandlerWithPayloads (Ljava/lang/String;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function1;)V
 	public static synthetic fun setUpdateHandlerWithPayloads$default (Lcom/surrealdev/temporal/workflow/WorkflowContext;Ljava/lang/String;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)V
-	public abstract fun sleep-VtjQ1oo (JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun sleep-KLykuaI (JLjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun sleep-KLykuaI$default (Lcom/surrealdev/temporal/workflow/WorkflowContext;JLjava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public abstract fun startActivityWithPayloads-vMcdwC0 (Ljava/lang/String;Lio/temporal/api/common/v1/Payloads;Lcom/surrealdev/temporal/workflow/ActivityOptions;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun startActivityWithPayloads-vMcdwC0$default (Lcom/surrealdev/temporal/workflow/WorkflowContext;Ljava/lang/String;Lio/temporal/api/common/v1/Payloads;Lcom/surrealdev/temporal/workflow/ActivityOptions;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public abstract fun startChildWorkflowWithPayloads-vMcdwC0 (Ljava/lang/String;Lio/temporal/api/common/v1/Payloads;Lcom/surrealdev/temporal/workflow/ChildWorkflowOptions;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -4613,6 +4637,7 @@ public final class com/surrealdev/temporal/workflow/WorkflowContext$DefaultImpls
 	public static fun plus (Lcom/surrealdev/temporal/workflow/WorkflowContext;Lkotlin/coroutines/CoroutineContext;)Lkotlin/coroutines/CoroutineContext;
 	public static synthetic fun setDynamicUpdateHandlerWithPayloads$default (Lcom/surrealdev/temporal/workflow/WorkflowContext;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function2;ILjava/lang/Object;)V
 	public static synthetic fun setUpdateHandlerWithPayloads$default (Lcom/surrealdev/temporal/workflow/WorkflowContext;Ljava/lang/String;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)V
+	public static synthetic fun sleep-KLykuaI$default (Lcom/surrealdev/temporal/workflow/WorkflowContext;JLjava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static synthetic fun startActivityWithPayloads-vMcdwC0$default (Lcom/surrealdev/temporal/workflow/WorkflowContext;Ljava/lang/String;Lio/temporal/api/common/v1/Payloads;Lcom/surrealdev/temporal/workflow/ActivityOptions;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static synthetic fun startChildWorkflowWithPayloads-vMcdwC0$default (Lcom/surrealdev/temporal/workflow/WorkflowContext;Ljava/lang/String;Lio/temporal/api/common/v1/Payloads;Lcom/surrealdev/temporal/workflow/ChildWorkflowOptions;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static synthetic fun startLocalActivityWithPayloads-vMcdwC0$default (Lcom/surrealdev/temporal/workflow/WorkflowContext;Ljava/lang/String;Lio/temporal/api/common/v1/Payloads;Lcom/surrealdev/temporal/workflow/LocalActivityOptions;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
