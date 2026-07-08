@@ -6,6 +6,7 @@ import com.google.protobuf.timestamp
 import com.surrealdev.temporal.core.internal.EphemeralServerCallbackDispatcher
 import com.surrealdev.temporal.core.internal.FactoryArenaScope
 import com.surrealdev.temporal.core.internal.TemporalCoreEphemeralServer
+import com.surrealdev.temporal.core.internal.nativeCallbackException
 import io.temporal.api.testservice.v1.GetCurrentTimeResponse
 import io.temporal.api.testservice.v1.LockTimeSkippingRequest
 import io.temporal.api.testservice.v1.SleepRequest
@@ -111,10 +112,10 @@ class TemporalTestServer private constructor(
                             ) { serverPtr, targetUrl, error ->
                                 try {
                                     if (error != null) {
-                                        continuation.resumeWithException(TemporalCoreException(error))
+                                        continuation.resumeWithException(nativeCallbackException(error))
                                     } else if (serverPtr == null || targetUrl == null) {
                                         continuation.resumeWithException(
-                                            TemporalCoreException("Test server start returned null without error"),
+                                            nativeCallbackException("Test server start returned null without error"),
                                         )
                                     } else {
                                         continuation.resume(Pair(serverPtr, targetUrl))
@@ -307,7 +308,7 @@ class TemporalTestServer private constructor(
                 dispatcher = dispatcher,
             ) { error ->
                 if (error != null) {
-                    shutdownFuture.completeExceptionally(TemporalCoreException(error))
+                    shutdownFuture.completeExceptionally(nativeCallbackException(error))
                 } else {
                     shutdownFuture.complete(Unit)
                 }

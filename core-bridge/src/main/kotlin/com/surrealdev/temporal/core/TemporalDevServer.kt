@@ -3,6 +3,7 @@ package com.surrealdev.temporal.core
 import com.surrealdev.temporal.core.internal.EphemeralServerCallbackDispatcher
 import com.surrealdev.temporal.core.internal.FactoryArenaScope
 import com.surrealdev.temporal.core.internal.TemporalCoreEphemeralServer
+import com.surrealdev.temporal.core.internal.nativeCallbackException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
@@ -97,10 +98,10 @@ class TemporalDevServer private constructor(
                         ) { serverPtr, targetUrl, error ->
                             try {
                                 if (error != null) {
-                                    continuation.resumeWithException(TemporalCoreException(error))
+                                    continuation.resumeWithException(nativeCallbackException(error))
                                 } else if (serverPtr == null || targetUrl == null) {
                                     continuation.resumeWithException(
-                                        TemporalCoreException("Server start returned null without error"),
+                                        nativeCallbackException("Server start returned null without error"),
                                     )
                                 } else {
                                     continuation.resume(Pair(serverPtr, targetUrl))
@@ -179,10 +180,10 @@ class TemporalDevServer private constructor(
             ) { serverPtr, targetUrl, error ->
                 try {
                     if (error != null) {
-                        future.completeExceptionally(TemporalCoreException(error))
+                        future.completeExceptionally(nativeCallbackException(error))
                     } else if (serverPtr == null || targetUrl == null) {
                         future.completeExceptionally(
-                            TemporalCoreException("Dev server start returned null without error"),
+                            nativeCallbackException("Dev server start returned null without error"),
                         )
                     } else {
                         ownershipTransferred.set(true)
@@ -238,7 +239,7 @@ class TemporalDevServer private constructor(
                 dispatcher = dispatcher,
             ) { error ->
                 if (error != null) {
-                    shutdownFuture.completeExceptionally(TemporalCoreException(error))
+                    shutdownFuture.completeExceptionally(nativeCallbackException(error))
                 } else {
                     shutdownFuture.complete(Unit)
                 }
