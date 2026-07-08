@@ -10,13 +10,11 @@ import com.surrealdev.temporal.testing.ProtoTestHelpers.queryWorkflowJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.removeFromCacheJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.signalWorkflowJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.timestamp
-import com.surrealdev.temporal.testing.createTestWorkflowExecutor
+import com.surrealdev.temporal.testing.createIdleTestWorkflowExecutor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
 import java.util.UUID
-import kotlin.reflect.KFunction
-import kotlin.reflect.typeOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -511,26 +509,5 @@ class WorkflowActivationProcessingTest {
     // Helper Methods
     // ================================================================
 
-    private fun createTestExecutor(): WorkflowExecutor {
-        // Get a simple method for the WorkflowMethodInfo
-        val dummyMethod =
-            this::class
-                .members
-                .first { it.name == "createTestExecutor" } as KFunction<*>
-
-        val testInstance = this
-        val workflowMethodInfo =
-            WorkflowMethodInfo(
-                workflowType = "TestWorkflow",
-                runMethod = dummyMethod,
-                workflowClass = this::class,
-                instanceFactory = { testInstance },
-                parameterTypes = emptyList(),
-                returnType = typeOf<Unit>(),
-                hasContextReceiver = false,
-                isSuspend = false,
-            )
-
-        return createTestWorkflowExecutor(methodInfo = workflowMethodInfo)
-    }
+    private fun createTestExecutor(): WorkflowExecutor = createIdleTestWorkflowExecutor()
 }

@@ -132,8 +132,12 @@ interface WorkflowContext :
      * This creates a durable timer that survives workflow replay.
      *
      * @param duration How long to sleep
+     * @param summary Optional single-line summary shown for this timer in the Temporal UI
      */
-    suspend fun sleep(duration: Duration)
+    suspend fun sleep(
+        duration: Duration,
+        summary: String? = null,
+    )
 
     /**
      * Suspends the workflow until the specified condition is met.
@@ -210,6 +214,25 @@ interface WorkflowContext :
      * @return `true` if workflow should use new behavior, `false` for legacy path
      */
     fun patched(patchId: String): Boolean
+
+    /**
+     * Marks a patch as deprecated - the final step of the patch lifecycle.
+     *
+     * Call this once all workflows that could take the OLD code path have completed,
+     * and the `patched(patchId)` conditional plus the old branch have been removed.
+     * It records a deprecated patch marker so histories written while the patch was
+     * live still replay correctly; once no such histories remain, this call can be
+     * removed entirely.
+     *
+     * ```kotlin
+     * // Step 1: if (patched("my-change")) { new() } else { old() }
+     * // Step 2: deprecatePatch("my-change"); new()
+     * // Step 3: new()
+     * ```
+     *
+     * @param patchId The patch identifier previously used with [patched]
+     */
+    fun deprecatePatch(patchId: String)
 
     /**
      * Returns the current history length (number of events).
@@ -620,13 +643,19 @@ data class ActivityOptions(
     /** Headers for context propagation, tracing, and auth. Payloads allow typed serialization. */
     val headers: Map<String, TemporalPayload>? = null,
     /**
-     * Priority for this activity task. Higher priority tasks are scheduled first.
-     * Note: Server support for priority is not yet available. This is a placeholder.
-     * Value range: 0 (lowest) to 100 (highest), default is 0.
+     * Priority key for this activity task. Temporal semantics: LOWER keys are scheduled
+     * first (1 is the highest priority). 0 means unset - the server applies its default
+     * (middle) priority. The default server configuration supports keys 1-5.
+     * Ignored by servers without priority support.
      */
     val priority: Int = 0,
     /** If true, worker won't attempt eager execution even if slots available. */
     val disableEagerExecution: Boolean = false,
+    /**
+     * Single-line summary of this activity, shown in the Temporal UI.
+     * Sent as user metadata on the schedule command (serialized, not codec-encoded).
+     */
+    val summary: String? = null,
 ) {
     init {
         if (startToCloseTimeout == null && scheduleToCloseTimeout == null) {
@@ -662,6 +691,24 @@ data class ChildWorkflowOptions(
     val searchAttributes: TypedSearchAttributes? = null,
     /** Policy for reusing a workflow ID that was previously used. Null lets the server pick its default. */
     val workflowIdReusePolicy: WorkflowIdReusePolicy? = null,
+    /** Maximum time for a single workflow task of the child workflow. Null uses the server default. */
+    val workflowTaskTimeout: Duration? = null,
+    /** Cron schedule for the child workflow (e.g. "0 12 * * *"). Empty/null means not a cron workflow. */
+    val cronSchedule: String? = null,
+    /** Memo key-value pairs attached to the child workflow. */
+    val memo: Map<String, TemporalPayload>? = null,
+    /** Whether the child should run on a worker with a compatible build id. */
+    val versioningIntent: VersioningIntent = VersioningIntent.UNSPECIFIED,
+    /**
+     * Priority key for the child workflow. Temporal semantics: LOWER keys are scheduled
+     * first (1 is the highest priority), 0 means unset - the server applies its default.
+     */
+    val priority: Int = 0,
+    /**
+     * Single-line summary of this child workflow, shown in the Temporal UI.
+     * Sent as user metadata on the start command (serialized, not codec-encoded).
+     */
+    val summary: String? = null,
 )
 
 /**
@@ -805,15 +852,13 @@ data class ContinueAsNewOptions(
     val workflowTaskTimeout: Duration? = null,
     /**
      * Memo for the new execution.
-     * - null: inherit current memo
-     * - empty map: clear memo
+     * - null or empty map: inherit current memo
      * - non-empty map: use specified memo
      */
     val memo: Map<String, TemporalPayload>? = null,
     /**
      * Search attributes for the new execution.
-     * - null: inherit current search attributes
-     * - empty map: clear search attributes
+     * - null or empty map: inherit current search attributes
      * - non-empty map: use specified search attributes
      */
     val searchAttributes: Map<String, TemporalPayload>? = null,

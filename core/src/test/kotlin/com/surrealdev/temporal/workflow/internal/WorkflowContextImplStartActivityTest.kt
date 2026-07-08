@@ -1,5 +1,8 @@
 package com.surrealdev.temporal.workflow.internal
 
+import com.surrealdev.temporal.application.plugin.HookRegistry
+import com.surrealdev.temporal.application.plugin.HookRegistryImpl
+import com.surrealdev.temporal.application.plugin.interceptor.ScheduleActivity
 import com.surrealdev.temporal.common.RetryPolicy
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.serialization.CompositePayloadSerializer
@@ -10,6 +13,7 @@ import com.surrealdev.temporal.workflow.ActivityOptions
 import com.surrealdev.temporal.workflow.WorkflowInfo
 import com.surrealdev.temporal.workflow.startActivity
 import kotlinx.coroutines.Job
+import kotlin.reflect.typeOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -33,7 +37,7 @@ import kotlin.time.Instant
 class WorkflowContextImplStartActivityTest {
     private val serializer = CompositePayloadSerializer.default()
 
-    private fun createContext(): WorkflowContextImpl {
+    private fun createContext(hookRegistry: HookRegistry = HookRegistryImpl.EMPTY): WorkflowContextImpl {
         val state = WorkflowState("test-run-id")
         state.isReadOnly = false
         val info =
@@ -59,6 +63,7 @@ class WorkflowContextImplStartActivityTest {
             parentJob = Job(),
             handlerJob = Job(),
             parentScope = taskQueueScope,
+            hookRegistry = hookRegistry,
         )
     }
 
@@ -328,12 +333,13 @@ class WorkflowContextImplStartActivityTest {
                 }
 
             assertTrue(exception.message!!.contains("priority"))
-            assertTrue(exception.message!!.contains("0-100"))
         }
 
     @Test
-    fun `startActivity validates priority maximum is 100`() =
+    fun `startActivity accepts priority keys above the default server range`() =
         runWorkflowUnitTest {
+            // Priority keys are passed through as-is; the server's supported range is
+            // configurable (1-5 by default), so the SDK only rejects negative values.
             val context = createContext()
             val options =
                 ActivityOptions(
@@ -341,13 +347,8 @@ class WorkflowContextImplStartActivityTest {
                     priority = 101,
                 )
 
-            val exception =
-                assertFailsWith<IllegalArgumentException> {
-                    context.startActivity("TestActivity", options)
-                }
-
-            assertTrue(exception.message!!.contains("priority"))
-            assertTrue(exception.message!!.contains("0-100"))
+            val handle = context.startActivity("TestActivity", options)
+            assertNotNull(handle)
         }
 
     @Test
@@ -792,17 +793,82 @@ class WorkflowContextImplStartActivityTest {
             val context = createContext()
             val state = getState(context)
 
-            // Test with priority = 50
+            // Priority key is passed through unchanged (lower key = higher priority,
+            // 0 = unset/server default)
             val options =
                 ActivityOptions(
                     startToCloseTimeout = 30.seconds,
-                    priority = 50,
+                    priority = 3,
                 )
 
             context.startActivity("TestActivity", options)
 
             val command = getCommands(state)[0].scheduleActivity
             assertTrue(command.hasPriority())
-            assertEquals(50, command.priority.priorityKey)
+            assertEquals(3, command.priority.priorityKey)
+        }
+
+    // ========== Category 10: User Metadata (Summary) ==========
+
+    @Test
+    fun `ScheduleActivity command sets summary as user metadata`() =
+        runWorkflowUnitTest {
+            val context = createContext()
+            val state = getState(context)
+
+            val options =
+                ActivityOptions(
+                    startToCloseTimeout = 30.seconds,
+                    summary = "Greets the user",
+                )
+
+            context.startActivity("TestActivity", options)
+
+            val command = getCommands(state)[0]
+            assertTrue(command.hasUserMetadata(), "WorkflowCommand should carry user metadata")
+            assertTrue(
+                command.userMetadata.summary.data
+                    .toStringUtf8()
+                    .contains("Greets the user"),
+            )
+        }
+
+    @Test
+    fun `ScheduleActivity command omits user metadata when summary is not set`() =
+        runWorkflowUnitTest {
+            val context = createContext()
+            val state = getState(context)
+
+            context.startActivity("TestActivity", ActivityOptions(startToCloseTimeout = 30.seconds))
+
+            val command = getCommands(state)[0]
+            assertTrue(!command.hasUserMetadata())
+        }
+
+    // ========== Category 11: Interceptor Headers ==========
+
+    @Test
+    fun `interceptor-added headers are propagated to ScheduleActivity command`() =
+        runWorkflowUnitTest {
+            val hookRegistry = HookRegistryImpl()
+            hookRegistry.register(ScheduleActivity) { input, proceed ->
+                input.headers["trace-id"] = serializer.serialize(typeOf<String>(), "abc-123")
+                proceed(input)
+            }
+            val context = createContext(hookRegistry)
+            val state = getState(context)
+
+            val options =
+                ActivityOptions(
+                    startToCloseTimeout = 30.seconds,
+                    headers = mapOf("from-options" to serializer.serialize(typeOf<String>(), "opt-value")),
+                )
+
+            context.startActivity("TestActivity", options)
+
+            val command = getCommands(state)[0].scheduleActivity
+            assertEquals(2, command.headersMap.size)
+            assertTrue(command.headersMap.containsKey("trace-id"), "interceptor header should be present")
+            assertTrue(command.headersMap.containsKey("from-options"), "options header should be preserved")
         }
 }

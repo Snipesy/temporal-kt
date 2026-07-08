@@ -48,12 +48,14 @@ object ContinueAsNew : InterceptorHook<ContinueAsNewInput, Nothing> {
  * Input for the ScheduleActivity interceptor.
  *
  * Passed through the interceptor chain when a workflow schedules a remote activity.
- * Headers are available via [ActivityOptions.headers] and propagated to the proto command.
+ * Interceptors may add headers to [headers]; the proto command receives the merge of
+ * [ActivityOptions.headers] and [headers], with interceptor entries winning on collision.
  */
 data class ScheduleActivityInput(
     val activityType: String,
     val args: TemporalPayloads,
     val options: ActivityOptions,
+    val headers: MutableMap<String, TemporalPayload> = mutableMapOf(),
 )
 
 /**
@@ -89,6 +91,8 @@ data class StartChildWorkflowInput(
  */
 data class SleepInput(
     val duration: Duration,
+    /** Optional single-line summary shown for this timer in the Temporal UI. */
+    val summary: String? = null,
 )
 
 /**

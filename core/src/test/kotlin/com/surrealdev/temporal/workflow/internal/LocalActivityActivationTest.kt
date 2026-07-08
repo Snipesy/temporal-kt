@@ -18,6 +18,7 @@ import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveLocalActivityJobF
 import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveLocalActivityJobFailedWithDetails
 import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveLocalActivityJobTimeout
 import com.surrealdev.temporal.testing.createTestWorkflowExecutor
+import com.surrealdev.temporal.workflow.ActivityCancellationType
 import com.surrealdev.temporal.workflow.LocalActivityOptions
 import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.result
@@ -146,6 +147,7 @@ class LocalActivityActivationTest {
                     scheduleToStartTimeout = 10.seconds,
                     activityId = "custom-la-id",
                     localRetryThreshold = 90.seconds,
+                    summary = "Configured local activity",
                 )
             startLocalActivity(
                 activityType = "configuredLocalActivity",
@@ -562,7 +564,8 @@ class LocalActivityActivationTest {
             val commands = getCommandsFromCompletion(initCompletion)
             assertTrue(commands.any { it.hasScheduleLocalActivity() }, "Should have ScheduleLocalActivity command")
 
-            val cmd = commands.first { it.hasScheduleLocalActivity() }.scheduleLocalActivity
+            val fullCmd = commands.first { it.hasScheduleLocalActivity() }
+            val cmd = fullCmd.scheduleLocalActivity
             assertEquals("custom-la-id", cmd.activityId)
             assertEquals("configuredLocalActivity", cmd.activityType)
             assertEquals(30, cmd.startToCloseTimeout.seconds)
@@ -571,6 +574,13 @@ class LocalActivityActivationTest {
             assertEquals(90, cmd.localRetryThreshold.seconds)
             // Default cancellation type should be WAIT_CANCELLATION_COMPLETED for local activities
             assertEquals(WorkflowCommands.ActivityCancellationType.WAIT_CANCELLATION_COMPLETED, cmd.cancellationType)
+            // Summary is carried as user metadata on the wrapping WorkflowCommand
+            assertTrue(fullCmd.hasUserMetadata(), "WorkflowCommand should carry user metadata")
+            assertTrue(
+                fullCmd.userMetadata.summary.data
+                    .toStringUtf8()
+                    .contains("Configured local activity"),
+            )
         }
 
     /**
@@ -590,6 +600,50 @@ class LocalActivityActivationTest {
 
             val cancelCmd = commands.first { it.hasRequestCancelLocalActivity() }
             assertEquals(1, cancelCmd.requestCancelLocalActivity.seq)
+        }
+
+    @Workflow("AbandoningLocalActivityWorkflow")
+    class AbandoningLocalActivityWorkflow {
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            val handle =
+                startLocalActivity(
+                    activityType = "abandonedLocalActivity",
+                    options =
+                        LocalActivityOptions(
+                            startToCloseTimeout = 60.seconds,
+                            cancellationType = ActivityCancellationType.ABANDON,
+                        ),
+                )
+            handle.cancel("Abandoning local activity")
+            try {
+                handle.result()
+            } catch (_: Exception) {
+            }
+            return "done"
+        }
+    }
+
+    /**
+     * Core SDK owns ABANDON semantics: lang must still send the cancel command, and core's
+     * local activity machinery resolves the handle as cancelled immediately while letting
+     * the activity finish in the background. Skipping the command leaves result() suspended
+     * until the activity resolves naturally.
+     */
+    @Test
+    fun `ABANDON cancel sends RequestCancelLocalActivity command`() =
+        runTest {
+            val (_, _, _, initCompletion) =
+                createExecutorWithWorkflow<AbandoningLocalActivityWorkflow>("AbandoningLocalActivityWorkflow")
+
+            val commands = getCommandsFromCompletion(initCompletion)
+
+            assertTrue(commands.any { it.hasScheduleLocalActivity() })
+            assertTrue(commands.any { it.hasRequestCancelLocalActivity() })
+
+            val scheduleCmd = commands.first { it.hasScheduleLocalActivity() }.scheduleLocalActivity
+            val cancelCmd = commands.first { it.hasRequestCancelLocalActivity() }.requestCancelLocalActivity
+            assertEquals(scheduleCmd.seq, cancelCmd.seq)
         }
 
     // ================================================================

@@ -558,7 +558,7 @@ class WorkflowStateTest {
         }
 
     @Test
-    fun `resolveActivity handles non-existent activity gracefully`() =
+    fun `resolveActivity throws for non-existent activity`() =
         runTest {
             val state = WorkflowState("test-run-id")
 
@@ -569,8 +569,11 @@ class WorkflowStateTest {
                     .setCompleted(completed)
                     .build()
 
-            // Should not throw for non-existent activity
-            state.resolveActivity(999, resolution)
+            // An unknown seq is a correlation bug: it must fail loudly (workflow task
+            // failure) rather than silently leaving the awaiting coroutine hung
+            assertFailsWith<IllegalStateException> {
+                state.resolveActivity(999, resolution)
+            }
         }
 
     @Test
@@ -1015,7 +1018,7 @@ class WorkflowStateTest {
         }
 
     @Test
-    fun `resolveActivity handles non-existent activity gracefully - no exception`() =
+    fun `resolveActivity throws for non-existent activity after other resolutions`() =
         runTest {
             val state = WorkflowState("test-run")
             state.isReadOnly = false
@@ -1027,8 +1030,10 @@ class WorkflowStateTest {
                     .setCompleted(completed)
                     .build()
 
-            // Should not throw for non-existent activity
-            state.resolveActivity(999, resolution)
+            // See above: unknown seqs must fail loudly, not hang the workflow
+            assertFailsWith<IllegalStateException> {
+                state.resolveActivity(999, resolution)
+            }
         }
 
     // ================================================================

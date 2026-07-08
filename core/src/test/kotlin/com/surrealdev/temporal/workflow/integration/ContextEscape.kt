@@ -333,7 +333,7 @@ class ContextEscape {
         }
 
     @Test
-    fun `workflow operation inside escaped context should fail`() =
+    fun `workflow operation inside escaped context fails the workflow task`() =
         runTemporalTest(timeSkipping = false) {
             val taskQueue = "test-escape-op-fail-${UUID.randomUUID()}"
 
@@ -350,18 +350,28 @@ class ContextEscape {
                     taskQueue = taskQueue,
                 )
 
-            // This should fail - workflow operations from escaped context should throw
-            val exception =
-                org.junit.jupiter.api.assertThrows<Exception> {
-                    handle.result(timeout = 30.seconds)
-                }
-            // Verify it's our specific exception
-            assertTrue(
-                exception.message?.contains("TKT1108") == true ||
-                    exception.cause?.message?.contains("TKT1108") == true,
-                "Expected EscapedDispatcherException with TKT1108, got: ${exception.message}",
+            // An EscapedDispatcherException is a coding bug, not a business failure:
+            // the workflow TASK fails (retryable, TKT1108 visible in history) and the
+            // workflow stays running rather than failing permanently.
+            val deadline = System.currentTimeMillis() + 15_000
+            var taskFailure: com.surrealdev.temporal.client.history.TemporalHistoryEvent.WorkflowTaskFailed? = null
+            while (System.currentTimeMillis() < deadline) {
+                taskFailure =
+                    handle
+                        .getHistory()
+                        .filterByType<com.surrealdev.temporal.client.history.TemporalHistoryEvent.WorkflowTaskFailed>()
+                        .firstOrNull()
+                if (taskFailure != null) break
+                delay(200.milliseconds)
+            }
+            assertTrue(taskFailure != null, "Expected a WorkflowTaskFailed event in history")
+            assertEquals(
+                taskFailure.failureMessage?.contains("TKT1108"),
+                true,
+                "Expected EscapedDispatcherException with TKT1108, got: ${taskFailure.failureMessage}",
             )
-            println("Got expected exception: ${exception.message}")
+
+            handle.terminate("test cleanup")
         }
 
     /**

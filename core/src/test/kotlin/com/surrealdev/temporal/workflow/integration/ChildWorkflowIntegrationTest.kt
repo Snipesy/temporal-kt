@@ -5,6 +5,7 @@ import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.taskQueue
 import com.surrealdev.temporal.client.startWorkflow
+import com.surrealdev.temporal.common.exceptions.ApplicationFailure
 import com.surrealdev.temporal.common.exceptions.ChildWorkflowFailureException
 import com.surrealdev.temporal.testing.assertHistory
 import com.surrealdev.temporal.testing.runTemporalTest
@@ -69,12 +70,13 @@ class ChildWorkflowIntegrationTest {
     }
 
     /**
-     * Child workflow that fails intentionally.
+     * Child workflow that fails intentionally with a failure-typed exception.
      */
     @Workflow("FailingChildWorkflow")
     class FailingChildWorkflow {
         @WorkflowRun
-        suspend fun WorkflowContext.run(): String = throw IllegalStateException("Child workflow intentional failure")
+        suspend fun WorkflowContext.run(): String =
+            throw ApplicationFailure.failure("Child workflow intentional failure")
     }
 
     /**

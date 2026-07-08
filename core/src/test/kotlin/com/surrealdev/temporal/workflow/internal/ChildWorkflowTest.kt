@@ -22,6 +22,7 @@ import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.result
 import com.surrealdev.temporal.workflow.signal
 import com.surrealdev.temporal.workflow.startChildWorkflow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
 import java.util.UUID
@@ -32,6 +33,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Comprehensive tests for child workflow functionality.
@@ -215,6 +217,119 @@ class ChildWorkflowTest {
 
             // Should be parent workflow ID + child + seq
             assertTrue(childCommand.startChildWorkflowExecution.workflowId.contains("-child-"))
+        }
+
+    @Workflow("ChildWithExtendedOptionsParent")
+    class ChildWithExtendedOptionsParent {
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            startChildWorkflow(
+                "ChildWorkflow",
+                ChildWorkflowOptions(
+                    cronSchedule = "0 12 * * *",
+                    memo =
+                        mapOf(
+                            "note" to serializer.serialize<String>("memo-value"),
+                        ),
+                    versioningIntent = com.surrealdev.temporal.workflow.VersioningIntent.COMPATIBLE,
+                    workflowTaskTimeout = 10.seconds,
+                    priority = 2,
+                    summary = "child summary",
+                ),
+            )
+            awaitCondition { false }
+            return "done"
+        }
+
+        companion object {
+            val serializer = CompositePayloadSerializer.default()
+        }
+    }
+
+    @Test
+    fun `child workflow command includes extended options`() =
+        runTest {
+            val result = createInitializedExecutor(ChildWithExtendedOptionsParent())
+
+            val commands = getCommandsFromCompletion(result.completion)
+            val childCommand = commands.single { it.hasStartChildWorkflowExecution() }
+            val startChild = childCommand.startChildWorkflowExecution
+
+            assertEquals("0 12 * * *", startChild.cronSchedule)
+            assertTrue(startChild.memoMap.containsKey("note"), "memo should be set: ${startChild.memoMap}")
+            assertEquals(
+                coresdk.common.Common.VersioningIntent.COMPATIBLE,
+                startChild.versioningIntent,
+            )
+            assertEquals(10, startChild.workflowTaskTimeout.seconds)
+            assertEquals(2, startChild.priority.priorityKey)
+            assertTrue(childCommand.hasUserMetadata(), "summary should be carried as user metadata")
+            assertTrue(
+                childCommand.userMetadata.summary.data
+                    .toStringUtf8()
+                    .contains("child summary"),
+            )
+        }
+
+    @Workflow("ChildSignalCancelParent")
+    class ChildSignalCancelParent {
+        var handle: ChildWorkflowHandle? = null
+
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            handle = startChildWorkflow("ChildWorkflow", ChildWorkflowOptions())
+            val signaler = launch { handle!!.signal("sig", "value") }
+            sleep(1.seconds)
+            signaler.cancel()
+            signaler.join()
+            awaitCondition { false }
+            return "done"
+        }
+    }
+
+    /**
+     * Cancelling a coroutine awaiting an external-signal resolution must rescind the
+     * not-yet-sent signal with a CancelSignalWorkflow command (Python parity).
+     */
+    @Test
+    fun `cancelling a pending child signal emits CancelSignalWorkflow`() =
+        runTest {
+            val workflow = ChildSignalCancelParent()
+            val result = createInitializedExecutor(workflow)
+
+            val initCommands = getCommandsFromCompletion(result.completion)
+            val childSeq =
+                initCommands
+                    .single { it.hasStartChildWorkflowExecution() }
+                    .startChildWorkflowExecution.seq
+            val timerSeq =
+                initCommands
+                    .single { it.hasStartTimer() }
+                    .startTimer.seq
+
+            val completion =
+                result.executor
+                    .activate(
+                        createActivation(
+                            runId = result.runId,
+                            jobs =
+                                listOf(
+                                    resolveChildWorkflowStartJob(childSeq, "child-run-id"),
+                                    com.surrealdev.temporal.testing.ProtoTestHelpers
+                                        .fireTimerJob(timerSeq),
+                                ),
+                        ),
+                    ).completion
+
+            val commands = getCommandsFromCompletion(completion)
+            val signalCommand = commands.find { it.hasSignalExternalWorkflowExecution() }
+            assertNotNull(signalCommand, "signal should have been emitted, got: $commands")
+            val cancelSignal = commands.find { it.hasCancelSignalWorkflow() }
+            assertNotNull(cancelSignal, "CancelSignalWorkflow should rescind the pending signal, got: $commands")
+            assertEquals(
+                signalCommand.signalExternalWorkflowExecution.seq,
+                cancelSignal.cancelSignalWorkflow.seq,
+            )
         }
 
     // ================================================================
@@ -451,6 +566,67 @@ class ChildWorkflowTest {
             assertNotNull(startCommand, "Should have start command")
             assertNotNull(cancelCommand, "Should have cancel command")
             assertEquals(1, cancelCommand.cancelChildWorkflowExecution.childWorkflowSeq)
+            // The user-supplied reason must be propagated to the proto (Python parity)
+            assertEquals("Test cancellation", cancelCommand.cancelChildWorkflowExecution.reason)
+        }
+
+    @Workflow("ChildWorkflowScopeCancelParent")
+    class ChildWorkflowScopeCancelParent {
+        var handle: ChildWorkflowHandle? = null
+
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            handle = startChildWorkflow("ChildWorkflow", ChildWorkflowOptions())
+            val waiter = launch { handle!!.result<String>() }
+            sleep(1.seconds)
+            waiter.cancel()
+            waiter.join()
+            awaitCondition { false }
+            return "done"
+        }
+    }
+
+    /**
+     * Cancelling the coroutine that awaits a child workflow result must cancel the
+     * child itself (Python parity: `asyncio.wait_for(handle, t)` cancels the handle
+     * task, which sends cancel_child_workflow_execution). Without this, the standard
+     * `withTimeout { handle.result() }` pattern silently leaves the child running.
+     */
+    @Test
+    fun `cancelling the coroutine awaiting a child result emits CancelChildWorkflowExecution`() =
+        runTest {
+            val workflow = ChildWorkflowScopeCancelParent()
+            val result = createInitializedExecutor(workflow)
+
+            val initCommands = getCommandsFromCompletion(result.completion)
+            val childSeq =
+                initCommands
+                    .single { it.hasStartChildWorkflowExecution() }
+                    .startChildWorkflowExecution.seq
+            val timerSeq =
+                initCommands
+                    .single { it.hasStartTimer() }
+                    .startTimer.seq
+
+            // Child starts; then the timer fires, cancelling the awaiting coroutine
+            val completion =
+                result.executor
+                    .activate(
+                        createActivation(
+                            runId = result.runId,
+                            jobs =
+                                listOf(
+                                    resolveChildWorkflowStartJob(childSeq, "child-run-id"),
+                                    com.surrealdev.temporal.testing.ProtoTestHelpers
+                                        .fireTimerJob(timerSeq),
+                                ),
+                        ),
+                    ).completion
+
+            val commands = getCommandsFromCompletion(completion)
+            val cancelCommand = commands.find { it.hasCancelChildWorkflowExecution() }
+            assertNotNull(cancelCommand, "Cancelling the awaiting coroutine should cancel the child, got: $commands")
+            assertEquals(childSeq, cancelCommand.cancelChildWorkflowExecution.childWorkflowSeq)
         }
 
     // ================================================================

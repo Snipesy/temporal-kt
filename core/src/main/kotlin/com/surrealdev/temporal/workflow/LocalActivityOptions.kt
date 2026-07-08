@@ -30,6 +30,8 @@ import kotlin.time.Duration.Companion.minutes
  *                               in Core SDK. Defaults to 1 minute.
  * @property cancellationType How to handle cancellation of this local activity. Per proto comment, lang should
  *                           default to WAIT_CANCELLATION_COMPLETED for local activities.
+ * @property summary Single-line summary of this activity, shown in the Temporal UI.
+ *                   Sent as user metadata on the schedule command (serialized, not codec-encoded).
  */
 data class LocalActivityOptions(
     val startToCloseTimeout: Duration? = null,
@@ -39,6 +41,7 @@ data class LocalActivityOptions(
     val retryPolicy: RetryPolicy? = null,
     val localRetryThreshold: Duration = 1.minutes,
     val cancellationType: ActivityCancellationType = ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
+    val summary: String? = null,
 ) {
     init {
         if (startToCloseTimeout == null && scheduleToCloseTimeout == null) {

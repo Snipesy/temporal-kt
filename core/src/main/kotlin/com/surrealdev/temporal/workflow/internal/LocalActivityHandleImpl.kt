@@ -18,7 +18,6 @@ import kotlinx.coroutines.CompletableDeferred
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.logging.Logger
 import kotlin.time.Duration
-import kotlin.time.toJavaDuration
 import kotlin.time.toKotlinDuration
 
 /**
@@ -52,6 +51,8 @@ internal class LocalActivityHandleImpl(
     private val options: LocalActivityOptions,
     private val cancellationType: ActivityCancellationType,
     private val arguments: List<Payload>,
+    private val headers: Map<String, Payload> = emptyMap(),
+    private val userMetadata: io.temporal.api.sdk.v1.UserMetadata? = null,
 ) : LocalActivityHandle {
     companion object {
         private val logger = Logger.getLogger(LocalActivityHandleImpl::class.java.name)
@@ -128,23 +129,9 @@ internal class LocalActivityHandleImpl(
                 "cancellationType=$cancellationType, reason=\"$reason\"",
         )
 
-        // Handle different cancellation types
-        when (cancellationType) {
-            ActivityCancellationType.TRY_CANCEL -> {
-                // Send cancel command - Core SDK resolves immediately
-                sendCancelCommand()
-            }
-
-            ActivityCancellationType.WAIT_CANCELLATION_COMPLETED -> {
-                // Send cancel command - Core SDK waits for acknowledgment
-                sendCancelCommand()
-            }
-
-            ActivityCancellationType.ABANDON -> {
-                // Don't send cancel command - just mark as cancelled locally
-                logger.info("Abandoning local activity without sending cancel command: id=$activityId, seq=$currentSeq")
-            }
-        }
+        // Always send the cancel command - Core SDK owns the cancellation-type semantics
+        // (TRY_CANCEL / WAIT_CANCELLATION_COMPLETED / ABANDON all resolve through core).
+        sendCancelCommand()
     }
 
     /**
@@ -237,6 +224,11 @@ internal class LocalActivityHandleImpl(
                 .setAttempt(backoff.attempt.toInt())
                 .addAllArguments(arguments)
 
+        // Re-apply headers from the original schedule
+        if (headers.isNotEmpty()) {
+            builder.putAllHeaders(headers)
+        }
+
         // Set original schedule time (required for correct timeout calculations)
         backoff.originalScheduleTime?.let { builder.setOriginalScheduleTime(it) }
 
@@ -262,10 +254,15 @@ internal class LocalActivityHandleImpl(
         // Set cancellation type
         builder.setCancellationType(cancellationType.toLocalActivityProto())
 
-        return WorkflowCommands.WorkflowCommand
-            .newBuilder()
-            .setScheduleLocalActivity(builder)
-            .build()
+        val commandBuilder =
+            WorkflowCommands.WorkflowCommand
+                .newBuilder()
+                .setScheduleLocalActivity(builder)
+
+        // Re-apply the summary user metadata from the original schedule
+        userMetadata?.let { commandBuilder.setUserMetadata(it) }
+
+        return commandBuilder.build()
     }
 
     /**
@@ -329,18 +326,6 @@ internal class DoBackoffException(
     val backoffDuration: Duration,
     val originalScheduleTime: Timestamp?,
 ) : Exception("Local activity backoff: attempt=$attempt, duration=$backoffDuration")
-
-/**
- * Converts a Kotlin Duration to a protobuf Duration.
- */
-private fun Duration.toProtoDuration(): com.google.protobuf.Duration {
-    val javaDuration = this.toJavaDuration()
-    return com.google.protobuf.Duration
-        .newBuilder()
-        .setSeconds(javaDuration.seconds)
-        .setNanos(javaDuration.nano)
-        .build()
-}
 
 /**
  * Converts a protobuf Duration to a Kotlin Duration.

@@ -14,6 +14,7 @@ import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveActivityJobCancel
 import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveActivityJobCompleted
 import com.surrealdev.temporal.testing.ProtoTestHelpers.resolveActivityJobFailed
 import com.surrealdev.temporal.testing.createTestWorkflowExecutor
+import com.surrealdev.temporal.workflow.ActivityCancellationType
 import com.surrealdev.temporal.workflow.ActivityOptions
 import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.result
@@ -886,6 +887,74 @@ class ActivityActivationTest {
             val handleSnapshotAfter = workflow.handle
             assertNotNull(handleSnapshotAfter)
             assertTrue(handleSnapshotAfter.isDone)
+        }
+
+    @Workflow("AbandonCancellationWorkflow")
+    class AbandonCancellationWorkflow {
+        var cancellationResult: String? = null
+
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            val handle =
+                startActivity(
+                    activityType = "TestActivity::abandoned",
+                    options =
+                        ActivityOptions(
+                            startToCloseTimeout = 30.seconds,
+                            cancellationType = ActivityCancellationType.ABANDON,
+                        ),
+                )
+
+            handle.cancel("Abandoning activity")
+
+            cancellationResult =
+                try {
+                    handle.result()
+                } catch (e: WorkflowActivityCancelledException) {
+                    "Activity was abandoned: ${e.activityType}"
+                }
+            return cancellationResult!!
+        }
+    }
+
+    @Test
+    fun `ABANDON cancellation still emits RequestCancelActivity command`() =
+        runTest {
+            val result = createExecutorWithWorkflow<AbandonCancellationWorkflow>("AbandonCancellationWorkflow")
+
+            // Core SDK owns ABANDON semantics: lang must send the cancel command and core
+            // resolves the activity as cancelled immediately without a server round trip
+            // (activity_state_machine on_abandoned). Not sending the command leaves the
+            // workflow waiting on the activity's natural resolution.
+            val commands = getCommandsFromCompletion(result.completion)
+            assertEquals(2, commands.size)
+            assertTrue(commands[0].hasScheduleActivity())
+            assertTrue(commands[1].hasRequestCancelActivity())
+            assertEquals(commands[0].scheduleActivity.seq, commands[1].requestCancelActivity.seq)
+        }
+
+    @Test
+    fun `ABANDON cancelled activity resolves with cancellation when core reports it`() =
+        runTest {
+            val result = createExecutorWithWorkflow<AbandonCancellationWorkflow>("AbandonCancellationWorkflow")
+            val workflow = result.workflow as AbandonCancellationWorkflow
+
+            val commands = getCommandsFromCompletion(result.completion)
+            val seq = commands[0].scheduleActivity.seq
+
+            val completion =
+                result.executor
+                    .activate(
+                        createActivation(
+                            runId = result.runId,
+                            jobs = listOf(resolveActivityJobCancelled(seq)),
+                            isReplaying = false,
+                        ),
+                    ).completion
+
+            assertTrue(completion.hasSuccessful())
+            assertNotNull(workflow.cancellationResult)
+            assertTrue(workflow.cancellationResult!!.contains("Activity was abandoned"))
         }
 
     @Test

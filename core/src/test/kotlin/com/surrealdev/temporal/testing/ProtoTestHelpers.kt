@@ -561,8 +561,8 @@ object ProtoTestHelpers {
     /**
      * Creates a CancelWorkflow job.
      */
-    fun cancelWorkflowJob(): WorkflowActivationJob {
-        val cancel = CancelWorkflow.newBuilder().build()
+    fun cancelWorkflowJob(reason: String = ""): WorkflowActivationJob {
+        val cancel = CancelWorkflow.newBuilder().setReason(reason).build()
 
         return WorkflowActivationJob
             .newBuilder()

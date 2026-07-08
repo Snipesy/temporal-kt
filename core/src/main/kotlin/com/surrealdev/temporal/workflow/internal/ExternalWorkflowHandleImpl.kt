@@ -103,7 +103,7 @@ internal class ExternalWorkflowHandleImpl(
 
         // Register and await resolution
         val deferred = state.registerExternalSignal(signalSeq)
-        val failure = deferred.await()
+        val failure = awaitExternalSignalResolution(state, signalSeq, deferred)
 
         // If there was a failure, throw an exception
         if (failure != null) {
@@ -160,3 +160,30 @@ internal class ExternalWorkflowHandleImpl(
         }
     }
 }
+
+/**
+ * Awaits an external-signal resolution, rescinding the not-yet-sent signal with a
+ * CancelSignalWorkflow command if the awaiting coroutine is cancelled first
+ * (Python parity). No command is emitted during workflow teardown or once resolved.
+ */
+internal suspend fun awaitExternalSignalResolution(
+    state: WorkflowState,
+    signalSeq: Int,
+    deferred: kotlinx.coroutines.CompletableDeferred<io.temporal.api.failure.v1.Failure?>,
+): io.temporal.api.failure.v1.Failure? =
+    try {
+        deferred.await()
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        if (!state.workflowCompleted && state.removeExternalSignal(signalSeq)) {
+            state.addCommand(
+                WorkflowCommands.WorkflowCommand
+                    .newBuilder()
+                    .setCancelSignalWorkflow(
+                        WorkflowCommands.CancelSignalWorkflow
+                            .newBuilder()
+                            .setSeq(signalSeq),
+                    ).build(),
+            )
+        }
+        throw e
+    }

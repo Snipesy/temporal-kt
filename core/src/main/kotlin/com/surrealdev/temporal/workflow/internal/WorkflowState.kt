@@ -89,7 +89,26 @@ internal class WorkflowState(
      * Once true, remains true for the lifetime of the workflow run.
      */
     var cancelRequested: Boolean = false
-        internal set
+
+    /** User-specified reason from the CancelWorkflow job, if any. */
+    var cancelReason: String? = null
+
+    /**
+     * One-shot handoff of a UI-facing summary to the next timer created via the
+     * kotlinx `withTimeout` interception (used by awaitCondition's timeout).
+     *
+     * `withTimeout` schedules its timeout timer synchronously in the caller's stack
+     * via the dispatcher's `invokeOnTimeout`, and workflow code is single-threaded,
+     * so set-then-consume within one call stack is deterministic and replay-safe.
+     */
+    var pendingTimerSummary: String? = null
+
+    /** Consumes (returns and clears) [pendingTimerSummary]. */
+    fun consumePendingTimerSummary(): String? {
+        val summary = pendingTimerSummary
+        pendingTimerSummary = null
+        return summary
+    }
 
     /**
      * Whether the workflow is currently replaying past events.
@@ -318,6 +337,21 @@ internal class WorkflowState(
     fun cancelTimeoutCallback(seq: Int): Boolean = pendingTimeoutCallbacks.remove(seq) != null
 
     /**
+     * Removes a pending deferred-based timer without resolving it.
+     * Used when the sleeping coroutine is cancelled and the SDK needs to know
+     * whether a CancelTimer command should be emitted.
+     *
+     * @return true if the timer was still pending (not yet fired/removed)
+     */
+    fun removeTimer(seq: Int): Boolean = pendingTimers.remove(seq) != null
+
+    /**
+     * Removes a pending continuation-based timer without resuming it.
+     * See [removeTimer].
+     */
+    fun removeTimerContinuation(seq: Int): Boolean = pendingTimerContinuations.remove(seq) != null
+
+    /**
      * Resolves a timer by its sequence number.
      * Called when a FireTimer job is received in an activation.
      * Handles deferred-based, continuation-based, and callback-based timers.
@@ -359,7 +393,12 @@ internal class WorkflowState(
         seq: Int,
         result: ActivityResult.ActivityResolution,
     ) {
-        val handle = pendingActivities.remove(seq) ?: return
+        // An unknown seq is a correlation bug: silently ignoring it would leave the
+        // awaiting coroutine suspended forever (hung workflow). Failing loudly turns it
+        // into a retryable workflow task failure, matching the Python SDK.
+        val handle =
+            pendingActivities.remove(seq)
+                ?: error("Failed to find activity handle for sequence number $seq")
         handle.resolve(result)
     }
 
@@ -465,7 +504,10 @@ internal class WorkflowState(
         seq: Int,
         resolution: ResolveChildWorkflowExecutionStart,
     ) {
-        val handle = pendingChildWorkflows[seq] ?: return
+        // See resolveActivity: unknown seqs must fail the task, not hang the workflow
+        val handle =
+            pendingChildWorkflows[seq]
+                ?: error("Failed to find child workflow handle for sequence number $seq")
         handle.resolveStart(resolution)
 
         // If start failed, remove from pending (no execution resolution will come)
@@ -482,7 +524,10 @@ internal class WorkflowState(
         seq: Int,
         result: ChildWorkflow.ChildWorkflowResult,
     ) {
-        val handle = pendingChildWorkflows.remove(seq) ?: return
+        // See resolveActivity: unknown seqs must fail the task, not hang the workflow
+        val handle =
+            pendingChildWorkflows.remove(seq)
+                ?: error("Failed to find child workflow handle for sequence number $seq")
         handle.resolveExecution(result)
     }
 
@@ -506,6 +551,15 @@ internal class WorkflowState(
     }
 
     /**
+     * Removes a pending external signal without resolving it.
+     * Used when the awaiting coroutine is cancelled and the SDK needs to know whether
+     * a CancelSignalWorkflow command should be emitted.
+     *
+     * @return true if the signal was still pending
+     */
+    fun removeExternalSignal(seq: Int): Boolean = pendingExternalSignals.remove(seq) != null
+
+    /**
      * Resolves an external signal by its sequence number.
      * Called when a ResolveSignalExternalWorkflow job is received.
      *
@@ -516,6 +570,10 @@ internal class WorkflowState(
         seq: Int,
         failure: io.temporal.api.failure.v1.Failure?,
     ) {
+        // The awaiting coroutine may have been cancelled (which rescinds the signal via
+        // CancelSignalWorkflow); a resolution racing that cancel is legitimate, so a
+        // missing entry is only ignored here - unlike activities/children, no coroutine
+        // can be left hanging.
         val deferred = pendingExternalSignals.remove(seq) ?: return
         deferred.complete(failure)
     }
@@ -795,13 +853,18 @@ internal class WorkflowState(
      * Called on workflow eviction or completion.
      */
     fun clear() {
-        // Cancel all pending timers (deferred-based)
-        pendingTimers.values.forEach { it.cancel() }
+        // Cancel all pending timers (deferred-based).
+        // Snapshot + clear BEFORE cancelling: cancellation handlers on sleeping
+        // coroutines emit CancelTimer commands only while their entry is still
+        // registered, and teardown must not emit commands.
+        val timers = pendingTimers.values.toList()
         pendingTimers.clear()
+        timers.forEach { it.cancel() }
 
-        // Cancel all pending timers (continuation-based)
-        pendingTimerContinuations.values.forEach { it.cancel() }
+        // Cancel all pending timers (continuation-based) - same ordering rationale
+        val timerContinuations = pendingTimerContinuations.values.toList()
         pendingTimerContinuations.clear()
+        timerContinuations.forEach { it.cancel() }
 
         // Clear all pending timeout callbacks (no need to cancel, just discard)
         pendingTimeoutCallbacks.clear()
@@ -813,16 +876,20 @@ internal class WorkflowState(
         // Clear all pending local activities
         pendingLocalActivities.clear()
 
-        // Cancel all pending child workflows
-        pendingChildWorkflows.values.forEach {
+        // Cancel all pending child workflows - snapshot + clear BEFORE cancelling so
+        // awaiting coroutines' cancellation handlers don't emit cancel commands
+        val childWorkflows = pendingChildWorkflows.values.toList()
+        pendingChildWorkflows.clear()
+        childWorkflows.forEach {
             it.startDeferred.cancel()
             it.executionDeferred.cancel()
         }
-        pendingChildWorkflows.clear()
 
-        // Cancel all pending external signals
-        pendingExternalSignals.values.forEach { it.cancel() }
+        // Cancel all pending external signals - snapshot + clear BEFORE cancelling so
+        // awaiting coroutines' cancellation handlers don't emit cancel commands
+        val externalSignals = pendingExternalSignals.values.toList()
         pendingExternalSignals.clear()
+        externalSignals.forEach { it.cancel() }
 
         // Cancel all pending external cancels
         pendingExternalCancels.values.forEach { it.cancel() }

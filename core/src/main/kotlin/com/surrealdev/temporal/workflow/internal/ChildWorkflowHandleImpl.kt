@@ -69,18 +69,18 @@ internal class ChildWorkflowHandleImpl(
         get() = _firstExecutionRunId
 
     override suspend fun awaitStart(): String {
-        val runId = startDeferred.await()
+        val runId = awaitCancellingChild(startDeferred)
         _firstExecutionRunId = runId
         return runId
     }
 
     override suspend fun resultPayload(): TemporalPayload? {
         // Wait for start resolution first
-        val runId = startDeferred.await()
+        val runId = awaitCancellingChild(startDeferred)
         _firstExecutionRunId = runId
 
         // Wait for execution result
-        val result = executionDeferred.await()
+        val result = awaitCancellingChild(executionDeferred)
 
         return when {
             result.hasCompleted() -> {
@@ -118,18 +118,44 @@ internal class ChildWorkflowHandleImpl(
     }
 
     override fun cancel(reason: String) {
-        // Build cancel command
+        sendCancelCommand(reason)
+    }
+
+    private fun sendCancelCommand(reason: String) {
         val command =
             WorkflowCommands.WorkflowCommand
                 .newBuilder()
                 .setCancelChildWorkflowExecution(
                     WorkflowCommands.CancelChildWorkflowExecution
                         .newBuilder()
-                        .setChildWorkflowSeq(seq),
+                        .setChildWorkflowSeq(seq)
+                        .setReason(reason),
                 ).build()
 
         state.addCommand(command)
     }
+
+    /**
+     * Awaits a resolution deferred, cancelling the child workflow if the awaiting
+     * coroutine is cancelled first (e.g. `withTimeout { handle.result() }` or an
+     * enclosing scope being cancelled). Mirrors the Python SDK, where cancelling the
+     * handle task sends cancel_child_workflow_execution - including before the child
+     * has started (core reconciles pending-start cancels).
+     *
+     * No command is emitted during workflow teardown (terminal completion/eviction) or
+     * once the child has already resolved.
+     */
+    private suspend fun <T> awaitCancellingChild(deferred: CompletableDeferred<T>): T =
+        try {
+            deferred.await()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            if (!state.workflowCompleted && state.getChildWorkflow(seq) != null) {
+                // Propagate the workflow's cancel reason when the cancellation came from
+                // a workflow-level cancel (Python parity)
+                sendCancelCommand(state.cancelReason ?: "Awaiting coroutine was cancelled")
+            }
+            throw e
+        }
 
     @InternalTemporalApi
     override suspend fun signalWithPayloads(
@@ -184,7 +210,7 @@ internal class ChildWorkflowHandleImpl(
 
         // Register and await resolution
         val deferred = state.registerExternalSignal(signalSeq)
-        val failure = deferred.await()
+        val failure = awaitExternalSignalResolution(state, signalSeq, deferred)
 
         // If there was a failure, throw an exception
         if (failure != null) {
