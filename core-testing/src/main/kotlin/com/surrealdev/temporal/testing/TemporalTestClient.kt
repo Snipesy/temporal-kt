@@ -208,4 +208,11 @@ internal class TimeSkippingWorkflowHandle(
     override suspend fun describe() = delegate.describe()
 
     override suspend fun getHistory(): WorkflowHistory = delegate.getHistory()
+
+    override fun fetchHistoryEvents(
+        waitNewEvent: Boolean,
+    ): kotlinx.coroutines.flow.Flow<
+        com.surrealdev.temporal.client.history.TemporalHistoryEvent,
+    > =
+        delegate.fetchHistoryEvents(waitNewEvent)
 }

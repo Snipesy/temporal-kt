@@ -67,7 +67,8 @@ interface ActivityHandle {
      * The behavior depends on the [ActivityCancellationType] set in options:
      * - TRY_CANCEL: Sends cancel request, Core SDK immediately resolves with cancelled status
      * - WAIT_CANCELLATION_COMPLETED: Sends cancel request, waits for acknowledgment
-     * - ABANDON: Does nothing (activity continues, result() returns immediately with cancellation)
+     * - ABANDON: Core SDK resolves with canceled status immediately and does not ask the
+     *   server to cancel - the activity keeps running server-side
      *
      * In all cases, this method returns immediately. The difference is when [resultPayload] returns.
      *

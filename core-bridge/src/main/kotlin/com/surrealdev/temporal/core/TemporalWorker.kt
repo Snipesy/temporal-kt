@@ -4,6 +4,7 @@ import com.google.protobuf.CodedInputStream
 import com.google.protobuf.MessageLite
 import com.surrealdev.temporal.core.internal.FactoryArenaScope
 import com.surrealdev.temporal.core.internal.WorkerCallbackDispatcher
+import com.surrealdev.temporal.core.internal.nativeCallbackException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.slf4j.LoggerFactory
 import java.lang.foreign.Arena
@@ -128,7 +129,7 @@ class TemporalWorker private constructor(
             val callback =
                 InternalWorker.WorkerCallback { error ->
                     if (error != null) {
-                        continuation.resumeWithException(TemporalCoreException(error))
+                        continuation.resumeWithException(nativeCallbackException(error))
                     } else {
                         continuation.resume(Unit)
                     }
@@ -156,7 +157,7 @@ class TemporalWorker private constructor(
                 val callback =
                     com.surrealdev.temporal.core.internal.TemporalCoreFfmUtil.TypedCallback<T> { data, error ->
                         when {
-                            error != null -> continuation.resumeWithException(TemporalCoreException(error))
+                            error != null -> continuation.resumeWithException(nativeCallbackException(error))
                             else -> continuation.resume(data)
                         }
                     }
@@ -188,7 +189,7 @@ class TemporalWorker private constructor(
                 val callback =
                     com.surrealdev.temporal.core.internal.TemporalCoreFfmUtil.TypedCallback<T> { data, error ->
                         when {
-                            error != null -> continuation.resumeWithException(TemporalCoreException(error))
+                            error != null -> continuation.resumeWithException(nativeCallbackException(error))
                             else -> continuation.resume(data)
                         }
                     }
@@ -310,7 +311,7 @@ class TemporalWorker private constructor(
             val callback =
                 InternalWorker.WorkerCallback { error ->
                     if (error != null) {
-                        continuation.resumeWithException(TemporalCoreException(error))
+                        continuation.resumeWithException(nativeCallbackException(error))
                     } else {
                         continuation.resume(Unit)
                     }

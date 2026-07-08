@@ -92,26 +92,11 @@ internal class RemoteActivityHandleImpl(
                 "cancellationType=$cancellationType, reason=\"$reason\"",
         )
 
-        // Handle different cancellation types
-        when (cancellationType) {
-            ActivityCancellationType.TRY_CANCEL -> {
-                // Send cancel command - Core SDK resolves immediately
-                sendCancelCommand()
-            }
-
-            ActivityCancellationType.WAIT_CANCELLATION_COMPLETED -> {
-                // Send cancel command - Core SDK waits for ActivityTaskCanceled event
-                // The difference from TRY_CANCEL is in Core SDK behavior, not our behavior
-                sendCancelCommand()
-            }
-
-            ActivityCancellationType.ABANDON -> {
-                // Don't send cancel command - just mark as cancelled locally
-                // Activity continues running but workflow doesn't wait for it
-                logger.info("Abandoning activity without sending cancel command: id=$activityId, seq=$seq")
-                // Note: We don't send a command, cancellation is local-only
-            }
-        }
+        // Always send the cancel command - Core SDK owns the cancellation-type semantics:
+        // - TRY_CANCEL: resolves immediately, sends a cancel request to the server
+        // - WAIT_CANCELLATION_COMPLETED: resolves after the ActivityTaskCanceled event
+        // - ABANDON: resolves immediately without a server round trip; the activity keeps running
+        sendCancelCommand()
     }
 
     /**

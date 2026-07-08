@@ -5,6 +5,7 @@ import com.google.protobuf.MessageLite
 import com.surrealdev.temporal.core.internal.ClientCallbackDispatcher
 import com.surrealdev.temporal.core.internal.ClientTlsOptions
 import com.surrealdev.temporal.core.internal.FactoryArenaScope
+import com.surrealdev.temporal.core.internal.nativeCallbackException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.slf4j.LoggerFactory
 import java.lang.foreign.Arena
@@ -144,7 +145,7 @@ class TemporalCoreClient private constructor(
                                 try {
                                     when {
                                         error != null -> {
-                                            continuation.resumeWithException(TemporalCoreException(error))
+                                            continuation.resumeWithException(nativeCallbackException(error))
                                         }
 
                                         clientPtr != null -> {
@@ -153,7 +154,7 @@ class TemporalCoreClient private constructor(
 
                                         else -> {
                                             continuation.resumeWithException(
-                                                TemporalCoreException("Connect returned null without error"),
+                                                nativeCallbackException("Connect returned null without error"),
                                             )
                                         }
                                     }

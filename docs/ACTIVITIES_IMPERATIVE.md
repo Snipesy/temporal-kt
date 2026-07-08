@@ -436,8 +436,9 @@ data class ActivityOptions(
     val taskQueue: String?,                  // Override task queue
     val retryPolicy: RetryPolicy?,           // Custom retry policy
     val cancellationType: ActivityCancellationType,  // How to handle cancellation
-    val priority: Int,                       // Scheduling priority (0-100)
+    val priority: Int,                       // Priority key (lower = higher priority, 0 = server default)
     val disableEagerExecution: Boolean,      // Disable eager execution
+    val summary: String?,                    // Single-line summary shown in the Temporal UI
 )
 ```
 

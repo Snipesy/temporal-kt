@@ -694,8 +694,11 @@ class UpdateHandlerTest {
     // ================================================================
 
     @Test
-    fun `update handler exception returns rejected`() =
+    fun `update handler non-failure exception fails the workflow task`() =
         runTest {
+            // A plain RuntimeException from an ACCEPTED update handler is a bug, not a
+            // business failure: the workflow task must fail (retryable) rather than the
+            // update being permanently reported as rejected. Matches the Python SDK.
             val (executor, runId) = createInitializedExecutor(ThrowingUpdateWorkflow())
 
             val protocolId = "test-protocol-id"
@@ -713,13 +716,97 @@ class UpdateHandlerTest {
                 )
             val completion = executor.activate(updateActivation).completion
 
+            assertTrue(completion.hasFailed(), "expected workflow task failure, got: $completion")
+            assertTrue(
+                completion.failed.failure.message
+                    .contains("Update handler error"),
+            )
+        }
+
+    @Workflow("FailureTypedUpdateWorkflow")
+    class FailureTypedUpdateWorkflow {
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String = "done"
+
+        @Update("failingUpdate")
+        fun WorkflowContext.failingUpdate(): String =
+            throw com.surrealdev.temporal.common.exceptions.ApplicationFailure
+                .failure("update business failure", "UpdateError")
+    }
+
+    @Test
+    fun `update handler failure-typed exception rejects the update`() =
+        runTest {
+            // ApplicationFailure is an orderly business failure: the update resolves as
+            // rejected/failed and the workflow task itself succeeds.
+            val (executor, runId) = createInitializedExecutor(FailureTypedUpdateWorkflow())
+
+            val protocolId = "test-protocol-id"
+            val updateActivation =
+                createActivation(
+                    runId = runId,
+                    jobs =
+                        listOf(
+                            doUpdateJob(
+                                name = "failingUpdate",
+                                protocolInstanceId = protocolId,
+                                runValidator = false,
+                            ),
+                        ),
+                )
+            val completion = executor.activate(updateActivation).completion
+
             assertTrue(completion.hasSuccessful())
             val commands = completion.successful.commandsList
             val rejected = commands.find { it.hasUpdateResponse() && it.updateResponse.hasRejected() }
-            assertNotNull(rejected, "Update should be rejected when handler throws")
+            assertNotNull(rejected, "Failure-typed update exception should reject the update, got: $commands")
             assertTrue(
                 rejected.updateResponse.rejected.message
-                    .contains("Update failed"),
+                    .contains("update business failure"),
+            )
+        }
+
+    @Workflow("FatalValidatorWorkflow")
+    class FatalValidatorWorkflow {
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String = "done"
+
+        @UpdateValidator("fatalUpdate")
+        fun validateFatalUpdate(): Unit = throw OutOfMemoryError("simulated heap exhaustion")
+
+        @Update("fatalUpdate")
+        fun WorkflowContext.fatalUpdate(): String = "unreachable"
+    }
+
+    @Test
+    fun `fatal error during update validation fails the workflow task fatally`() =
+        runTest {
+            // An OutOfMemoryError during validation means the JVM is compromised: the
+            // worker must shut down, not report the update as permanently rejected.
+            val (executor, runId) = createInitializedExecutor(FatalValidatorWorkflow())
+
+            val protocolId = "test-protocol-id"
+            val updateActivation =
+                createActivation(
+                    runId = runId,
+                    jobs =
+                        listOf(
+                            doUpdateJob(
+                                name = "fatalUpdate",
+                                protocolInstanceId = protocolId,
+                                runValidator = true,
+                            ),
+                        ),
+                )
+            val dispatch = executor.activate(updateActivation)
+
+            assertTrue(
+                dispatch.completion.hasFailed(),
+                "expected workflow task failure, got: ${dispatch.completion}",
+            )
+            assertTrue(
+                dispatch.fatalError is OutOfMemoryError,
+                "expected OutOfMemoryError as fatalError, got: ${dispatch.fatalError}",
             )
         }
 

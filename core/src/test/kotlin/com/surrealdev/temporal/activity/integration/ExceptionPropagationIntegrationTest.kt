@@ -4,6 +4,7 @@ import com.surrealdev.temporal.annotation.Activity
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.taskQueue
+import com.surrealdev.temporal.client.history.TemporalHistoryEvent
 import com.surrealdev.temporal.client.startWorkflow
 import com.surrealdev.temporal.common.RetryPolicy
 import com.surrealdev.temporal.common.exceptions.ApplicationFailure
@@ -11,6 +12,7 @@ import com.surrealdev.temporal.common.exceptions.ChildWorkflowFailureException
 import com.surrealdev.temporal.common.exceptions.ClientWorkflowFailedException
 import com.surrealdev.temporal.common.exceptions.WorkflowActivityFailureException
 import com.surrealdev.temporal.testing.assertHistory
+import com.surrealdev.temporal.testing.awaitHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.ActivityOptions
 import com.surrealdev.temporal.workflow.ChildWorkflowOptions
@@ -297,7 +299,8 @@ class ExceptionPropagationIntegrationTest {
     @Workflow("WorkflowStackTraceCutoffWF")
     class WorkflowStackTraceCutoffWorkflow {
         @WorkflowRun
-        suspend fun WorkflowContext.run(): String = throw IllegalStateException("workflow failed for trace cutoff test")
+        suspend fun WorkflowContext.run(): String =
+            throw ApplicationFailure.failure("workflow failed for trace cutoff test")
     }
 
     @Test
@@ -511,8 +514,8 @@ class ExceptionPropagationIntegrationTest {
     }
 
     @Test
-    fun `workflow regular exception propagates as ClientWorkflowFailedException`() =
-        runTemporalTest(timeSkipping = true) {
+    fun `workflow regular exception fails the task and does not fail the workflow`() =
+        runTemporalTest {
             val taskQueue = "test-excprop-c1-${UUID.randomUUID()}"
 
             application {
@@ -528,39 +531,21 @@ class ExceptionPropagationIntegrationTest {
                     taskQueue = taskQueue,
                 )
 
-            val exception =
-                assertFailsWith<ClientWorkflowFailedException> {
-                    handle.result<String>(timeout = 30.seconds)
-                }
+            // Non-failure-typed exceptions are bugs: they fail the workflow TASK (retryable)
+            // and the workflow stays running, matching Python/Java SDK semantics. Only
+            // failure-typed exceptions (ApplicationFailure etc.) fail the workflow.
+            handle.awaitHistory(description = "a WorkflowTaskFailed event") {
+                it.filterByType<TemporalHistoryEvent.WorkflowTaskFailed>().isNotEmpty()
+            }
 
-            // All exceptions are wrapped with ApplicationFailureInfo at proto level
-            // (matching Python SDK behavior), so applicationFailure is always present
-            val appFailure = exception.applicationFailure
-            assertNotNull(appFailure, "Should have applicationFailure (all exceptions wrapped)")
-            // The ApplicationFailure type preserves the original exception class name
-            assertEquals("java.lang.IllegalStateException", appFailure.type)
-            // Regular exceptions are retryable
-            assertEquals(false, appFailure.isNonRetryable, "Regular exceptions should be retryable")
-            // Original message preserved
-            assertEquals("workflow regular failure", appFailure.originalMessage)
-            // Cause is ApplicationFailure (reconstructed from proto with ApplicationFailureInfo)
-            assertTrue(exception.cause is ApplicationFailure, "Cause should be ApplicationFailure: ${exception.cause}")
-            // Workflow ID populated
-            assertTrue(exception.workflowId.isNotEmpty(), "workflowId should be populated")
-
-            // Java stack trace should reference the workflow class, not buildCause
-            val hasWorkflowFrame =
-                appFailure.stackTrace.any {
-                    it.className.contains("ThrowRegularExceptionWorkflow")
-                }
-            assertTrue(
-                hasWorkflowFrame,
-                "Stack trace should reference ThrowRegularExceptionWorkflow, got: ${appFailure.stackTrace.toList()}",
+            val description = handle.describe()
+            assertEquals(
+                com.surrealdev.temporal.client.WorkflowExecutionStatus.RUNNING,
+                description.status,
+                "Workflow should still be running after a task failure",
             )
 
-            handle.assertHistory {
-                failed()
-            }
+            handle.terminate("test cleanup")
         }
 
     @Workflow("ThrowApplicationFailureWF")
@@ -680,7 +665,12 @@ class ExceptionPropagationIntegrationTest {
     @Workflow("FailingChildRegularExWF")
     class FailingChildRegularExWorkflow {
         @WorkflowRun
-        suspend fun WorkflowContext.run(): String = throw IllegalStateException("child regular failure")
+        suspend fun WorkflowContext.run(): String =
+            throw ApplicationFailure.failure(
+                message = "child regular failure",
+                type = "ChildRegularError",
+                cause = IllegalStateException("child regular failure"),
+            )
     }
 
     @Workflow("FailingChildAppFailureWF")
@@ -769,15 +759,14 @@ class ExceptionPropagationIntegrationTest {
             val result = handle.result<String>(timeout = 30.seconds)
 
             assertTrue(result.contains("exType=ChildWorkflowFailureException"), "Wrong type: $result")
-            // applicationFailure is present because all exceptions are wrapped with ApplicationFailureInfo
             assertTrue(result.contains("appFailure=true"), "Should have applicationFailure: $result")
-            // Type preserves the original exception class name
+            // Explicit failure type is preserved through the proto boundary
             assertTrue(
-                result.contains("appFailureType=java.lang.IllegalStateException"),
-                "Type should be original class: $result",
+                result.contains("appFailureType=ChildRegularError"),
+                "Type should be preserved: $result",
             )
-            // Regular exceptions are retryable
-            assertTrue(result.contains("appFailureNR=false"), "Regular exceptions should be retryable: $result")
+            // Retryable failures stay retryable
+            assertTrue(result.contains("appFailureNR=false"), "Retryable failures should stay retryable: $result")
             // Original message should be somewhere in the cause chain
             assertTrue(result.contains("hasOriginalMsg=true"), "Original message lost in cause chain: $result")
 

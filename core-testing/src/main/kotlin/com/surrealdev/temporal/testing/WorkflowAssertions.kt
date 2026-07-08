@@ -1,7 +1,13 @@
 package com.surrealdev.temporal.testing
 
 import com.surrealdev.temporal.client.WorkflowHandle
+import com.surrealdev.temporal.client.history.TemporalHistoryEvent
 import com.surrealdev.temporal.client.history.WorkflowHistory
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * DSL for making assertions about workflow execution history.
@@ -255,4 +261,45 @@ suspend fun WorkflowHandle.assertHistoryAndReturn(assertions: HistoryAssertionSc
     scope.assertions()
     scope.validate()
     return history
+}
+
+/**
+ * Awaits a history condition, returning the matching history.
+ *
+ * Streams events via [WorkflowHandle.fetchHistoryEvents] with server-side long polling
+ * (no client-side sleep loop) and evaluates [predicate] against the accumulated history
+ * after each event. Use this to await a non-terminal history condition (e.g. a
+ * WorkflowTaskFailed event appearing while the workflow keeps running) where
+ * [WorkflowHandle.result]'s close-event long poll doesn't apply.
+ *
+ * Example:
+ * ```kotlin
+ * val history = handle.awaitHistory(description = "a WorkflowTaskFailed event") {
+ *     it.filterByType<TemporalHistoryEvent.WorkflowTaskFailed>().isNotEmpty()
+ * }
+ * ```
+ *
+ * @param timeout Maximum time to wait before failing the test
+ * @param description Shown in the failure message when the timeout elapses
+ * @throws AssertionError if the predicate doesn't match within [timeout] (or the
+ *   workflow closes without it ever matching)
+ */
+suspend fun WorkflowHandle.awaitHistory(
+    timeout: Duration = 10.seconds,
+    description: String = "history condition",
+    predicate: (WorkflowHistory) -> Boolean,
+): WorkflowHistory {
+    val events = mutableListOf<TemporalHistoryEvent>()
+    val matched =
+        withTimeoutOrNull(timeout) {
+            fetchHistoryEvents(waitNewEvent = true)
+                .map { event ->
+                    events.add(event)
+                    WorkflowHistory(workflowId, runId, events.toList())
+                }.firstOrNull { predicate(it) }
+        }
+    return matched ?: throw AssertionError(
+        "Timed out after $timeout waiting for $description. " +
+            "Seen events: ${events.map { it::class.simpleName }}",
+    )
 }

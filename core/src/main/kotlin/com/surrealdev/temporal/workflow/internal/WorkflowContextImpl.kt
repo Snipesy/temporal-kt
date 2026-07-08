@@ -55,7 +55,6 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.reflect.KType
 import kotlin.time.Duration
 import kotlin.time.Instant
-import kotlin.time.toJavaDuration
 
 /**
  * Implementation of [WorkflowContext] for workflow execution.
@@ -333,9 +332,9 @@ internal class WorkflowContextImpl(
             }
         }
 
-        // 6. Priority validation
-        require(options.priority in 0..100) {
-            "priority must be in range 0-100, got: ${options.priority}"
+        // 6. Priority validation - 0 means unset (server default); lower keys run first
+        require(options.priority >= 0) {
+            "priority must be >= 0 (0 = unset/server default), got: ${options.priority}"
         }
 
         // 7. RetryPolicy validation
@@ -401,18 +400,23 @@ internal class WorkflowContextImpl(
         scheduleActivityBuilder.setCancellationType(options.cancellationType.toProto())
         scheduleActivityBuilder.setVersioningIntent(options.versioningIntent.toProto())
 
-        // Set headers from options (may be modified by interceptors via input.options)
-        if (!options.headers.isNullOrEmpty()) {
-            scheduleActivityBuilder.putAllHeaders(options.headers.mapValues { (_, v) -> v.toProto() })
+        // Merge headers: options.headers first, then interceptor-added headers
+        // (interceptor entries win on key collision)
+        val headers =
+            buildMap {
+                options.headers?.let { putAll(it) }
+                putAll(input.headers)
+            }
+        if (headers.isNotEmpty()) {
+            scheduleActivityBuilder.putAllHeaders(headers.mapValues { (_, v) -> v.toProto() })
         }
 
         // Set eager execution flag
         scheduleActivityBuilder.setDoNotEagerlyExecute(options.disableEagerExecution)
 
-        // Set priority field
-        // Note: Priority support was added in Temporal Server 1.22.0 (May 2023).
-        // On older servers, this field is ignored (no error). Priority key is 1-5 by default,
-        // but our API uses 0-100 for future extensibility. The proto supports any int32 value.
+        // Set priority field - passthrough of the priority key. Temporal semantics:
+        // lower key = higher priority, 0 = unset (server default). Ignored by servers
+        // without priority support.
         scheduleActivityBuilder.setPriority(
             io.temporal.api.common.v1.Priority
                 .newBuilder()
@@ -420,13 +424,16 @@ internal class WorkflowContextImpl(
                 .build(),
         )
 
-        val command =
+        val commandBuilder =
             WorkflowCommands.WorkflowCommand
                 .newBuilder()
                 .setScheduleActivity(scheduleActivityBuilder)
-                .build()
 
-        state.addCommand(command)
+        options.summary?.let { summary ->
+            commandBuilder.setUserMetadata(buildUserMetadata(summary))
+        }
+
+        state.addCommand(commandBuilder.build())
 
         logger.info(
             "Scheduled activity: type=$activityType, id=$activityId, seq=$seq, " +
@@ -512,6 +519,9 @@ internal class WorkflowContextImpl(
 
         logger.fine("Building ScheduleLocalActivity command: type=$activityType, id=$activityId")
 
+        // Encode once - the same payloads are reused for backoff reschedules via the handle
+        val encodedArgs = codec.safeEncode(args).proto.payloadsList
+
         val scheduleLocalActivityBuilder =
             WorkflowCommands.ScheduleLocalActivity
                 .newBuilder()
@@ -519,7 +529,7 @@ internal class WorkflowContextImpl(
                 .setActivityId(activityId)
                 .setActivityType(activityType)
                 .setAttempt(1) // Initial attempt is 1
-                .addAllArguments(codec.safeEncode(args).proto.payloadsList)
+                .addAllArguments(encodedArgs)
 
         // Set optional timeouts
         options.startToCloseTimeout?.let {
@@ -544,17 +554,21 @@ internal class WorkflowContextImpl(
         scheduleLocalActivityBuilder.setCancellationType(options.cancellationType.toProto())
 
         // Set headers from interceptor input (may be modified by interceptors)
-        if (input.headers.isNotEmpty()) {
-            scheduleLocalActivityBuilder.putAllHeaders(input.headers.mapValues { (_, v) -> v.toProto() })
+        val protoHeaders = input.headers.mapValues { (_, v) -> v.toProto() }
+        if (protoHeaders.isNotEmpty()) {
+            scheduleLocalActivityBuilder.putAllHeaders(protoHeaders)
         }
 
-        val command =
+        val userMetadata = options.summary?.let { buildUserMetadata(it) }
+
+        val commandBuilder =
             WorkflowCommands.WorkflowCommand
                 .newBuilder()
                 .setScheduleLocalActivity(scheduleLocalActivityBuilder)
-                .build()
 
-        state.addCommand(command)
+        userMetadata?.let { commandBuilder.setUserMetadata(it) }
+
+        state.addCommand(commandBuilder.build())
 
         logger.info(
             "Scheduled local activity: type=$activityType, id=$activityId, seq=$seq",
@@ -572,7 +586,9 @@ internal class WorkflowContextImpl(
                 serializer = serializer,
                 options = options,
                 cancellationType = options.cancellationType,
-                arguments = codec.safeEncode(args).proto.payloadsList,
+                arguments = encodedArgs,
+                headers = protoHeaders,
+                userMetadata = userMetadata,
             )
 
         state.registerLocalActivity(seq, handle)
@@ -584,7 +600,17 @@ internal class WorkflowContextImpl(
         return handle
     }
 
-    override suspend fun sleep(duration: Duration) {
+    /**
+     * Builds the per-command user metadata carrying a UI-facing summary.
+     * See [buildUserMetadata] in ProtoConversions.kt.
+     */
+    private fun buildUserMetadata(summary: String): io.temporal.api.sdk.v1.UserMetadata =
+        buildUserMetadata(serializer, summary)
+
+    override suspend fun sleep(
+        duration: Duration,
+        summary: String?,
+    ) {
         ensureOnWorkflowDispatcher("sleep")
         if (duration.isNegative() || duration == Duration.ZERO) {
             // No-op for zero or negative duration
@@ -592,18 +618,21 @@ internal class WorkflowContextImpl(
         }
 
         // Execute through the interceptor chain
-        val interceptorInput = SleepInput(duration = duration)
+        val interceptorInput = SleepInput(duration = duration, summary = summary)
         val chain = hookRegistry.chain(Sleep)
         chain.execute(interceptorInput) { input ->
-            sleepInternal(input.duration)
+            sleepInternal(input.duration, input.summary)
         }
     }
 
-    private suspend fun sleepInternal(duration: Duration) {
+    private suspend fun sleepInternal(
+        duration: Duration,
+        summary: String?,
+    ) {
         val seq = state.nextSeq()
 
         // Build the StartTimer command using Java builder API
-        val command =
+        val commandBuilder =
             WorkflowCommands.WorkflowCommand
                 .newBuilder()
                 .setStartTimer(
@@ -611,13 +640,33 @@ internal class WorkflowContextImpl(
                         .newBuilder()
                         .setSeq(seq)
                         .setStartToFireTimeout(duration.toProtoDuration()),
-                ).build()
+                )
 
-        state.addCommand(command)
+        summary?.let { commandBuilder.setUserMetadata(buildUserMetadata(it)) }
+
+        state.addCommand(commandBuilder.build())
 
         // Register pending timer and await
         val deferred = state.registerTimer(seq)
-        deferred.await()
+        try {
+            deferred.await()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // The sleeping coroutine was cancelled: tell core to cancel the server-side
+            // timer, unless it already fired or the workflow is tearing down (terminal
+            // completion / eviction must not emit commands - replay compatibility).
+            if (!state.workflowCompleted && state.removeTimer(seq)) {
+                state.addCommand(
+                    WorkflowCommands.WorkflowCommand
+                        .newBuilder()
+                        .setCancelTimer(
+                            WorkflowCommands.CancelTimer
+                                .newBuilder()
+                                .setSeq(seq),
+                        ).build(),
+                )
+            }
+            throw e
+        }
     }
 
     override suspend fun awaitCondition(condition: () -> Boolean) {
@@ -660,9 +709,17 @@ internal class WorkflowContextImpl(
         } else {
             try {
                 // Use coroutine withTimeout - it uses delay() which is intercepted
-                // by WorkflowTimerScheduler to create durable timers
-                kotlinx.coroutines.withTimeout(timeout) {
-                    deferred.await()
+                // by WorkflowTimerScheduler to create durable timers.
+                // withTimeout schedules its timeout timer synchronously in this call
+                // stack, so the summary handoff below reaches exactly that timer.
+                timeoutSummary?.let { state.pendingTimerSummary = it }
+                try {
+                    kotlinx.coroutines.withTimeout(timeout) {
+                        deferred.await()
+                    }
+                } finally {
+                    // Defensive: never leak a stale summary to an unrelated timer
+                    state.pendingTimerSummary = null
                 }
             } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
                 // Clean up the condition from registry
@@ -678,10 +735,8 @@ internal class WorkflowContextImpl(
         }
     }
 
-    override fun now(): Instant =
-        Instant.fromEpochMilliseconds(
-            state.currentTime.toEpochMilliseconds(),
-        )
+    // Full activation-timestamp precision (nanoseconds), matching Python's time_ns
+    override fun now(): Instant = state.currentTime
 
     override fun randomUuid(): String = deterministicRandom.randomUuid()
 
@@ -701,6 +756,15 @@ internal class WorkflowContextImpl(
         }
 
         return usePatch
+    }
+
+    override fun deprecatePatch(patchId: String) {
+        // Idempotent within an execution: record the marker only once
+        if (state.getPatchMemo(patchId) != null) {
+            return
+        }
+        state.setPatchMemo(patchId, true)
+        state.addCommand(createSetPatchMarkerCommand(patchId, deprecated = true))
     }
 
     override suspend fun startChildWorkflowWithPayloads(
@@ -761,6 +825,30 @@ internal class WorkflowContextImpl(
             commandBuilder.setWorkflowIdReusePolicy(it.toProto())
         }
 
+        // Set workflow task timeout if provided
+        options.workflowTaskTimeout?.let {
+            commandBuilder.setWorkflowTaskTimeout(it.toProtoDuration())
+        }
+
+        // Set cron schedule if provided
+        options.cronSchedule?.takeIf { it.isNotBlank() }?.let {
+            commandBuilder.setCronSchedule(it)
+        }
+
+        // Set memo if provided
+        options.memo?.takeIf { it.isNotEmpty() }?.let { memo ->
+            commandBuilder.putAllMemo(memo.mapValues { (_, v) -> v.toProto() })
+        }
+
+        // Versioning intent and priority (see ActivityOptions.priority for key semantics)
+        commandBuilder.setVersioningIntent(options.versioningIntent.toProto())
+        commandBuilder.setPriority(
+            io.temporal.api.common.v1.Priority
+                .newBuilder()
+                .setPriorityKey(options.priority)
+                .build(),
+        )
+
         // Set search attributes if provided
         options.searchAttributes?.let { attrs ->
             if (attrs.isNotEmpty()) {
@@ -776,13 +864,16 @@ internal class WorkflowContextImpl(
             commandBuilder.putAllHeaders(input.headers.mapValues { (_, v) -> v.toProto() })
         }
 
-        val command =
+        val childCommandBuilder =
             WorkflowCommands.WorkflowCommand
                 .newBuilder()
                 .setStartChildWorkflowExecution(commandBuilder)
-                .build()
 
-        state.addCommand(command)
+        options.summary?.let { summary ->
+            childCommandBuilder.setUserMetadata(buildUserMetadata(summary))
+        }
+
+        state.addCommand(childCommandBuilder.build())
 
         // Create and register the handle
         val handle =
@@ -832,12 +923,22 @@ internal class WorkflowContextImpl(
             runtimeSignalHandlers.remove(name)
         } else {
             runtimeSignalHandlers[name] = handler
-            // Immediately launch tasks for any buffered signals
-            // These tasks are queued to the WorkflowCoroutineDispatcher and will
-            // execute during the next processAllWork() call, matching Python SDK behavior
+            // Immediately launch tasks for any buffered signals.
+            // Replayed buffered signals must behave exactly like live signal deliveries:
+            // run on the handler job (surviving workflow completion) and swallow-and-log
+            // exceptions instead of failing the workflow. Matches Python, which replays
+            // buffered signals through the same processing path as live ones.
             bufferedSignals.remove(name)?.let { signals ->
                 for (payloads in signals) {
-                    launch { handler(payloads) }
+                    launchHandler {
+                        try {
+                            handler(payloads)
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            logger.warning("Buffered signal handler threw exception: ${e.message}")
+                        }
+                    }
                 }
             }
         }
@@ -850,12 +951,19 @@ internal class WorkflowContextImpl(
     ) {
         runtimeDynamicSignalHandler = handler
         if (handler != null) {
-            // Immediately launch tasks for all buffered signals
-            // These tasks are queued to the WorkflowCoroutineDispatcher and will
-            // execute during the next processAllWork() call, matching Python SDK behavior
+            // Immediately launch tasks for all buffered signals - same semantics as
+            // live signal deliveries (handler job + swallow-and-log), see above
             for ((signalName, signals) in bufferedSignals) {
                 for (payloads in signals) {
-                    launch { handler(signalName, payloads) }
+                    launchHandler {
+                        try {
+                            handler(signalName, payloads)
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            logger.warning("Buffered dynamic signal handler threw exception: ${e.message}")
+                        }
+                    }
                 }
             }
             bufferedSignals.clear()
@@ -984,18 +1092,6 @@ internal data class DynamicUpdateHandlerEntry(
     val handler: suspend (updateName: String, args: TemporalPayloads) -> TemporalPayload,
     val validator: ((updateName: String, args: TemporalPayloads) -> Unit)?,
 )
-
-/**
- * Converts a Kotlin [Duration] to a protobuf [com.google.protobuf.Duration].
- */
-private fun Duration.toProtoDuration(): com.google.protobuf.Duration {
-    val javaDuration = this.toJavaDuration()
-    return com.google.protobuf.Duration
-        .newBuilder()
-        .setSeconds(javaDuration.seconds)
-        .setNanos(javaDuration.nano)
-        .build()
-}
 
 /**
  * Converts our domain [ParentClosePolicy] to the protobuf enum.

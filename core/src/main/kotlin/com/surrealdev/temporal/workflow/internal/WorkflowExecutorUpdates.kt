@@ -7,8 +7,8 @@ import com.surrealdev.temporal.application.plugin.interceptor.ValidateUpdateInpu
 import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
-import com.surrealdev.temporal.common.exceptions.PayloadProcessingException
 import com.surrealdev.temporal.common.failure.FAILURE_SOURCE
+import com.surrealdev.temporal.internal.isFatalError
 import com.surrealdev.temporal.serialization.safeDecode
 import com.surrealdev.temporal.serialization.safeEncodeSingle
 import com.surrealdev.temporal.serialization.safeSerialize
@@ -74,6 +74,7 @@ internal suspend fun WorkflowExecutor.handleUpdate(
     val ctx = (context ?: error("WorkflowContext not initialized"))
 
     ctx.launchHandler {
+        var accepted = false
         try {
             // ValidateUpdate interceptor chain — terminal handler runs the actual validator
             if (runValidator) {
@@ -100,6 +101,7 @@ internal suspend fun WorkflowExecutor.handleUpdate(
 
             // Accept the update
             addUpdateAcceptedCommand(protocolInstanceId)
+            accepted = true
 
             // ExecuteUpdate interceptor chain — terminal handler runs the actual handler
             val executeInput =
@@ -118,30 +120,36 @@ internal suspend fun WorkflowExecutor.handleUpdate(
 
             // Complete with result
             addUpdateCompletedCommand(protocolInstanceId, resultPayload as Payload)
-        } catch (e: PayloadProcessingException) {
-            logger.warn("Update handler payload processing failed for '{}': {}", updateName, e.message)
-            addUpdateRejectedCommand(protocolInstanceId, "Failed to process update arguments: ${e.message}")
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Coroutine cancellation (teardown/eviction) - never convert to a response
+            throw e
         } catch (e: ReadOnlyContextException) {
+            // A validator mutating state is a coding bug: fail the workflow task
+            // (retryable) rather than permanently rejecting the update. Python parity.
             logger.warn("Update validator attempted state mutation: {}", e.message)
-            addUpdateRejectedCommand(protocolInstanceId, "Validator attempted state mutation: ${e.message}")
-        } catch (e: java.lang.reflect.InvocationTargetException) {
-            val cause = e.targetException ?: e
-            if (cause is IllegalArgumentException) {
-                logger.warn("Update validation failed: {}", cause.message)
-                addUpdateRejectedCommand(protocolInstanceId, cause.message ?: "Validation failed")
-            } else {
-                logger.warn("Update handler threw exception: {}", cause.message, cause)
+            pendingActivationFailure = e
+        } catch (e: Throwable) {
+            val cause = (e as? java.lang.reflect.InvocationTargetException)?.targetException ?: e
+            if (cause.isFatalError()) {
+                // A fatal JVM error (OOM etc.) must shut the worker down, never
+                // become a rejection: fail the task so activate() surfaces it.
+                pendingActivationFailure = cause
+            } else if (!accepted || cause.isWorkflowFailureException()) {
+                // Validation-phase exceptions reject the update (that's what validators
+                // are for); after acceptance, only failure-typed exceptions resolve the
+                // update as failed. The proto explicitly permits rejected-after-accepted.
+                logger.warn("Update '{}' rejected: {}", updateName, cause.message)
                 addUpdateRejectedCommand(
                     protocolInstanceId,
-                    "Update failed: ${cause.message ?: cause::class.simpleName}",
+                    cause.message ?: "Update failed: ${cause::class.simpleName}",
                 )
+            } else {
+                // An accepted update whose handler throws a non-failure exception is a
+                // bug: fail the workflow task (retryable) so the update can complete
+                // once the worker is fixed. Python parity.
+                logger.warn("Update handler threw non-failure exception: {}", cause.message, cause)
+                pendingActivationFailure = cause
             }
-        } catch (e: IllegalArgumentException) {
-            logger.warn("Update validation failed: {}", e.message)
-            addUpdateRejectedCommand(protocolInstanceId, e.message ?: "Validation failed")
-        } catch (e: Exception) {
-            logger.warn("Update handler threw exception: {}", e.message, e)
-            addUpdateRejectedCommand(protocolInstanceId, "Update failed: ${e.message ?: e::class.simpleName}")
         }
     }
 }

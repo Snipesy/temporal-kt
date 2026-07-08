@@ -3,8 +3,11 @@ package com.surrealdev.temporal.workflow.internal
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.taskQueue
+import com.surrealdev.temporal.client.history.TemporalHistoryEvent
 import com.surrealdev.temporal.client.startWorkflow
+import com.surrealdev.temporal.common.exceptions.ApplicationFailure
 import com.surrealdev.temporal.testing.assertHistory
+import com.surrealdev.temporal.testing.awaitHistory
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.result
@@ -22,7 +25,9 @@ import kotlin.time.Duration.Companion.seconds
  * Integration tests for workflow failure and cancellation handling.
  *
  * These tests verify that:
- * - Workflow exceptions are converted to Temporal workflow failures
+ * - Failure-typed exceptions ([ApplicationFailure]) fail the workflow permanently
+ * - Non-failure exceptions (bugs) fail the workflow TASK and leave the workflow
+ *   running/retryable, matching mainline SDK semantics
  * - Exceptions don't propagate up to the application/worker
  * - Cancellations are handled correctly
  * - Multiple workflows can fail independently without affecting each other
@@ -30,29 +35,29 @@ import kotlin.time.Duration.Companion.seconds
  */
 class WorkflowFailureHandlingTest {
     /**
-     * Workflow that throws an exception immediately.
+     * Workflow that throws a failure-typed exception immediately.
      */
     @Workflow("FailingWorkflow")
     class FailingWorkflow {
         @WorkflowRun
         suspend fun WorkflowContext.run(message: String): String =
-            throw IllegalStateException("Workflow failed: $message")
+            throw ApplicationFailure.failure("Workflow failed: $message")
     }
 
     /**
-     * Workflow that throws an exception after some work.
+     * Workflow that throws a failure-typed exception after some work.
      */
     @Workflow("FailAfterSleepWorkflow")
     class FailAfterSleepWorkflow {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             sleep(50.milliseconds)
-            throw RuntimeException("Failed after sleep")
+            throw ApplicationFailure.failure("Failed after sleep")
         }
     }
 
     /**
-     * Workflow that throws an exception in an async block.
+     * Workflow that throws a failure-typed exception in an async block.
      */
     @Workflow("FailInAsyncWorkflow")
     class FailInAsyncWorkflow {
@@ -61,14 +66,14 @@ class WorkflowFailureHandlingTest {
             val deferred =
                 async {
                     sleep(30.milliseconds)
-                    throw IllegalArgumentException("Async block failed")
+                    throw ApplicationFailure.failure("Async block failed")
                 }
             deferred.await()
         }
     }
 
     /**
-     * Workflow that launches a coroutine that fails.
+     * Workflow that launches a coroutine that fails with a failure-typed exception.
      */
     @Workflow("FailInLaunchWorkflow")
     class FailInLaunchWorkflow {
@@ -77,7 +82,7 @@ class WorkflowFailureHandlingTest {
             val job =
                 launch {
                     sleep(30.milliseconds)
-                    throw IllegalStateException("Launched coroutine failed")
+                    throw ApplicationFailure.failure("Launched coroutine failed")
                 }
             job.join()
             return "Should not reach here"
@@ -121,7 +126,7 @@ class WorkflowFailureHandlingTest {
             val deferred2 =
                 async {
                     sleep(50.milliseconds) // Fires later - deterministic order
-                    throw IllegalStateException("One async failed")
+                    throw ApplicationFailure.failure("One async failed")
                 }
 
             // deferred1 completes successfully first
@@ -133,21 +138,17 @@ class WorkflowFailureHandlingTest {
     }
 
     /**
-     * Workflow that throws a custom exception with detailed message.
+     * Workflow that throws a custom-typed failure with a cause chain.
      */
     @Workflow("CustomExceptionWorkflow")
     class CustomExceptionWorkflow {
-        class CustomWorkflowException(
-            message: String,
-            cause: Throwable? = null,
-        ) : Exception(message, cause)
-
         @WorkflowRun
         suspend fun WorkflowContext.run(): String {
             sleep(25.milliseconds)
-            throw CustomWorkflowException(
-                "Custom error with context",
-                IllegalArgumentException("Root cause"),
+            throw ApplicationFailure.failure(
+                message = "Custom error with context",
+                type = "CustomWorkflowError",
+                cause = IllegalArgumentException("Root cause"),
             )
         }
     }
@@ -589,7 +590,7 @@ class WorkflowFailureHandlingTest {
     // ================================================================
 
     @Test
-    fun `workflow with null pointer exception is handled`() =
+    fun `workflow with null pointer exception fails the task and stays running`() =
         runTemporalTest {
             @Workflow("NullPointerWorkflow")
             class NullPointerWorkflow {
@@ -616,16 +617,20 @@ class WorkflowFailureHandlingTest {
                     taskQueue = taskQueue,
                 )
 
-            val exception =
-                assertFailsWith<Exception> {
-                    handle.result(timeout = 10.seconds)
-                }
-
-            // Should capture the NPE in the failure
-            println("NPE captured as: ${exception.message}")
-
-            handle.assertHistory {
-                failed()
+            // A plain NPE is a bug, not a business failure: the workflow TASK fails
+            // (retryable) and the workflow stays running rather than failing permanently.
+            handle.awaitHistory(description = "a WorkflowTaskFailed event") {
+                it.filterByType<TemporalHistoryEvent.WorkflowTaskFailed>().isNotEmpty()
             }
+
+            val description = handle.describe()
+            assertEquals(
+                com.surrealdev.temporal.client.WorkflowExecutionStatus.RUNNING,
+                description.status,
+                "Workflow should still be running after a task failure",
+            )
+
+            // Clean up the perpetually-retrying workflow
+            handle.terminate("test cleanup")
         }
 }

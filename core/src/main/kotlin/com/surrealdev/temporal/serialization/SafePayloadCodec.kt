@@ -18,8 +18,13 @@ import kotlin.reflect.KType
  * @return Encoded payloads
  * @throws PayloadCodecException if encoding fails
  */
-internal suspend fun PayloadCodec.safeEncode(payloads: TemporalPayloads): EncodedTemporalPayloads =
-    lockWorkflowDispatcherIfPresent {
+internal suspend fun PayloadCodec.safeEncode(payloads: TemporalPayloads): EncodedTemporalPayloads {
+    // Fast path: the no-op codec never suspends or throws, so skip the dispatcher
+    // lock (which spins up a nested runBlocking event loop per call when invoked
+    // on the workflow dispatcher - a hot path for every activity/child schedule).
+    if (this === NoOpCodec) return NoOpCodec.encode(payloads)
+
+    return lockWorkflowDispatcherIfPresent {
         try {
             this.encode(payloads)
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -30,6 +35,7 @@ internal suspend fun PayloadCodec.safeEncode(payloads: TemporalPayloads): Encode
             throw PayloadCodecException("Codec encode failed: ${e.message}", e)
         }
     }
+}
 
 /**
  * Safe wrapper for [PayloadCodec.decode] that normalizes all exceptions to [PayloadCodecException].
@@ -41,8 +47,11 @@ internal suspend fun PayloadCodec.safeEncode(payloads: TemporalPayloads): Encode
  * @return Decoded payloads
  * @throws PayloadCodecException if decoding fails
  */
-internal suspend fun PayloadCodec.safeDecode(payloads: EncodedTemporalPayloads): TemporalPayloads =
-    lockWorkflowDispatcherIfPresent {
+internal suspend fun PayloadCodec.safeDecode(payloads: EncodedTemporalPayloads): TemporalPayloads {
+    // Fast path: see safeEncode
+    if (this === NoOpCodec) return NoOpCodec.decode(payloads)
+
+    return lockWorkflowDispatcherIfPresent {
         try {
             this.decode(payloads)
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -53,6 +62,7 @@ internal suspend fun PayloadCodec.safeDecode(payloads: EncodedTemporalPayloads):
             throw PayloadCodecException("Codec decode failed: ${e.message}", e)
         }
     }
+}
 
 /**
  * Safe wrapper for [PayloadSerializer.serialize] that normalizes all exceptions to [PayloadSerializationException].

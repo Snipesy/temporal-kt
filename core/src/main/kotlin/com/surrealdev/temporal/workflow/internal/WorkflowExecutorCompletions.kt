@@ -19,8 +19,6 @@ import io.temporal.api.common.v1.Payload
 import io.temporal.api.common.v1.SearchAttributes
 import io.temporal.api.failure.v1.Failure
 import kotlinx.coroutines.Deferred
-import kotlin.time.Duration
-import kotlin.time.toJavaDuration
 import io.temporal.api.enums.v1.ContinueAsNewVersioningBehavior as ProtoContinueAsNewVersioningBehavior
 
 /*
@@ -117,14 +115,45 @@ internal suspend fun WorkflowExecutor.buildTerminalCompletion(
                 } else {
                     e
                 }
-            logger.info("Workflow failed with exception: {}", actualException.message, actualException)
-            WorkflowDispatchResult(
-                completion = buildWorkflowFailureCompletion(actualException),
-                fatalError = if (actualException.isFatalError()) actualException as Error else null,
-            )
+            if (actualException.isWorkflowFailureException()) {
+                // Failure-typed exceptions represent orderly business failures: fail the
+                // workflow permanently with a FailWorkflowExecution command.
+                logger.info("Workflow failed with exception: {}", actualException.message, actualException)
+                WorkflowDispatchResult(buildWorkflowFailureCompletion(actualException))
+            } else {
+                // Anything else is a bug (NPE, IllegalStateException, ...): fail the workflow
+                // TASK (retryable) so the workflow survives and can recover once the worker
+                // is fixed and redeployed. This matches the Python/Java/.NET SDKs.
+                logger.warn(
+                    "Workflow task failed with non-failure exception (will be retried): {}",
+                    actualException.message,
+                    actualException,
+                )
+                WorkflowDispatchResult(
+                    completion = buildFailureCompletion(actualException),
+                    fatalError = if (actualException.isFatalError()) actualException as Error else null,
+                )
+            }
         }
     }
 }
+
+/**
+ * Whether an exception thrown by workflow code should fail the WORKFLOW (permanent,
+ * FailWorkflowExecution) rather than the workflow TASK (retryable).
+ *
+ * Matches mainline SDK semantics (Python `workflow_is_failure_exception`, Java
+ * `TemporalFailure`): only Temporal failure-typed exceptions fail the workflow.
+ * Everything else is treated as a bug and fails the task so the workflow can recover
+ * after a worker fix.
+ */
+internal fun Throwable.isWorkflowFailureException(): Boolean =
+    this is com.surrealdev.temporal.common.exceptions.ApplicationFailure ||
+        this is com.surrealdev.temporal.common.exceptions.WorkflowActivityException ||
+        this is com.surrealdev.temporal.common.exceptions.ChildWorkflowException ||
+        this is com.surrealdev.temporal.common.exceptions.ExternalWorkflowException ||
+        this is com.surrealdev.temporal.common.exceptions.RemoteException ||
+        this is com.surrealdev.temporal.common.exceptions.WorkflowConditionTimeoutException
 
 /**
  * Unwraps a CancellationException to find the non-cancellation root cause.
@@ -297,7 +326,10 @@ internal suspend fun WorkflowExecutor.buildContinueAsNewCompletion(
     options.memo?.let { memo ->
         commandBuilder.putAllMemo(memo.mapValues { (_, v) -> v.toProto() })
     }
-    options.searchAttributes?.let { attrs ->
+    // An empty map must NOT set the field: proto semantics for continue-as-new say a
+    // present-but-empty SearchAttributes message overrides (clears), while an unset field
+    // inherits the current attributes. Python guards identically.
+    options.searchAttributes?.takeIf { it.isNotEmpty() }?.let { attrs ->
         commandBuilder.setSearchAttributes(
             SearchAttributes.newBuilder().putAllIndexedFields(attrs.mapValues { (_, v) -> v.toProto() }).build(),
         )
@@ -336,18 +368,6 @@ internal suspend fun WorkflowExecutor.buildContinueAsNewCompletion(
 // =============================================================================
 // Conversion Utilities for Continue-As-New
 // =============================================================================
-
-/**
- * Converts a Kotlin [Duration] to a protobuf [com.google.protobuf.Duration].
- */
-private fun Duration.toProtoDuration(): com.google.protobuf.Duration {
-    val javaDuration = this.toJavaDuration()
-    return com.google.protobuf.Duration
-        .newBuilder()
-        .setSeconds(javaDuration.seconds)
-        .setNanos(javaDuration.nano)
-        .build()
-}
 
 /**
  * Converts domain [VersioningIntent] to protobuf enum.

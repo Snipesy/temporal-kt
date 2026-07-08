@@ -76,6 +76,14 @@ internal class WorkflowExecutor(
      */
     internal val pendingQueryResults = mutableListOf<WorkflowCommands.WorkflowCommand>()
 
+    /**
+     * A non-failure exception thrown by a handler (e.g. an accepted update) that must
+     * fail this workflow TASK (retryable) rather than resolve the handler's protocol
+     * message. Checked once per activation before building the completion. Mirrors
+     * Python's `_current_activation_error`.
+     */
+    internal var pendingActivationFailure: Throwable? = null
+
     /** Builds MDC map with workflow identifiers for the coroutine context hook. */
     private fun buildMdcMap(): Map<String, String> =
         buildMap {
@@ -192,6 +200,17 @@ internal class WorkflowExecutor(
             logger.debug("Exception during eviction cleanup: {}", e.message)
         }
 
+        // Drain check: after cancelling everything and draining, remaining queued work
+        // means coroutines that couldn't be torn down cleanly (e.g. escaped dispatchers
+        // or never-completing continuations) - a leak candidate worth surfacing.
+        if (workflowDispatcher.hasPendingWork()) {
+            logger.warn(
+                "[TKT1109] Workflow teardown left undrained tasks on the dispatcher. " +
+                    "run_id={} - possible leaked coroutine.",
+                runId,
+            )
+        }
+
         workflowDispatcher.clear()
 
         workflowExecutionJob = null
@@ -215,12 +234,15 @@ internal class WorkflowExecutor(
     suspend fun activate(activation: WorkflowActivation): WorkflowDispatchResult =
         withContext(CoroutineName("WorkflowExecutor-activate")) {
             try {
-                logger.debug(
-                    "Processing activation: jobs={}, replaying={}, historyLength={}",
-                    activation.jobsList.map { jobTypeName(it) },
-                    activation.isReplaying,
-                    activation.historyLength,
-                )
+                if (logger.isDebugEnabled) {
+                    // Guarded: building the per-job name list allocates on every activation
+                    logger.debug(
+                        "Processing activation: jobs={}, replaying={}, historyLength={}",
+                        activation.jobsList.map { jobTypeName(it) },
+                        activation.isReplaying,
+                        activation.historyLength,
+                    )
+                }
 
                 // Update state from activation metadata
                 state.updateFromActivation(
@@ -240,19 +262,39 @@ internal class WorkflowExecutor(
                 }
 
                 // Separate jobs into ordered stages following Python SDK pattern for deterministic replay:
-                // Stage 0: Initialization (if present)
-                // Stage 1: Patches (for workflow versioning - not yet implemented, placeholder for future)
+                // Stage 0: Patches (workflow versioning - must precede everything else)
+                // Stage 1: Initialization (if present)
                 // Stage 2: Signals + Updates (state mutations from external events)
                 // Stage 3: Non-queries (resolutions, cancellation, random seed, etc.)
                 // Stage 4: Queries (read-only operations)
                 // Note: RemoveFromCache (eviction) is handled as an early exit before stage processing
-                val initJob = activation.jobsList.find { it.hasInitializeWorkflow() }
-                val patchJobs = activation.jobsList.filter { isPatchJob(it) }
-                val signalAndUpdateJobs = activation.jobsList.filter { isSignalOrUpdateJob(it) }
-                val nonQueryJobs = activation.jobsList.filter { isNonQueryJob(it) }
-                val queryJobs = activation.jobsList.filter { it.hasQueryWorkflow() }
+                // Single pass over the job list into stage buckets (Python builds
+                // job_sets the same way)
+                var initJob: WorkflowActivationJob? = null
+                val patchJobs = mutableListOf<WorkflowActivationJob>()
+                val signalAndUpdateJobs = mutableListOf<WorkflowActivationJob>()
+                val nonQueryJobs = mutableListOf<WorkflowActivationJob>()
+                val queryJobs = mutableListOf<WorkflowActivationJob>()
+                for (job in activation.jobsList) {
+                    when {
+                        job.hasInitializeWorkflow() -> initJob = job
+                        isPatchJob(job) -> patchJobs.add(job)
+                        isSignalOrUpdateJob(job) -> signalAndUpdateJobs.add(job)
+                        job.hasQueryWorkflow() -> queryJobs.add(job)
+                        isNonQueryJob(job) -> nonQueryJobs.add(job)
+                    }
+                }
 
-                // Stage 0: Process initialization if present
+                // Stage 0: Process patches BEFORE anything runs workflow code. On replay,
+                // core bundles NotifyHasPatch with InitializeWorkflow in one activation; if
+                // workflow code calls patched() before its first suspension, the notification
+                // must already be recorded or the replay diverges from the original run
+                // (nondeterminism). Matches the Python SDK's job set ordering.
+                for (job in patchJobs) {
+                    processJob(job)
+                }
+
+                // Stage 1: Process initialization if present
                 // This sets pluginCoroutineContext (MDC + OTel + any plugin elements)
                 if (initJob != null) {
                     processJob(initJob)
@@ -269,14 +311,6 @@ internal class WorkflowExecutor(
                         ?: kotlin.coroutines.EmptyCoroutineContext
 
                 withContext(pluginCtx) pluginScope@{
-                    // Stage 1: Process patches
-                    for (job in patchJobs) {
-                        processJob(job)
-                    }
-                    if (patchJobs.isNotEmpty()) {
-                        runOnce(checkConditions = false)
-                    }
-
                     // Stage 2: Process signals and updates
                     for (job in signalAndUpdateJobs) {
                         processJob(job)
@@ -291,6 +325,21 @@ internal class WorkflowExecutor(
                     }
                     if (nonQueryJobs.isNotEmpty()) {
                         runOnce(checkConditions = true)
+                    }
+
+                    // A handler recorded a non-failure exception (e.g. an accepted update
+                    // handler bug): fail this workflow task so it can be retried.
+                    pendingActivationFailure?.let { err ->
+                        pendingActivationFailure = null
+                        logger.warn(
+                            "Workflow task failed by handler exception (will be retried): {}",
+                            err.message,
+                            err,
+                        )
+                        return@pluginScope WorkflowDispatchResult(
+                            completion = buildFailureCompletion(err),
+                            fatalError = if (err.isFatalError()) err as Error else null,
+                        )
                     }
 
                     // Check for workflow completion BEFORE processing queries.
@@ -507,7 +556,7 @@ internal class WorkflowExecutor(
             }
 
             job.hasCancelWorkflow() -> {
-                handleCancel()
+                handleCancel(job.cancelWorkflow.reason.takeIf { it.isNotBlank() })
             }
 
             job.hasRemoveFromCache() -> {
@@ -736,11 +785,13 @@ internal class WorkflowExecutor(
                 serializer.safeDeserialize(type, payload)
             }.toTypedArray()
 
-    private fun handleCancel() {
-        logger.debug("Workflow cancellation requested")
+    private fun handleCancel(reason: String?) {
+        logger.debug("Workflow cancellation requested: reason={}", reason)
 
-        // Set the cancellation flag immediately
+        // Set the cancellation flag and preserve the user-specified reason so it can
+        // be observed by workflow code and propagated (e.g. to child workflow cancels)
         state.cancelRequested = true
+        state.cancelReason = reason
 
         // Defer the actual cancellation to the next dispatcher cycle
         // This allows the workflow to receive the cancellation signal
@@ -748,7 +799,11 @@ internal class WorkflowExecutor(
         if (mainCoroutine != null) {
             workflowDispatcher.dispatch(kotlin.coroutines.EmptyCoroutineContext) {
                 // Cancel with our specific exception type
-                mainCoroutine?.cancel(WorkflowCancelledException())
+                mainCoroutine?.cancel(
+                    WorkflowCancelledException(
+                        reason?.let { "Workflow cancelled: $it" } ?: "Workflow cancelled",
+                    ),
+                )
             }
         }
     }
@@ -765,6 +820,10 @@ internal class WorkflowExecutor(
         terminateAllJobs()
 
         state.clear()
+
+        // Teardown cancellations may emit commands (e.g. CancelTimer from cancelled
+        // sleeps); an eviction completion must be empty, so discard them.
+        state.drainCommands()
     }
 
     private fun handleSignalExternalWorkflow(

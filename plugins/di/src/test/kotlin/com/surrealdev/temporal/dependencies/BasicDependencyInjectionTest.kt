@@ -1144,7 +1144,10 @@ class BasicDependencyInjectionTest {
             options: com.surrealdev.temporal.workflow.LocalActivityOptions,
         ): com.surrealdev.temporal.workflow.LocalActivityHandle = TODO("Not needed for DI tests")
 
-        override suspend fun sleep(duration: Duration) = TODO("Not needed for DI tests")
+        override suspend fun sleep(
+            duration: Duration,
+            summary: String?,
+        ) = TODO("Not needed for DI tests")
 
         override suspend fun awaitCondition(condition: () -> Boolean) = TODO("Not needed for DI tests")
 
@@ -1159,6 +1162,8 @@ class BasicDependencyInjectionTest {
         override fun randomUuid(): String = "mock-uuid"
 
         override fun patched(patchId: String): Boolean = true
+
+        override fun deprecatePatch(patchId: String) = Unit
 
         override fun isContinueAsNewSuggested(): Boolean = false
 

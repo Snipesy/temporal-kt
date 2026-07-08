@@ -3,7 +3,6 @@ package com.surrealdev.temporal.workflow.internal
 import coresdk.workflow_commands.WorkflowCommands
 import kotlinx.coroutines.CancellableContinuation
 import kotlin.time.Duration.Companion.milliseconds
-import kotlin.time.toJavaDuration
 
 /*
  * Extension functions for managing workflow timers in WorkflowExecutor.
@@ -37,6 +36,15 @@ internal fun WorkflowExecutor.scheduleTimerForContinuation(
 
     createAndAddTimerCommand(seq, delayMillis)
     state.registerTimerContinuation(seq, continuation)
+
+    // If the delaying coroutine is cancelled before the timer fires, tell core to
+    // cancel the server-side timer. Teardown paths (terminal completion, eviction)
+    // clear the registry before cancelling, so no command is emitted there.
+    continuation.invokeOnCancellation {
+        if (!state.workflowCompleted && state.removeTimerContinuation(seq)) {
+            createAndAddCancelTimerCommand(seq)
+        }
+    }
 }
 
 /**
@@ -54,6 +62,10 @@ internal fun WorkflowExecutor.scheduleTimeoutCallbackTimer(
     delayMillis: Long,
     block: Runnable,
 ): kotlinx.coroutines.DisposableHandle {
+    // Consume the one-shot summary handoff (set by awaitCondition's timeout path)
+    // even on the immediate-execution path, so it can never leak to a later timer
+    val summary = state.consumePendingTimerSummary()
+
     // Handle zero or negative delay - execute immediately
     if (delayMillis <= 0) {
         logger.debug("Timeout with zero/negative delay ({}ms), executing immediately", delayMillis)
@@ -66,7 +78,7 @@ internal fun WorkflowExecutor.scheduleTimeoutCallbackTimer(
     val seq = state.nextSeq()
     logger.debug("Scheduling timeout callback: seq={}, delay={}ms", seq, delayMillis)
 
-    createAndAddTimerCommand(seq, delayMillis)
+    createAndAddTimerCommand(seq, delayMillis, summary)
     state.registerTimeoutCallback(seq, block)
 
     // Return a handle that can cancel the timeout
@@ -82,21 +94,16 @@ internal fun WorkflowExecutor.scheduleTimeoutCallbackTimer(
  *
  * @param seq The sequence number for the timer
  * @param delayMillis The delay in milliseconds
+ * @param summary Optional UI-facing summary, carried as user metadata on the command
  */
 internal fun WorkflowExecutor.createAndAddTimerCommand(
     seq: Int,
     delayMillis: Long,
+    summary: String? = null,
 ) {
-    val duration = delayMillis.milliseconds
-    val javaDuration = duration.toJavaDuration()
-    val protoDuration =
-        com.google.protobuf.Duration
-            .newBuilder()
-            .setSeconds(javaDuration.seconds)
-            .setNanos(javaDuration.nano)
-            .build()
+    val protoDuration = delayMillis.milliseconds.toProtoDuration()
 
-    val command =
+    val commandBuilder =
         WorkflowCommands.WorkflowCommand
             .newBuilder()
             .setStartTimer(
@@ -104,9 +111,11 @@ internal fun WorkflowExecutor.createAndAddTimerCommand(
                     .newBuilder()
                     .setSeq(seq)
                     .setStartToFireTimeout(protoDuration),
-            ).build()
+            )
 
-    state.addCommand(command)
+    summary?.let { commandBuilder.setUserMetadata(buildUserMetadata(serializer, it)) }
+
+    state.addCommand(commandBuilder.build())
 }
 
 /**

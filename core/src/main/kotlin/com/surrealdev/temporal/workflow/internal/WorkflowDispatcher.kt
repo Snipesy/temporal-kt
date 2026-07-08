@@ -156,8 +156,20 @@ internal class WorkflowDispatcher(
         if (isEviction(activation)) {
             val entry = executors.remove(runId)
             entry?.let {
-                // Cancel the executor job
-                it.executor.terminateWorkflowExecutionJob()
+                // Run teardown ON the workflow's own virtual thread (the executor's
+                // activate() handles RemoveFromCache via handleEviction). Cancellation
+                // handlers and `finally` blocks in workflow code must observe the same
+                // thread as normal execution - draining them on the poller thread
+                // violates the single-thread invariant (ThreadLocals, MDC, plugins).
+                try {
+                    it.mutex.withLock {
+                        it.virtualThread.dispatch(activation)
+                    }
+                } catch (e: Exception) {
+                    // Teardown failures (including deadlocks) must not fail the poll -
+                    // the interrupting termination job below is the backstop
+                    logger.warn("Eviction teardown failed for run_id={}: {}", runId, e.message)
+                }
                 // Launch async termination - doesn't block the poll
                 launchTerminationJob(
                     virtualThread = it.virtualThread,

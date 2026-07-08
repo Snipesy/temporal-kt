@@ -637,7 +637,7 @@ class RemoteActivityHandleImplTest {
     }
 
     @Test
-    fun `cancel with ABANDON type does not send command`() {
+    fun `cancel with ABANDON type sends command`() {
         val state = WorkflowState("test-run-id")
         val handle =
             RemoteActivityHandleImpl(
@@ -654,10 +654,15 @@ class RemoteActivityHandleImplTest {
 
         handle.cancel("abandon test")
 
-        // Should NOT have added any command
-        assertFalse(state.hasCommands())
+        // The cancel command must still be sent - Core SDK's activity state machine
+        // handles ABANDON by resolving the activity as cancelled immediately without
+        // asking the server to cancel. Without the command, result() would wait for
+        // the activity's natural resolution.
+        assertTrue(state.hasCommands())
+        val commands = state.drainCommands()
+        assertEquals(1, commands.size)
+        assertTrue(commands.first().hasRequestCancelActivity())
 
-        // But flag should be set
         assertTrue(handle.isCancellationRequested)
     }
 

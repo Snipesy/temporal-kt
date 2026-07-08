@@ -8,6 +8,27 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 /**
+ * Builds a [TemporalCoreException] WITHOUT capturing a stack trace.
+ *
+ * MUST be used for every exception constructed on a native (FFM upcall) callback
+ * thread: the trace is meaningless there (it shows the Rust callback thread, not
+ * user code), and the JVM's stack walk over upcall stub frames has proven
+ * crash-prone (SIGSEGV in `Throwable.fillInStackTrace` on macOS aarch64).
+ */
+internal fun nativeCallbackException(
+    message: String,
+    errorType: String? = null,
+    statusCode: Int? = null,
+): TemporalCoreException =
+    TemporalCoreException(
+        message = message,
+        errorType = errorType,
+        statusCode = statusCode,
+        cause = null,
+        writableStackTrace = false,
+    )
+
+/**
  * Base class for callback dispatchers that manage FFM native callbacks.
  *
  * Provides shared functionality for:
@@ -68,7 +89,7 @@ internal abstract class BaseCallbackDispatcher(
 
                 statusCode != 0 -> {
                     resumeWithException(
-                        TemporalCoreException(
+                        nativeCallbackException(
                             message = failureMessage ?: "RPC call failed with status $statusCode",
                             statusCode = statusCode,
                         ),
@@ -77,7 +98,7 @@ internal abstract class BaseCallbackDispatcher(
 
                 else -> {
                     resumeWithException(
-                        TemporalCoreException("RPC call returned null response"),
+                        nativeCallbackException("RPC call returned null response"),
                     )
                 }
             }
@@ -92,7 +113,7 @@ internal abstract class BaseCallbackDispatcher(
     fun CancellableContinuation<Unit>.resumeWorkerResult(error: String?) {
         try {
             if (error != null) {
-                resumeWithException(TemporalCoreException(error))
+                resumeWithException(nativeCallbackException(error))
             } else {
                 resume(Unit)
             }
@@ -110,9 +131,9 @@ internal abstract class BaseCallbackDispatcher(
     ) {
         try {
             when {
-                error != null -> resumeWithException(TemporalCoreException(error))
+                error != null -> resumeWithException(nativeCallbackException(error))
                 result != null -> resume(result)
-                else -> resumeWithException(TemporalCoreException("Operation returned null without error"))
+                else -> resumeWithException(nativeCallbackException("Operation returned null without error"))
             }
         } catch (_: IllegalStateException) {
             // Continuation already resumed, ignore

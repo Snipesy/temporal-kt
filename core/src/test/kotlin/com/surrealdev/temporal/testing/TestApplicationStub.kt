@@ -26,6 +26,51 @@ internal fun createStubApplication(): TemporalApplication =
     }
 
 /**
+ * A minimal workflow that parks forever, for tests that exercise activation/job
+ * processing without caring about the workflow body. Unlike a dummy reflection
+ * target, this is a real suspend workflow: the executor keeps it alive across
+ * activations and never emits terminal commands or task failures on its behalf.
+ */
+class IdleTestWorkflow {
+    suspend fun com.surrealdev.temporal.workflow.WorkflowContext.run(): String {
+        awaitCondition { false }
+        return "unreachable"
+    }
+}
+
+/**
+ * Creates a WorkflowExecutor whose workflow is an [IdleTestWorkflow] parked on
+ * `awaitCondition { false }` - useful for job-processing tests.
+ */
+internal fun createIdleTestWorkflowExecutor(
+    runId: String = "test-run-id",
+    workflowType: String = "TestWorkflow",
+    serializer: PayloadSerializer = CompositePayloadSerializer.default(),
+): WorkflowExecutor {
+    val workflow = IdleTestWorkflow()
+    val runMethod =
+        IdleTestWorkflow::class
+            .members
+            .first { it.name == "run" } as kotlin.reflect.KFunction<*>
+    val methodInfo =
+        WorkflowMethodInfo(
+            workflowType = workflowType,
+            runMethod = runMethod,
+            workflowClass = IdleTestWorkflow::class,
+            instanceFactory = { workflow },
+            parameterTypes = emptyList(),
+            returnType = kotlin.reflect.typeOf<String>(),
+            hasContextReceiver = true,
+            isSuspend = true,
+        )
+    return createTestWorkflowExecutor(
+        runId = runId,
+        methodInfo = methodInfo,
+        serializer = serializer,
+    )
+}
+
+/**
  * Creates a WorkflowExecutor for use in tests.
  *
  * @param runId The workflow run ID
