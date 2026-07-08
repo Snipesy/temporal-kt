@@ -19,6 +19,7 @@ import com.surrealdev.temporal.application.plugin.interceptor.StartWorkflowUpdat
 import com.surrealdev.temporal.application.plugin.interceptor.StartWorkflowUpdateInput
 import com.surrealdev.temporal.application.plugin.interceptor.TerminateWorkflow
 import com.surrealdev.temporal.application.plugin.interceptor.TerminateWorkflowInput
+import com.surrealdev.temporal.client.history.TemporalHistoryEvent
 import com.surrealdev.temporal.client.history.WorkflowHistory
 import com.surrealdev.temporal.client.internal.GRPC_CANCELLED
 import com.surrealdev.temporal.client.internal.GRPC_DEADLINE_EXCEEDED
@@ -53,6 +54,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import org.slf4j.LoggerFactory
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 private val logger = LoggerFactory.getLogger(WorkflowHandleImpl::class.java)
@@ -198,6 +200,20 @@ interface WorkflowHandle : WorkflowHandleBase {
      * @return The workflow history.
      */
     suspend fun getHistory(): WorkflowHistory
+
+    /**
+     * Streams workflow history events as a cold [kotlinx.coroutines.flow.Flow].
+     *
+     * Pages through the existing history, emitting each event in order. With
+     * [waitNewEvent] = true, reaching the current end of history switches to
+     * server-side long polling: the flow keeps emitting as new events are appended
+     * and completes when the workflow reaches a terminal state. Parity with the
+     * Python SDK's `fetch_history_events(wait_new_event=...)`.
+     *
+     * @param waitNewEvent Whether to long-poll for events past the current end of history
+     * @return A cold flow of history events; collect with a timeout when using [waitNewEvent]
+     */
+    fun fetchHistoryEvents(waitNewEvent: Boolean = false): kotlinx.coroutines.flow.Flow<TemporalHistoryEvent>
 }
 
 /**
@@ -370,6 +386,20 @@ internal class WorkflowHandleImpl(
                 EventType.EVENT_TYPE_WORKFLOW_EXECUTION_TIMED_OUT,
                 EventType.EVENT_TYPE_WORKFLOW_EXECUTION_CONTINUED_AS_NEW,
             )
+
+        /**
+         * Poll interval for the [fetchHistoryEvents] fallback used against servers
+         * that don't support ALL-event long polls (e.g. the time-skipping test server).
+         */
+        private const val FALLBACK_HISTORY_POLL_INTERVAL_MS = 200L
+
+        /**
+         * Per-RPC window for [fetchHistoryEvents] follow long-polls. Kept short because
+         * some servers (Java time-skipping test server) hold ALL-event long polls until
+         * the workflow closes even when new events exist - each expiry triggers a plain
+         * catch-up fetch, bounding event delivery latency to roughly this window.
+         */
+        private const val FOLLOW_LONG_POLL_WINDOW_MS = 2000
     }
 
     private sealed class CloseEventResult {
@@ -830,4 +860,105 @@ internal class WorkflowHandleImpl(
             codec = codec,
         )
     }
+
+    override fun fetchHistoryEvents(waitNewEvent: Boolean): kotlinx.coroutines.flow.Flow<TemporalHistoryEvent> =
+        kotlinx.coroutines.flow.flow {
+            // Events are emitted at most once, in order, tracked by monotonic event ID
+            var lastEmittedEventId = 0L
+            var sawTerminalEvent = false
+
+            suspend fun emitNew(events: List<HistoryEvent>) {
+                for (event in events) {
+                    if (event.eventId > lastEmittedEventId) {
+                        emit(TemporalHistoryEvent.fromProto(event, codec))
+                        lastEmittedEventId = event.eventId
+                        if (event.eventType in CLOSE_EVENT_TYPES) {
+                            sawTerminalEvent = true
+                        }
+                    }
+                }
+            }
+
+            fun buildRequest(
+                waitNew: Boolean,
+                token: com.google.protobuf.ByteString,
+            ): GetWorkflowExecutionHistoryRequest =
+                GetWorkflowExecutionHistoryRequest
+                    .newBuilder()
+                    .setNamespace(serviceClient.namespace)
+                    .setExecution(
+                        WorkflowExecution
+                            .newBuilder()
+                            .setWorkflowId(workflowId)
+                            .also { if (runId != null) it.setRunId(runId) }
+                            .build(),
+                    ).setHistoryEventFilterType(HistoryEventFilterType.HISTORY_EVENT_FILTER_TYPE_ALL_EVENT)
+                    .setWaitNewEvent(waitNew)
+                    .setSkipArchival(true)
+                    .setNextPageToken(token)
+                    .build()
+
+            suspend fun plainCatchUp() {
+                var token = com.google.protobuf.ByteString.EMPTY
+                do {
+                    val response =
+                        try {
+                            serviceClient.getWorkflowExecutionHistory(buildRequest(waitNew = false, token = token))
+                        } catch (e: TemporalCoreException) {
+                            e.rethrowMapped(workflowId, runId)
+                        }
+                    emitNew(response.history.eventsList)
+                    token = response.nextPageToken
+                } while (!token.isEmpty)
+            }
+
+            // A single long-poll RPC bounded to a short window; null on window expiry.
+            // The window must be short: the Java time-skipping test server holds
+            // ALL-event long polls until the workflow CLOSES (ignoring new events), so
+            // expiry + plain catch-up is what delivers events promptly there. On real
+            // servers the poll returns as soon as events arrive, so the window only
+            // determines idle re-poll frequency.
+            suspend fun tryLongPoll(token: com.google.protobuf.ByteString): GetWorkflowExecutionHistoryResponse? =
+                try {
+                    serviceClient.getWorkflowExecutionHistory(
+                        buildRequest(waitNew = true, token = token),
+                        timeoutMillis = FOLLOW_LONG_POLL_WINDOW_MS,
+                    )
+                } catch (e: TemporalCoreException) {
+                    if (e.statusCode == GRPC_CANCELLED || e.statusCode == GRPC_DEADLINE_EXCEEDED) {
+                        null // poll window elapsed
+                    } else {
+                        e.rethrowMapped(workflowId, runId)
+                    }
+                }
+
+            // Phase 1: page through the existing history (works on every server)
+            plainCatchUp()
+            if (!waitNewEvent || sawTerminalEvent) {
+                return@flow
+            }
+
+            // Phase 2: follow new events. Long-poll for promptness, plain catch-up on
+            // window expiry for correctness (emitNew dedupes overlap by event ID).
+            var token = com.google.protobuf.ByteString.EMPTY
+            while (!sawTerminalEvent) {
+                currentCoroutineContext().ensureActive()
+                val response = tryLongPoll(token)
+                if (response == null) {
+                    // Window expired: pick up anything the long poll didn't deliver
+                    plainCatchUp()
+                    continue
+                }
+                emitNew(response.history.eventsList)
+                token = response.nextPageToken
+                if (token.isEmpty && !sawTerminalEvent) {
+                    // Stream ended without a terminal event (server without ALL-event
+                    // long-poll support): degrade to plain polling
+                    while (!sawTerminalEvent) {
+                        kotlinx.coroutines.delay(FALLBACK_HISTORY_POLL_INTERVAL_MS.milliseconds)
+                        plainCatchUp()
+                    }
+                }
+            }
+        }
 }

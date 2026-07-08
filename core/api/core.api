@@ -1930,6 +1930,8 @@ public final class com/surrealdev/temporal/client/WorkflowExecutionStatus$Compan
 public abstract interface class com/surrealdev/temporal/client/WorkflowHandle : com/surrealdev/temporal/workflow/WorkflowHandleBase {
 	public abstract fun cancel (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun describe (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun fetchHistoryEvents (Z)Lkotlinx/coroutines/flow/Flow;
+	public static synthetic fun fetchHistoryEvents$default (Lcom/surrealdev/temporal/client/WorkflowHandle;ZILjava/lang/Object;)Lkotlinx/coroutines/flow/Flow;
 	public abstract fun getHistory (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun getRunId ()Ljava/lang/String;
 	public abstract fun getSerializer ()Lcom/surrealdev/temporal/serialization/PayloadSerializer;
@@ -1944,6 +1946,7 @@ public abstract interface class com/surrealdev/temporal/client/WorkflowHandle : 
 }
 
 public final class com/surrealdev/temporal/client/WorkflowHandle$DefaultImpls {
+	public static synthetic fun fetchHistoryEvents$default (Lcom/surrealdev/temporal/client/WorkflowHandle;ZILjava/lang/Object;)Lkotlinx/coroutines/flow/Flow;
 	public static synthetic fun resultPayload-N4jGVcM$default (Lcom/surrealdev/temporal/client/WorkflowHandle;JLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static synthetic fun terminate$default (Lcom/surrealdev/temporal/client/WorkflowHandle;Ljava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 }
