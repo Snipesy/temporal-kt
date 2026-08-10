@@ -32,6 +32,12 @@ import io.temporal.api.workflowservice.v1.UpdateWorkflowExecutionResponse
 internal class WorkflowServiceClient(
     private val coreClient: TemporalCoreClient,
     val namespace: String,
+    /**
+     * Identity stamped on every request that carries the field. Core sets this on requests it
+     * builds itself for the worker, but client RPCs are built here, so it has to be set explicitly
+     * or the server records an empty identity.
+     */
+    val identity: String,
 ) {
     /**
      * Starts a new workflow execution.

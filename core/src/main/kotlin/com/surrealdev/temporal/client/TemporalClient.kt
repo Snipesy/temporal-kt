@@ -18,9 +18,11 @@ import com.surrealdev.temporal.common.SearchAttributeEncoder
 import com.surrealdev.temporal.common.TemporalByteString
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.toProto
+import com.surrealdev.temporal.core.ClientOptions
 import com.surrealdev.temporal.core.TemporalCoreClient
 import com.surrealdev.temporal.core.TemporalCoreException
 import com.surrealdev.temporal.core.TlsConfig
+import com.surrealdev.temporal.core.internal.DefaultIdentity
 import com.surrealdev.temporal.serialization.CompositePayloadSerializer
 import com.surrealdev.temporal.serialization.NoOpCodec
 import com.surrealdev.temporal.serialization.PayloadCodec
@@ -228,6 +230,7 @@ interface TemporalClient {
                     tls = config.tls,
                     apiKey = config.apiKey,
                     tlsDisabled = config.tlsDisabled,
+                    options = ClientOptions(identity = config.identity),
                 )
 
             return ConnectedTemporalClient(
@@ -286,7 +289,12 @@ class TemporalClientImpl internal constructor(
     internal val codec: PayloadCodec,
     internal val hookRegistry: HookRegistry = HookRegistryImpl.EMPTY,
 ) : TemporalClient {
-    internal val serviceClient = WorkflowServiceClient(coreClient, config.namespace)
+    internal val serviceClient =
+        WorkflowServiceClient(
+            coreClient,
+            config.namespace,
+            config.identity ?: DefaultIdentity.value,
+        )
 
     override suspend fun startWorkflowWithPayloads(
         workflowType: String,
@@ -336,6 +344,7 @@ class TemporalClientImpl internal constructor(
                         .build(),
                 ).setInput(encodedArgs)
                 .setRequestId(UUID.randomUUID().toString())
+                .setIdentity(serviceClient.identity)
                 .setWorkflowIdReusePolicy(input.options.workflowIdReusePolicy.toProto())
                 .setWorkflowIdConflictPolicy(input.options.workflowIdConflictPolicy.toProto())
 
@@ -542,6 +551,12 @@ class TemporalClientConfig : PluginPipeline {
 
     /** Explicitly disable TLS even when an API key is set. Useful for testing through proxies. */
     var tlsDisabled: Boolean = false
+
+    /**
+     * Identity reported to the server on every request this client makes, recorded in history and
+     * shown in the UI. Null means `pid@hostname` (see `DefaultIdentity`).
+     */
+    var identity: String? = null
 
     // PluginPipeline implementation
     override val attributes: Attributes = Attributes(concurrent = false)

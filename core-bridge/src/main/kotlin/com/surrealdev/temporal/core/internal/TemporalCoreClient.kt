@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.core.internal
 
+import com.surrealdev.temporal.core.BuildConfig
 import io.temporal.sdkbridge.TemporalCoreByteArrayRefArray
 import io.temporal.sdkbridge.TemporalCoreClientKeepAliveOptions
 import io.temporal.sdkbridge.TemporalCoreClientTlsOptions
@@ -161,7 +162,7 @@ internal object TemporalCoreClient {
         targetUrl: String,
         namespace: String = "default",
         clientName: String = "temporal-kotlin",
-        clientVersion: String = "0.1.0",
+        clientVersion: String = BuildConfig.SDK_VERSION,
         identity: String? = null,
         tls: ClientTlsOptions? = null,
         apiKey: String? = null,
@@ -387,7 +388,14 @@ internal object TemporalCoreClient {
         TemporalCoreConnectionOptions.metadata(options, createEmptyMetadataRef(arena))
         TemporalCoreConnectionOptions.binary_metadata(options, createEmptyMetadataRef(arena))
         TemporalCoreConnectionOptions.api_key(options, TemporalCoreFfmUtil.createByteArrayRef(arena, apiKey))
-        TemporalCoreConnectionOptions.identity(options, TemporalCoreFfmUtil.createByteArrayRef(arena, identity))
+        // Core rejects an empty client identity outright ("Client identity cannot be empty. Either
+        // lang or user should be setting this value") and derives the sticky queue name from it, so
+        // the default is resolved here at connect time - the same place sdk-python fills it in, in
+        // ConnectConfig.__post_init__. Workers with no identity of their own then inherit this one.
+        TemporalCoreConnectionOptions.identity(
+            options,
+            TemporalCoreFfmUtil.createByteArrayRef(arena, identity ?: DefaultIdentity.value),
+        )
         TemporalCoreConnectionOptions.tls_options(options, buildTlsOptions(arena, tls))
         TemporalCoreConnectionOptions.retry_options(options, MemorySegment.NULL)
         val keepAlive = TemporalCoreClientKeepAliveOptions.allocate(arena)

@@ -3,6 +3,10 @@ plugins {
     id("buildsrc.convention.maven-publish")
 }
 
+dependencies {
+    testImplementation(kotlin("test"))
+}
+
 mavenPublishing {
     coordinates(artifactId = "core-common")
 

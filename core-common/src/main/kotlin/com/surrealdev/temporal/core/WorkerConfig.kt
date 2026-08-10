@@ -68,7 +68,8 @@ data class WorkerConfig(
     val maxTaskQueueActivitiesPerSecond: Double = 0.0,
     /**
      * Worker identity string sent to the Temporal server, visible in the UI and history.
-     * Null means the Core SDK default is used (pid@hostname).
+     * Null means the worker inherits the client's identity, which defaults to `pid@hostname`
+     * (see `DefaultIdentity`).
      */
     val workerIdentity: String? = null,
     /**

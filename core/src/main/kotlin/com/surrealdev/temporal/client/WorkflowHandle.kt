@@ -523,6 +523,7 @@ internal class WorkflowHandleImpl(
                         .build(),
                 ).setSignalName(input.signalName)
                 .setInput(protoPayloads)
+                .setIdentity(serviceClient.identity)
 
         if (input.headers.isNotEmpty()) {
             requestBuilder.setHeader(
@@ -581,6 +582,7 @@ internal class WorkflowHandleImpl(
                             io.temporal.api.update.v1.Meta
                                 .newBuilder()
                                 .setUpdateId(updateId)
+                                .setIdentity(serviceClient.identity)
                                 .build(),
                         ).setInput(
                             io.temporal.api.update.v1.Input
@@ -728,7 +730,8 @@ internal class WorkflowHandleImpl(
                         .setWorkflowId(input.workflowId)
                         .also { if (input.runId != null) it.setRunId(input.runId) }
                         .build(),
-                ).build()
+                ).setIdentity(serviceClient.identity)
+                .build()
 
         try {
             serviceClient.requestCancelWorkflowExecution(request)
@@ -756,6 +759,7 @@ internal class WorkflowHandleImpl(
                         .also { if (input.runId != null) it.setRunId(input.runId) }
                         .build(),
                 ).also { if (input.reason != null) it.setReason(input.reason) }
+                .setIdentity(serviceClient.identity)
                 .build()
 
         try {

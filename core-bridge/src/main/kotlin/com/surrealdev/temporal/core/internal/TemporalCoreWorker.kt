@@ -517,12 +517,12 @@ internal object TemporalCoreWorker {
 
         TemporalCoreWorkerOptions.namespace_(options, TemporalCoreFfmUtil.createByteArrayRef(arena, namespace))
         TemporalCoreWorkerOptions.task_queue(options, TemporalCoreFfmUtil.createByteArrayRef(arena, taskQueue))
-        val identity =
-            config.workerIdentity
-                ?: "${ProcessHandle.current().pid()}@${java.net.InetAddress.getLocalHost().hostName}"
+        // Left unset when the worker has no identity of its own: an empty byte ref reaches Core as
+        // None, which makes the worker inherit the client's identity. Matches sdk-python, which
+        // passes identity_override=config.get("identity") and lets the bridge fall back.
         TemporalCoreWorkerOptions.identity_override(
             options,
-            TemporalCoreFfmUtil.createByteArrayRef(arena, identity),
+            TemporalCoreFfmUtil.createByteArrayRef(arena, config.workerIdentity),
         )
         TemporalCoreWorkerOptions.max_cached_workflows(options, config.maxCachedWorkflows)
 

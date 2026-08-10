@@ -26,6 +26,7 @@ import com.surrealdev.temporal.application.worker.ManagedWorker
 import com.surrealdev.temporal.application.worker.WorkerStatus
 import com.surrealdev.temporal.client.TemporalClient
 import com.surrealdev.temporal.client.TemporalClientConfig
+import com.surrealdev.temporal.core.ClientOptions
 import com.surrealdev.temporal.core.CorePollerBehavior
 import com.surrealdev.temporal.core.SlotSupplier
 import com.surrealdev.temporal.core.TemporalCoreClient
@@ -182,6 +183,7 @@ open class TemporalApplication internal constructor(
                     tls = config.connection.tls,
                     apiKey = config.connection.apiKey,
                     tlsDisabled = config.connection.tlsDisabled,
+                    options = ClientOptions(identity = config.connection.identity),
                 )
             coreClient = client
 
@@ -203,21 +205,10 @@ open class TemporalApplication internal constructor(
                     createJvmResourceMonitor() as com.surrealdev.temporal.core.internal.JvmResourceMonitor
             }
 
-            // Resolve default identity once
-            val defaultIdentity by lazy {
-                val pid = ProcessHandle.current().pid()
-                val hostname =
-                    java.net.InetAddress
-                        .getLocalHost()
-                        .hostName
-                "$pid@$hostname"
-            }
-
             // Create workers for each task queue
             val coreWorkers = mutableListOf<TemporalWorker>()
             for (taskQueueConfig in taskQueues) {
                 val effectiveNamespace = taskQueueConfig.namespace ?: config.connection.namespace
-                val effectiveIdentity = taskQueueConfig.workerIdentity ?: defaultIdentity
 
                 // Create the core bridge worker
                 val coreWorker =
@@ -241,7 +232,7 @@ open class TemporalApplication internal constructor(
                                 gracefulShutdownPeriodMs = taskQueueConfig.shutdownGracePeriodMs,
                                 maxActivitiesPerSecond = taskQueueConfig.maxActivitiesPerSecond,
                                 maxTaskQueueActivitiesPerSecond = taskQueueConfig.maxTaskQueueActivitiesPerSecond,
-                                workerIdentity = effectiveIdentity,
+                                workerIdentity = taskQueueConfig.workerIdentity,
                                 nonstickyToStickyPollRatio = taskQueueConfig.nonstickyToStickyPollRatio,
                                 stickyQueueScheduleToStartTimeoutMs =
                                     taskQueueConfig.stickyQueueScheduleToStartTimeoutMs,
@@ -519,6 +510,7 @@ open class TemporalApplication internal constructor(
                 tls = this@TemporalApplication.config.connection.tls
                 apiKey = this@TemporalApplication.config.connection.apiKey
                 tlsDisabled = this@TemporalApplication.config.connection.tlsDisabled
+                identity = this@TemporalApplication.config.connection.identity
                 configure()
             }
 
@@ -637,6 +629,13 @@ data class ConnectionConfig(
     val apiKey: String? = null,
     /** Explicitly disable TLS even when an API key is set. Useful for testing through proxies. */
     val tlsDisabled: Boolean = false,
+    /**
+     * Identity reported to the server for this process, recorded in history and shown in the UI.
+     *
+     * Null means `pid@hostname` is used. Workers on this application inherit it unless they set
+     * their own `workerIdentity`.
+     */
+    val identity: String? = null,
 )
 
 /**
