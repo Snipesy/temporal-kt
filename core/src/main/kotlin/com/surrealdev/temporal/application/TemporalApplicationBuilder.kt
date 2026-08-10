@@ -219,6 +219,13 @@ class ConnectionConfigBuilder internal constructor(
     var tlsDisabled: Boolean = base.tlsDisabled
 
     /**
+     * Identity reported to the server for this process. Null means `pid@hostname`.
+     *
+     * Workers inherit this unless they set their own `workerIdentity`.
+     */
+    var identity: String? = base.identity
+
+    /**
      * Configures TLS using a builder DSL.
      *
      * Usage:
@@ -262,6 +269,7 @@ class ConnectionConfigBuilder internal constructor(
             tls = tlsConfig,
             apiKey = apiKey,
             tlsDisabled = tlsDisabled,
+            identity = identity,
         )
 }
 
