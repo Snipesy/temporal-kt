@@ -1,6 +1,8 @@
 package com.surrealdev.temporal.core.internal
 
 import com.surrealdev.temporal.core.TemporalCoreException
+import io.temporal.sdkbridge.TemporalCoreRuntimeInfo
+import io.temporal.sdkbridge.TemporalCoreRuntimeInfoArray
 import io.temporal.sdkbridge.TemporalCoreRuntimeOptions
 import io.temporal.sdkbridge.TemporalCoreRuntimeOrFail
 import java.lang.foreign.Arena
@@ -33,32 +35,7 @@ internal object TemporalCoreRuntime {
      * @return A pointer to the created runtime
      * @throws TemporalCoreException if runtime creation fails
      */
-    fun createRuntime(arena: Arena): MemorySegment {
-        // Allocate RuntimeOptions with null telemetry and default heartbeat interval
-        val options = TemporalCoreRuntimeOptions.allocate(arena)
-        TemporalCoreRuntimeOptions.telemetry(options, MemorySegment.NULL)
-        TemporalCoreRuntimeOptions.worker_heartbeat_interval_millis(options, 0L)
-
-        // Call temporal_core_runtime_new - returns struct by value
-        val result = CoreBridge.temporal_core_runtime_new(arena, options)
-
-        val runtimePtr = TemporalCoreRuntimeOrFail.runtime(result)
-        val failPtr = TemporalCoreRuntimeOrFail.fail(result)
-
-        // Check for error
-        if (failPtr != MemorySegment.NULL) {
-            val errorMessage = TemporalCoreFfmUtil.readByteArray(failPtr)
-            // Free the error byte array
-            CoreBridge.temporal_core_byte_array_free(runtimePtr, failPtr)
-            // Still need to free the runtime even on error (per C API docs)
-            if (runtimePtr != MemorySegment.NULL) {
-                CoreBridge.temporal_core_runtime_free(runtimePtr)
-            }
-            throw TemporalCoreException(errorMessage ?: "Unknown error creating runtime")
-        }
-
-        return runtimePtr
-    }
+    fun createRuntime(arena: Arena): MemorySegment = createRuntime(arena, MemorySegment.NULL, 0L)
 
     /**
      * Creates a new Temporal Core runtime with custom telemetry options.
@@ -77,6 +54,7 @@ internal object TemporalCoreRuntime {
         val options = TemporalCoreRuntimeOptions.allocate(arena)
         TemporalCoreRuntimeOptions.telemetry(options, telemetryOptions)
         TemporalCoreRuntimeOptions.worker_heartbeat_interval_millis(options, workerHeartbeatIntervalMillis)
+        populateRuntimeInfo(arena, options)
 
         val result = CoreBridge.temporal_core_runtime_new(arena, options)
 
@@ -115,5 +93,23 @@ internal object TemporalCoreRuntime {
         byteArrayPtr: MemorySegment,
     ) {
         CoreBridge.temporal_core_byte_array_free(runtimePtr, byteArrayPtr)
+    }
+
+    // Worker heartbeats report the SDK runtime hosting Core; the bridge does not inherit
+    // Core's native-runtime default, so an empty array would report no runtime at all.
+    private fun populateRuntimeInfo(
+        arena: Arena,
+        options: MemorySegment,
+    ) {
+        val info = TemporalCoreRuntimeInfo.allocate(arena)
+        TemporalCoreRuntimeInfo.runtime_type(info, CoreBridge.RuntimeTypeJvm())
+        TemporalCoreRuntimeInfo.version(
+            info,
+            TemporalCoreFfmUtil.createByteArrayRef(arena, System.getProperty("java.version") ?: ""),
+        )
+        val infoArray = TemporalCoreRuntimeOptions.runtime_info(options)
+        TemporalCoreRuntimeInfoArray.data(infoArray, info)
+        TemporalCoreRuntimeInfoArray.size(infoArray, 1L)
+        TemporalCoreRuntimeOptions.disable_environment_info(options, false)
     }
 }

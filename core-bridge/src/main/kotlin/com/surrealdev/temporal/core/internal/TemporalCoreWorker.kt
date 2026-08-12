@@ -613,6 +613,11 @@ internal object TemporalCoreWorker {
         )
         TemporalCoreWorkerOptions.plugins(options, createEmptyByteArrayRefArray(arena))
         TemporalCoreWorkerOptions.storage_drivers(options, createEmptyByteArrayRefArray(arena))
+        TemporalCoreWorkerOptions.disable_payload_error_limit(options, config.disablePayloadErrorLimit)
+        TemporalCoreWorkerOptions.max_eager_activity_reservations_per_workflow_task(
+            options,
+            config.maxEagerActivityReservationsPerWorkflowTask,
+        )
 
         return options
     }

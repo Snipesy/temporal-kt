@@ -158,6 +158,51 @@ public class temporal_sdk_core_c_bridge_h extends temporal_sdk_core_c_bridge_h$s
     public static int GaugeFloat() {
         return GaugeFloat;
     }
+    private static final int UpDownCounterInteger = (int)7L;
+    /**
+     * {@snippet lang=c :
+     * enum TemporalCoreMetricKind.TemporalCoreMetricKind_UpDownCounterInteger = 7
+     * }
+     */
+    public static int UpDownCounterInteger() {
+        return UpDownCounterInteger;
+    }
+    private static final int ClientGrpcCompressionGzip = (int)0L;
+    /**
+     * {@snippet lang=c :
+     * enum TemporalCoreClientGrpcCompression.TemporalCoreClientGrpcCompression_Gzip = 0
+     * }
+     */
+    public static int ClientGrpcCompressionGzip() {
+        return ClientGrpcCompressionGzip;
+    }
+    private static final int ClientGrpcCompressionNone = (int)1L;
+    /**
+     * {@snippet lang=c :
+     * enum TemporalCoreClientGrpcCompression.TemporalCoreClientGrpcCompression_None = 1
+     * }
+     */
+    public static int ClientGrpcCompressionNone() {
+        return ClientGrpcCompressionNone;
+    }
+    private static final int RuntimeTypeUnspecified = (int)0L;
+    /**
+     * {@snippet lang=c :
+     * enum TemporalCoreRuntimeType.TemporalCoreRuntimeType_Unspecified = 0
+     * }
+     */
+    public static int RuntimeTypeUnspecified() {
+        return RuntimeTypeUnspecified;
+    }
+    private static final int RuntimeTypeJvm = (int)1L;
+    /**
+     * {@snippet lang=c :
+     * enum TemporalCoreRuntimeType.TemporalCoreRuntimeType_Jvm = 1
+     * }
+     */
+    public static int RuntimeTypeJvm() {
+        return RuntimeTypeJvm;
+    }
     private static final int Trace = (int)0L;
     /**
      * {@snippet lang=c :
@@ -1800,6 +1845,37 @@ public class temporal_sdk_core_c_bridge_h extends temporal_sdk_core_c_bridge_h$s
         try {
             if (TRACE_DOWNCALLS) {
                 traceDowncall("temporal_core_metric_record_integer", metric, value, attrs);
+            }
+            mh$.invokeExact(metric, value, attrs);
+        } catch (Error | RuntimeException ex) {
+           throw ex;
+        } catch (Throwable ex$) {
+           throw new AssertionError("should not reach here", ex$);
+        }
+    }
+
+    private static class temporal_core_metric_record_integer_signed {
+        public static final FunctionDescriptor DESC = FunctionDescriptor.ofVoid(
+            temporal_sdk_core_c_bridge_h.C_POINTER,
+            temporal_sdk_core_c_bridge_h.C_LONG_LONG,
+            temporal_sdk_core_c_bridge_h.C_POINTER
+        );
+
+        public static final MemorySegment ADDR = SYMBOL_LOOKUP.findOrThrow("temporal_core_metric_record_integer_signed");
+
+        public static final MethodHandle HANDLE = Linker.nativeLinker().downcallHandle(ADDR, DESC);
+    }
+
+    /**
+     * {@snippet lang=c :
+     * void temporal_core_metric_record_integer_signed(const struct TemporalCoreMetric *metric, int64_t value, const struct TemporalCoreMetricAttributes *attrs)
+     * }
+     */
+    public static void temporal_core_metric_record_integer_signed(MemorySegment metric, long value, MemorySegment attrs) {
+        var mh$ = temporal_core_metric_record_integer_signed.HANDLE;
+        try {
+            if (TRACE_DOWNCALLS) {
+                traceDowncall("temporal_core_metric_record_integer_signed", metric, value, attrs);
             }
             mh$.invokeExact(metric, value, attrs);
         } catch (Error | RuntimeException ex) {

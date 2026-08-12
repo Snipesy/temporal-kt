@@ -50,7 +50,12 @@ public class TemporalCoreConnectionOptions {
         temporal_sdk_core_c_bridge_h.C_POINTER.withName("keep_alive_options"),
         temporal_sdk_core_c_bridge_h.C_POINTER.withName("http_connect_proxy_options"),
         temporal_sdk_core_c_bridge_h.C_POINTER.withName("grpc_override_callback"),
-        temporal_sdk_core_c_bridge_h.C_POINTER.withName("grpc_override_callback_user_data")
+        temporal_sdk_core_c_bridge_h.C_POINTER.withName("grpc_override_callback_user_data"),
+        temporal_sdk_core_c_bridge_h.C_POINTER.withName("dns_load_balancing_options"),
+        temporal_sdk_core_c_bridge_h.C_INT.withName("grpc_compression"),
+        MemoryLayout.paddingLayout(4),
+        temporal_sdk_core_c_bridge_h.C_LONG_LONG.withName("payloads_warn_size"),
+        temporal_sdk_core_c_bridge_h.C_LONG_LONG.withName("memo_warn_size")
     ).withName("TemporalCoreConnectionOptions");
 
     /**
@@ -630,6 +635,98 @@ public class TemporalCoreConnectionOptions {
      */
     public static void grpc_override_callback_user_data(MemorySegment struct, MemorySegment fieldValue) {
         struct.set(grpc_override_callback_user_data$LAYOUT, grpc_override_callback_user_data$OFFSET, fieldValue);
+    }
+
+    private static final AddressLayout dns_load_balancing_options$LAYOUT = (AddressLayout)$LAYOUT.select(groupElement("dns_load_balancing_options"));
+    private static final long dns_load_balancing_options$OFFSET = $LAYOUT.byteOffset(groupElement("dns_load_balancing_options"));
+
+    /**
+     * Getter for field:
+     * {@snippet lang=c :
+     * const struct TemporalCoreClientDnsLoadBalancingOptions *dns_load_balancing_options
+     * }
+     */
+    public static MemorySegment dns_load_balancing_options(MemorySegment struct) {
+        return struct.get(dns_load_balancing_options$LAYOUT, dns_load_balancing_options$OFFSET);
+    }
+
+    /**
+     * Setter for field:
+     * {@snippet lang=c :
+     * const struct TemporalCoreClientDnsLoadBalancingOptions *dns_load_balancing_options
+     * }
+     */
+    public static void dns_load_balancing_options(MemorySegment struct, MemorySegment fieldValue) {
+        struct.set(dns_load_balancing_options$LAYOUT, dns_load_balancing_options$OFFSET, fieldValue);
+    }
+
+    private static final OfInt grpc_compression$LAYOUT = (OfInt)$LAYOUT.select(groupElement("grpc_compression"));
+    private static final long grpc_compression$OFFSET = $LAYOUT.byteOffset(groupElement("grpc_compression"));
+
+    /**
+     * Getter for field:
+     * {@snippet lang=c :
+     * enum TemporalCoreClientGrpcCompression grpc_compression
+     * }
+     */
+    public static int grpc_compression(MemorySegment struct) {
+        return struct.get(grpc_compression$LAYOUT, grpc_compression$OFFSET);
+    }
+
+    /**
+     * Setter for field:
+     * {@snippet lang=c :
+     * enum TemporalCoreClientGrpcCompression grpc_compression
+     * }
+     */
+    public static void grpc_compression(MemorySegment struct, int fieldValue) {
+        struct.set(grpc_compression$LAYOUT, grpc_compression$OFFSET, fieldValue);
+    }
+
+    private static final OfLong payloads_warn_size$LAYOUT = (OfLong)$LAYOUT.select(groupElement("payloads_warn_size"));
+    private static final long payloads_warn_size$OFFSET = $LAYOUT.byteOffset(groupElement("payloads_warn_size"));
+
+    /**
+     * Getter for field:
+     * {@snippet lang=c :
+     * uint64_t payloads_warn_size
+     * }
+     */
+    public static long payloads_warn_size(MemorySegment struct) {
+        return struct.get(payloads_warn_size$LAYOUT, payloads_warn_size$OFFSET);
+    }
+
+    /**
+     * Setter for field:
+     * {@snippet lang=c :
+     * uint64_t payloads_warn_size
+     * }
+     */
+    public static void payloads_warn_size(MemorySegment struct, long fieldValue) {
+        struct.set(payloads_warn_size$LAYOUT, payloads_warn_size$OFFSET, fieldValue);
+    }
+
+    private static final OfLong memo_warn_size$LAYOUT = (OfLong)$LAYOUT.select(groupElement("memo_warn_size"));
+    private static final long memo_warn_size$OFFSET = $LAYOUT.byteOffset(groupElement("memo_warn_size"));
+
+    /**
+     * Getter for field:
+     * {@snippet lang=c :
+     * uint64_t memo_warn_size
+     * }
+     */
+    public static long memo_warn_size(MemorySegment struct) {
+        return struct.get(memo_warn_size$LAYOUT, memo_warn_size$OFFSET);
+    }
+
+    /**
+     * Setter for field:
+     * {@snippet lang=c :
+     * uint64_t memo_warn_size
+     * }
+     */
+    public static void memo_warn_size(MemorySegment struct, long fieldValue) {
+        struct.set(memo_warn_size$LAYOUT, memo_warn_size$OFFSET, fieldValue);
     }
 
     /**

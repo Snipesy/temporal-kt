@@ -292,9 +292,9 @@ val copyWindowsNativeLib by tasks.registering {
 sourceSets {
     main {
         proto {
-            srcDir("rust/sdk-core/crates/common/protos/local")
-            srcDir("rust/sdk-core/crates/common/protos/api_upstream")
-            srcDir("rust/sdk-core/crates/common/protos/testsrv_upstream")
+            srcDir("rust/sdk-core/crates/protos/protos/local")
+            srcDir("rust/sdk-core/crates/protos/protos/api_upstream")
+            srcDir("rust/sdk-core/crates/protos/protos/testsrv_upstream")
             // Exclude google protobuf well-known types - use runtime versions instead
             // This prevents version conflicts between generated code and protobuf-java runtime
             exclude("**/google/protobuf/**")

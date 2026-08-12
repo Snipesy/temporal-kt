@@ -4,8 +4,11 @@ members = [
     "sdk-core/crates/sdk-core",
     "sdk-core/crates/client",
     "sdk-core/crates/common",
+    "sdk-core/crates/common-wasm",
+    "sdk-core/crates/protos",
     "sdk-core/crates/macros",
     "sdk-core/crates/sdk",
+    "sdk-core/crates/workflow",
     "sdk-core/crates/sdk-core-c-bridge",
 ]
 
@@ -15,8 +18,8 @@ license-file = "sdk-core/LICENSE.txt"
 
 # Mirror sdk-core's workspace dependencies so inheritance works
 [workspace.dependencies]
-bon = { version = "3", features = ["implied-bounds"] }
-derive_more = { version = "2.0", features = [
+bon = { version = "3", default-features = false, features = ["alloc", "implied-bounds"] }
+derive_more = { version = "2.0", default-features = false, features = [
     "constructor",
     "display",
     "from",
@@ -25,15 +28,15 @@ derive_more = { version = "2.0", features = [
     "try_into",
 ] }
 thiserror = "2"
-tonic = "0.14"
-tonic-prost = "0.14"
-tonic-prost-build = "0.14"
-opentelemetry = { version = "0.31", features = ["metrics"] }
+tonic = { version = "0.14.6", default-features = false }
+tonic-prost = "0.14.6"
+tonic-prost-build = "0.14.6"
+opentelemetry = { version = "0.32", default-features = false, features = ["metrics"] }
 prost = "0.14"
 prost-types = { version = "0.7", package = "prost-wkt-types" }
 pbjson = "0.9"
-pbjson-types = "0.9"
 pbjson-build = "0.9"
+serde_json = "1.0"
 
 [workspace.lints.rust]
 unreachable_pub = "warn"

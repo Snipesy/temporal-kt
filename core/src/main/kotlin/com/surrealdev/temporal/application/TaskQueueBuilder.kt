@@ -197,6 +197,24 @@ class TaskQueueBuilder internal constructor(
     var nondeterminismAsWorkflowFailForTypes: List<String> = emptyList()
 
     /**
+     * Maximum activity slots reserved for eager execution per workflow task completion.
+     * Eager activities are handed directly to this worker, skipping the server task queue
+     * round-trip. Set to 0 to disable eager activity execution (e.g. when activities must
+     * flow through the task queue for dedicated activity workers or queue rate limits).
+     *
+     * Default: 3
+     */
+    var maxEagerActivityReservationsPerWorkflowTask: Int = 3
+
+    /**
+     * When true, oversized completion payloads are sent to the server for enforcement
+     * instead of being failed client-side by Core. Experimental.
+     *
+     * Default: false
+     */
+    var disablePayloadErrorLimit: Boolean = false
+
+    /**
      * Fraction of max workflow pollers dedicated to the nonsticky (global) task queue.
      * Only applies when using [CorePollerBehavior.SimpleMaximum].
      *
@@ -413,5 +431,7 @@ class TaskQueueBuilder internal constructor(
             stickyQueueScheduleToStartTimeoutMs = stickyQueueScheduleToStartTimeoutMs,
             nondeterminismAsWorkflowFail = nondeterminismAsWorkflowFail,
             nondeterminismAsWorkflowFailForTypes = nondeterminismAsWorkflowFailForTypes,
+            maxEagerActivityReservationsPerWorkflowTask = maxEagerActivityReservationsPerWorkflowTask,
+            disablePayloadErrorLimit = disablePayloadErrorLimit,
         )
 }

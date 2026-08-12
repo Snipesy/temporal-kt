@@ -7,6 +7,7 @@ import io.opentelemetry.api.metrics.DoubleHistogram
 import io.opentelemetry.api.metrics.LongCounter
 import io.opentelemetry.api.metrics.LongGauge
 import io.opentelemetry.api.metrics.LongHistogram
+import io.opentelemetry.api.metrics.LongUpDownCounter
 import io.opentelemetry.api.metrics.Meter
 import io.temporal.sdkbridge.TemporalCoreCustomMetricAttribute
 import io.temporal.sdkbridge.TemporalCoreCustomMetricAttributeValue
@@ -187,6 +188,12 @@ internal class CoreMetricsBridge(
 
             when (instrument) {
                 is OtelInstrument.CounterLong -> {
+                    instrument.counter.add(value, attrs)
+                }
+
+                // Core sends up-down deltas as `value as u64`; the two's-complement
+                // reinterpretation back to Long recovers negative deltas exactly.
+                is OtelInstrument.UpDownCounterLong -> {
                     instrument.counter.add(value, attrs)
                 }
 
@@ -462,6 +469,16 @@ internal class CoreMetricsBridge(
                 )
             }
 
+            TemporalCoreMetrics.MetricKind.UP_DOWN_COUNTER_INTEGER.value -> {
+                OtelInstrument.UpDownCounterLong(
+                    meter
+                        .upDownCounterBuilder(name)
+                        .setDescription(description)
+                        .setUnit(unit)
+                        .build(),
+                )
+            }
+
             else -> {
                 logger.warn(
                     "Unknown metric kind {}, falling back to LongCounter for '{}'",
@@ -504,6 +521,10 @@ internal class CoreMetricsBridge(
 
         data class GaugeDouble(
             val gauge: DoubleGauge,
+        ) : OtelInstrument()
+
+        data class UpDownCounterLong(
+            val counter: LongUpDownCounter,
         ) : OtelInstrument()
     }
 }

@@ -19,6 +19,7 @@ import com.surrealdev.temporal.common.TemporalByteString
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.core.ClientOptions
+import com.surrealdev.temporal.core.GrpcCompression
 import com.surrealdev.temporal.core.TemporalCoreClient
 import com.surrealdev.temporal.core.TemporalCoreException
 import com.surrealdev.temporal.core.TlsConfig
@@ -230,7 +231,11 @@ interface TemporalClient {
                     tls = config.tls,
                     apiKey = config.apiKey,
                     tlsDisabled = config.tlsDisabled,
-                    options = ClientOptions(identity = config.identity),
+                    options =
+                        ClientOptions(
+                            identity = config.identity,
+                            grpcCompression = config.grpcCompression,
+                        ),
                 )
 
             return ConnectedTemporalClient(
@@ -557,6 +562,12 @@ class TemporalClientConfig : PluginPipeline {
      * shown in the UI. Null means `pid@hostname` (see `DefaultIdentity`).
      */
     var identity: String? = null
+
+    /**
+     * Transport-level gRPC compression. Set to [GrpcCompression.NONE] when an intermediary
+     * (proxy/gateway) rejects compressed frames.
+     */
+    var grpcCompression: GrpcCompression = GrpcCompression.GZIP
 
     // PluginPipeline implementation
     override val attributes: Attributes = Attributes(concurrent = false)

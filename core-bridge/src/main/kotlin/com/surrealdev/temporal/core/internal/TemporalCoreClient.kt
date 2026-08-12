@@ -1,6 +1,7 @@
 package com.surrealdev.temporal.core.internal
 
 import com.surrealdev.temporal.core.BuildConfig
+import com.surrealdev.temporal.core.GrpcCompression
 import io.temporal.sdkbridge.TemporalCoreByteArrayRefArray
 import io.temporal.sdkbridge.TemporalCoreClientKeepAliveOptions
 import io.temporal.sdkbridge.TemporalCoreClientTlsOptions
@@ -166,6 +167,7 @@ internal object TemporalCoreClient {
         identity: String? = null,
         tls: ClientTlsOptions? = null,
         apiKey: String? = null,
+        grpcCompression: GrpcCompression = GrpcCompression.GZIP,
         callback: ConnectCallback,
     ): MemorySegment {
         val options =
@@ -177,6 +179,7 @@ internal object TemporalCoreClient {
                 identity = identity,
                 tls = tls,
                 apiKey = apiKey,
+                grpcCompression = grpcCompression,
             )
 
         // Register callback WITHOUT arena - the arena is managed by the caller
@@ -370,6 +373,7 @@ internal object TemporalCoreClient {
         identity: String?,
         tls: ClientTlsOptions?,
         apiKey: String? = null,
+        grpcCompression: GrpcCompression = GrpcCompression.GZIP,
     ): MemorySegment {
         val options = TemporalCoreConnectionOptions.allocate(arena)
 
@@ -405,6 +409,17 @@ internal object TemporalCoreClient {
         TemporalCoreConnectionOptions.http_connect_proxy_options(options, MemorySegment.NULL)
         TemporalCoreConnectionOptions.grpc_override_callback(options, MemorySegment.NULL)
         TemporalCoreConnectionOptions.grpc_override_callback_user_data(options, MemorySegment.NULL)
+        TemporalCoreConnectionOptions.dns_load_balancing_options(options, MemorySegment.NULL)
+        TemporalCoreConnectionOptions.grpc_compression(
+            options,
+            when (grpcCompression) {
+                GrpcCompression.GZIP -> CoreBridge.ClientGrpcCompressionGzip()
+                GrpcCompression.NONE -> CoreBridge.ClientGrpcCompressionNone()
+            },
+        )
+        // 0 disables the experimental outbound-size warnings.
+        TemporalCoreConnectionOptions.payloads_warn_size(options, 0L)
+        TemporalCoreConnectionOptions.memo_warn_size(options, 0L)
 
         return options
     }
