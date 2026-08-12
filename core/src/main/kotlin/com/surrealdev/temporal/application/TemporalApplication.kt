@@ -28,6 +28,7 @@ import com.surrealdev.temporal.client.TemporalClient
 import com.surrealdev.temporal.client.TemporalClientConfig
 import com.surrealdev.temporal.core.ClientOptions
 import com.surrealdev.temporal.core.CorePollerBehavior
+import com.surrealdev.temporal.core.GrpcCompression
 import com.surrealdev.temporal.core.SlotSupplier
 import com.surrealdev.temporal.core.TemporalCoreClient
 import com.surrealdev.temporal.core.TemporalRuntime
@@ -183,7 +184,11 @@ open class TemporalApplication internal constructor(
                     tls = config.connection.tls,
                     apiKey = config.connection.apiKey,
                     tlsDisabled = config.connection.tlsDisabled,
-                    options = ClientOptions(identity = config.connection.identity),
+                    options =
+                        ClientOptions(
+                            identity = config.connection.identity,
+                            grpcCompression = config.connection.grpcCompression,
+                        ),
                 )
             coreClient = client
 
@@ -239,6 +244,9 @@ open class TemporalApplication internal constructor(
                                 nondeterminismAsWorkflowFail = taskQueueConfig.nondeterminismAsWorkflowFail,
                                 nondeterminismAsWorkflowFailForTypes =
                                     taskQueueConfig.nondeterminismAsWorkflowFailForTypes,
+                                maxEagerActivityReservationsPerWorkflowTask =
+                                    taskQueueConfig.maxEagerActivityReservationsPerWorkflowTask,
+                                disablePayloadErrorLimit = taskQueueConfig.disablePayloadErrorLimit,
                                 buildId = config.buildId,
                             ),
                     )
@@ -636,6 +644,11 @@ data class ConnectionConfig(
      * their own `workerIdentity`.
      */
     val identity: String? = null,
+    /**
+     * Transport-level gRPC compression. [GrpcCompression.NONE] disables compression when an
+     * intermediary (proxy/gateway) rejects compressed frames.
+     */
+    val grpcCompression: GrpcCompression = GrpcCompression.GZIP,
 )
 
 /**
@@ -743,6 +756,16 @@ internal data class TaskQueueConfig(
      * Workflow type names for which nondeterminism errors are reported as workflow failures.
      */
     val nondeterminismAsWorkflowFailForTypes: List<String> = emptyList(),
+    /**
+     * Maximum activity slots reserved for eager execution per workflow task completion.
+     * 0 disables eager activity execution.
+     */
+    val maxEagerActivityReservationsPerWorkflowTask: Int = 3,
+    /**
+     * When true, oversized completion payloads are sent to the server for enforcement
+     * instead of being failed client-side. Experimental.
+     */
+    val disablePayloadErrorLimit: Boolean = false,
     /**
      * Resolved payload serializer for this task queue.
      * Resolved during build from the task queue's plugin pipeline (with parent fallback).

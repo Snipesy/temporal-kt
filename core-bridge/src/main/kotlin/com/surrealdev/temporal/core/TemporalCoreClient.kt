@@ -15,12 +15,24 @@ import kotlin.coroutines.resumeWithException
 import com.surrealdev.temporal.core.internal.TemporalCoreClient as InternalClient
 
 /**
+ * Transport-level gRPC compression for client connections.
+ */
+enum class GrpcCompression {
+    /** Gzip-compress request bodies and accept gzip responses. Core's default. */
+    GZIP,
+
+    /** No transport compression. Use when an intermediary (proxy/gateway) rejects compressed frames. */
+    NONE,
+}
+
+/**
  * Options for configuring a Temporal client connection.
  */
 data class ClientOptions(
     val clientName: String = "temporal-kotlin",
     val clientVersion: String = BuildConfig.SDK_VERSION,
     val identity: String? = null,
+    val grpcCompression: GrpcCompression = GrpcCompression.GZIP,
 )
 
 private fun TlsConfig.toClientTlsOptions(): ClientTlsOptions =
@@ -141,6 +153,7 @@ class TemporalCoreClient private constructor(
                                 identity = options.identity,
                                 tls = effectiveTls,
                                 apiKey = apiKey,
+                                grpcCompression = options.grpcCompression,
                             ) { clientPtr, error ->
                                 try {
                                     when {

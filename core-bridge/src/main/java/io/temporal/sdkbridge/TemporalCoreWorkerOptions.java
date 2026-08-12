@@ -70,7 +70,10 @@ public class TemporalCoreWorkerOptions {
         MemoryLayout.paddingLayout(7),
         TemporalCoreByteArrayRefArray.layout().withName("nondeterminism_as_workflow_fail_for_types"),
         TemporalCoreByteArrayRefArray.layout().withName("plugins"),
-        TemporalCoreByteArrayRefArray.layout().withName("storage_drivers")
+        TemporalCoreByteArrayRefArray.layout().withName("storage_drivers"),
+        temporal_sdk_core_c_bridge_h.C_BOOL.withName("disable_payload_error_limit"),
+        MemoryLayout.paddingLayout(3),
+        temporal_sdk_core_c_bridge_h.C_INT.withName("max_eager_activity_reservations_per_workflow_task")
     ).withName("TemporalCoreWorkerOptions");
 
     /**
@@ -1002,6 +1005,52 @@ public class TemporalCoreWorkerOptions {
      */
     public static void storage_drivers(MemorySegment struct, MemorySegment fieldValue) {
         MemorySegment.copy(fieldValue, 0L, struct, storage_drivers$OFFSET, storage_drivers$LAYOUT.byteSize());
+    }
+
+    private static final OfBoolean disable_payload_error_limit$LAYOUT = (OfBoolean)$LAYOUT.select(groupElement("disable_payload_error_limit"));
+    private static final long disable_payload_error_limit$OFFSET = $LAYOUT.byteOffset(groupElement("disable_payload_error_limit"));
+
+    /**
+     * Getter for field:
+     * {@snippet lang=c :
+     * bool disable_payload_error_limit
+     * }
+     */
+    public static boolean disable_payload_error_limit(MemorySegment struct) {
+        return struct.get(disable_payload_error_limit$LAYOUT, disable_payload_error_limit$OFFSET);
+    }
+
+    /**
+     * Setter for field:
+     * {@snippet lang=c :
+     * bool disable_payload_error_limit
+     * }
+     */
+    public static void disable_payload_error_limit(MemorySegment struct, boolean fieldValue) {
+        struct.set(disable_payload_error_limit$LAYOUT, disable_payload_error_limit$OFFSET, fieldValue);
+    }
+
+    private static final OfInt max_eager_activity_reservations_per_workflow_task$LAYOUT = (OfInt)$LAYOUT.select(groupElement("max_eager_activity_reservations_per_workflow_task"));
+    private static final long max_eager_activity_reservations_per_workflow_task$OFFSET = $LAYOUT.byteOffset(groupElement("max_eager_activity_reservations_per_workflow_task"));
+
+    /**
+     * Getter for field:
+     * {@snippet lang=c :
+     * uint32_t max_eager_activity_reservations_per_workflow_task
+     * }
+     */
+    public static int max_eager_activity_reservations_per_workflow_task(MemorySegment struct) {
+        return struct.get(max_eager_activity_reservations_per_workflow_task$LAYOUT, max_eager_activity_reservations_per_workflow_task$OFFSET);
+    }
+
+    /**
+     * Setter for field:
+     * {@snippet lang=c :
+     * uint32_t max_eager_activity_reservations_per_workflow_task
+     * }
+     */
+    public static void max_eager_activity_reservations_per_workflow_task(MemorySegment struct, int fieldValue) {
+        struct.set(max_eager_activity_reservations_per_workflow_task$LAYOUT, max_eager_activity_reservations_per_workflow_task$OFFSET, fieldValue);
     }
 
     /**

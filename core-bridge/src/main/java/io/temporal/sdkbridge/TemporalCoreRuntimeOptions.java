@@ -17,6 +17,8 @@ import static java.lang.foreign.MemoryLayout.PathElement.*;
  * struct TemporalCoreRuntimeOptions {
  *     const struct TemporalCoreTelemetryOptions *telemetry;
  *     uint64_t worker_heartbeat_interval_millis;
+ *     struct TemporalCoreRuntimeInfoArray runtime_info;
+ *     bool disable_environment_info;
  * }
  * }
  */
@@ -28,7 +30,10 @@ public class TemporalCoreRuntimeOptions {
 
     private static final GroupLayout $LAYOUT = MemoryLayout.structLayout(
         temporal_sdk_core_c_bridge_h.C_POINTER.withName("telemetry"),
-        temporal_sdk_core_c_bridge_h.C_LONG_LONG.withName("worker_heartbeat_interval_millis")
+        temporal_sdk_core_c_bridge_h.C_LONG_LONG.withName("worker_heartbeat_interval_millis"),
+        TemporalCoreRuntimeInfoArray.layout().withName("runtime_info"),
+        temporal_sdk_core_c_bridge_h.C_BOOL.withName("disable_environment_info"),
+        MemoryLayout.paddingLayout(7)
     ).withName("TemporalCoreRuntimeOptions");
 
     /**
@@ -124,6 +129,52 @@ public class TemporalCoreRuntimeOptions {
      */
     public static void worker_heartbeat_interval_millis(MemorySegment struct, long fieldValue) {
         struct.set(worker_heartbeat_interval_millis$LAYOUT, worker_heartbeat_interval_millis$OFFSET, fieldValue);
+    }
+
+    private static final GroupLayout runtime_info$LAYOUT = (GroupLayout)$LAYOUT.select(groupElement("runtime_info"));
+    private static final long runtime_info$OFFSET = $LAYOUT.byteOffset(groupElement("runtime_info"));
+
+    /**
+     * Getter for field:
+     * {@snippet lang=c :
+     * struct TemporalCoreRuntimeInfoArray runtime_info
+     * }
+     */
+    public static MemorySegment runtime_info(MemorySegment struct) {
+        return struct.asSlice(runtime_info$OFFSET, runtime_info$LAYOUT.byteSize());
+    }
+
+    /**
+     * Setter for field:
+     * {@snippet lang=c :
+     * struct TemporalCoreRuntimeInfoArray runtime_info
+     * }
+     */
+    public static void runtime_info(MemorySegment struct, MemorySegment fieldValue) {
+        MemorySegment.copy(fieldValue, 0L, struct, runtime_info$OFFSET, runtime_info$LAYOUT.byteSize());
+    }
+
+    private static final OfBoolean disable_environment_info$LAYOUT = (OfBoolean)$LAYOUT.select(groupElement("disable_environment_info"));
+    private static final long disable_environment_info$OFFSET = $LAYOUT.byteOffset(groupElement("disable_environment_info"));
+
+    /**
+     * Getter for field:
+     * {@snippet lang=c :
+     * bool disable_environment_info
+     * }
+     */
+    public static boolean disable_environment_info(MemorySegment struct) {
+        return struct.get(disable_environment_info$LAYOUT, disable_environment_info$OFFSET);
+    }
+
+    /**
+     * Setter for field:
+     * {@snippet lang=c :
+     * bool disable_environment_info
+     * }
+     */
+    public static void disable_environment_info(MemorySegment struct, boolean fieldValue) {
+        struct.set(disable_environment_info$LAYOUT, disable_environment_info$OFFSET, fieldValue);
     }
 
     /**

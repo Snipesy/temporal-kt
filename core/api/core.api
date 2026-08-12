@@ -213,18 +213,20 @@ public final class com/surrealdev/temporal/application/ActivityRegistration$Inst
 
 public final class com/surrealdev/temporal/application/ConnectionConfig {
 	public fun <init> ()V
-	public fun <init> (Ljava/lang/String;Ljava/lang/String;Lcom/surrealdev/temporal/core/TlsConfig;Ljava/lang/String;ZLjava/lang/String;)V
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Lcom/surrealdev/temporal/core/TlsConfig;Ljava/lang/String;ZLjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Lcom/surrealdev/temporal/core/TlsConfig;Ljava/lang/String;ZLjava/lang/String;Lcom/surrealdev/temporal/core/GrpcCompression;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Lcom/surrealdev/temporal/core/TlsConfig;Ljava/lang/String;ZLjava/lang/String;Lcom/surrealdev/temporal/core/GrpcCompression;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/lang/String;
 	public final fun component2 ()Ljava/lang/String;
 	public final fun component3 ()Lcom/surrealdev/temporal/core/TlsConfig;
 	public final fun component4 ()Ljava/lang/String;
 	public final fun component5 ()Z
 	public final fun component6 ()Ljava/lang/String;
-	public final fun copy (Ljava/lang/String;Ljava/lang/String;Lcom/surrealdev/temporal/core/TlsConfig;Ljava/lang/String;ZLjava/lang/String;)Lcom/surrealdev/temporal/application/ConnectionConfig;
-	public static synthetic fun copy$default (Lcom/surrealdev/temporal/application/ConnectionConfig;Ljava/lang/String;Ljava/lang/String;Lcom/surrealdev/temporal/core/TlsConfig;Ljava/lang/String;ZLjava/lang/String;ILjava/lang/Object;)Lcom/surrealdev/temporal/application/ConnectionConfig;
+	public final fun component7 ()Lcom/surrealdev/temporal/core/GrpcCompression;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Lcom/surrealdev/temporal/core/TlsConfig;Ljava/lang/String;ZLjava/lang/String;Lcom/surrealdev/temporal/core/GrpcCompression;)Lcom/surrealdev/temporal/application/ConnectionConfig;
+	public static synthetic fun copy$default (Lcom/surrealdev/temporal/application/ConnectionConfig;Ljava/lang/String;Ljava/lang/String;Lcom/surrealdev/temporal/core/TlsConfig;Ljava/lang/String;ZLjava/lang/String;Lcom/surrealdev/temporal/core/GrpcCompression;ILjava/lang/Object;)Lcom/surrealdev/temporal/application/ConnectionConfig;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getApiKey ()Ljava/lang/String;
+	public final fun getGrpcCompression ()Lcom/surrealdev/temporal/core/GrpcCompression;
 	public final fun getIdentity ()Ljava/lang/String;
 	public final fun getNamespace ()Ljava/lang/String;
 	public final fun getTarget ()Ljava/lang/String;
@@ -237,12 +239,14 @@ public final class com/surrealdev/temporal/application/ConnectionConfig {
 public final class com/surrealdev/temporal/application/ConnectionConfigBuilder {
 	public fun <init> ()V
 	public final fun getApiKey ()Ljava/lang/String;
+	public final fun getGrpcCompression ()Lcom/surrealdev/temporal/core/GrpcCompression;
 	public final fun getIdentity ()Ljava/lang/String;
 	public final fun getNamespace ()Ljava/lang/String;
 	public final fun getTarget ()Ljava/lang/String;
 	public final fun getTlsConfig ()Lcom/surrealdev/temporal/core/TlsConfig;
 	public final fun getTlsDisabled ()Z
 	public final fun setApiKey (Ljava/lang/String;)V
+	public final fun setGrpcCompression (Lcom/surrealdev/temporal/core/GrpcCompression;)V
 	public final fun setIdentity (Ljava/lang/String;)V
 	public final fun setNamespace (Ljava/lang/String;)V
 	public final fun setTarget (Ljava/lang/String;)V
@@ -317,10 +321,12 @@ public final class com/surrealdev/temporal/application/TaskQueueBuilder : com/su
 	public final fun getActivitySlotSupplier ()Lcom/surrealdev/temporal/core/SlotSupplier;
 	public fun getAttributes ()Lcom/surrealdev/temporal/util/Attributes;
 	public final fun getDefaultHeartbeatThrottleIntervalMs ()J
+	public final fun getDisablePayloadErrorLimit ()Z
 	public final fun getDynamicActivityHandler ()Lkotlin/jvm/functions/Function4;
 	public final fun getLocalActivitySlotSupplier ()Lcom/surrealdev/temporal/core/SlotSupplier;
 	public final fun getMaxActivitiesPerSecond ()D
 	public final fun getMaxCachedWorkflows ()I
+	public final fun getMaxEagerActivityReservationsPerWorkflowTask ()I
 	public final fun getMaxHeartbeatThrottleIntervalMs ()J
 	public final fun getMaxTaskQueueActivitiesPerSecond ()D
 	public final fun getNamespace ()Ljava/lang/String;
@@ -341,10 +347,12 @@ public final class com/surrealdev/temporal/application/TaskQueueBuilder : com/su
 	public final fun setActivityPollerBehavior (Lcom/surrealdev/temporal/core/CorePollerBehavior;)V
 	public final fun setActivitySlotSupplier (Lcom/surrealdev/temporal/core/SlotSupplier;)V
 	public final fun setDefaultHeartbeatThrottleIntervalMs (J)V
+	public final fun setDisablePayloadErrorLimit (Z)V
 	public final fun setDynamicActivityHandler (Lkotlin/jvm/functions/Function4;)V
 	public final fun setLocalActivitySlotSupplier (Lcom/surrealdev/temporal/core/SlotSupplier;)V
 	public final fun setMaxActivitiesPerSecond (D)V
 	public final fun setMaxCachedWorkflows (I)V
+	public final fun setMaxEagerActivityReservationsPerWorkflowTask (I)V
 	public final fun setMaxHeartbeatThrottleIntervalMs (J)V
 	public final fun setMaxTaskQueueActivitiesPerSecond (D)V
 	public final fun setNamespace (Ljava/lang/String;)V
@@ -1800,6 +1808,7 @@ public final class com/surrealdev/temporal/client/TemporalClientConfig : com/sur
 	public fun <init> ()V
 	public final fun getApiKey ()Ljava/lang/String;
 	public fun getAttributes ()Lcom/surrealdev/temporal/util/Attributes;
+	public final fun getGrpcCompression ()Lcom/surrealdev/temporal/core/GrpcCompression;
 	public final fun getHookRegistry ()Lcom/surrealdev/temporal/application/plugin/HookRegistry;
 	public final fun getIdentity ()Ljava/lang/String;
 	public final fun getNamespace ()Ljava/lang/String;
@@ -1808,6 +1817,7 @@ public final class com/surrealdev/temporal/client/TemporalClientConfig : com/sur
 	public final fun getTls ()Lcom/surrealdev/temporal/core/TlsConfig;
 	public final fun getTlsDisabled ()Z
 	public final fun setApiKey (Ljava/lang/String;)V
+	public final fun setGrpcCompression (Lcom/surrealdev/temporal/core/GrpcCompression;)V
 	public final fun setIdentity (Ljava/lang/String;)V
 	public final fun setNamespace (Ljava/lang/String;)V
 	public final fun setTarget (Ljava/lang/String;)V

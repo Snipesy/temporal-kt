@@ -2,6 +2,7 @@ package com.surrealdev.temporal.application
 
 import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.annotation.TemporalDsl
+import com.surrealdev.temporal.core.GrpcCompression
 import com.surrealdev.temporal.core.TlsConfig
 import com.surrealdev.temporal.core.VersioningBehavior
 import com.surrealdev.temporal.core.WorkerDeploymentOptions
@@ -226,6 +227,12 @@ class ConnectionConfigBuilder internal constructor(
     var identity: String? = base.identity
 
     /**
+     * Transport-level gRPC compression. Set to [GrpcCompression.NONE] when an intermediary
+     * (proxy/gateway) rejects compressed frames.
+     */
+    var grpcCompression: GrpcCompression = base.grpcCompression
+
+    /**
      * Configures TLS using a builder DSL.
      *
      * Usage:
@@ -270,6 +277,7 @@ class ConnectionConfigBuilder internal constructor(
             apiKey = apiKey,
             tlsDisabled = tlsDisabled,
             identity = identity,
+            grpcCompression = grpcCompression,
         )
 }
 

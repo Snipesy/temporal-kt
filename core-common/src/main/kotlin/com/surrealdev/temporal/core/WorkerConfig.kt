@@ -89,6 +89,25 @@ data class WorkerConfig(
      */
     val nondeterminismAsWorkflowFailForTypes: List<String> = emptyList(),
     /**
+     * Maximum number of activity slots that may be reserved for eager execution when
+     * completing a workflow task. Eager activities are handed directly to this worker,
+     * skipping the server task queue round-trip. 0 disables eager activity execution
+     * (e.g. when activities must flow through the task queue for dedicated activity
+     * workers or queue rate limits).
+     *
+     * Default: 3 (the value Core hardcoded before this became configurable)
+     */
+    val maxEagerActivityReservationsPerWorkflowTask: Int = 3,
+    /**
+     * When true, the worker won't proactively fail completions whose payloads exceed the
+     * namespace error limits; oversized payloads are sent to the server, which enforces
+     * its own limit. Useful when the server's configured limits are higher than the
+     * defaults Core assumes. Experimental.
+     *
+     * Default: false
+     */
+    val disablePayloadErrorLimit: Boolean = false,
+    /**
      * Fraction of max workflow pollers dedicated to the nonsticky (global) task queue.
      * Only applies when using [CorePollerBehavior.SimpleMaximum].
      *

@@ -37,6 +37,7 @@ internal object TemporalCoreMetrics {
         HISTOGRAM_DURATION(CoreBridge.HistogramDuration()),
         GAUGE_INTEGER(CoreBridge.GaugeInteger()),
         GAUGE_FLOAT(CoreBridge.GaugeFloat()),
+        UP_DOWN_COUNTER_INTEGER(CoreBridge.UpDownCounterInteger()),
     }
 
     /**
@@ -188,6 +189,24 @@ internal object TemporalCoreMetrics {
         attrsPtr: MemorySegment,
     ) {
         CoreBridge.temporal_core_metric_record_integer(metricPtr, value, attrsPtr)
+    }
+
+    /**
+     * Records a signed integer delta for an up-down counter metric.
+     *
+     * Core panics if the metric is not [MetricKind.UP_DOWN_COUNTER_INTEGER]; the unsigned
+     * [recordInteger] likewise panics on up-down counters, so the kinds must not be mixed.
+     *
+     * @param metricPtr Pointer to the metric
+     * @param value The delta to record (may be negative)
+     * @param attrsPtr Pointer to attributes
+     */
+    fun recordIntegerSigned(
+        metricPtr: MemorySegment,
+        value: Long,
+        attrsPtr: MemorySegment,
+    ) {
+        CoreBridge.temporal_core_metric_record_integer_signed(metricPtr, value, attrsPtr)
     }
 
     /**
