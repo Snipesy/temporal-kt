@@ -42,7 +42,7 @@ internal suspend fun WorkflowExecutor.buildTerminalCompletion(
     terminateWorkflowExecutionJob()
 
     return try {
-        val value = result.await()
+        val value = awaitMainResult(result)
         logger.debug(
             "Workflow completed successfully with result type: {}",
             value?.let { it::class.simpleName } ?: "null",
@@ -137,6 +137,28 @@ internal suspend fun WorkflowExecutor.buildTerminalCompletion(
         }
     }
 }
+
+/**
+ * Awaits the main coroutine's result, honoring a normal return made after cancellation.
+ *
+ * When the workflow is cancelled, [WorkflowExecutor.handleCancel] cancels the main job. If the
+ * workflow function catches the [WorkflowCancelledException][com.surrealdev.temporal.common.exceptions.WorkflowCancelledException]
+ * and returns normally, kotlinx still finalizes the coroutine as cancelled and `await()` throws.
+ * Temporal semantics (Python, Java) are that such a workflow *completes* with the returned value,
+ * so the value recorded in [WorkflowExecutor.mainOutcome] wins over the cancellation.
+ *
+ * A [kotlinx.coroutines.CancellationException] with a non-cancellation cause (a failed sibling
+ * coroutine) never reaches here as a CancellationException: kotlinx reports the sibling's
+ * exception as the final cause, so it takes the failure path unchanged.
+ */
+private suspend fun WorkflowExecutor.awaitMainResult(result: Deferred<Any?>): Any? =
+    try {
+        result.await()
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        val outcome = mainOutcome ?: throw e
+        logger.debug("Workflow caught its cancellation and returned normally; completing")
+        outcome.value
+    }
 
 /**
  * Whether an exception thrown by workflow code should fail the WORKFLOW (permanent,

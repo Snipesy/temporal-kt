@@ -187,8 +187,10 @@ internal class WorkflowContextImpl(
      */
     internal var runtimeDynamicUpdateHandler: DynamicUpdateHandlerEntry? = null
 
+    // Plugin context goes FIRST so it can never displace the SDK-critical elements (the
+    // deterministic dispatcher, the workflow job, and this context): later elements win.
     override val coroutineContext: CoroutineContext
-        get() = job + workflowDispatcher + pluginCoroutineContext + this
+        get() = pluginCoroutineContext + job + workflowDispatcher + this
 
     /**
      * Updates the random seed (called when UpdateRandomSeed job is received).
@@ -219,9 +221,8 @@ internal class WorkflowContextImpl(
         // This handles edge cases where activations come after terminal completion.
         val effectiveJob = if (handlerJob.isActive) handlerJob else Job()
 
-        var context: CoroutineContext = effectiveJob + workflowDispatcher
-        context += pluginCoroutineContext
-        context += this
+        // Plugin context first: SDK-critical elements (job, dispatcher, this) must win
+        val context: CoroutineContext = pluginCoroutineContext + effectiveJob + workflowDispatcher + this
         return CoroutineScope(context).launch(block = block)
     }
 

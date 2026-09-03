@@ -81,9 +81,11 @@ internal fun WorkflowExecutor.scheduleTimeoutCallbackTimer(
     createAndAddTimerCommand(seq, delayMillis, summary)
     state.registerTimeoutCallback(seq, block)
 
-    // Return a handle that can cancel the timeout
+    // Return a handle that can cancel the timeout. Same teardown rule as the sleep()/delay()
+    // paths: once the workflow has completed, cancelling leftover coroutines must not emit
+    // CancelTimer commands (replay compatibility; the server drops timers on completion anyway).
     return kotlinx.coroutines.DisposableHandle {
-        if (state.cancelTimeoutCallback(seq)) {
+        if (state.cancelTimeoutCallback(seq) && !state.workflowCompleted) {
             createAndAddCancelTimerCommand(seq)
         }
     }
