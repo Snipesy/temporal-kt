@@ -51,6 +51,14 @@ class TemporalWorker private constructor(
     @Volatile
     private var shutdownInitiated = false
 
+    /**
+     * True once [awaitShutdown] has run: Core has taken the native worker out of the handle, so
+     * data-path calls (heartbeats) have nothing to act on. Checked before calling into the
+     * bridge so a late heartbeat fails with an exception instead of reaching a finalized worker.
+     */
+    @Volatile
+    private var shutdownFinalized = false
+
     private val logger = LoggerFactory.getLogger(TemporalWorker::class.java)
 
     companion object {
@@ -106,6 +114,11 @@ class TemporalWorker private constructor(
      * Checks if shutdown has been initiated for this worker.
      */
     fun isShutdownInitiated(): Boolean = shutdownInitiated
+
+    /**
+     * Checks if [awaitShutdown] has completed and the native worker has been finalized.
+     */
+    fun isShutdownFinalized(): Boolean = shutdownFinalized
 
     /**
      * Ensures the worker is not closed before performing an operation.
@@ -274,6 +287,9 @@ class TemporalWorker private constructor(
      */
     fun <T : MessageLite> recordActivityHeartbeat(heartbeat: T) {
         ensureOpen()
+        if (shutdownFinalized) {
+            throw TemporalCoreException("Failed to record activity heartbeat: worker already shut down")
+        }
         Arena.ofConfined().use { arena ->
             val error = InternalWorker.recordActivityHeartbeat(handle, arena, heartbeat)
             if (error != null) {
@@ -307,18 +323,23 @@ class TemporalWorker private constructor(
      * @throws TemporalCoreException if shutdown fails
      */
     suspend fun awaitShutdown() {
-        suspendCancellableCoroutine { continuation ->
-            val callback =
-                InternalWorker.WorkerCallback { error ->
-                    if (error != null) {
-                        continuation.resumeWithException(nativeCallbackException(error))
-                    } else {
-                        continuation.resume(Unit)
+        try {
+            suspendCancellableCoroutine { continuation ->
+                val callback =
+                    InternalWorker.WorkerCallback { error ->
+                        if (error != null) {
+                            continuation.resumeWithException(nativeCallbackException(error))
+                        } else {
+                            continuation.resume(Unit)
+                        }
                     }
-                }
-            InternalWorker.finalizeShutdown(handle, dispatcher, callback)
-            // Note: We intentionally do NOT cancel on coroutine cancellation.
-            // The Rust callback will always fire, and we must wait for it to complete.
+                InternalWorker.finalizeShutdown(handle, dispatcher, callback)
+                // Note: We intentionally do NOT cancel on coroutine cancellation.
+                // The Rust callback will always fire, and we must wait for it to complete.
+            }
+        } finally {
+            // finalize_shutdown takes the native worker whether or not it then succeeds
+            shutdownFinalized = true
         }
     }
 

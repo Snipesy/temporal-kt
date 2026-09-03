@@ -52,6 +52,7 @@ import kotlin.reflect.full.callSuspend
  * @property virtualThread The virtual thread running this activity (for forced interruption)
  */
 internal data class RunningActivity(
+    val taskToken: ByteString,
     val job: Job,
     val context: ActivityContextImpl,
     val virtualThread: ActivityVirtualThread? = null,
@@ -356,7 +357,8 @@ class ActivityDispatcher(
             )
 
         // Track this activity for cancellation
-        val runningActivity = RunningActivity(job = currentJob, context = context, virtualThread = virtualThread)
+        val runningActivity =
+            RunningActivity(taskToken = taskToken, job = currentJob, context = context, virtualThread = virtualThread)
         runningActivities[taskToken] = runningActivity
 
         try {
@@ -547,7 +549,8 @@ class ActivityDispatcher(
             )
 
         // Track this activity for cancellation
-        val runningActivity = RunningActivity(job = currentJob, context = context, virtualThread = virtualThread)
+        val runningActivity =
+            RunningActivity(taskToken = taskToken, job = currentJob, context = context, virtualThread = virtualThread)
         runningActivities[taskToken] = runningActivity
 
         // Build interceptor input for ExecuteActivity
@@ -710,7 +713,12 @@ class ActivityDispatcher(
         }
     }
 
-    private fun buildCancelledCompletion(taskToken: ByteString): CoreInterface.ActivityTaskCompletion =
+    /**
+     * The completion reported to Core for an activity that was cancelled. Also used by forced
+     * worker shutdown to close out activities whose thread did not stop in time, so Core's
+     * shutdown does not wait forever for a completion that will never come.
+     */
+    internal fun buildCancelledCompletion(taskToken: ByteString): CoreInterface.ActivityTaskCompletion =
         activityTaskCompletion {
             this.taskToken = taskToken
             this.result =
@@ -736,6 +744,30 @@ class ActivityDispatcher(
                 exception
             }
         }
+
+    /**
+     * Forced worker shutdown: tells every running activity it is being cancelled because the
+     * worker is going away, cancels its job and interrupts its thread.
+     *
+     * Marking the context first is what keeps a heartbeat loop from reaching the Core bridge:
+     * [ActivityContextImpl.heartbeatWithPayload] throws the recorded exception before calling
+     * the bridge, so an activity that is mid-`heartbeat(); delay()` observes
+     * [ActivityCancelledException.WorkerShutdown] instead of hitting a finalized native worker.
+     *
+     * @return the activities that were running, so the caller can await their threads
+     */
+    internal fun cancelAllForShutdown(): List<RunningActivity> {
+        val running = runningActivities.values.toList()
+        for (activity in running) {
+            // One typed cause for both paths: heartbeat() throws it, and so does whatever the
+            // activity is suspended on (delay, await), since it is a CancellationException.
+            val cause = ActivityCancelledException.WorkerShutdown()
+            activity.context.markCancelled(cause)
+            activity.job.cancel(cause)
+            activity.virtualThread?.terminate(immediate = true)
+        }
+        return running
+    }
 
     /**
      * Awaits completion of all zombie eviction jobs.

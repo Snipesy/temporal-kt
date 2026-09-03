@@ -4,6 +4,7 @@ import com.google.protobuf.ByteString
 import com.surrealdev.temporal.activity.internal.ActivityDispatcher
 import com.surrealdev.temporal.activity.internal.ActivityRegistry
 import com.surrealdev.temporal.activity.internal.ActivityVirtualThread
+import com.surrealdev.temporal.activity.internal.RunningActivity
 import com.surrealdev.temporal.application.TaskQueueConfig
 import com.surrealdev.temporal.application.TemporalApplication
 import com.surrealdev.temporal.application.plugin.HookRegistry
@@ -22,6 +23,7 @@ import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskFailed
 import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskFailedContext
 import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskStarted
 import com.surrealdev.temporal.common.EncodedTemporalPayloads
+import com.surrealdev.temporal.common.exceptions.ActivityCancelledException
 import com.surrealdev.temporal.common.toProto
 import com.surrealdev.temporal.core.SlotSupplier
 import com.surrealdev.temporal.core.TemporalWorker
@@ -40,6 +42,7 @@ import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
@@ -128,6 +131,14 @@ internal class ManagedWorker(
 
     // Shutdown signaling
     private val shutdownSignal: CompletableJob = Job()
+
+    /**
+     * Set when the graceful shutdown period has elapsed and [stop] moves to forced termination.
+     * From this point heartbeats must not reach the Core worker: it is about to be finalized,
+     * and a heartbeat on a finalized worker used to abort the JVM (panic across the FFI boundary).
+     */
+    @Volatile
+    private var forcedShutdown = false
 
     // Signals that polling has actually reached the Core SDK
     // This must happen before shutdown will work properly
@@ -273,6 +284,11 @@ internal class ManagedWorker(
         taskToken: ByteString,
         details: EncodedTemporalPayloads?,
     ) {
+        // Heartbeats keep flowing during the graceful phase (Core uses them to deliver the
+        // cancel), but never after forced shutdown began or the native worker is gone.
+        if (forcedShutdown || coreWorker.isShutdownFinalized() || coreWorker.isClosed()) {
+            throw ActivityCancelledException.WorkerShutdown()
+        }
         val heartbeat =
             activityHeartbeat {
                 this.taskToken = taskToken
@@ -402,13 +418,26 @@ internal class ManagedWorker(
                 config.shutdownGracePeriodMs,
             )
 
-            // Phase 3: Force cancel
+            // Phase 3: Force cancel. Running activities are told first (WorkerShutdown) so no
+            // heartbeat reaches the Core worker once we start tearing it down below.
+            forcedShutdown = true
+            val forced = activityDispatcher.cancelAllForShutdown()
             workflowPollingJob?.cancel()
             activityPollingJob?.cancel()
 
             // Phase 4: Wait for forced cancellation to complete
             workflowPollingJob?.join()
             activityPollingJob?.join()
+
+            // Phase 4b: The activity threads outlive the (now cancelled) coroutines that awaited
+            // them. Wait for them to actually stop BEFORE finalizing the Core worker; anything
+            // still alive is logged and left to the zombie eviction machinery.
+            awaitForcedActivityTermination(forced)
+
+            // Phase 4c: Core's activity subsystem finishes shutting down only after a poll observes
+            // the end of its task stream. The polling loop was just cancelled, so poll here until
+            // Core reports shutdown; otherwise awaitShutdown() below never returns.
+            drainActivityPollsAfterForcedStop()
         }
 
         // Phase 5: Cancel grant loops before freeing core worker
@@ -427,6 +456,88 @@ internal class ManagedWorker(
         workerJob.complete()
 
         logger.info("[stop] Worker stopped for taskQueue={}", taskQueue)
+    }
+
+    /**
+     * Waits (bounded by the application's force timeout) for activity threads terminated by
+     * forced shutdown to exit, so none of them can call into the Core worker after it is
+     * finalized. Threads that do not stop are logged with their activity identity.
+     */
+    private suspend fun awaitForcedActivityTermination(forced: List<RunningActivity>) {
+        if (forced.isEmpty()) return
+        logger.warn(
+            "[TKT1210] Forcing {} running activities to stop for taskQueue={}",
+            forced.size,
+            taskQueue,
+        )
+        val deadline = System.currentTimeMillis() + application.config.shutdown.forceTimeoutMs
+        for (activity in forced) {
+            val thread = activity.virtualThread
+            val stopped =
+                thread == null ||
+                    withContext(Dispatchers.IO) {
+                        thread.awaitTermination((deadline - System.currentTimeMillis()).coerceAtLeast(1L))
+                    }
+            if (!stopped) {
+                logger.error(
+                    "[TKT1211] Activity did not stop within the force timeout and may still be running: " +
+                        "type={}, id={}, taskQueue={}",
+                    activity.context.info.activityType,
+                    activity.context.info.activityId,
+                    taskQueue,
+                )
+            }
+
+            // Core's shutdown waits for every outstanding activity task to be completed, and the
+            // coroutine that normally relays the completion was cancelled above. Report what the
+            // activity produced (a cancelled completion, normally); for a thread that would not
+            // stop, report cancelled anyway so shutdown can finish - the thread is a zombie now.
+            val completion =
+                thread?.resultOrNull()?.completion
+                    ?: activityDispatcher.buildCancelledCompletion(activity.taskToken)
+            try {
+                coreWorker.completeActivityTask(completion)
+            } catch (e: Exception) {
+                logger.warn(
+                    "[stop] Could not report completion of forcibly stopped activity type={}, id={}: {}",
+                    activity.context.info.activityType,
+                    activity.context.info.activityId,
+                    e.message,
+                )
+            }
+        }
+    }
+
+    /**
+     * Polls activity tasks until Core reports shutdown (null). Tasks that still arrive are
+     * closed out immediately: cancels are applied, starts are reported cancelled, since no
+     * activity can run any more. Bounded by the application force timeout.
+     */
+    private suspend fun drainActivityPollsAfterForcedStop() {
+        val drained =
+            withTimeoutOrNull(application.config.shutdown.forceTimeoutMs) {
+                while (true) {
+                    val task =
+                        coreWorker.pollActivityTask { input -> ActivityTaskOuterClass.ActivityTask.parseFrom(input) }
+                            ?: break
+                    if (task.hasStart()) {
+                        logger.warn(
+                            "[stop] Activity task arrived after forced shutdown, reporting it cancelled: type={}",
+                            task.start.activityType,
+                        )
+                        coreWorker.completeActivityTask(activityDispatcher.buildCancelledCompletion(task.taskToken))
+                    } else {
+                        activityDispatcher.dispatchCancel(task)
+                    }
+                }
+                true
+            }
+        if (drained != true) {
+            logger.warn(
+                "[TKT1212] Core did not report activity poll shutdown within the force timeout for taskQueue={}",
+                taskQueue,
+            )
+        }
     }
 
     private suspend fun pollWorkflowActivations() {
@@ -483,7 +594,10 @@ internal class ManagedWorker(
 
         var firstPoll = true
         try {
-            while (isActive && !shutdownSignal.isCompleted) {
+            // Exit only when Core reports shutdown (null poll) or we are cancelled. Core keeps
+            // delivering work (activity cancels, evictions) after initiate_shutdown and, for
+            // activities, finishes its own shutdown only once a poll observes the stream end.
+            while (isActive) {
                 try {
                     // Signal BEFORE making the poll call - the FFI call itself registers the worker
                     // with the Temporal server. The poll will block until work arrives.
@@ -673,7 +787,10 @@ internal class ManagedWorker(
 
         var firstPoll = true
         try {
-            while (isActive && !shutdownSignal.isCompleted) {
+            // Exit only when Core reports shutdown (null poll) or we are cancelled. Core keeps
+            // delivering work (activity cancels, evictions) after initiate_shutdown and, for
+            // activities, finishes its own shutdown only once a poll observes the stream end.
+            while (isActive) {
                 try {
                     // with the Temporal server. The poll will block until work arrives.
                     if (firstPoll) {
@@ -797,8 +914,12 @@ internal class ManagedWorker(
 
                                 logger.warn("[pollActivityTasks] Error dispatching activity", e)
                             } finally {
-                                // Untrack thread
-                                runningActivityThreads.remove(threadId)
+                                // Untrack the thread only once it has really finished. When this
+                                // coroutine is cancelled (forced shutdown) the thread keeps running
+                                // and must stay visible to the forced-termination pass below.
+                                if (!activityThread.isAlive()) {
+                                    runningActivityThreads.remove(threadId)
+                                }
                             }
                         } else {
                             // Cancel task - dispatch directly without virtual thread

@@ -107,6 +107,26 @@ So on and so forth
 
 Each activity execution gets a **new virtual thread** that terminates after completion:
 
+### Worker Shutdown and Running Activities
+
+`ManagedWorker.stop()` first waits `shutdownGracePeriodMs` for the polling loops to finish on their own; during this
+phase activities keep heartbeating so that Core can deliver a cancel to them. If the grace period elapses the stop
+becomes **forced**, in this order:
+
+1. Every running activity is marked cancelled with `ActivityCancelledException.WorkerShutdown`, its job is cancelled
+   and its virtual thread interrupted (`ActivityDispatcher.cancelAllForShutdown`). From now on
+   `ActivityContext.heartbeat()` throws that exception before touching the Core bridge.
+2. The polling jobs are cancelled and joined.
+3. The activity threads are awaited (bounded by the application `forceTimeoutMs`). Threads that do not stop are logged
+   as `TKT1211` and left to zombie eviction.
+4. Only then is the Core worker finalized and freed.
+
+The ordering matters: an activity thread runs independently of the coroutine that awaits it, so cancelling that
+coroutine does not stop the activity. Before this sequencing, a heartbeat issued after finalization reached a Core
+worker handle that no longer held a worker, which panicked across the FFI boundary and aborted the JVM. The bridge now
+also refuses such calls with an error (`Worker already shut down`) instead of panicking, so the JVM guard and the
+native guard back each other up.
+
 ### Zombie Thread Management
 
 When a workflow or activity is canceled or evicted, an eviction job is launched that:

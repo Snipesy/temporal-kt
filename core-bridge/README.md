@@ -68,10 +68,11 @@ would fail `git submodule update`, because upstream does not contain these commi
 | Branch | Adds | Why |
 |---|---|---|
 | `temporal-kt/ephemeral-server-pid` | `temporal_core_ephemeral_server_pid(server) -> u32` | Exposes the OS pid of a dev/test server child process. `EphemeralServers` (core-bridge) records pid + start time per JVM and reaps servers left behind by a JVM that died without closing them. Without the pid the only alternative is guessing from process names, which we refused to do. Upstream PR candidate. |
+| `temporal-kt/ephemeral-server-pid` (2nd commit) | No `unwrap()` of the Core worker in any `extern "C"` fn of `worker.rs` | After `temporal_core_worker_finalize_shutdown` the handle holds `None`. A late call (an activity heartbeat racing shutdown was the observed case) used to panic across the FFI boundary and abort the whole host process (JVM SIGABRT). Data-path calls now return `"Worker already shut down"`, control calls become no-ops, and the heartbeat path is additionally wrapped in `catch_unwind`. Upstream PR candidate. |
 
-The Kotlin side binds any fork-only function with a hand-written FFM downcall (see
-`TemporalCoreEphemeralServer.pid`) rather than through the jextract-generated bindings, so the generated file
-stays a faithful mirror of upstream's header.
+The Kotlin side binds any fork-only function with a small FFM downcall next to its caller (see
+`TemporalCoreEphemeralServer.pid`) rather than adding it to `temporal_sdk_core_c_bridge_h`, so that class keeps
+mirroring upstream's header and the fork-only surface stays easy to find and remove.
 
 When a patch is merged upstream, drop the branch: repoint the submodule at the upstream commit that contains the
 change (the fork's `main` mirrors upstream) and delete the row above.
