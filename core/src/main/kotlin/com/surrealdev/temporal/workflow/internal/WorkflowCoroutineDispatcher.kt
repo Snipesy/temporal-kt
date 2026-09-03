@@ -5,7 +5,9 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Delay
 import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.InternalCoroutinesApi
+import org.slf4j.LoggerFactory
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 import kotlin.coroutines.CoroutineContext
@@ -64,6 +66,8 @@ internal class WorkflowCoroutineDispatcher(
     private val timerScheduler: WorkflowTimerScheduler? = null,
 ) : CoroutineDispatcher(),
     Delay {
+    private val logger = LoggerFactory.getLogger(WorkflowCoroutineDispatcher::class.java)
+
     private val taskQueue = ArrayDeque<Runnable>()
 
     /**
@@ -73,10 +77,33 @@ internal class WorkflowCoroutineDispatcher(
     private val lock = ReentrantLock()
     private val workAvailable = lock.newCondition()
 
+    /**
+     * Whether the owning executor is currently inside an activation (or teardown) and will
+     * drain the queue. Set by the executor. A dispatch that arrives while this is false is a
+     * coroutine resuming after the activation it belonged to has already been completed -
+     * the signature of an escaped coroutine (`withContext(Dispatchers.IO)`) that came back
+     * late. The task is kept and runs at the next activation, but it is logged loudly because
+     * that activation may never come.
+     */
+    @Volatile
+    internal var activationInFlight: Boolean = false
+
+    /** Number of dispatches observed outside an activation (see [activationInFlight]). */
+    internal val lateDispatches = AtomicInteger(0)
+
     override fun dispatch(
         context: CoroutineContext,
         block: Runnable,
     ) {
+        if (!activationInFlight) {
+            lateDispatches.incrementAndGet()
+            logger.warn(
+                "[TKT1112] Coroutine work dispatched to a workflow outside an activation " +
+                    "(an escaped coroutine dispatched back after the activation completed). " +
+                    "It will run at the next activation, which may not come unless something " +
+                    "else is pending. Avoid withContext(Dispatchers.*) in workflow code.",
+            )
+        }
         lock.withLock {
             taskQueue.addLast(block)
             workAvailable.signal()

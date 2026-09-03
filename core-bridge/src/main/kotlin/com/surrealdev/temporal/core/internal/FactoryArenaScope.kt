@@ -111,7 +111,7 @@ internal class FactoryArenaScope<D : BaseCallbackDispatcher> private constructor
             val result = block()
             transferOwnership()
             result
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             close()
             throw e
         }

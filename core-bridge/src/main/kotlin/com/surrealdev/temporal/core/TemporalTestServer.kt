@@ -12,12 +12,12 @@ import io.temporal.api.testservice.v1.LockTimeSkippingRequest
 import io.temporal.api.testservice.v1.SleepRequest
 import io.temporal.api.testservice.v1.SleepUntilRequest
 import io.temporal.api.testservice.v1.UnlockTimeSkippingRequest
-import kotlinx.coroutines.suspendCancellableCoroutine
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
 import java.time.Instant
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import kotlin.coroutines.suspendCoroutine
 import kotlin.time.Duration
 import kotlin.time.toJavaDuration
 
@@ -97,10 +97,12 @@ class TemporalTestServer private constructor(
                     addAll(extraArgs)
                 }
 
-            return FactoryArenaScope.create(runtime.handle, ::EphemeralServerCallbackDispatcher).createResource {
-                val (serverPtr, targetUrl) =
-                    suspendCancellableCoroutine { continuation ->
-                        val contextPtr =
+            val server =
+                FactoryArenaScope.create(runtime.handle, ::EphemeralServerCallbackDispatcher).createResource {
+                    // Non-cancellable on purpose - see TemporalDevServer.start: the Rust callback
+                    // always fires against this scope's upcall stub, so we must wait for it.
+                    val (serverPtr, targetUrl) =
+                        suspendCoroutine { continuation ->
                             TemporalCoreEphemeralServer.startTestServer(
                                 runtimePtr = runtime.handle,
                                 arena = resourceArena,
@@ -110,42 +112,45 @@ class TemporalTestServer private constructor(
                                 downloadTtlSeconds = downloadTtlSeconds,
                                 extraArgs = allArgs,
                             ) { serverPtr, targetUrl, error ->
-                                try {
-                                    if (error != null) {
-                                        continuation.resumeWithException(nativeCallbackException(error))
-                                    } else if (serverPtr == null || targetUrl == null) {
-                                        continuation.resumeWithException(
-                                            nativeCallbackException("Test server start returned null without error"),
-                                        )
-                                    } else {
-                                        continuation.resume(Pair(serverPtr, targetUrl))
-                                    }
-                                } catch (_: IllegalStateException) {
-                                    // Continuation already resumed, ignore
+                                if (error != null) {
+                                    continuation.resumeWithException(nativeCallbackException(error))
+                                } else if (serverPtr == null || targetUrl == null) {
+                                    continuation.resumeWithException(
+                                        nativeCallbackException("Test server start returned null without error"),
+                                    )
+                                } else {
+                                    continuation.resume(Pair(serverPtr, targetUrl))
                                 }
                             }
-                        // Note: We intentionally do NOT cancel on coroutine cancellation.
-                        // The Rust callback will always fire, and we must wait for it to complete.
-                    }
+                        }
 
-                // Connect a client for TestService RPC calls
-                val client =
-                    TemporalCoreClient.connect(
-                        runtime = runtime,
-                        targetUrl = "http://$targetUrl",
-                        namespace = "default",
-                    )
+                    // Connect a client for TestService RPC calls. From here on a live server
+                    // process exists: if anything fails (including cancellation), shut it down
+                    // rather than letting createResource free the arenas around it.
+                    val client =
+                        try {
+                            TemporalCoreClient.connect(
+                                runtime = runtime,
+                                targetUrl = "http://$targetUrl",
+                                namespace = "default",
+                            )
+                        } catch (e: Throwable) {
+                            TemporalCoreEphemeralServer.shutdownAndFree(serverPtr, dispatcher)
+                            throw e
+                        }
 
-                TemporalTestServer(
-                    serverPtr = serverPtr,
-                    runtimePtr = runtime.handle,
-                    arena = resourceArena,
-                    callbackArena = callbackArena,
-                    dispatcher = dispatcher,
-                    targetUrl = targetUrl,
-                    coreClient = client,
-                )
-            }
+                    TemporalTestServer(
+                        serverPtr = serverPtr,
+                        runtimePtr = runtime.handle,
+                        arena = resourceArena,
+                        callbackArena = callbackArena,
+                        dispatcher = dispatcher,
+                        targetUrl = targetUrl,
+                        coreClient = client,
+                    ).also { EphemeralServers.register(it) }
+                }
+
+            return server.closeIfCancelled()
         }
     }
 
@@ -153,6 +158,10 @@ class TemporalTestServer private constructor(
      * Checks if this server has been closed.
      */
     override fun isClosed(): Boolean = closed
+
+    // Synchronized with close(): the native handle is freed at the end of close().
+    override val pid: Long?
+        get() = synchronized(this) { if (closed) null else TemporalCoreEphemeralServer.pid(serverPtr) }
 
     // =========================================================================
     // TestService APIs
@@ -297,6 +306,7 @@ class TemporalTestServer private constructor(
         synchronized(this) {
             if (closed) return
             closed = true
+            EphemeralServers.unregister(this)
 
             // Close the client first
             coreClient.close()

@@ -383,6 +383,26 @@ class WorkflowCoroutineSemanticsTest {
     }
 
     // ------------------------------------------------------------------
+    // Late dispatches (escaped coroutine returning after the activation) are counted and logged
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `work dispatched outside an activation is recorded as a late dispatch`() =
+        runTest {
+            val f = fixture(Idle())
+            val dispatcher = f.executor.workflowDispatcher
+            f.activate(initializeWorkflowJob(workflowType = "Idle"))
+            assertEquals(0, dispatcher.lateDispatches.get(), "in-activation dispatches are not late")
+            assertFalse(dispatcher.activationInFlight, "flag must be cleared when the activation returns")
+
+            // Simulates an escaped coroutine dispatching its resume back after the activation completed
+            dispatcher.dispatch(kotlin.coroutines.EmptyCoroutineContext) { }
+
+            assertEquals(1, dispatcher.lateDispatches.get())
+            assertTrue(dispatcher.hasPendingWork(), "the late task is kept for the next activation")
+        }
+
+    // ------------------------------------------------------------------
     // Plugin-contributed context cannot displace SDK-critical elements
     // ------------------------------------------------------------------
 

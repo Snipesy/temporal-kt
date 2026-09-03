@@ -1,3 +1,7 @@
+# sdk-core points at the SurrealDevelopment fork of temporalio/sdk-core (renamed sdk-rust
+# upstream) because temporal-kt carries C-bridge patches that are not (yet) upstream.
+# See core-bridge/README.md, "SDK-Core Submodule" -> "Fork and carried patches".
 [submodule "core-bridge/rust/sdk-core"]
 	path = core-bridge/rust/sdk-core
-	url = https://github.com/temporalio/sdk-core.git
+	url = https://github.com/SurrealDevelopment/sdk-rust.git
+	branch = temporal-kt/ephemeral-server-pid

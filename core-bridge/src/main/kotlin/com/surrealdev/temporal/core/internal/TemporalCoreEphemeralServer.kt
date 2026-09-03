@@ -3,7 +3,11 @@ package com.surrealdev.temporal.core.internal
 import io.temporal.sdkbridge.TemporalCoreDevServerOptions
 import io.temporal.sdkbridge.TemporalCoreTestServerOptions
 import java.lang.foreign.Arena
+import java.lang.foreign.FunctionDescriptor
+import java.lang.foreign.Linker
 import java.lang.foreign.MemorySegment
+import java.lang.foreign.ValueLayout
+import java.lang.invoke.MethodHandle
 import io.temporal.sdkbridge.temporal_sdk_core_c_bridge_h as CoreBridge
 
 /**
@@ -207,6 +211,56 @@ internal object TemporalCoreEphemeralServer {
     fun freeServer(serverPtr: MemorySegment) {
         CoreBridge.temporal_core_ephemeral_server_free(serverPtr)
     }
+
+    /**
+     * Returns the OS process ID of the server's child process, or null if Core no longer
+     * tracks one (already shut down, or the process exited).
+     *
+     * `temporal_core_ephemeral_server_pid` is a temporal-kt addition to the C bridge and is
+     * not part of the jextract-generated bindings, hence the hand-written downcall.
+     */
+    fun pid(serverPtr: MemorySegment): Long? {
+        val pid = pidHandle.invokeExact(serverPtr) as Int
+        return if (pid == 0) null else pid.toLong() and 0xFFFF_FFFFL
+    }
+
+    private val pidHandle: MethodHandle by lazy {
+        val address =
+            NativeLoader
+                .load()
+                .find("temporal_core_ephemeral_server_pid")
+                .orElseThrow {
+                    UnsatisfiedLinkError(
+                        "temporal_core_ephemeral_server_pid is missing from the native library; " +
+                            "rebuild core-bridge (the C bridge patch adds it)",
+                    )
+                }
+        Linker
+            .nativeLinker()
+            .downcallHandle(address, FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS))
+    }
+
+    /**
+     * Synchronously shuts down and frees a server whose Kotlin wrapper was never constructed
+     * (a failure between the native start succeeding and the wrapper taking ownership).
+     * Blocks until Core has killed the child process, bounded by [SHUTDOWN_TIMEOUT_SECONDS].
+     */
+    fun shutdownAndFree(
+        serverPtr: MemorySegment,
+        dispatcher: EphemeralServerCallbackDispatcher,
+    ) {
+        val done = java.util.concurrent.CompletableFuture<Unit>()
+        shutdownServer(serverPtr, dispatcher) { done.complete(Unit) }
+        try {
+            done.get(SHUTDOWN_TIMEOUT_SECONDS, java.util.concurrent.TimeUnit.SECONDS)
+        } catch (_: Exception) {
+            // Best effort; the process may already be gone
+        }
+        dispatcher.awaitPendingCallbacks()
+        freeServer(serverPtr)
+    }
+
+    private const val SHUTDOWN_TIMEOUT_SECONDS = 30L
 
     /**
      * Shuts down an ephemeral server using a reusable callback dispatcher.

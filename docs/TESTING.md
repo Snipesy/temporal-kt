@@ -207,6 +207,30 @@ fun `advanced time control`() = runTemporalTest(timeSkipping = true) {
 }
 ```
 
+## Ephemeral Server Processes
+
+`runTemporalTest` starts a real Temporal server process (the Temporal CLI dev server, or the
+time-skipping test server) as a child of the test JVM and kills it when the test finishes. Three
+safeguards keep server processes from outliving their JVM:
+
+- Every started server is tracked by `com.surrealdev.temporal.core.EphemeralServers`; a JVM
+  shutdown hook closes anything still open, so a `System.exit` or a test runner that stops early
+  never leaves a child behind.
+- Starting a server cannot be interrupted half-way: if the coroutine calling
+  `TemporalDevServer.start` / `TemporalTestServer.start` is cancelled while the native start is in
+  flight, the start completes and the server is closed before the cancellation propagates.
+- Each server's process id (`EphemeralServer.pid`, provided by the Core SDK) and start time are
+  recorded in `<java.io.tmpdir>/temporal-kt/ephemeral-servers/<jvmPid>-<jvmStart>.pids`. The first
+  `runTemporalTest` in a JVM calls `EphemeralServers.reapOrphans()`, which reads the records of JVMs
+  that no longer exist and kills exactly those processes, verifying the pid still refers to the
+  recorded process. Nothing is identified by process name, and a user-installed `temporal` CLI is
+  never touched. If you start servers through `TemporalDevServer`/`TemporalTestServer` directly,
+  call `reapOrphans()` yourself.
+
+An orphaned server is worth avoiding for more than tidiness: it inherits the test worker's
+stdout/stderr pipes, and Gradle waits for those pipes to close, so a single leaked server makes
+`gradle test` hang after every test has passed.
+
 ## Activity Unit Testing
 
 For fast unit tests of activity logic without a Temporal server:

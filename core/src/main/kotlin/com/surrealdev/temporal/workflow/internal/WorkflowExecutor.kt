@@ -170,6 +170,17 @@ internal class WorkflowExecutor(
      *   to allow proper worker shutdown (parent job won't block waiting for this child)
      */
     internal fun terminateWorkflowExecutionJob() {
+        // Teardown drains the queue itself; cancellation tasks are not "late" dispatches
+        val wasInFlight = workflowDispatcher.activationInFlight
+        workflowDispatcher.activationInFlight = true
+        try {
+            terminateWorkflowExecutionJobInternal()
+        } finally {
+            workflowDispatcher.activationInFlight = wasInFlight
+        }
+    }
+
+    private fun terminateWorkflowExecutionJobInternal() {
         // 1. Cancel the main workflow job - this queues cancellation tasks to the dispatcher
         workflowExecutionJob?.cancel()
 
@@ -248,6 +259,7 @@ internal class WorkflowExecutor(
      */
     suspend fun activate(activation: WorkflowActivation): WorkflowDispatchResult =
         withContext(CoroutineName("WorkflowExecutor-activate")) {
+            workflowDispatcher.activationInFlight = true
             try {
                 if (logger.isDebugEnabled) {
                     // Guarded: building the per-job name list allocates on every activation
@@ -390,6 +402,8 @@ internal class WorkflowExecutor(
                     completion = buildFailureCompletion(e),
                     fatalError = if (e.isFatalError()) e as Error else null,
                 )
+            } finally {
+                workflowDispatcher.activationInFlight = false
             }
         }
 
@@ -920,10 +934,12 @@ internal class WorkflowExecutor(
     companion object {
         /**
          * How long an idle event loop waits for the resume of an escaped coroutine that
-         * completed between our job-tree scan and its enqueue (see [runOnce]). Paid once per
-         * activation that ends parked on a non-Temporal primitive; negligible against a
-         * server round trip.
+         * completed between our job-tree scan and its enqueue (see [runOnce]). The window is a
+         * few instructions on the other thread, so this only needs to outlast scheduler jitter
+         * and short GC pauses. Paid once per activation that ends parked on a non-Temporal
+         * primitive; still small against a server round trip. A miss is not silent: the late
+         * resume is logged as TKT1112 by [WorkflowCoroutineDispatcher.dispatch].
          */
-        internal const val ESCAPE_COMPLETION_GRACE_MS = 5L
+        internal const val ESCAPE_COMPLETION_GRACE_MS = 50L
     }
 }
