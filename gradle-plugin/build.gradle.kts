@@ -18,7 +18,9 @@ dependencies {
 // Mirrors the composite version applied in core-bridge/build.gradle.kts and protos/build.gradle.kts.
 val bridgeVersion: String by project
 val bridgeSdkCoreVersion: String by project
+val bridgeProtosSdkCoreVersion: String by project
 val coreBridgeVersion = "$bridgeSdkCoreVersion-$bridgeVersion"
+val protosVersion = "$bridgeProtosSdkCoreVersion-$bridgeVersion"
 
 buildConfig {
     packageName("com.surrealdev.temporal.gradle")
@@ -34,7 +36,7 @@ buildConfig {
     // "not found" the moment the two diverged -- and, worse, could resolve the main jar and the
     // native classifier jar at different versions.
     buildConfigField("CORE_BRIDGE_VERSION", coreBridgeVersion)
-    buildConfigField("PROTOS_VERSION", coreBridgeVersion)
+    buildConfigField("PROTOS_VERSION", protosVersion)
 }
 
 gradlePlugin {

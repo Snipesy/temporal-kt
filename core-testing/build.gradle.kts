@@ -9,7 +9,9 @@ plugins {
 // the composite version cannot drift from its parts; see the comment there.
 val bridgeVersion: String by project
 val bridgeSdkCoreVersion: String by project
+val bridgeProtosSdkCoreVersion: String by project
 val bridgeComposite = "$bridgeSdkCoreVersion-$bridgeVersion"
+val protosComposite = "$bridgeProtosSdkCoreVersion-$bridgeVersion"
 
 dependencies {
     api(project(":core"))

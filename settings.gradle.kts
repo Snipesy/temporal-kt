@@ -1,15 +1,17 @@
 dependencyResolutionManagement {
     @Suppress("UnstableApiUsage")
     repositories {
+        // Listed FIRST so it actually wins. Gradle picks the newest timestamped SNAPSHOT across
+        // repositories, so with mavenLocal last a stale remote snapshot silently shadows the
+        // build you just published locally -- which defeats the point of the flag.
+        if (providers.gradleProperty("useMavenLocal").isPresent) {
+            mavenLocal()
+        }
         // For consuming SNAPSHOT builds of temporal-kt-bridge between its releases.
         maven("https://central.sonatype.com/repository/maven-snapshots/") {
             mavenContent { snapshotsOnly() }
         }
         mavenCentral()
-        // Opt-in, for validating a locally published bridge (./gradlew publishToMavenLocal there).
-        if (providers.gradleProperty("useMavenLocal").isPresent) {
-            mavenLocal()
-        }
     }
 
 }

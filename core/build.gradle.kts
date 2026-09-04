@@ -13,7 +13,9 @@ plugins {
 // the composite version cannot drift from its parts; see the comment there.
 val bridgeVersion: String by project
 val bridgeSdkCoreVersion: String by project
+val bridgeProtosSdkCoreVersion: String by project
 val bridgeComposite = "$bridgeSdkCoreVersion-$bridgeVersion"
+val protosComposite = "$bridgeProtosSdkCoreVersion-$bridgeVersion"
 
 // The core-bridge seam this module was compiled against. core-bridge is separately published on
 // its own version, so a consumer can pin a bridge that does not fit this core; BridgeCompatibility
@@ -41,7 +43,7 @@ dependencies {
     // Proto types are pervasive in core's public ABI (io.temporal.api.* and coresdk.* appear
     // throughout core/api/core.api), so consumers need them on their compile classpath.
     // protobuf-java and protobuf-kotlin arrive transitively from protos.
-    api("com.surrealdev.temporal:protos:$bridgeComposite")
+    api("com.surrealdev.temporal:protos:$protosComposite")
     api(libs.bundles.kotlinxEcosystem)
     // Still needed directly: JsonFormat and Durations from protobuf-java-util.
     implementation(libs.protobufJavaUtil)

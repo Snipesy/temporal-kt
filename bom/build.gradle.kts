@@ -15,7 +15,9 @@ plugins {
 // platform answers that in one line.
 val bridgeVersion: String by project
 val bridgeSdkCoreVersion: String by project
+val bridgeProtosSdkCoreVersion: String by project
 val coreBridgeVersion = "$bridgeSdkCoreVersion-$bridgeVersion"
+val protosVersion = "$bridgeProtosSdkCoreVersion-$bridgeVersion"
 
 dependencies {
     constraints {
@@ -34,7 +36,7 @@ dependencies {
         // classifier artifacts of core-bridge, which inherit this version, so pinning the module
         // here keeps the main jar and the native jar in step.
         api("${project.group}:core-bridge:$coreBridgeVersion")
-        api("${project.group}:protos:$coreBridgeVersion")
+        api("${project.group}:protos:$protosVersion")
     }
 }
 
