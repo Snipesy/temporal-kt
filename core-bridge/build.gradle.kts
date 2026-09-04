@@ -318,6 +318,37 @@ nativePlatforms.forEach { platform ->
     }
 }
 
+// Host-platform native library, exposed to other modules in this build.
+//
+// Consumers declare `testRuntimeOnly(project(path = ":core-bridge", configuration = "nativeRuntime"))`
+// (see the `temporal-native-test` convention plugin) so the native arrives as a single JAR on the
+// classpath -- the same shape it has when resolved from Maven as a classifier artifact. This
+// deliberately replaces the old arrangement, where every module in the build added
+// `core-bridge/build/native-libs` as a resources srcDir and made its own `processTestResources`
+// depend on `:core-bridge:copyNativeLib`. That fan-out put a full Rust build behind modules that
+// never touch native code, and copied the ~37 MB library into each module's build/resources tree.
+//
+// When -PskipNativeBuild=true the JAR is packaged from whatever is already in build/native-libs
+// (CI downloads prebuilt libraries there), so cargo is not invoked.
+val hostNativeJar by tasks.registering(Jar::class) {
+    description = "JAR containing the host platform's native library, for consumers inside this build"
+    group = "build"
+    archiveClassifier.set("native-host")
+    if (!skipNativeBuild) {
+        dependsOn(copyNativeLib)
+    }
+    from(nativeLibsDir.map { it.dir("native/$nativePlatform") }) {
+        into("native/$nativePlatform")
+    }
+}
+
+val nativeRuntime =
+    configurations.consumable("nativeRuntime") {
+        description = "Host-platform native library, as a JAR, for other modules in this build"
+    }
+
+artifacts.add(nativeRuntime.name, hostNativeJar)
+
 // For local development/testing, include current platform's native lib in test resources
 tasks.named<ProcessResources>("processTestResources") {
     if (!skipNativeBuild) {

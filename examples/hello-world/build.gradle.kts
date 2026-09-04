@@ -6,24 +6,12 @@ plugins {
 
 dependencies {
     implementation(project(":core"))
+    // The Core native library, as a JAR -- the same shape a published consumer resolves from
+    // Maven as a classifier artifact. Replaces the old resources-srcDir + processResources
+    // dependsOn(":core-bridge:copyNativeLib") wiring.
+    runtimeOnly(project(mapOf("path" to ":core-bridge", "configuration" to "nativeRuntime")))
 }
 
 application {
     mainClass.set("com.example.helloworld.MainKt")
-}
-
-// Native library path for runtime
-val nativeLibsDir = rootProject.layout.projectDirectory.dir("core-bridge/build/native-libs")
-val skipNativeBuild = project.findProperty("skipNativeBuild")?.toString()?.toBoolean() ?: false
-
-sourceSets {
-    main {
-        resources.srcDir(nativeLibsDir)
-    }
-}
-
-tasks.named("processResources") {
-    if (!skipNativeBuild) {
-        dependsOn(":core-bridge:copyNativeLib")
-    }
 }

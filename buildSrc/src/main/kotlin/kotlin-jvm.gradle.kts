@@ -58,23 +58,11 @@ tasks.withType<JavaExec>().configureEach {
     jvmArgs(nativeAccessArgs)
 }
 
-// Native library path for internal development
-// Skip for core-bridge since it already handles its own native library inclusion
-if (project.name != "core-bridge") {
-    val nativeLibsDir = rootProject.layout.projectDirectory.dir("core-bridge/build/native-libs")
-    val skipNativeBuild = project.findProperty("skipNativeBuild")?.toString()?.toBoolean() ?: false
-
-    // Add native libs to test resources so NativeLoader can find them
-    sourceSets {
-        test {
-            resources.srcDir(nativeLibsDir)
-        }
-    }
-
-    // Ensure native lib is built before processing test resources
-    tasks.named("processTestResources") {
-        if (!skipNativeBuild) {
-            dependsOn(":core-bridge:copyNativeLib")
-        }
-    }
-}
+// NOTE: the native library is deliberately NOT wired in here.
+//
+// This plugin is applied to every module, so adding the native to test resources here made every
+// module's `processTestResources` depend on `:core-bridge:copyNativeLib` -- putting a full Rust
+// build behind `compiler-plugin`, `gradle-plugin`, `plugins:jib` and `core-common`, none of which
+// execute native code. It also copied the ~37 MB library into each module's build/resources tree.
+//
+// Modules that genuinely need it apply `buildsrc.convention.temporal-native-test` instead.

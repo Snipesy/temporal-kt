@@ -3,6 +3,8 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
 plugins {
     id("buildsrc.convention.kotlin-jvm")
     id("buildsrc.convention.maven-publish")
+    // Tests here execute native code, so they need the Core native library on the classpath.
+    id("buildsrc.convention.temporal-native-test")
     alias(libs.plugins.kotlinPluginSerialization)
 }
 
