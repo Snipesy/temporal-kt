@@ -178,7 +178,10 @@ class WorkerShutdownHeartbeatTest {
                     // The activity was told why it stopped, and a heartbeat after that point throws
                     // instead of reaching the finalized native worker.
                     val cause = withTimeout(10.seconds) { LoopingActivity.observed.await() }
-                    assertIs<ActivityCancelledException.WorkerShutdown>(cause)
+                    assertIs<ActivityCancelledException.WorkerShutdown>(
+                        cause,
+                        "activity observed ${cause::class.qualifiedName}:\n${cause.stackTraceToString()}",
+                    )
                 }
             }
         }
