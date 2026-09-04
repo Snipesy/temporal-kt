@@ -5,6 +5,8 @@ import com.surrealdev.temporal.activity.heartbeat
 import com.surrealdev.temporal.annotation.Activity
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
+import com.surrealdev.temporal.application.plugin.hooks.ActivityTaskContext
+import com.surrealdev.temporal.application.plugin.hooks.ActivityTaskStarted
 import com.surrealdev.temporal.client.startWorkflow
 import com.surrealdev.temporal.common.exceptions.ActivityCancelledException
 import com.surrealdev.temporal.core.TemporalDevServer
@@ -15,6 +17,7 @@ import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.result
 import com.surrealdev.temporal.workflow.startActivity
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -76,6 +79,70 @@ class WorkerShutdownHeartbeatTest {
                     ),
             ).result()
     }
+
+    /** Same shape, separate state, for the second scenario. */
+    class HeldActivity {
+        @Activity("heldActivity")
+        suspend fun ActivityContext.heldActivity(label: String): String {
+            heartbeat(label)
+            return label
+        }
+    }
+
+    @Workflow("HeldActivityWorkflow")
+    class HeldActivityWorkflow {
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String =
+            startActivity<String>(
+                activityType = "heldActivity",
+                arg = "tick",
+                options = ActivityOptions(startToCloseTimeout = 5.minutes, heartbeatTimeout = 30.seconds),
+            ).result()
+    }
+
+    /**
+     * An activity task that Core has handed out but that has not reached its thread yet (held in
+     * an ActivityTaskStarted hook here; a slow slot acquisition or codec in real life) is
+     * invisible to the dispatcher's running-activity table. Forced shutdown must still report
+     * its completion to Core, otherwise Core's activity stream never ends and stop() hangs.
+     */
+    @Test
+    fun `stopping while an activity task is held before its thread starts still completes the stop`() =
+        runBlocking<Unit> {
+            val hookEntered = CompletableDeferred<Unit>()
+            TemporalRuntime.create().use { runtime ->
+                TemporalDevServer.start(runtime).use { devServer ->
+                    val queue = "shutdown-held-${UUID.randomUUID()}"
+                    val embedded =
+                        embeddedTemporal(
+                            configure = {
+                                connection {
+                                    target = "http://${devServer.targetUrl}"
+                                    namespace = "default"
+                                }
+                            },
+                            module = {
+                                taskQueue(queue) {
+                                    shutdownGracePeriodMs = 500
+                                    workflow<HeldActivityWorkflow>()
+                                    activity(HeldActivity())
+                                    hookRegistry.register(ActivityTaskStarted) { _: ActivityTaskContext ->
+                                        hookEntered.complete(Unit)
+                                        awaitCancellation() // hold the task before its thread is created
+                                    }
+                                }
+                            },
+                        )
+                    embedded.start(wait = false)
+
+                    val client = embedded.application.client()
+                    client.startWorkflow(workflowType = "HeldActivityWorkflow", taskQueue = queue)
+                    withTimeout(30.seconds) { hookEntered.await() }
+
+                    withTimeout(30.seconds) { embedded.stop() }
+                }
+            }
+        }
 
     @Test
     fun `stopping the worker while an activity heartbeats does not crash and cancels the activity`() =

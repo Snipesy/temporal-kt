@@ -214,8 +214,9 @@ time-skipping test server) as a child of the test JVM and kills it when the test
 safeguards keep server processes from outliving their JVM:
 
 - Every started server is tracked by `com.surrealdev.temporal.core.EphemeralServers`; a JVM
-  shutdown hook closes anything still open, so a `System.exit` or a test runner that stops early
-  never leaves a child behind.
+  shutdown hook closes anything still open, so any exit that runs shutdown hooks (`System.exit`,
+  an uncaught exception, a test runner that finishes early) leaves no child behind. A hard kill
+  (`kill -9`, a crashed JVM) runs no hooks; that case is covered by the next JVM's `reapOrphans()`.
 - Starting a server cannot be interrupted half-way: if the coroutine calling
   `TemporalDevServer.start` / `TemporalTestServer.start` is cancelled while the native start is in
   flight, the start completes and the server is closed before the cancellation propagates.

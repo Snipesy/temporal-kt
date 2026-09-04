@@ -6,6 +6,9 @@ import coresdk.activity_task.ActivityTaskOuterClass
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
@@ -50,6 +53,54 @@ class TemporalWorkerShutdownTest {
 
                         worker.close()
                         assertFailsWith<IllegalStateException> { worker.recordActivityHeartbeat(heartbeat()) }
+                    }
+                }
+            }
+        }
+
+    /**
+     * A zombie activity thread may still be heartbeating while the worker is closed and its
+     * native handle freed. Every such heartbeat must fail with an exception; none may reach a
+     * freed handle (which would be a use-after-free, i.e. a process crash).
+     */
+    @Test
+    fun `heartbeats racing close never touch the freed native handle`() =
+        runBlocking<Unit> {
+            TemporalRuntime.create().use { runtime ->
+                TemporalDevServer.start(runtime).use { server ->
+                    TemporalCoreClient.connect(runtime, server.targetUrl, "default").use { client ->
+                        val worker = TemporalWorker.create(runtime, client, "shutdown-race-queue", "default")
+                        val poller =
+                            launch { worker.pollActivityTask { ActivityTaskOuterClass.ActivityTask.parseFrom(it) } }
+                        delay(300.milliseconds)
+                        worker.initiateShutdown()
+                        poller.join()
+                        worker.awaitShutdown()
+
+                        val stop = AtomicBoolean(false)
+                        val unexpected = ConcurrentHashMap.newKeySet<String>()
+                        val hammers =
+                            List(4) {
+                                thread {
+                                    while (!stop.get()) {
+                                        try {
+                                            worker.recordActivityHeartbeat(heartbeat())
+                                        } catch (_: TemporalCoreException) {
+                                        } catch (_: IllegalStateException) {
+                                        } catch (t: Throwable) {
+                                            unexpected.add(t.toString())
+                                        }
+                                    }
+                                }
+                            }
+                        delay(100.milliseconds)
+                        worker.close() // frees the native handle while the hammers run
+                        delay(200.milliseconds)
+                        stop.set(true)
+                        hammers.forEach { it.join(5_000) }
+
+                        assertTrue(unexpected.isEmpty(), "unexpected exceptions: $unexpected")
+                        assertTrue(worker.isClosed())
                     }
                 }
             }

@@ -117,9 +117,18 @@ becomes **forced**, in this order:
    and its virtual thread interrupted (`ActivityDispatcher.cancelAllForShutdown`). From now on
    `ActivityContext.heartbeat()` throws that exception before touching the Core bridge.
 2. The polling jobs are cancelled and joined.
-3. The activity threads are awaited (bounded by the application `forceTimeoutMs`). Threads that do not stop are logged
-   as `TKT1211` and left to zombie eviction.
-4. Only then is the Core worker finalized and freed.
+3. Every activity thread still alive is interrupted and awaited (bounded by the application `forceTimeoutMs`), and
+   every activity task Core handed to the worker that has not been completed yet is reported back exactly once: the
+   thread's own result if it finished, otherwise a cancelled completion. This covers tasks that never reached a thread
+   (still in a hook or acquiring a slot) and threads that will not stop; the latter are logged as `TKT1211` and left to
+   zombie eviction.
+4. Activity polls are drained until Core reports shutdown. Core's activity subsystem only finishes shutting down once a
+   poll observes the end of its task stream, so without this step `awaitShutdown()` never returns.
+5. Only then is the Core worker finalized and freed. Synchronous downcalls such as heartbeats take a read lock that
+   `close()` excludes while freeing the native handle, so a zombie thread cannot touch freed memory.
+
+If a thread is a true zombie, steps 3 and 4 are bounded by `forceTimeoutMs` and the stop still completes; the zombie
+is tracked by zombie eviction and may keep the JVM from exiting cleanly, which is the documented zombie behaviour.
 
 The ordering matters: an activity thread runs independently of the coroutine that awaits it, so cancelling that
 coroutine does not stop the activity. Before this sequencing, a heartbeat issued after finalization reached a Core

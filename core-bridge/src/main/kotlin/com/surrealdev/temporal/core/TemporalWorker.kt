@@ -9,6 +9,9 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import org.slf4j.LoggerFactory
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
+import java.util.concurrent.locks.ReentrantReadWriteLock
+import kotlin.concurrent.read
+import kotlin.concurrent.write
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import com.surrealdev.temporal.core.internal.TemporalCoreWorker as InternalWorker
@@ -58,6 +61,14 @@ class TemporalWorker private constructor(
      */
     @Volatile
     private var shutdownFinalized = false
+
+    /**
+     * Serialises synchronous data-path downcalls (heartbeats, shutdown initiation) against
+     * [close] freeing the native handle. A zombie activity thread that ignores interruption can
+     * still heartbeat after the worker was closed; without this it could race `freeWorker` and
+     * touch freed memory. Readers never block each other; close() takes the write side.
+     */
+    private val handleLock = ReentrantReadWriteLock()
 
     private val logger = LoggerFactory.getLogger(TemporalWorker::class.java)
 
@@ -286,14 +297,17 @@ class TemporalWorker private constructor(
      * @throws TemporalCoreException if recording fails
      */
     fun <T : MessageLite> recordActivityHeartbeat(heartbeat: T) {
-        ensureOpen()
-        if (shutdownFinalized) {
-            throw TemporalCoreException("Failed to record activity heartbeat: worker already shut down")
-        }
-        Arena.ofConfined().use { arena ->
-            val error = InternalWorker.recordActivityHeartbeat(handle, arena, heartbeat)
-            if (error != null) {
-                throw TemporalCoreException("Failed to record activity heartbeat: $error")
+        handleLock.read {
+            // Checked under the lock: close() flips `closed` and frees the handle under the write lock
+            ensureOpen()
+            if (shutdownFinalized) {
+                throw TemporalCoreException("Failed to record activity heartbeat: worker already shut down")
+            }
+            Arena.ofConfined().use { arena ->
+                val error = InternalWorker.recordActivityHeartbeat(handle, arena, heartbeat)
+                if (error != null) {
+                    throw TemporalCoreException("Failed to record activity heartbeat: $error")
+                }
             }
         }
     }
@@ -306,10 +320,12 @@ class TemporalWorker private constructor(
      */
     fun initiateShutdown() {
         if (shutdownInitiated || closed) return
-        synchronized(this) {
-            if (shutdownInitiated || closed) return
-            shutdownInitiated = true
-            InternalWorker.initiateShutdown(handle)
+        handleLock.read {
+            synchronized(this) {
+                if (shutdownInitiated || closed) return
+                shutdownInitiated = true
+                InternalWorker.initiateShutdown(handle)
+            }
         }
     }
 
@@ -353,7 +369,6 @@ class TemporalWorker private constructor(
         if (closed) return
         synchronized(this) {
             if (closed) return
-            closed = true
 
             // MUST await BEFORE freeing - Tokio tasks hold &Worker references to this Box
             val completed = dispatcher.awaitPendingCallbacks(timeoutSeconds = 60)
@@ -364,8 +379,13 @@ class TemporalWorker private constructor(
                 )
             }
 
-            // NOW safe to free - no more callbacks will reference the Worker (or as safe as we can make it)
-            InternalWorker.freeWorker(handle)
+            // Exclude in-flight synchronous downcalls (heartbeats from a zombie thread) while the
+            // handle is freed; anything arriving afterwards sees `closed` and never reaches native.
+            handleLock.write {
+                closed = true
+                // NOW safe to free - no more callbacks will reference the Worker (or as safe as we can make it)
+                InternalWorker.freeWorker(handle)
+            }
 
             dispatcher.close()
             arena.close()

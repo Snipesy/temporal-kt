@@ -34,6 +34,9 @@ internal class ActivityVirtualThread(
      */
     fun getThread(): Thread = thread
 
+    /** Token of the Core task this thread executes. */
+    val taskToken: com.google.protobuf.ByteString get() = task.taskToken
+
     private fun runActivity() {
         // Restore MDC context on virtual thread
         mdcContextMap?.let { MDC.setContextMap(it) }
