@@ -692,11 +692,21 @@ Thrown when a workflow is cancelled. Extends `TemporalCancellationException` (wh
 try {
     someActivity.result<String>()
 } catch (e: WorkflowCancelledException) {
-    // Perform cleanup before the workflow completes as cancelled
-    compensate()
-    throw e // Re-throw to let the workflow complete as cancelled
+    // Kotlin cancellation is sticky: once the workflow coroutine is cancelled, any further
+    // Temporal operation (activity, sleep, child workflow) throws immediately unless it runs
+    // under NonCancellable. Use it for durable compensation.
+    withContext(NonCancellable) {
+        compensateActivity.result<Unit>()
+    }
+    throw e // Re-throw to complete the workflow as cancelled...
+    // ...or `return "compensated"` to complete it normally with a result.
+    // Throwing an ApplicationFailure instead fails the workflow.
 }
 ```
+
+Catching the cancellation and returning normally completes the workflow with the returned value,
+matching the Python and Java SDKs. Cleanup that does not touch Temporal operations (pure state
+mutation, logging) needs no `NonCancellable` wrapper.
 
 ### WorkflowConditionTimeoutException
 

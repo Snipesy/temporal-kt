@@ -49,6 +49,18 @@ properly awaited. Users should ensure all launched coroutines complete before re
 
 **Warning behavior:** If handlers try to schedule new work (activities, timers) after `workflowCompleted = true`, a warning is logged since those commands will be ignored by the server.
 
+### The Workflow Event Loop
+
+Each activation drives the workflow through `WorkflowExecutor.runOnce`, which mirrors the Python SDK's `_run_once`:
+
+1. Drain every task queued on the `WorkflowCoroutineDispatcher` (coroutine steps resumed by timers, activity results, signal handlers, ...).
+2. Re-evaluate every `awaitCondition` predicate; any that became true queue their coroutine and the loop repeats. This happens even when the cycle scheduled a command, so a handler that flips a flag *and* starts a timer still wakes the coroutine awaiting that flag in the same activation.
+3. When nothing is queued, yield the activation to the server. The workflow is either waiting on a Temporal operation (timer, activity, child, condition) or parked on an ordinary Kotlin primitive such as a `Channel`, `Mutex`, `CompletableDeferred` or `Job.join()`. Both are legitimate: the latter is resumed by a signal/update handler in a later activation, exactly like an `asyncio.Future` in Python.
+
+**Escaped coroutines.** `withContext(Dispatchers.IO)`, `launch(Dispatchers.Default)` and friends move work off the workflow dispatcher. Their resume comes back onto the workflow dispatcher from a foreign thread, and if the activation had already been completed that resume would sit in the queue until the next activation (which may never come). When the loop would otherwise go idle (nothing queued, no commands scheduled this cycle, no pending Temporal operation) it walks the workflow's job tree: every kotlinx coroutine is a child `Job` of its creator and exposes its context, so an escaped coroutine is visible as an incomplete descendant whose `ContinuationInterceptor` is not the workflow dispatcher. While one exists the loop waits for it to dispatch back (bounded by deadlock detection). If a timer or activity is already pending the activation yields regardless, and the escaped coroutine's resume is processed at the next activation. A resume that arrives when no activation is in flight is logged as `TKT1112` so a stalled escape is visible rather than silent. Escapes are still non-deterministic on replay and remain discouraged.
+
+**Cancellation and normal return.** `CancelWorkflow` cancels the main coroutine's job. Kotlin cancellation is sticky: a cancelled coroutine's return value is normally discarded and any further `await` throws immediately. The SDK records the workflow function's return value separately, so a workflow that catches `WorkflowCancelledException` and returns completes normally (Python/Java semantics). Durable cleanup after catching the cancellation must run under `withContext(NonCancellable) { ... }`.
+
 ### Activity Execution Job Hierarchy
 
 Activities have a simpler structure - no handlers, no replay:
@@ -94,6 +106,35 @@ So on and so forth
 ### Activities: Ephemeral Threads
 
 Each activity execution gets a **new virtual thread** that terminates after completion:
+
+### Worker Shutdown and Running Activities
+
+`ManagedWorker.stop()` first waits `shutdownGracePeriodMs` for the polling loops to finish on their own; during this
+phase activities keep heartbeating so that Core can deliver a cancel to them. If the grace period elapses the stop
+becomes **forced**, in this order:
+
+1. Every running activity is marked cancelled with `ActivityCancelledException.WorkerShutdown`, its job is cancelled
+   and its virtual thread interrupted (`ActivityDispatcher.cancelAllForShutdown`). From now on
+   `ActivityContext.heartbeat()` throws that exception before touching the Core bridge.
+2. The polling jobs are cancelled and joined.
+3. Every activity thread still alive is interrupted and awaited (bounded by the application `forceTimeoutMs`), and
+   every activity task Core handed to the worker that has not been completed yet is reported back exactly once: the
+   thread's own result if it finished, otherwise a cancelled completion. This covers tasks that never reached a thread
+   (still in a hook or acquiring a slot) and threads that will not stop; the latter are logged as `TKT1211` and left to
+   zombie eviction.
+4. Activity polls are drained until Core reports shutdown. Core's activity subsystem only finishes shutting down once a
+   poll observes the end of its task stream, so without this step `awaitShutdown()` never returns.
+5. Only then is the Core worker finalized and freed. Synchronous downcalls such as heartbeats take a read lock that
+   `close()` excludes while freeing the native handle, so a zombie thread cannot touch freed memory.
+
+If a thread is a true zombie, steps 3 and 4 are bounded by `forceTimeoutMs` and the stop still completes; the zombie
+is tracked by zombie eviction and may keep the JVM from exiting cleanly, which is the documented zombie behaviour.
+
+The ordering matters: an activity thread runs independently of the coroutine that awaits it, so cancelling that
+coroutine does not stop the activity. Before this sequencing, a heartbeat issued after finalization reached a Core
+worker handle that no longer held a worker, which panicked across the FFI boundary and aborted the JVM. The bridge now
+also refuses such calls with an error (`Worker already shut down`) instead of panicking, so the JVM guard and the
+native guard back each other up.
 
 ### Zombie Thread Management
 

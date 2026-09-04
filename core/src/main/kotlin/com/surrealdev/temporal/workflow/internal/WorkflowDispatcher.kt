@@ -25,6 +25,7 @@ import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ThreadFactory
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Result of dispatching a workflow activation.
@@ -455,14 +456,29 @@ internal class WorkflowDispatcher(
                 )
                 break
             }
-            delay(10)
+            delay(10.milliseconds)
         }
 
         zombieManager.logShutdownWarning()
 
         // Now safe to iterate and clear - no new entries will be added
         executors.forEach { (runId, entry) ->
-            entry.executor.terminateWorkflowExecutionJob()
+            // terminateWorkflowExecutionJob() drives the (single-threaded) workflow state from
+            // this thread. Only do so when no activation is in flight on the run's virtual
+            // thread; if the drain above timed out and the run is still busy, skip it - the
+            // termination job below cancels and interrupts the thread regardless.
+            if (entry.mutex.tryLock()) {
+                try {
+                    entry.executor.terminateWorkflowExecutionJob()
+                } finally {
+                    entry.mutex.unlock()
+                }
+            } else {
+                logger.warn(
+                    "[TKT1111] Skipping job teardown for run_id={}: activation still in flight at shutdown",
+                    runId,
+                )
+            }
             launchTerminationJob(
                 virtualThread = entry.virtualThread,
                 runId = runId,

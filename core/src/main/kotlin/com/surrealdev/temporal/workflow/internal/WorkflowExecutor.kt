@@ -23,6 +23,7 @@ import coresdk.workflow_activation.WorkflowActivationOuterClass.WorkflowActivati
 import coresdk.workflow_commands.WorkflowCommands
 import io.temporal.api.common.v1.Payload
 import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -30,6 +31,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.slf4j.MDCContext
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
+import kotlin.coroutines.ContinuationInterceptor
 import kotlin.reflect.KType
 import kotlin.reflect.full.callSuspend
 import kotlin.time.Instant
@@ -119,6 +121,19 @@ internal class WorkflowExecutor(
     private var workflowInfo: WorkflowInfo? = null
 
     /**
+     * The value the workflow function returned, recorded even when [mainCoroutine] ends up
+     * cancelled. Kotlin discards the return value of a coroutine whose job was cancelled, but
+     * Temporal semantics (Python/Java) say a workflow that catches its cancellation and returns
+     * normally *completes*. [buildTerminalCompletion] consults this when `await()` throws a
+     * [kotlinx.coroutines.CancellationException].
+     */
+    internal var mainOutcome: MainOutcome? = null
+
+    internal class MainOutcome(
+        val value: Any?,
+    )
+
+    /**
      * The workflow instance for this specific run.
      * Created fresh for each workflow execution to ensure clean state.
      */
@@ -155,6 +170,17 @@ internal class WorkflowExecutor(
      *   to allow proper worker shutdown (parent job won't block waiting for this child)
      */
     internal fun terminateWorkflowExecutionJob() {
+        // Teardown drains the queue itself; cancellation tasks are not "late" dispatches
+        val wasInFlight = workflowDispatcher.activationInFlight
+        workflowDispatcher.activationInFlight = true
+        try {
+            terminateWorkflowExecutionJobInternal()
+        } finally {
+            workflowDispatcher.activationInFlight = wasInFlight
+        }
+    }
+
+    private fun terminateWorkflowExecutionJobInternal() {
         // 1. Cancel the main workflow job - this queues cancellation tasks to the dispatcher
         workflowExecutionJob?.cancel()
 
@@ -233,6 +259,7 @@ internal class WorkflowExecutor(
      */
     suspend fun activate(activation: WorkflowActivation): WorkflowDispatchResult =
         withContext(CoroutineName("WorkflowExecutor-activate")) {
+            workflowDispatcher.activationInFlight = true
             try {
                 if (logger.isDebugEnabled) {
                     // Guarded: building the per-job name list allocates on every activation
@@ -375,6 +402,8 @@ internal class WorkflowExecutor(
                     completion = buildFailureCompletion(e),
                     fatalError = if (e.isFatalError()) e as Error else null,
                 )
+            } finally {
+                workflowDispatcher.activationInFlight = false
             }
         }
 
@@ -436,14 +465,23 @@ internal class WorkflowExecutor(
     /**
      * Runs one iteration of the workflow event loop, processing all queued work.
      *
-     * The loop continues until one of these conditions is met:
-     * 1. The workflow coroutine completes
-     * 2. Something is scheduled (a command is added - timer, activity, child workflow, etc.)
-     * 3. The workflow is waiting for external operations (timers, activities, child workflows, conditions)
+     * Mirrors the Python SDK's `_run_once`: drain the ready queue, check await conditions
+     * (which may make more coroutines ready), and repeat until nothing is ready. The
+     * activation then yields to the server. Unlike an earlier version, a command being
+     * scheduled does NOT short-circuit the condition check: a handler that flips a flag and
+     * schedules work in the same cycle must still wake the coroutine awaiting that flag.
      *
-     * When coroutines escape to other dispatchers (e.g., withContext(Dispatchers.Default)),
-     * this method waits for them to dispatch back. This is supported but not recommended
-     * as it may cause non-determinism during replay.
+     * Coroutines parked on non-Temporal primitives (a `Channel`, `Mutex`, `CompletableDeferred`,
+     * `Job.join()`, ...) are legitimate: their completion will arrive with a later activation
+     * (typically a signal or update), so an idle loop simply returns.
+     *
+     * The one case where idling is wrong is a coroutine that escaped to another dispatcher
+     * (e.g. `withContext(Dispatchers.IO)`): its resume will be dispatched back onto
+     * [workflowDispatcher] from a foreign thread, and if the activation has already been
+     * completed that resume sits in the queue until the next activation. Escapes are detected
+     * by walking the workflow's job tree for an active coroutine whose interceptor is not
+     * [workflowDispatcher] (see [hasActiveEscapedCoroutine]); while one exists, the loop waits
+     * for it to dispatch back. This is supported but not recommended as it is non-deterministic.
      *
      * @param checkConditions Whether to check await conditions after processing tasks.
      *                        Should be true for stages that can mutate state (signals, updates, resolutions).
@@ -457,11 +495,8 @@ internal class WorkflowExecutor(
             // Process all ready tasks
             workflowDispatcher.processAllWork()
 
-            // Check exit conditions
-            val workflowComplete = mainCoroutine?.isCompleted == true
-            val somethingScheduled = state.getCommandsAddedThisCycle() > 0
-
-            if (workflowComplete || somethingScheduled) {
+            // Terminal: nothing left to drive
+            if (mainCoroutine?.isCompleted == true) {
                 break
             }
 
@@ -475,20 +510,53 @@ internal class WorkflowExecutor(
                 continue
             }
 
-            // If the workflow is waiting for external operations (timers, activities, child workflows, conditions),
-            // this is legitimate - the workflow is properly suspended waiting for resolution.
-            if (state.hasPendingOperations()) {
+            // Something was scheduled, or the workflow is waiting for external resolution
+            // (timers, activities, child workflows, conditions): yield to the server.
+            if (state.getCommandsAddedThisCycle() > 0 || state.hasPendingOperations()) {
                 break
             }
 
-            // No pending work, no pending operations, workflow not complete, nothing scheduled.
-            logger.trace(
-                "Waiting for escaped coroutine to dispatch back. workflowType={}, runId={}",
-                methodInfo.workflowType,
-                runId,
-            )
-            workflowDispatcher.waitForWork(timeoutMs = Long.MAX_VALUE)
+            // Idle. Only an escaped coroutine can make more work appear within this activation.
+            if (hasActiveEscapedCoroutine()) {
+                logger.trace(
+                    "Waiting for escaped coroutine to dispatch back. workflowType={}, runId={}",
+                    methodInfo.workflowType,
+                    runId,
+                )
+                workflowDispatcher.waitForWork(timeoutMs = Long.MAX_VALUE)
+                continue
+            }
+
+            // No escape is visible in the job tree. An escaped coroutine that has *just* completed
+            // detaches from its parent before its resume is enqueued here (same thread, a few
+            // instructions apart), so give that enqueue a brief grace before yielding.
+            if (workflowDispatcher.waitForWork(timeoutMs = ESCAPE_COMPLETION_GRACE_MS)) {
+                continue
+            }
+            break
         }
+    }
+
+    /**
+     * Whether any coroutine under this workflow's job tree is still running on a dispatcher
+     * other than [workflowDispatcher].
+     *
+     * `withContext`, `launch` and `async` all attach the new coroutine as a child job of the
+     * calling coroutine, and every kotlinx coroutine is a [kotlinx.coroutines.CoroutineScope]
+     * exposing its context, so an escape is visible as an incomplete descendant whose
+     * [ContinuationInterceptor] differs from ours. Cheap: only evaluated when the loop is idle.
+     */
+    private fun hasActiveEscapedCoroutine(): Boolean =
+        listOfNotNull(workflowExecutionJob, handlerJob).any { hasEscapedDescendant(it) }
+
+    private fun hasEscapedDescendant(job: Job): Boolean {
+        for (child in job.children) {
+            if (child.isCompleted) continue
+            val interceptor = (child as? CoroutineScope)?.coroutineContext?.get(ContinuationInterceptor)
+            if (interceptor != null && interceptor !== workflowDispatcher) return true
+            if (hasEscapedDescendant(child)) return true
+        }
+        return false
     }
 
     private suspend fun processJob(job: WorkflowActivationJob) {
@@ -686,6 +754,7 @@ internal class WorkflowExecutor(
         context!!.pluginCoroutineContext = contextEvent.contributedContext
 
         // Start the main workflow coroutine
+        mainOutcome = null
         mainCoroutine = startWorkflowCoroutine(init)
 
         // Wire up completion handlers from the hook (e.g., span.end() for OTel).
@@ -730,30 +799,35 @@ internal class WorkflowExecutor(
 
             // Execute through the interceptor chain
             val chain = hookRegistry.chain(ExecuteWorkflow)
-            chain.execute(interceptorInput) { input ->
-                // Deserialize already-decoded arguments (interceptors may have modified them)
-                val args = deserializeDecodedArguments(input.args, paramTypes)
-                try {
-                    if (methodInfo.hasContextReceiver) {
-                        // Method has WorkflowContext as extension receiver
-                        if (methodInfo.isSuspend) {
-                            method.callSuspend(workflowInstance!!, ctx, *args)
+            val value =
+                chain.execute(interceptorInput) { input ->
+                    // Deserialize already-decoded arguments (interceptors may have modified them)
+                    val args = deserializeDecodedArguments(input.args, paramTypes)
+                    try {
+                        if (methodInfo.hasContextReceiver) {
+                            // Method has WorkflowContext as extension receiver
+                            if (methodInfo.isSuspend) {
+                                method.callSuspend(workflowInstance!!, ctx, *args)
+                            } else {
+                                method.call(workflowInstance!!, ctx, *args)
+                            }
                         } else {
-                            method.call(workflowInstance!!, ctx, *args)
+                            // Method does not use context receiver
+                            if (methodInfo.isSuspend) {
+                                method.callSuspend(workflowInstance!!, *args)
+                            } else {
+                                method.call(workflowInstance!!, *args)
+                            }
                         }
-                    } else {
-                        // Method does not use context receiver
-                        if (methodInfo.isSuspend) {
-                            method.callSuspend(workflowInstance!!, *args)
-                        } else {
-                            method.call(workflowInstance!!, *args)
-                        }
+                    } catch (e: java.lang.reflect.InvocationTargetException) {
+                        // Unwrap reflection exceptions to get the actual workflow exception
+                        throw e.targetException ?: e
                     }
-                } catch (e: java.lang.reflect.InvocationTargetException) {
-                    // Unwrap reflection exceptions to get the actual workflow exception
-                    throw e.targetException ?: e
                 }
-            }
+            // Record the normal return before the coroutine machinery gets a chance to discard
+            // it (which it does when the job was cancelled in the meantime).
+            mainOutcome = MainOutcome(value)
+            value
         }
     }
 
@@ -856,4 +930,16 @@ internal class WorkflowExecutor(
      * Checks if this executor is for eviction.
      */
     fun isEviction(activation: WorkflowActivation): Boolean = activation.jobsList.any { it.hasRemoveFromCache() }
+
+    companion object {
+        /**
+         * How long an idle event loop waits for the resume of an escaped coroutine that
+         * completed between our job-tree scan and its enqueue (see [runOnce]). The window is a
+         * few instructions on the other thread, so this only needs to outlast scheduler jitter
+         * and short GC pauses. Paid once per activation that ends parked on a non-Temporal
+         * primitive; still small against a server round trip. A miss is not silent: the late
+         * resume is logged as TKT1112 by [WorkflowCoroutineDispatcher.dispatch].
+         */
+        internal const val ESCAPE_COMPLETION_GRACE_MS = 50L
+    }
 }

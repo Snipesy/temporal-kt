@@ -6,6 +6,7 @@ import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.TemporalPayload
 import com.surrealdev.temporal.common.TemporalPayloads
 import com.surrealdev.temporal.common.exceptions.PayloadProcessingException
+import com.surrealdev.temporal.internal.isFatalError
 import com.surrealdev.temporal.serialization.safeDecode
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.reflect.full.callSuspend
@@ -119,7 +120,23 @@ private suspend fun WorkflowExecutor.invokeRuntimeSignalHandler(
             // Signal handlers should not fail the workflow
             // Log the error but continue
             logger.warn("Signal handler threw exception: {}", e.message, e)
+        } catch (e: Error) {
+            recordSignalHandlerError(e)
         }
+    }
+}
+
+/**
+ * A JVM [Error] escaping a signal handler. Fatal errors (OOM etc.) must shut the worker
+ * down, which happens when [WorkflowExecutor.activate] surfaces them as a task failure via
+ * [WorkflowExecutor.pendingActivationFailure]. Anything else is rethrown so the handler job's
+ * exception path (the thread's uncaught handler) still sees it instead of it being swallowed.
+ */
+private fun WorkflowExecutor.recordSignalHandlerError(e: Error) {
+    if (e.isFatalError()) {
+        pendingActivationFailure = e
+    } else {
+        throw e
     }
 }
 
@@ -140,6 +157,8 @@ private suspend fun WorkflowExecutor.invokeRuntimeDynamicSignalHandler(
         } catch (e: Exception) {
             // Signal handlers should not fail the workflow
             logger.warn("Dynamic signal handler threw exception: {}", e.message, e)
+        } catch (e: Error) {
+            recordSignalHandlerError(e)
         }
     }
 }
@@ -192,12 +211,18 @@ private suspend fun WorkflowExecutor.invokeAnnotationSignalHandler(
             )
         } catch (e: java.lang.reflect.InvocationTargetException) {
             val cause = e.targetException ?: e
-            logger.warn("Signal handler threw exception: {}", cause.message, cause)
+            if (cause is Error) {
+                recordSignalHandlerError(cause)
+            } else {
+                logger.warn("Signal handler threw exception: {}", cause.message, cause)
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             // Signal handlers should not fail the workflow
             logger.warn("Signal handler threw exception: {}", e.message, e)
+        } catch (e: Error) {
+            recordSignalHandlerError(e)
         }
     }
 }

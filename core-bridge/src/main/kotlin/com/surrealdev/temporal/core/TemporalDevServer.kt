@@ -4,7 +4,6 @@ import com.surrealdev.temporal.core.internal.EphemeralServerCallbackDispatcher
 import com.surrealdev.temporal.core.internal.FactoryArenaScope
 import com.surrealdev.temporal.core.internal.TemporalCoreEphemeralServer
 import com.surrealdev.temporal.core.internal.nativeCallbackException
-import kotlinx.coroutines.suspendCancellableCoroutine
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
 import java.util.concurrent.CompletableFuture
@@ -12,6 +11,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import kotlin.coroutines.suspendCoroutine
 
 /**
  * An ephemeral Temporal development server.
@@ -82,21 +82,26 @@ class TemporalDevServer private constructor(
                     addAll(extraArgs)
                 }
 
-            return FactoryArenaScope.create(runtime.handle, ::EphemeralServerCallbackDispatcher).createResource {
-                val (serverPtr, targetUrl) =
-                    suspendCancellableCoroutine { continuation ->
-                        TemporalCoreEphemeralServer.startDevServer(
-                            runtimePtr = runtime.handle,
-                            arena = resourceArena,
-                            dispatcher = dispatcher,
-                            namespace = namespace,
-                            ip = ip,
-                            existingPath = existingPath,
-                            downloadVersion = downloadVersion,
-                            downloadTtlSeconds = downloadTtlSeconds,
-                            extraArgs = allArgs,
-                        ) { serverPtr, targetUrl, error ->
-                            try {
+            val server =
+                FactoryArenaScope.create(runtime.handle, ::EphemeralServerCallbackDispatcher).createResource {
+                    // The native start MUST be awaited to completion even if our caller is cancelled:
+                    // the Rust callback always fires, and it targets the upcall stub owned by this
+                    // scope. Abandoning the suspension here would free that stub (use-after-free,
+                    // observed as a JVM crash) and leak the server process (never shut down).
+                    // suspendCoroutine is not cancellable, so cancellation is deferred until below.
+                    val (serverPtr, targetUrl) =
+                        suspendCoroutine { continuation ->
+                            TemporalCoreEphemeralServer.startDevServer(
+                                runtimePtr = runtime.handle,
+                                arena = resourceArena,
+                                dispatcher = dispatcher,
+                                namespace = namespace,
+                                ip = ip,
+                                existingPath = existingPath,
+                                downloadVersion = downloadVersion,
+                                downloadTtlSeconds = downloadTtlSeconds,
+                                extraArgs = allArgs,
+                            ) { serverPtr, targetUrl, error ->
                                 if (error != null) {
                                     continuation.resumeWithException(nativeCallbackException(error))
                                 } else if (serverPtr == null || targetUrl == null) {
@@ -106,23 +111,22 @@ class TemporalDevServer private constructor(
                                 } else {
                                     continuation.resume(Pair(serverPtr, targetUrl))
                                 }
-                            } catch (_: IllegalStateException) {
-                                // Continuation already resumed, ignore
                             }
                         }
-                        // Note: We intentionally do NOT cancel on coroutine cancellation.
-                        // The Rust callback will always fire, and we must wait for it to complete.
-                    }
 
-                TemporalDevServer(
-                    serverPtr = serverPtr,
-                    runtimePtr = runtime.handle,
-                    arena = resourceArena,
-                    callbackArena = callbackArena,
-                    dispatcher = dispatcher,
-                    targetUrl = targetUrl,
-                )
-            }
+                    TemporalDevServer(
+                        serverPtr = serverPtr,
+                        runtimePtr = runtime.handle,
+                        arena = resourceArena,
+                        callbackArena = callbackArena,
+                        dispatcher = dispatcher,
+                        targetUrl = targetUrl,
+                    ).also { EphemeralServers.register(it) }
+                }
+
+            // Caller was cancelled while the native start was in flight: nobody will close the
+            // server we just produced, so do it here and honor the cancellation.
+            return server.closeIfCancelled()
         }
 
         /**
@@ -188,7 +192,7 @@ class TemporalDevServer private constructor(
                     } else {
                         ownershipTransferred.set(true)
                         scope.transferOwnership()
-                        future.complete(
+                        val server =
                             TemporalDevServer(
                                 serverPtr,
                                 runtime.handle,
@@ -196,8 +200,8 @@ class TemporalDevServer private constructor(
                                 scope.callbackArena,
                                 scope.dispatcher,
                                 targetUrl,
-                            ),
-                        )
+                            )
+                        future.complete(server)
                     }
                 } catch (_: Exception) {
                     // Callback already completed, ignore
@@ -211,7 +215,13 @@ class TemporalDevServer private constructor(
                 }
             }
 
-            return future
+            // Register off the FFM upcall thread: the start callback above runs inline on a Rust
+            // thread, where file I/O, logging and exception construction are unsafe (see
+            // nativeCallbackException). thenApplyAsync hands the server to a pool thread.
+            return future.thenApplyAsync { server ->
+                EphemeralServers.register(server)
+                server
+            }
         }
     }
 
@@ -219,6 +229,10 @@ class TemporalDevServer private constructor(
      * Checks if this server has been closed.
      */
     override fun isClosed(): Boolean = closed
+
+    // Synchronized with close(): the native handle is freed at the end of close().
+    override val pid: Long?
+        get() = synchronized(this) { if (closed) null else TemporalCoreEphemeralServer.pid(serverPtr) }
 
     /**
      * Shuts down and closes this dev server.
@@ -231,6 +245,7 @@ class TemporalDevServer private constructor(
         synchronized(this) {
             if (closed) return
             closed = true
+            EphemeralServers.unregister(this)
 
             val shutdownFuture = CompletableFuture<Unit>()
 

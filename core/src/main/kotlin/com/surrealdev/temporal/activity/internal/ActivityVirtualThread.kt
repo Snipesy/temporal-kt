@@ -3,6 +3,7 @@ package com.surrealdev.temporal.activity.internal
 import coresdk.activity_task.ActivityTaskOuterClass.ActivityTask
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.runBlocking
 import org.slf4j.MDC
@@ -32,6 +33,9 @@ internal class ActivityVirtualThread(
      * Available immediately after construction, before [start] is called.
      */
     fun getThread(): Thread = thread
+
+    /** Token of the Core task this thread executes. */
+    val taskToken: com.google.protobuf.ByteString get() = task.taskToken
 
     private fun runActivity() {
         // Restore MDC context on virtual thread
@@ -65,6 +69,19 @@ internal class ActivityVirtualThread(
      * Returns true if the activity thread is still alive.
      */
     fun isAlive(): Boolean = thread.isAlive
+
+    /**
+     * The dispatch result if the activity has finished (normally, cancelled or failed), else null.
+     * Forced worker shutdown uses this to report completions Core is still waiting for after the
+     * coroutine that normally relays them has been cancelled.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun resultOrNull(): ActivityDispatchResult? =
+        if (completion.isCompleted && !completion.isCancelled && completion.getCompletionExceptionOrNull() == null) {
+            completion.getCompleted()
+        } else {
+            null
+        }
 
     /**
      * Interrupts the thread without full termination logic.

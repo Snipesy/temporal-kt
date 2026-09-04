@@ -37,6 +37,13 @@ sealed interface EphemeralServer : AutoCloseable {
     val targetUrl: String
 
     /**
+     * The OS process ID of the server process, or null once the server has been closed or
+     * its process has exited. Exposed so callers (and [EphemeralServers]) can account for
+     * the process exactly rather than by inspecting process tables heuristically.
+     */
+    val pid: Long?
+
+    /**
      * Checks if this server has been closed.
      *
      * @return true if this server has been closed, false otherwise

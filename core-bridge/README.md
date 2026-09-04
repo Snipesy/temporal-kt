@@ -54,12 +54,45 @@ git commit -m "Update Rust dependencies"
 
 ### SDK-Core Submodule (upstream changes)
 
-The SDK-Core submodule (`core-bridge/rust/sdk-core`) is a fork/clone of [temporalio/sdk-core](https://github.com/temporalio/sdk-core).
+The SDK-Core submodule (`core-bridge/rust/sdk-core`) tracks the SurrealDevelopment fork
+[SurrealDevelopment/sdk-rust](https://github.com/SurrealDevelopment/sdk-rust) of
+[temporalio/sdk-core](https://github.com/temporalio/sdk-core) (renamed `sdk-rust` upstream).
+
+#### Fork and carried patches
+
+The submodule points at a fork, not upstream, because temporal-kt needs C-bridge functions that upstream does
+not provide. Each one lives on a `temporal-kt/*` branch of the fork, based on the upstream commit we ship, and
+the submodule pointer references that branch (`branch = ...` in `.gitmodules`). A clone that points at upstream
+would fail `git submodule update`, because upstream does not contain these commits.
+
+| Branch | Adds | Why |
+|---|---|---|
+| `temporal-kt/ephemeral-server-pid` | `temporal_core_ephemeral_server_pid(server) -> u32` | Exposes the OS pid of a dev/test server child process. `EphemeralServers` (core-bridge) records pid + start time per JVM and reaps servers left behind by a JVM that died without closing them. Without the pid the only alternative is guessing from process names, which we refused to do. Upstream PR candidate. |
+| `temporal-kt/ephemeral-server-pid` (2nd commit) | No `unwrap()` of the Core worker in any `extern "C"` fn of `worker.rs` | After `temporal_core_worker_finalize_shutdown` the handle holds `None`. A late call (an activity heartbeat racing shutdown was the observed case) used to panic across the FFI boundary and abort the whole host process (JVM SIGABRT). Data-path calls now return `"Worker already shut down"`, control calls become no-ops, and the heartbeat path is additionally wrapped in `catch_unwind`. Upstream PR candidate. |
+
+The Kotlin side binds any fork-only function with a small FFM downcall next to its caller (see
+`TemporalCoreEphemeralServer.pid`) rather than adding it to `temporal_sdk_core_c_bridge_h`, so that class keeps
+mirroring upstream's header and the fork-only surface stays easy to find and remove.
+
+When a patch is merged upstream, drop the branch: repoint the submodule at the upstream commit that contains the
+change (the fork's `main` mirrors upstream) and delete the row above.
 
 **Important:** Our parent workspace (`core-bridge/rust/Cargo.toml`) mirrors the `[workspace.dependencies]` from
 sdk-core's Cargo.toml. When updating sdk-core, check if its workspace dependencies changed and sync them if needed.
 
-To update to the latest upstream master:
+To update to a newer upstream, rebase the carried branch on the fork first, then move the pointer:
+
+```bash
+cd core-bridge/rust/sdk-core
+git fetch origin                      # origin = SurrealDevelopment/sdk-rust
+git fetch https://github.com/temporalio/sdk-core.git master:upstream-master
+git checkout temporal-kt/ephemeral-server-pid
+git rebase upstream-master            # re-apply the carried patch; rebuild regenerates the header
+git push --force-with-lease origin temporal-kt/ephemeral-server-pid
+cd ../../..
+```
+
+Then continue with the steps below (they apply to whichever commit the submodule now points at):
 
 ```bash
 git submodule update --remote core-bridge/rust/sdk-core

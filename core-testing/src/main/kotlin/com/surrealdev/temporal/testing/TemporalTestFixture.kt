@@ -10,6 +10,7 @@ import com.surrealdev.temporal.client.TemporalClientConfig
 import com.surrealdev.temporal.client.TemporalClientImpl
 import com.surrealdev.temporal.common.SearchAttributeKey
 import com.surrealdev.temporal.core.EphemeralServer
+import com.surrealdev.temporal.core.EphemeralServers
 import com.surrealdev.temporal.core.TemporalDevServer
 import com.surrealdev.temporal.core.TemporalRuntime
 import com.surrealdev.temporal.core.TemporalTestServer
@@ -28,6 +29,7 @@ import java.io.File
 import java.nio.channels.FileChannel
 import java.nio.file.StandardOpenOption
 import java.time.Instant
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.time.Duration
@@ -347,6 +349,11 @@ class TemporalTestApplicationBuilder internal constructor(
 // Needed because POSIX FileLock is per-process, not per-thread.
 private val serverStartMutex = Mutex()
 
+// Whether this JVM has already reaped orphaned ephemeral servers (see EphemeralServers.reapOrphans).
+private val orphanSweepDone =
+    java.util.concurrent.atomic
+        .AtomicBoolean(false)
+
 /**
  * Serializes ephemeral server starts across JVM processes on this machine.
  *
@@ -532,6 +539,12 @@ suspend fun TestScope.runTestApplication(
             } else {
                 coroutineContext
             }
+
+        // Once per JVM: reap ephemeral servers recorded by JVMs that died without closing them
+        // (force-stopped test runs, crashes). They would otherwise linger forever.
+        if (orphanSweepDone.compareAndSet(false, true)) {
+            EphemeralServers.reapOrphans()
+        }
 
         // Serialize server starts to avoid Core SDK's get_free_port() TOCTOU race.
         // Lock is held only until start() confirms the server is listening.
