@@ -60,9 +60,7 @@ tasks.withType<JavaExec>().configureEach {
 
 // NOTE: the native library is deliberately NOT wired in here.
 //
-// This plugin is applied to every module, so adding the native to test resources here made every
-// module's `processTestResources` depend on `:core-bridge:copyNativeLib` -- putting a full Rust
-// build behind `compiler-plugin`, `gradle-plugin`, `plugins:jib` and `core-common`, none of which
-// execute native code. It also copied the ~37 MB library into each module's build/resources tree.
-//
-// Modules that genuinely need it apply `buildsrc.convention.temporal-native-test` instead.
+// This plugin is applied to every module, so wiring the native in here would put it on the test
+// classpath of modules that never execute native code. Modules that need it apply
+// `buildsrc.convention.temporal-native-test` (tests) or `temporal-native-runtime` (runnable)
+// instead, which resolve the published classifier artifact from temporal-kt-bridge.
