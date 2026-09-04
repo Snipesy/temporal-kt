@@ -3,6 +3,7 @@ package com.surrealdev.temporal.core
 import com.google.protobuf.ByteString
 import coresdk.CoreInterface
 import coresdk.activity_task.ActivityTaskOuterClass
+import coresdk.workflow_activation.WorkflowActivationOuterClass
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -11,6 +12,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -50,6 +52,18 @@ class TemporalWorkerShutdownTest {
 
                         // The native worker is gone now. This used to be a process abort.
                         assertFailsWith<TemporalCoreException> { worker.recordActivityHeartbeat(heartbeat()) }
+
+                        // A poll after finalize gets the bridge's "Worker already shut down" error, which
+                        // the wrapper must treat as a clean end of polling (null), not as a failure -
+                        // otherwise a poll loop would spin on the exception.
+                        assertNull(worker.pollActivityTask { ActivityTaskOuterClass.ActivityTask.parseFrom(it) })
+                        assertNull(
+                            worker.pollWorkflowActivation {
+                                WorkflowActivationOuterClass.WorkflowActivation.parseFrom(
+                                    it,
+                                )
+                            },
+                        )
 
                         worker.close()
                         assertFailsWith<IllegalStateException> { worker.recordActivityHeartbeat(heartbeat()) }

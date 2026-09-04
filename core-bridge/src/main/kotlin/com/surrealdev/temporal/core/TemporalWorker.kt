@@ -74,6 +74,13 @@ class TemporalWorker private constructor(
 
     companion object {
         /**
+         * Error text the C bridge returns for calls made after `finalize_shutdown` took the Core
+         * worker. Must stay in sync with `WORKER_SHUT_DOWN` in sdk-core-c-bridge `worker.rs`
+         * (temporal-kt fork patch).
+         */
+        internal const val WORKER_SHUT_DOWN = "Worker already shut down"
+
+        /**
          * Creates a new worker.
          *
          * @param runtime The Temporal runtime to use
@@ -114,6 +121,19 @@ class TemporalWorker private constructor(
                 )
             }
         }
+    }
+
+    /**
+     * Whether a poll failure means "polling is over" rather than an error: Core's own shutdown
+     * signal, or the bridge refusing a call because the worker was already finalized
+     * ([WORKER_SHUT_DOWN], returned by every fork-patched entry point after finalize_shutdown).
+     * Poll loops treat these as a normal end (null) so they never spin on the exception.
+     */
+    private fun isShutdownError(e: Throwable): Boolean {
+        if (shutdownFinalized) return true
+        val message = e.message ?: return false
+        return message.contains("shutdown", ignoreCase = true) ||
+            message.contains(WORKER_SHUT_DOWN, ignoreCase = true)
     }
 
     /**
@@ -192,7 +212,7 @@ class TemporalWorker private constructor(
             }
         } catch (e: TemporalCoreException) {
             // Treat shutdown errors as normal completion
-            if (e.message?.contains("shutdown", ignoreCase = true) == true) null else throw e
+            if (isShutdownError(e)) null else throw e
         }
     }
 
@@ -224,7 +244,7 @@ class TemporalWorker private constructor(
             }
         } catch (e: TemporalCoreException) {
             // Treat shutdown errors as normal completion
-            if (e.message?.contains("shutdown", ignoreCase = true) == true) null else throw e
+            if (isShutdownError(e)) null else throw e
         }
     }
 
