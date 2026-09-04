@@ -1,5 +1,6 @@
 package com.surrealdev.temporal.core.internal
 
+import com.surrealdev.temporal.core.BuildConfig
 import java.io.FileOutputStream
 import java.lang.foreign.Arena
 import java.lang.foreign.SymbolLookup
@@ -52,18 +53,23 @@ object NativeLoader {
                     $$"""
                     Native library not found for platform: $${platform.resourceDir}
 
-                    Add the platform-specific dependency:
+                    Add the platform-specific dependency. Note that core-bridge is versioned as
+                    <sdk-core version>-<temporal-kt version>, so it does NOT share the version of
+                    com.surrealdev.temporal:core -- use the version below verbatim.
 
-                    Gradle (recommended - with osdetector):
+                    Directly, for this platform:
+                      runtimeOnly("com.surrealdev.temporal:core-bridge:$${BuildConfig.BRIDGE_VERSION}:$${platform.mavenClassifier}")
+
+                    Gradle (with osdetector, to pick the classifier automatically):
                       plugins { id("com.google.osdetector") version "1.7.3" }
                       dependencies {
-                        implementation("com.surrealdev.temporal:core-bridge:VERSION")
+                        implementation("com.surrealdev.temporal:core-bridge:$${BuildConfig.BRIDGE_VERSION}")
                         val nativeClassifier = if (osdetector.os == "linux") "${osdetector.classifier}-gnu" else osdetector.classifier
-                        runtimeOnly("com.surrealdev.temporal:core-bridge:VERSION:$nativeClassifier")
+                        runtimeOnly("com.surrealdev.temporal:core-bridge:$${BuildConfig.BRIDGE_VERSION}:$nativeClassifier")
                       }
 
-                    Or specify the classifier directly:
-                      runtimeOnly("com.surrealdev.temporal:core-bridge:VERSION:$${platform.mavenClassifier}")
+                    Simplest: apply the com.surrealdev.temporal Gradle plugin and use `temporal { native() }`,
+                    which resolves the matching classifier for you.
 
                     Supported classifiers: linux-x86_64-gnu, linux-aarch64-gnu, macos-aarch64, windows-x86_64
                     """.trimIndent(),

@@ -7,6 +7,12 @@ plugins {
     alias(libs.plugins.protobuf)
 }
 
+// Versioned as `<sdkCoreVersion>-<temporal-kt version>` (e.g. 0.6.0-0.1.11): this artifact's
+// content is determined by a Temporal SDK-Core release as much as by temporal-kt, so the
+// coordinate says which Core it speaks to. See gradle.properties.
+val sdkCoreVersion: String by project
+version = "$sdkCoreVersion-${rootProject.version}"
+
 // The generated protobuf classes for Temporal's API and SDK-Core's own `coresdk.*` messages.
 //
 // These live in their own module because they are the single largest cost in a clean build --
@@ -70,7 +76,7 @@ mavenPublishing {
     // No Dokka javadoc jar: there is nothing here worth rendering, and building one over the
     // generated sources is slow and memory-hungry. The sources jar is kept so IDEs can navigate
     // into the generated code.
-    configure(KotlinJvm(javadocJar = JavadocJar.Empty(), sourcesJar = true))
+    configure(KotlinJvm(javadocJar = JavadocJar.Empty()))
 
     coordinates(artifactId = "protos")
 

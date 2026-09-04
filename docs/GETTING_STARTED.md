@@ -50,6 +50,23 @@ If you prefer not to use the plugin, specify your platform directly:
 | macOS aarch64 (Apple Silicon) | `macos-aarch64`     |
 | Windows x86_64                | `windows-x86_64`    |
 
+```kotlin
+dependencies {
+    // Pins a compatible set of temporal-kt artifacts, so you only name a version once.
+    implementation(platform("com.surrealdev.temporal:bom:VERSION"))
+
+    implementation("com.surrealdev.temporal:core")
+    runtimeOnly("com.surrealdev.temporal:core-bridge::macos-aarch64")  // your classifier here
+}
+```
+
+> **`core-bridge` does not share `core`'s version.** It and `protos` are published as
+> `<sdk-core version>-<temporal-kt version>` — for example `0.6.0-0.1.11` — because their content
+> is determined by a Temporal SDK-Core release as much as by temporal-kt. Importing the BOM (or
+> using the Gradle plugin) means you never have to write that version yourself. If you do pin it
+> by hand, the main jar and the native classifier jar **must** be the same version; the SDK fails
+> fast with the correct coordinate if the native library is missing.
+
 ### Hello World
 
 Here's a minimal example to get you started:

@@ -20,7 +20,16 @@ dependencies {
     dokka(project(":core"))
 }
 
+// Projects with no documentable sources. `bom` is a java-platform (constraints only) and
+// `protos` is ~2,100 generated files that nobody reads as docs -- running Dokka over them is what
+// made the root build need -Xmx8g.
+val undocumentedProjects = setOf("bom", "protos")
+
 subprojects {
+    if (name in undocumentedProjects) {
+        return@subprojects
+    }
+
     apply(plugin = "org.jetbrains.dokka")
 
     // Only apply dokka-javadoc to non-multiplatform projects

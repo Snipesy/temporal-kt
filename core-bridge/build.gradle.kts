@@ -6,6 +6,12 @@ plugins {
     id("com.github.gmazzo.buildconfig")
 }
 
+// Versioned as `<sdkCoreVersion>-<temporal-kt version>` (e.g. 0.6.0-0.1.11): this artifact's
+// content is determined by a Temporal SDK-Core release as much as by temporal-kt, so the
+// coordinate says which Core it speaks to. See gradle.properties.
+val sdkCoreVersion: String by project
+version = "$sdkCoreVersion-${rootProject.version}"
+
 // Platform classifier to internal resource directory mapping
 data class NativePlatform(
     val classifier: String,
@@ -366,7 +372,15 @@ buildConfig {
     documentation.set("Build-time configuration constants.")
 
     buildConfigField("TEMPORAL_CLI_VERSION", temporalCliVersion)
-    buildConfigField("SDK_VERSION", project.version.toString())
+
+    // The temporal-kt SDK version, NOT this module's composite version. This is reported to the
+    // Temporal server as the client version (see TemporalCoreClient.clientVersion), where
+    // "0.6.0-0.1.11" would wrongly read as an SDK 0.6.0. rootProject.version is the SDK version.
+    buildConfigField("SDK_VERSION", rootProject.version.toString())
+
+    // This module's own coordinate, `<sdkCoreVersion>-<version>`, for diagnostics.
+    buildConfigField("BRIDGE_VERSION", project.version.toString())
+    buildConfigField("SDK_CORE_VERSION", sdkCoreVersion)
 }
 
 mavenPublishing {

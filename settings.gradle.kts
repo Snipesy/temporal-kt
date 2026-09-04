@@ -5,6 +5,7 @@ dependencyResolutionManagement {
     }
 }
 
+include(":bom")
 include(":core-common")
 include(":protos")
 include(":core-bridge")

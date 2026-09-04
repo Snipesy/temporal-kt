@@ -251,13 +251,13 @@ jobs:
           # Remove 'v' prefix if present
           VERSION="${VERSION#v}"
           echo "Publishing version: $VERSION"
-          sed -i "s/version=.*/version=$VERSION/" gradle.properties
+          sed -i "s/^version=.*/version=$VERSION/" gradle.properties
 
       - name: Set version from input
         if: github.event_name == 'workflow_dispatch' && inputs.version != ''
         run: |
           echo "Publishing version: ${{ inputs.version }}"
-          sed -i "s/version=.*/version=${{ inputs.version }}/" gradle.properties
+          sed -i "s/^version=.*/version=${{ inputs.version }}/" gradle.properties
 
       - name: Build classifier JARs
         run: |
