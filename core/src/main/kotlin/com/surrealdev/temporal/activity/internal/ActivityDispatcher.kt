@@ -219,9 +219,11 @@ class ActivityDispatcher(
         // Mark the context as cancelled so heartbeat checks will throw
         running.context.markCancelled(exception)
 
-        // Cancel the coroutine job - this will cause CancellationException
-        // which gets caught and converted to cancelled completion
-        running.job.cancel(CancellationException("Activity cancelled: ${cancel.reason}"))
+        // Cancel the coroutine job with the SAME typed exception, so whatever the activity is
+        // suspended on (delay, await, heartbeat) surfaces the reason - not a generic
+        // CancellationException. ActivityCancelledException is a CancellationException, and the
+        // dispatcher converts it to a cancelled completion either way.
+        running.job.cancel(exception)
 
         // Interrupt the virtual thread if present and check for zombies
         running.virtualThread?.let { vt ->
