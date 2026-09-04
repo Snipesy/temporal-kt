@@ -18,10 +18,13 @@ kotlin {
 dependencies {
     api(project(":core-common"))
     implementation(project(":core-bridge"))
+    // Proto types are pervasive in core's public ABI (io.temporal.api.* and coresdk.* appear
+    // throughout core/api/core.api), so consumers need them on their compile classpath.
+    // protobuf-java and protobuf-kotlin arrive transitively from :protos.
+    api(project(":protos"))
     api(libs.bundles.kotlinxEcosystem)
-    implementation(libs.protobufJava)
+    // Still needed directly: JsonFormat and Durations from protobuf-java-util.
     implementation(libs.protobufJavaUtil)
-    implementation(libs.protobufKotlin)
     implementation(libs.bundles.hoplite)
     implementation(libs.kotlinReflect)
     api(libs.slf4jApi)

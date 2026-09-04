@@ -37,6 +37,7 @@
             <option value="$PROJECT_DIR$/plugins/health" />
             <option value="$PROJECT_DIR$/plugins/jib" />
             <option value="$PROJECT_DIR$/plugins/opentelemetry" />
+            <option value="$PROJECT_DIR$/protos" />
           </set>
         </option>
       </GradleProjectSettings>

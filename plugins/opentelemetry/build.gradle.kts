@@ -23,9 +23,6 @@ dependencies {
     // Coroutine-aware MDC propagation
     implementation(libs.kotlinCoroutinesSl4j)
 
-    // Protobuf for accessing task fields (via core-bridge)
-    implementation(libs.protobufJava)
-
     testImplementation(kotlin("test"))
     testImplementation(project(":core-testing"))
     testImplementation(libs.kotlinxCoroutinesTest)

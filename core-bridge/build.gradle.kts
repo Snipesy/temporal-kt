@@ -3,7 +3,6 @@ import org.gradle.internal.os.OperatingSystem
 plugins {
     id("buildsrc.convention.kotlin-jvm")
     id("buildsrc.convention.maven-publish")
-    alias(libs.plugins.protobuf)
     id("com.github.gmazzo.buildconfig")
 }
 
@@ -25,26 +24,14 @@ val nativePlatforms =
 
 dependencies {
     api(project(":core-common"))
-    implementation(libs.protobufJava)
-    implementation(libs.protobufKotlin)
+    // Proto types appear in this module's own signatures (worker poll/complete traffic in
+    // `coresdk.*`, TemporalTestServer returns io.temporal.api.testservice.v1.*), so this is api.
+    api(project(":protos"))
     implementation(libs.kotlinxCoroutines)
     implementation(libs.slf4jApi)
     compileOnly(libs.opentelemetryApi)
 
     testImplementation(kotlin("test"))
-}
-
-protobuf {
-    protoc {
-        artifact = "com.google.protobuf:protoc:${libs.versions.protobuf.get()}"
-    }
-    generateProtoTasks {
-        all().forEach { task ->
-            task.builtins {
-                create("kotlin")
-            }
-        }
-    }
 }
 
 // Detect current platform
@@ -298,20 +285,6 @@ val copyWindowsNativeLib by tasks.registering {
     dependsOn(copyNativeLibWindowsx8664)
 }
 
-// Configure sdk-core protos (native libs are NOT included in main JAR - they go in classifier JARs)
-sourceSets {
-    main {
-        proto {
-            srcDir("rust/sdk-core/crates/protos/protos/local")
-            srcDir("rust/sdk-core/crates/protos/protos/api_upstream")
-            srcDir("rust/sdk-core/crates/protos/protos/testsrv_upstream")
-            // Exclude google protobuf well-known types - use runtime versions instead
-            // This prevents version conflicts between generated code and protobuf-java runtime
-            exclude("**/google/protobuf/**")
-        }
-    }
-}
-
 // Set -PskipNativeBuild=true to skip native library building (used in CI publish job)
 val skipNativeBuild = project.findProperty("skipNativeBuild")?.toString()?.toBoolean() ?: false
 
@@ -394,16 +367,6 @@ buildConfig {
 
     buildConfigField("TEMPORAL_CLI_VERSION", temporalCliVersion)
     buildConfigField("SDK_VERSION", project.version.toString())
-}
-
-// Configure Dokka to exclude generated code to prevent OOM
-dokka {
-    dokkaSourceSets.configureEach {
-        // Exclude generated protobuf code from documentation
-        suppressedFiles.from(
-            fileTree("${layout.buildDirectory.get()}/generated/source/proto"),
-        )
-    }
 }
 
 mavenPublishing {

@@ -9,8 +9,6 @@ dependencies {
     api(project(":core"))
     implementation(project(":core-bridge"))
     implementation(libs.kotlinxCoroutinesTest)
-    implementation(libs.protobufJava)
-    implementation(libs.protobufKotlin)
     implementation(libs.slf4jApi)
 }
 

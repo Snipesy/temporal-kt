@@ -6,6 +6,7 @@ dependencyResolutionManagement {
 }
 
 include(":core-common")
+include(":protos")
 include(":core-bridge")
 include(":core")
 include(":core-testing")
