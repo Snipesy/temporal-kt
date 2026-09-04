@@ -63,7 +63,21 @@ internal class RemoteActivityHandleImpl(
         logger.fine("Awaiting result for activity: type=$activityType, id=$activityId, seq=$seq")
 
         // This may throw if activity failed/cancelled (via resolve())
-        val payload = resultDeferred.await()
+        val payload =
+            try {
+                resultDeferred.await()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // The awaiting coroutine was cancelled before the activity resolved (withTimeout,
+                // select, an enclosing scope, or workflow cancellation): request cancellation of the
+                // activity itself, as cancelling a Java SDK CancellationScope or a Python task
+                // awaiting the handle does. cancel() is idempotent and a no-op once resolved.
+                // No command is emitted during teardown: terminal completion sets workflowCompleted
+                // first, and eviction clears the activity registry before cancelling awaiters.
+                if (!state.workflowCompleted && state.getActivity(seq) != null) {
+                    cancel(state.cancelReason ?: "Awaiting coroutine was cancelled")
+                }
+                throw e
+            }
 
         // Check if we resolved with an exception
         cachedException?.let { throw it }

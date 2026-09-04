@@ -422,6 +422,23 @@ class CancellableWorkflow {
 }
 ```
 
+Cancellation also follows coroutine cancellation. If the coroutine awaiting `handle.result()` is
+cancelled before the activity resolves, the SDK requests cancellation of the activity for you, the
+same way cancelling a Java SDK `CancellationScope` or a Python task awaiting an activity handle
+does. This covers `withTimeout`, `select`, cancelling an enclosing `launch`/`async`, and workflow
+cancellation:
+
+```kotlin
+// Whichever finishes first wins; the loser's activity is cancelled automatically
+val result = withTimeoutOrNull(1.minutes) {
+    workflow().startActivity("slowTask", startToCloseTimeout = 5.minutes).result<String>()
+}
+```
+
+Call `handle.cancel()` explicitly only when you want to cancel an activity without cancelling the
+code that awaits it, as in the example above. How the cancellation is delivered is still governed
+by `ActivityCancellationType`.
+
 ## Activity Options
 
 ### ActivityOptions (Remote Activities)
