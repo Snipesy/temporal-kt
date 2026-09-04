@@ -87,7 +87,9 @@ val cargoBuild by tasks.registering(Exec::class) {
             include("Cargo.toml", "Cargo.lock")
         },
         fileTree("rust/sdk-core") {
-            include("**/*.rs", "**/Cargo.toml")
+            // rust-toolchain.toml pins the compiler version, so a change to it changes the
+            // produced library and must invalidate this task.
+            include("**/*.rs", "**/Cargo.toml", "rust-toolchain.toml")
         },
     )
     outputs.file("rust/target/release/${libPrefix}$nativeLibName.$libExtension")
@@ -123,7 +125,9 @@ val cargoBuildLinuxx8664 by tasks.registering(Exec::class) {
             include("Cargo.toml", "Cargo.lock")
         },
         fileTree("rust/sdk-core") {
-            include("**/*.rs", "**/Cargo.toml")
+            // rust-toolchain.toml pins the compiler version, so a change to it changes the
+            // produced library and must invalidate this task.
+            include("**/*.rs", "**/Cargo.toml", "rust-toolchain.toml")
         },
     )
     outputs.file("rust/target/x86_64-unknown-linux-gnu/release/lib$nativeLibName.so")
@@ -159,7 +163,9 @@ val cargoBuildLinuxAarch64 by tasks.registering(Exec::class) {
             include("Cargo.toml", "Cargo.lock")
         },
         fileTree("rust/sdk-core") {
-            include("**/*.rs", "**/Cargo.toml")
+            // rust-toolchain.toml pins the compiler version, so a change to it changes the
+            // produced library and must invalidate this task.
+            include("**/*.rs", "**/Cargo.toml", "rust-toolchain.toml")
         },
     )
     outputs.file("rust/target/aarch64-unknown-linux-gnu/release/lib$nativeLibName.so")
@@ -195,7 +201,9 @@ val cargoBuildWindowsx8664 by tasks.registering(Exec::class) {
             include("Cargo.toml", "Cargo.lock")
         },
         fileTree("rust/sdk-core") {
-            include("**/*.rs", "**/Cargo.toml")
+            // rust-toolchain.toml pins the compiler version, so a change to it changes the
+            // produced library and must invalidate this task.
+            include("**/*.rs", "**/Cargo.toml", "rust-toolchain.toml")
         },
     )
     outputs.file("rust/target/x86_64-pc-windows-msvc/release/$nativeLibName.dll")
@@ -231,7 +239,9 @@ val cargoBuildMacosAarch64 by tasks.registering(Exec::class) {
             include("Cargo.toml", "Cargo.lock")
         },
         fileTree("rust/sdk-core") {
-            include("**/*.rs", "**/Cargo.toml")
+            // rust-toolchain.toml pins the compiler version, so a change to it changes the
+            // produced library and must invalidate this task.
+            include("**/*.rs", "**/Cargo.toml", "rust-toolchain.toml")
         },
     )
     outputs.file("rust/target/aarch64-apple-darwin/release/lib$nativeLibName.dylib")
