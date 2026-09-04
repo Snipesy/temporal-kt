@@ -10,6 +10,7 @@ plugins {
 // content is determined by a Temporal SDK-Core release as much as by temporal-kt, so the
 // coordinate says which Core it speaks to. See gradle.properties.
 val sdkCoreVersion: String by project
+val bridgeAbi: String by project
 version = "$sdkCoreVersion-${rootProject.version}"
 
 // Platform classifier to internal resource directory mapping
@@ -381,6 +382,9 @@ buildConfig {
     // This module's own coordinate, `<sdkCoreVersion>-<version>`, for diagnostics.
     buildConfigField("BRIDGE_VERSION", project.version.toString())
     buildConfigField("SDK_CORE_VERSION", sdkCoreVersion)
+
+    // Compatibility number for the seam `core` consumes. See gradle.properties.
+    buildConfigField("ABI_VERSION", bridgeAbi.toInt())
 }
 
 mavenPublishing {

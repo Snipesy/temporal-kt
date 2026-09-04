@@ -6,6 +6,20 @@ plugins {
     // Tests here execute native code, so they need the Core native library on the classpath.
     id("buildsrc.convention.temporal-native-test")
     alias(libs.plugins.kotlinPluginSerialization)
+    id("com.github.gmazzo.buildconfig")
+}
+
+// The core-bridge seam this module was compiled against. core-bridge is separately published on
+// its own version, so a consumer can pin a bridge that does not fit this core; BridgeCompatibility
+// compares this against BridgeBuildInfo.ABI_VERSION at startup. See gradle.properties.
+val bridgeAbi: String by project
+
+buildConfig {
+    packageName("com.surrealdev.temporal.internal")
+    documentation.set("Build-time configuration constants for temporal-kt core.")
+
+    buildConfigField("REQUIRED_BRIDGE_ABI", bridgeAbi.toInt())
+    buildConfigField("SDK_VERSION", project.version.toString())
 }
 
 kotlin {

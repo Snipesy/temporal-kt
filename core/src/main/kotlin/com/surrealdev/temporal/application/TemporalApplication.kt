@@ -37,6 +37,7 @@ import com.surrealdev.temporal.core.TlsConfig
 import com.surrealdev.temporal.core.WorkerConfig
 import com.surrealdev.temporal.core.WorkerDeploymentOptions
 import com.surrealdev.temporal.core.createJvmResourceMonitor
+import com.surrealdev.temporal.internal.BridgeCompatibility
 import com.surrealdev.temporal.internal.ZombieEvictionConfig
 import com.surrealdev.temporal.serialization.NoOpCodec
 import com.surrealdev.temporal.serialization.PayloadCodec
@@ -171,6 +172,10 @@ open class TemporalApplication internal constructor(
                 ApplicationPreStartup,
                 ApplicationPreStartupContext(this),
             )
+            // Fail with one clear message if core and core-bridge were pinned at versions that
+            // were never built together, rather than with a NoSuchMethodError further in.
+            BridgeCompatibility.check()
+
             // Create the runtime, with Core metrics bridge if OTel plugin provided a Meter
             val coreMetricsMeter = attributes.getOrNull(CoreMetricsMeterKey)
             val rt = TemporalRuntime.create(coreMetricsMeter, config.workerHeartbeatIntervalMs)
