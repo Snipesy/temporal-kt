@@ -8,19 +8,20 @@ plugins {
 // A BOM pinning the exact set of temporal-kt artifacts that are known to work together.
 //
 // This exists because the artifacts no longer share a single version: core-bridge and protos
-// carry a composite `<sdkCoreVersion>-<version>` coordinate while everything else tracks the SDK
-// version. Gradle users who apply `com.surrealdev.temporal` get the right versions from the
+// carry a composite `<sdkCoreVersion>-<bridgeVersion>` coordinate, are published from a separate
+// repository, and everything else tracks the SDK version. Gradle users who apply `com.surrealdev.temporal` get the right versions from the
 // plugin's generated constants, but Maven users -- and Gradle users who wire dependencies by
 // hand -- have no way to know which bridge a given core was built against. Importing this
 // platform answers that in one line.
-val sdkCoreVersion: String by project
-val coreBridgeVersion = "$sdkCoreVersion-${rootProject.version}"
+val bridgeVersion: String by project
+val bridgeSdkCoreVersion: String by project
+val coreBridgeVersion = "$bridgeSdkCoreVersion-$bridgeVersion"
 
 dependencies {
     constraints {
         // Versioned with the SDK.
         api("${project.group}:core:${rootProject.version}")
-        api("${project.group}:core-common:${rootProject.version}")
+        api("${project.group}:core-common:$bridgeVersion")
         api("${project.group}:testing:${rootProject.version}")
         api("${project.group}:di:${rootProject.version}")
         api("${project.group}:opentelemetry:${rootProject.version}")

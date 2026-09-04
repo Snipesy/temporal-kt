@@ -9,6 +9,12 @@ plugins {
     id("com.github.gmazzo.buildconfig")
 }
 
+// Coordinates of the published temporal-kt-bridge artifacts. Derived from gradle.properties so
+// the composite version cannot drift from its parts; see the comment there.
+val bridgeVersion: String by project
+val bridgeSdkCoreVersion: String by project
+val bridgeComposite = "$bridgeSdkCoreVersion-$bridgeVersion"
+
 // The core-bridge seam this module was compiled against. core-bridge is separately published on
 // its own version, so a consumer can pin a bridge that does not fit this core; BridgeCompatibility
 // compares this against BridgeBuildInfo.ABI_VERSION at startup. See gradle.properties.
@@ -30,12 +36,12 @@ kotlin {
 }
 
 dependencies {
-    api(project(":core-common"))
-    implementation(project(":core-bridge"))
+    api("com.surrealdev.temporal:core-common:$bridgeVersion")
+    implementation("com.surrealdev.temporal:core-bridge:$bridgeComposite")
     // Proto types are pervasive in core's public ABI (io.temporal.api.* and coresdk.* appear
     // throughout core/api/core.api), so consumers need them on their compile classpath.
-    // protobuf-java and protobuf-kotlin arrive transitively from :protos.
-    api(project(":protos"))
+    // protobuf-java and protobuf-kotlin arrive transitively from protos.
+    api("com.surrealdev.temporal:protos:$bridgeComposite")
     api(libs.bundles.kotlinxEcosystem)
     // Still needed directly: JsonFormat and Durations from protobuf-java-util.
     implementation(libs.protobufJavaUtil)

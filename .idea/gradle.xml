@@ -23,8 +23,6 @@
             <option value="$PROJECT_DIR$/buildSrc" />
             <option value="$PROJECT_DIR$/compiler-plugin" />
             <option value="$PROJECT_DIR$/core" />
-            <option value="$PROJECT_DIR$/core-bridge" />
-            <option value="$PROJECT_DIR$/core-common" />
             <option value="$PROJECT_DIR$/core-testing" />
             <option value="$PROJECT_DIR$/examples" />
             <option value="$PROJECT_DIR$/examples/config-driven" />
@@ -37,7 +35,6 @@
             <option value="$PROJECT_DIR$/plugins/health" />
             <option value="$PROJECT_DIR$/plugins/jib" />
             <option value="$PROJECT_DIR$/plugins/opentelemetry" />
-            <option value="$PROJECT_DIR$/protos" />
           </set>
         </option>
       </GradleProjectSettings>

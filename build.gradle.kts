@@ -14,16 +14,14 @@ dokka {
 }
 
 dependencies {
-    dokka(project(":core-bridge"))
+    // core-bridge and core-common are documented in the temporal-kt-bridge repository.
     dokka(project(":compiler-plugin"))
     dokka(project(":gradle-plugin"))
     dokka(project(":core"))
 }
 
-// Projects with no documentable sources. `bom` is a java-platform (constraints only) and
-// `protos` is ~2,100 generated files that nobody reads as docs -- running Dokka over them is what
-// made the root build need -Xmx8g.
-val undocumentedProjects = setOf("bom", "protos")
+// `bom` is a java-platform: constraints only, nothing to document.
+val undocumentedProjects = setOf("bom")
 
 subprojects {
     if (name in undocumentedProjects) {

@@ -9,12 +9,27 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    name: Build and test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # No Rust toolchain, no protoc and no submodules are needed any more: core-bridge,
+        # core-common and protos are consumed as published artifacts from
+        # SurrealDevelopment/temporal-kt-bridge. That is what makes a multi-platform matrix
+        # affordable here, where this used to be a single Linux job that compiled Rust.
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-14]
+        experimental: [false]
+        include:
+          # Windows was disabled while this job built Rust. It only needs a downloaded
+          # classifier jar now, so it runs again -- non-blocking until it has a track record.
+          - os: windows-latest
+            experimental: true
+    continue-on-error: ${{ matrix.experimental }}
 
     steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: 'recursive'
+      - uses: actions/checkout@v6
 
       - name: Set up JDK 25
         uses: actions/setup-java@v4
@@ -22,20 +37,24 @@ jobs:
           java-version: '25'
           distribution: 'graalvm'
 
-      - name: Set up Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: stable
-          cache-workspaces: "core-bridge/rust -> target"
-          cache-all-crates: true
-          cache-on-failure: true
-          rustflags: ""
-
-      - name: Install Protobuf
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
-
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build and test
-        run: gradle build -PexcludeTags=githubactionrunnersarebadmicrosoftshouldfixit
+        run: ./gradlew build -PexcludeTags=githubactionrunnersarebadmicrosoftshouldfixit
+
+      # `checkKotlinAbi` is the gate that proves the public seam did not move. It runs as part of
+      # `check`, but call it out so a failure is obvious in the job list.
+      - name: Verify public ABI
+        run: ./gradlew :core:checkKotlinAbi
+
+      # A crash inside a native call kills the JVM and Gradle reports nothing useful.
+      - name: Upload crash logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crash-logs-${{ matrix.os }}
+          path: |
+            **/hs_err_pid*.log
+            **/replay_pid*.log
+          if-no-files-found: ignore

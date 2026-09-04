@@ -1,5 +1,7 @@
 plugins {
     id("buildsrc.convention.kotlin-jvm")
+    // Runnable: needs the Core native library on the runtime classpath.
+    id("buildsrc.convention.temporal-native-runtime")
     application
 }
 
@@ -16,11 +18,6 @@ dependencies {
     implementation(libs.logbackClassic)
     // Bridges Logback → OTel Logs API → OTLP → Loki
     implementation(libs.opentelemetryLogbackAppender)
-
-    // The Core native library, as a JAR -- the same shape a published consumer resolves from
-    // Maven as a classifier artifact. Replaces the old resources-srcDir + processResources
-    // dependsOn(":core-bridge:copyNativeLib") wiring.
-    runtimeOnly(project(mapOf("path" to ":core-bridge", "configuration" to "nativeRuntime")))
 }
 
 application {
