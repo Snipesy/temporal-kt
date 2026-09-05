@@ -204,7 +204,8 @@ class TemporalGradlePlugin : KotlinCompilerPluginSupportPlugin {
          */
         private fun linuxLibc(): String {
             val alpine = java.io.File("/etc/alpine-release").exists()
-            val muslLoader = java.io.File("/lib").list()?.any { it.startsWith("ld-musl-") && it.endsWith(".so.1") } == true
+            val muslLoader =
+                java.io.File("/lib").list()?.any { it.startsWith("ld-musl-") && it.endsWith(".so.1") } == true
             return if (alpine || muslLoader) "musl" else "gnu"
         }
 

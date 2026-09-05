@@ -26,14 +26,15 @@ object TemporalNative {
                 ?: project.providers.environmentVariable("TEMPORAL_KT_NATIVE_LIB").orNull
         )?.let { project.file(it).absolutePath }
 
-    /** The classifier for the machine running the build. */
     /** "musl" on Alpine and other musl distributions, "gnu" otherwise (see the loader's detection). */
     private fun linuxLibc(): String {
         val alpine = java.io.File("/etc/alpine-release").exists()
-        val muslLoader = java.io.File("/lib").list()?.any { it.startsWith("ld-musl-") && it.endsWith(".so.1") } == true
+        val muslLoader =
+            java.io.File("/lib").list()?.any { it.startsWith("ld-musl-") && it.endsWith(".so.1") } == true
         return if (alpine || muslLoader) "musl" else "gnu"
     }
 
+    /** The classifier for the machine running the build. */
     fun hostClassifier(): String {
         val os = OperatingSystem.current()
         val arch = System.getProperty("os.arch")
