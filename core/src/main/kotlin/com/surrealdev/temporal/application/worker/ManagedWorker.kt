@@ -24,6 +24,7 @@ import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskStarted
 import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.exceptions.ActivityCancelledException
 import com.surrealdev.temporal.common.toProto
+import com.surrealdev.temporal.core.TemporalCoreException
 import com.surrealdev.temporal.core.TemporalWorker
 import com.surrealdev.temporal.internal.isFatalError
 import com.surrealdev.temporal.serialization.PayloadCodec
@@ -343,11 +344,6 @@ internal class ManagedWorker(
             launch(CoroutineName("ActivityPoller-$taskQueue")) {
                 pollActivityTasks()
             }
-
-        // No grant loop. Resource-based slot suppliers are Core's own now: the bridge encodes
-        // the targets, gains and per-slot limits into the worker's config, and Core runs the PID
-        // controllers itself. The JVM copy of that algorithm sat behind seven FFM upcalls in
-        // front of every poll.
 
         // This ensures that if a polling job fails unexpectedly, shutdown is triggered
         workflowPollingJob?.invokeOnCompletion { cause ->
@@ -712,9 +708,10 @@ internal class ManagedWorker(
                 } catch (_: CancellationException) {
                     logger.info("[pollWorkflowActivations] Cancelled, exiting")
                     break
+                } catch (e: TemporalCoreException) {
+                    // Core retries transient poll failures internally; a closed failed stream is terminal.
+                    throw e
                 } catch (e: Exception) {
-                    // Log and continue on errors for now
-                    // In production, we'd want proper error handling
                     if (!shutdownSignal.isCompleted) {
                         logger.warn("[pollWorkflowActivations] Error in polling loop", e)
                     }
@@ -944,8 +941,10 @@ internal class ManagedWorker(
                 } catch (_: CancellationException) {
                     logger.info("[pollActivityTasks] Cancelled, exiting")
                     break
+                } catch (e: TemporalCoreException) {
+                    // Let the polling job's completion handler fail the worker instead of retrying this stream.
+                    throw e
                 } catch (e: Exception) {
-                    // Log and continue on errors for now
                     if (!shutdownSignal.isCompleted) {
                         logger.warn("[pollActivityTasks] Error in polling loop", e)
                     }

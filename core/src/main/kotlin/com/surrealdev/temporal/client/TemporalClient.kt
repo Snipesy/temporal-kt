@@ -13,7 +13,6 @@ import com.surrealdev.temporal.application.plugin.interceptor.ListWorkflowsInput
 import com.surrealdev.temporal.application.plugin.interceptor.StartWorkflow
 import com.surrealdev.temporal.application.plugin.interceptor.StartWorkflowInput
 import com.surrealdev.temporal.client.internal.WorkflowServiceClient
-import com.surrealdev.temporal.client.internal.connectionTarget
 import com.surrealdev.temporal.client.internal.rethrowMapped
 import com.surrealdev.temporal.common.SearchAttributeEncoder
 import com.surrealdev.temporal.common.TemporalByteString
@@ -232,7 +231,7 @@ interface TemporalClient {
                 try {
                     TemporalCoreClient.connect(
                         runtime = runtime,
-                        targetUrl = connectionTarget(config.target, config.tls, config.apiKey, config.tlsDisabled),
+                        targetUrl = config.target,
                         namespace = config.namespace,
                         tls = config.tls,
                         apiKey = config.apiKey,

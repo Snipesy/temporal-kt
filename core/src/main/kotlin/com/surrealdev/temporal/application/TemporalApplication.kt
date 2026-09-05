@@ -26,7 +26,6 @@ import com.surrealdev.temporal.application.worker.ManagedWorker
 import com.surrealdev.temporal.application.worker.WorkerStatus
 import com.surrealdev.temporal.client.TemporalClient
 import com.surrealdev.temporal.client.TemporalClientConfig
-import com.surrealdev.temporal.client.internal.connectionTarget
 import com.surrealdev.temporal.core.ClientOptions
 import com.surrealdev.temporal.core.CorePollerBehavior
 import com.surrealdev.temporal.core.GrpcCompression
@@ -183,13 +182,7 @@ open class TemporalApplication internal constructor(
             val client =
                 TemporalCoreClient.connect(
                     runtime = rt,
-                    targetUrl =
-                        connectionTarget(
-                            config.connection.target,
-                            config.connection.tls,
-                            config.connection.apiKey,
-                            config.connection.tlsDisabled,
-                        ),
+                    targetUrl = config.connection.target,
                     namespace = config.connection.namespace,
                     tls = config.connection.tls,
                     apiKey = config.connection.apiKey,
@@ -249,6 +242,21 @@ open class TemporalApplication internal constructor(
                                 buildId = config.buildId,
                             ),
                     )
+                coreWorker.onSlotSupplierMetrics { sample ->
+                    hookRegistry.callBlocking(
+                        com.surrealdev.temporal.application.plugin.hooks.SlotSupplierMetricsSampled,
+                        com.surrealdev.temporal.application.plugin.hooks.SlotSupplierMetricsContext(
+                            taskQueueConfig.name,
+                            sample.slotType,
+                            sample.memoryUsage,
+                            sample.cpuLoad,
+                            sample.memoryPidOutput,
+                            sample.cpuPidOutput,
+                            sample.activeSlots,
+                            sample.pendingReserves,
+                        ),
+                    )
+                }
                 coreWorkers.add(coreWorker)
 
                 // Wrap in ManagedWorker
