@@ -189,6 +189,8 @@ class TemporalGradlePlugin : KotlinCompilerPluginSupportPlugin {
             listOf(
                 "linux-x86_64-gnu",
                 "linux-aarch64-gnu",
+                "linux-x86_64-musl",
+                "linux-aarch64-musl",
                 "macos-aarch64",
                 "windows-x86_64",
             )
@@ -196,14 +198,24 @@ class TemporalGradlePlugin : KotlinCompilerPluginSupportPlugin {
         /**
          * Detects the native library classifier based on current OS and architecture.
          */
+        /**
+         * "musl" on Alpine and other musl distributions, "gnu" otherwise. Decided from the filesystem:
+         * musl installs its loader as /lib/ld-musl-<arch>.so.1, and Alpine ships /etc/alpine-release.
+         */
+        private fun linuxLibc(): String {
+            val alpine = java.io.File("/etc/alpine-release").exists()
+            val muslLoader = java.io.File("/lib").list()?.any { it.startsWith("ld-musl-") && it.endsWith(".so.1") } == true
+            return if (alpine || muslLoader) "musl" else "gnu"
+        }
+
         fun detectPlatformClassifier(): String {
             val os = OperatingSystem.current()
             val arch = System.getProperty("os.arch").lowercase()
 
             return when {
                 os.isMacOsX && (arch == "aarch64" || arch == "arm64") -> "macos-aarch64"
-                os.isLinux && (arch == "aarch64" || arch == "arm64") -> "linux-aarch64-gnu"
-                os.isLinux -> "linux-x86_64-gnu"
+                os.isLinux && (arch == "aarch64" || arch == "arm64") -> "linux-aarch64-${linuxLibc()}"
+                os.isLinux -> "linux-x86_64-${linuxLibc()}"
                 os.isWindows -> "windows-x86_64"
                 else -> throw GradleException("Unsupported platform: ${os.name} / $arch")
             }
