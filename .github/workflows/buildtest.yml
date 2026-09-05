@@ -19,12 +19,7 @@ jobs:
         # core-common and protos are consumed as published artifacts from
         # SurrealDevelopment/temporal-kt-bridge. That is what makes a multi-platform matrix
         # affordable here, where this used to be a single Linux job that compiled Rust.
-        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-14]
-        experimental: [false]
-        include:
-          # Windows was disabled while this job built Rust. It only needs a downloaded
-          # classifier jar now, so it runs again -- non-blocking until it has a track record.
-          - os: windows-latest
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-14, windows-latest]
 
     steps:
       - uses: actions/checkout@v6
