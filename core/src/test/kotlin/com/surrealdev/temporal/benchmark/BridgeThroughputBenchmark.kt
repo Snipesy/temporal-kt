@@ -21,7 +21,7 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.measureTime
 
 /**
- * Measures the cost of the JVM <-> Core boundary, not of the server.
+ * Measures end-to-end activity throughput, including the JVM <-> Core boundary and the server.
  *
  * Each sequential activity is four boundary crossings (activity poll and completion, then the
  * workflow activation that observes the result and its completion), with essentially no work in
@@ -101,7 +101,7 @@ class BridgeThroughputBenchmark {
                 "BENCHMARK sequential-echo: $total activities across $WORKFLOWS workflows in $elapsed " +
                     "= ${"%.0f".format(perSecond)} activities/s, ${"%.2f".format(
                         elapsed.inWholeMicroseconds / total / 1000.0,
-                    )} ms per activity round trip",
+                    )} amortized ms/activity",
             )
         }
 }

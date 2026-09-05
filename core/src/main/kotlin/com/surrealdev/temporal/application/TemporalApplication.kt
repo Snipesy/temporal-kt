@@ -26,6 +26,7 @@ import com.surrealdev.temporal.application.worker.ManagedWorker
 import com.surrealdev.temporal.application.worker.WorkerStatus
 import com.surrealdev.temporal.client.TemporalClient
 import com.surrealdev.temporal.client.TemporalClientConfig
+import com.surrealdev.temporal.client.internal.connectionTarget
 import com.surrealdev.temporal.core.ClientOptions
 import com.surrealdev.temporal.core.CorePollerBehavior
 import com.surrealdev.temporal.core.GrpcCompression
@@ -37,6 +38,7 @@ import com.surrealdev.temporal.core.TlsConfig
 import com.surrealdev.temporal.core.WorkerConfig
 import com.surrealdev.temporal.core.WorkerDeploymentOptions
 import com.surrealdev.temporal.internal.BridgeCompatibility
+import com.surrealdev.temporal.internal.BuildConfig
 import com.surrealdev.temporal.internal.ZombieEvictionConfig
 import com.surrealdev.temporal.serialization.NoOpCodec
 import com.surrealdev.temporal.serialization.PayloadCodec
@@ -181,13 +183,20 @@ open class TemporalApplication internal constructor(
             val client =
                 TemporalCoreClient.connect(
                     runtime = rt,
-                    targetUrl = config.connection.target,
+                    targetUrl =
+                        connectionTarget(
+                            config.connection.target,
+                            config.connection.tls,
+                            config.connection.apiKey,
+                            config.connection.tlsDisabled,
+                        ),
                     namespace = config.connection.namespace,
                     tls = config.connection.tls,
                     apiKey = config.connection.apiKey,
                     tlsDisabled = config.connection.tlsDisabled,
                     options =
                         ClientOptions(
+                            clientVersion = BuildConfig.SDK_VERSION,
                             identity = config.connection.identity,
                             grpcCompression = config.connection.grpcCompression,
                         ),

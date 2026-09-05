@@ -18,7 +18,6 @@ as ordinary dependencies.
 Temporal-KT currently supports:
 
 * macOS aarch64
-* macOS x86_64
 * Linux x86_64 and aarch64, glibc 2.17 or newer (RHEL 7+, Debian 8+, Ubuntu 14.04+)
 * Linux x86_64 and aarch64, musl (Alpine)
 * Windows x86_64
@@ -26,8 +25,7 @@ Temporal-KT currently supports:
 > The libc flavour is detected at runtime (`/etc/alpine-release` or a `/lib/ld-musl-*.so.1` loader), so
 > Alpine images work with no configuration.
 
-Native libraries are built on each platform's native GitHub Actions runner. Release binaries are built
-and tested on the appropriate platforms (Linux x86_64, Linux aarch64, macOS x86_64, macOS aarch64, Windows x86_64).
+Native libraries are published by temporal-kt-bridge for the platforms listed above.
 
 
 ## Cloning
@@ -63,7 +61,7 @@ Gradle substitutes the projects automatically:
 
 ```bash
 ./gradlew build -Ptemporal.bridgePath=../temporal-kt-bridge \
-  -Ptemporal.nativeLib=../temporal-kt-bridge/core-bridge/rust/target/release/libtemporalio_sdk_core_c_bridge.dylib
+  -Ptemporal.nativeLib=$PWD/../temporal-kt-bridge/core-bridge/rust/kt-bridge/target/release/libkt_bridge.dylib
 ```
 
 `-Ptemporal.nativeLib` is still required in composite mode: Gradle can substitute a project for a

@@ -99,16 +99,9 @@ class TemporalGradlePlugin : KotlinCompilerPluginSupportPlugin {
                 }
             }
 
-        // Pin core-bridge to exactly one version across the whole graph.
-        //
-        // The main jar and the platform native jar are separate artifacts of the same module. If
-        // anything else in the build drags core-bridge to a different version -- a hand-pinned
-        // classifier, another library depending on the SDK -- Gradle can resolve the two halves at
-        // different versions and the failure surfaces as a confusing UnsatisfiedLinkError or an
-        // ABI mismatch at runtime rather than as a dependency conflict. `strictly` turns that into
-        // a resolution error naming the culprit.
+        // Attach the runtime constraint to our own configuration: Kotlin may be applied later.
         project.dependencies.constraints.add(
-            "runtimeOnly",
+            temporalNative.name,
             "${BuildConfig.GROUP_ID}:${BuildConfig.CORE_BRIDGE_ARTIFACT_ID}",
         ) { constraint ->
             constraint.version { it.strictly(BuildConfig.CORE_BRIDGE_VERSION) }

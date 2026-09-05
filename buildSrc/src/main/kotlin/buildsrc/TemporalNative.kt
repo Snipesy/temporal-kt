@@ -24,7 +24,7 @@ object TemporalNative {
         (
             project.providers.gradleProperty("temporal.nativeLib").orNull
                 ?: project.providers.environmentVariable("TEMPORAL_KT_NATIVE_LIB").orNull
-        )?.let { project.file(it).absolutePath }
+        )?.let { project.rootProject.file(it).absolutePath }
 
     /** "musl" on Alpine and other musl distributions, "gnu" otherwise (see the loader's detection). */
     private fun linuxLibc(): String {

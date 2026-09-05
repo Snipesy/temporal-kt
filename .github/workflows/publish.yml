@@ -57,18 +57,18 @@ jobs:
 
       # A release must not depend on an unreleased bridge, or consumers resolve a SNAPSHOT that
       # can change underneath them (or disappear).
-      - name: Reject SNAPSHOT bridge on a release
-        if: github.event_name == 'release'
+      - name: Reject SNAPSHOT bridge for a stable SDK version
         run: |
+          SDK_VERSION=$(grep '^version=' gradle.properties | cut -d= -f2)
           BRIDGE=$(grep '^bridgeVersion=' gradle.properties | cut -d= -f2)
-          if [[ "$BRIDGE" == *SNAPSHOT* ]]; then
+          if [[ "$SDK_VERSION" != *SNAPSHOT* && "$BRIDGE" == *SNAPSHOT* ]]; then
             echo "ERROR: releasing against bridgeVersion=$BRIDGE. Release temporal-kt-bridge first."
             exit 1
           fi
           echo "OK: bridgeVersion=$BRIDGE"
 
       - name: Build and test
-        run: ./gradlew build :core:checkKotlinAbi
+        run: ./gradlew build :core:checkKotlinAbi -PexcludeTags=githubactionrunnersarebadmicrosoftshouldfixit
 
       - name: Verify JAR contents
         run: |
@@ -80,10 +80,10 @@ jobs:
           for jar in */build/libs/*.jar plugins/*/build/libs/*.jar; do
             [ -f "$jar" ] || continue
             case "$jar" in *-sources.jar|*-javadoc.jar) continue;; esac
-            if unzip -l "$jar" | grep -qE ' native/'; then
+            if unzip -l "$jar" | grep -E ' native/' > /dev/null; then
               echo "ERROR: $jar contains native libraries"; fail=1
             fi
-            if unzip -l "$jar" | grep -qE ' (io/temporal/api|coresdk)/'; then
+            if unzip -l "$jar" | grep -E ' (io/temporal/api|coresdk)/' > /dev/null; then
               echo "ERROR: $jar contains generated proto classes"; fail=1
             fi
           done

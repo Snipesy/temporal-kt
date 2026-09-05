@@ -1,6 +1,5 @@
 package com.surrealdev.temporal.internal
 
-import com.surrealdev.temporal.core.BridgeBuildInfo
 import com.surrealdev.temporal.core.TemporalCoreException
 
 /**
@@ -24,22 +23,28 @@ internal object BridgeCompatibility {
      */
     fun check() {
         if (checked) return
-        verify(
-            actualAbi = BridgeBuildInfo.ABI_VERSION,
-            requiredAbi = BuildConfig.REQUIRED_BRIDGE_ABI,
-            bridgeVersion = BridgeBuildInfo.BRIDGE_VERSION,
-            coreVersion = BuildConfig.SDK_VERSION,
-        )
+        try {
+            // The bridge exposes const vals. Read the loaded fields reflectively so Kotlin
+            // cannot inline the build-time bridge's identity into this check.
+            val info = Class.forName("com.surrealdev.temporal.core.BridgeBuildInfo", true, javaClass.classLoader)
+            verify(
+                actualAbi = info.getField("ABI_VERSION").getInt(null),
+                requiredAbi = BuildConfig.REQUIRED_BRIDGE_ABI,
+                bridgeVersion = info.getField("BRIDGE_VERSION").get(null) as String,
+                coreVersion = BuildConfig.SDK_VERSION,
+            )
+        } catch (e: ReflectiveOperationException) {
+            throw TemporalCoreException(
+                "Cannot read the loaded core-bridge ABI. core ${BuildConfig.SDK_VERSION} requires " +
+                    "bridge ABI ${BuildConfig.REQUIRED_BRIDGE_ABI}. Import com.surrealdev.temporal:bom " +
+                    "to select compatible artifacts.",
+                cause = e,
+            )
+        }
         checked = true
     }
 
-    /**
-     * The comparison itself, taking its inputs explicitly.
-     *
-     * [check] reads them from compile-time constants, which are inlined and so cannot be
-     * substituted; keeping the logic here is what makes the mismatch path testable rather than
-     * only reachable by actually mis-pinning two published artifacts.
-     */
+    /** Compares the runtime bridge's identity with this module's build-time requirement. */
     fun verify(
         actualAbi: Int,
         requiredAbi: Int,

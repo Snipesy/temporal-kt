@@ -13,6 +13,7 @@ dependencies {
     implementation(project(":compiler-plugin"))
 
     testImplementation(kotlin("test"))
+    testImplementation(libs.kotlinGradlePlugin)
 }
 
 // Mirrors the composite version applied in core-bridge/build.gradle.kts and protos/build.gradle.kts.

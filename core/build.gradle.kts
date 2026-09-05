@@ -39,7 +39,7 @@ kotlin {
 
 dependencies {
     api("com.surrealdev.temporal:core-common:$bridgeVersion")
-    implementation("com.surrealdev.temporal:core-bridge:$bridgeComposite")
+    api("com.surrealdev.temporal:core-bridge:$bridgeComposite")
     // Proto types are pervasive in core's public ABI (io.temporal.api.* and coresdk.* appear
     // throughout core/api/core.api), so consumers need them on their compile classpath.
     // protobuf-java and protobuf-kotlin arrive transitively from protos.

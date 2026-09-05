@@ -33,8 +33,8 @@ dependencies {
         api("${project.group}:jib-plugin:${rootProject.version}")
 
         // Composite-versioned: tied to a Temporal SDK-Core release. The native library ships as
-        // classifier artifacts of core-bridge, which inherit this version, so pinning the module
-        // here keeps the main jar and the native jar in step.
+        // classifier artifacts of core-bridge. Gradle applies this constraint to those artifacts;
+        // Maven needs the explicit classifier entries added to the POM below.
         api("${project.group}:core-bridge:$coreBridgeVersion")
         api("${project.group}:protos:$protosVersion")
     }
@@ -48,5 +48,31 @@ mavenPublishing {
     pom {
         name.set("Temporal KT BOM")
         description.set("Bill of materials pinning a compatible set of temporal-kt artifacts")
+
+        // Maven manages classifier dependencies separately from the main JAR.
+        val nativeGroup = project.group.toString()
+        val nativeVersion = coreBridgeVersion
+        withXml {
+            val managedDependencies = asElement().getElementsByTagName("dependencies").item(0)
+            listOf(
+                "linux-x86_64-gnu",
+                "linux-aarch64-gnu",
+                "linux-x86_64-musl",
+                "linux-aarch64-musl",
+                "macos-aarch64",
+                "windows-x86_64",
+            ).forEach { classifier ->
+                val dependency = managedDependencies.ownerDocument.createElement("dependency")
+                managedDependencies.appendChild(dependency)
+                mapOf(
+                    "groupId" to nativeGroup,
+                    "artifactId" to "core-bridge",
+                    "version" to nativeVersion,
+                    "classifier" to classifier,
+                ).forEach { (name, value) ->
+                    dependency.appendChild(dependency.ownerDocument.createElement(name)).textContent = value
+                }
+            }
+        }
     }
 }

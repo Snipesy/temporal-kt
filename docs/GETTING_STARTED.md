@@ -19,6 +19,7 @@ The Temporal Gradle plugin automatically handles platform detection:
 
 ```kotlin
 plugins {
+    kotlin("jvm") version "2.3.20"
     id("com.surrealdev.temporal") version "VERSION"
 }
 
@@ -26,16 +27,15 @@ dependencies {
     implementation("com.surrealdev.temporal:core:VERSION")
 }
 
-temporal {
-    native()  // Adds the correct platform-specific native library
-}
 ```
 
-Or with an explicit version for the native library:
+Native dependencies are enabled automatically. To override platform detection:
 
 ```kotlin
 temporal {
-    native("1.0.0")  // Use specific version
+    native {
+        classifier.set("macos-aarch64")
+    }
 }
 ```
 
@@ -63,8 +63,8 @@ dependencies {
 ```
 
 > **`core-bridge` does not share `core`'s version.** It and `protos` are published as
-> `<sdk-core version>-<temporal-kt version>` — for example `0.6.0-0.1.11` — because their content
-> is determined by a Temporal SDK-Core release as much as by temporal-kt. Importing the BOM (or
+> `<sdk-core version>-<bridge version>` — for example `0.8.0-0.1.11` — because their content
+> is determined by a Temporal SDK-Core release as much as by the bridge release. Importing the BOM (or
 > using the Gradle plugin) means you never have to write that version yourself. If you do pin it
 > by hand, the main jar and the native classifier jar **must** be the same version; the SDK fails
 > fast with the correct coordinate if the native library is missing.

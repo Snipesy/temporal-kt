@@ -102,6 +102,8 @@ abstract class NativeExtension
          * - `macos-aarch64` - macOS Apple Silicon
          * - `linux-x86_64-gnu` - Linux x86_64 (glibc)
          * - `linux-aarch64-gnu` - Linux ARM64 (glibc)
+         * - `linux-x86_64-musl` - Linux x86_64 (musl)
+         * - `linux-aarch64-musl` - Linux ARM64 (musl)
          * - `windows-x86_64` - Windows x86_64
          */
         abstract val classifier: Property<String>
