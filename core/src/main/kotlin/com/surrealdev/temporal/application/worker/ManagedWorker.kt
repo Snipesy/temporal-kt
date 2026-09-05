@@ -24,7 +24,6 @@ import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskStarted
 import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.exceptions.ActivityCancelledException
 import com.surrealdev.temporal.common.toProto
-import com.surrealdev.temporal.core.SlotSupplier
 import com.surrealdev.temporal.core.TemporalWorker
 import com.surrealdev.temporal.internal.isFatalError
 import com.surrealdev.temporal.serialization.PayloadCodec
