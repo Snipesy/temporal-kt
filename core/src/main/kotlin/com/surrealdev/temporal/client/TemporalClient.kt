@@ -24,6 +24,8 @@ import com.surrealdev.temporal.core.TemporalCoreClient
 import com.surrealdev.temporal.core.TemporalCoreException
 import com.surrealdev.temporal.core.TlsConfig
 import com.surrealdev.temporal.core.internal.DefaultIdentity
+import com.surrealdev.temporal.internal.BridgeCompatibility
+import com.surrealdev.temporal.internal.BuildConfig
 import com.surrealdev.temporal.serialization.CompositePayloadSerializer
 import com.surrealdev.temporal.serialization.NoOpCodec
 import com.surrealdev.temporal.serialization.PayloadCodec
@@ -177,6 +179,7 @@ interface TemporalClient {
             codec: PayloadCodec = NoOpCodec,
             hookRegistry: HookRegistry = HookRegistryImpl.EMPTY,
         ): TemporalClient {
+            BridgeCompatibility.check()
             val config =
                 TemporalClientConfig().apply {
                     this.target = coreClient.targetUrl
@@ -214,6 +217,7 @@ interface TemporalClient {
          * @return A connected TemporalClient.
          */
         suspend fun connect(configure: TemporalClientConfig.() -> Unit): TemporalClient {
+            BridgeCompatibility.check()
             val config = TemporalClientConfig().apply(configure)
 
             val serializer = config.payloadSerializer()
@@ -224,19 +228,25 @@ interface TemporalClient {
                     .create()
 
             val coreClient =
-                TemporalCoreClient.connect(
-                    runtime = runtime,
-                    targetUrl = config.target,
-                    namespace = config.namespace,
-                    tls = config.tls,
-                    apiKey = config.apiKey,
-                    tlsDisabled = config.tlsDisabled,
-                    options =
-                        ClientOptions(
-                            identity = config.identity,
-                            grpcCompression = config.grpcCompression,
-                        ),
-                )
+                try {
+                    TemporalCoreClient.connect(
+                        runtime = runtime,
+                        targetUrl = config.target,
+                        namespace = config.namespace,
+                        tls = config.tls,
+                        apiKey = config.apiKey,
+                        tlsDisabled = config.tlsDisabled,
+                        options =
+                            ClientOptions(
+                                clientVersion = BuildConfig.SDK_VERSION,
+                                identity = config.identity,
+                                grpcCompression = config.grpcCompression,
+                            ),
+                    )
+                } catch (failure: Throwable) {
+                    runtime.close()
+                    throw failure
+                }
 
             return ConnectedTemporalClient(
                 coreClient,

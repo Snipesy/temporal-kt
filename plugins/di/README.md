@@ -116,7 +116,7 @@ Registries are closed automatically at the right lifecycle point:
 
 | Registry level | Closed when |
 |---|---|
-| `app.dependencies { }` | `ApplicationShutdown` — before any workers stop |
+| `app.dependencies { }` | `ApplicationShutdown` — after workers stop and native resources close |
 | `taskQueue("q") { dependencies { } }` | `WorkerStopped` for that specific task queue |
 
 ### AutoCloseable

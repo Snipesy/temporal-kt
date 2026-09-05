@@ -19,6 +19,7 @@ The Temporal Gradle plugin automatically handles platform detection:
 
 ```kotlin
 plugins {
+    kotlin("jvm") version "2.3.20"
     id("com.surrealdev.temporal") version "VERSION"
 }
 
@@ -26,16 +27,15 @@ dependencies {
     implementation("com.surrealdev.temporal:core:VERSION")
 }
 
-temporal {
-    native()  // Adds the correct platform-specific native library
-}
 ```
 
-Or with an explicit version for the native library:
+Native dependencies are enabled automatically. To override platform detection:
 
 ```kotlin
 temporal {
-    native("1.0.0")  // Use specific version
+    native {
+        classifier.set("macos-aarch64")
+    }
 }
 ```
 
@@ -47,8 +47,27 @@ If you prefer not to use the plugin, specify your platform directly:
 |-------------------------------|---------------------|
 | Linux x86_64                  | `linux-x86_64-gnu`  |
 | Linux aarch64                 | `linux-aarch64-gnu` |
+| Linux x86_64 (Alpine / musl)  | `linux-x86_64-musl` |
+| Linux aarch64 (Alpine / musl) | `linux-aarch64-musl` |
 | macOS aarch64 (Apple Silicon) | `macos-aarch64`     |
 | Windows x86_64                | `windows-x86_64`    |
+
+```kotlin
+dependencies {
+    // Pins a compatible set of temporal-kt artifacts, so you only name a version once.
+    implementation(platform("com.surrealdev.temporal:bom:VERSION"))
+
+    implementation("com.surrealdev.temporal:core")
+    runtimeOnly("com.surrealdev.temporal:core-bridge::macos-aarch64")  // your classifier here
+}
+```
+
+> **`core-bridge` does not share `core`'s version.** It and `protos` are published as
+> `<sdk-core version>-<bridge version>` — for example `0.8.0-0.1.11` — because their content
+> is determined by a Temporal SDK-Core release as much as by the bridge release. Importing the BOM (or
+> using the Gradle plugin) means you never have to write that version yourself. If you do pin it
+> by hand, the main jar and the native classifier jar **must** be the same version; the SDK fails
+> fast with the correct coordinate if the native library is missing.
 
 ### Hello World
 

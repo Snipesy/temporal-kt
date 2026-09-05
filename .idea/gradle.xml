@@ -16,15 +16,13 @@
           </compositeBuild>
         </compositeConfiguration>
         <option name="externalProjectPath" value="$PROJECT_DIR$" />
-        <option name="gradleHome" value="$USER_HOME$/.sdkman/candidates/gradle/current" />
         <option name="modules">
           <set>
             <option value="$PROJECT_DIR$" />
+            <option value="$PROJECT_DIR$/bom" />
             <option value="$PROJECT_DIR$/buildSrc" />
             <option value="$PROJECT_DIR$/compiler-plugin" />
             <option value="$PROJECT_DIR$/core" />
-            <option value="$PROJECT_DIR$/core-bridge" />
-            <option value="$PROJECT_DIR$/core-common" />
             <option value="$PROJECT_DIR$/core-testing" />
             <option value="$PROJECT_DIR$/examples" />
             <option value="$PROJECT_DIR$/examples/config-driven" />

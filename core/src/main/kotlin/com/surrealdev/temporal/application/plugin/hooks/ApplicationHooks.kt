@@ -61,6 +61,9 @@ data class ApplicationSetupContext(
  * clean up resources they allocated during [ApplicationPreStartup] or
  * [ApplicationSetup]. For example, the health-check plugin can stop its HTTP
  * server so the port is released.
+ *
+ * The partially started application is then closed, including [ApplicationShutdown].
+ * Cleanup registered with both hooks must tolerate being called twice.
  */
 object ApplicationStartupFailed : Hook<suspend (ApplicationStartupFailedContext) -> Unit> {
     override val name = "ApplicationStartupFailed"
@@ -78,10 +81,10 @@ data class ApplicationStartupFailedContext(
 )
 
 /**
- * Hook called at the start of application shutdown.
+ * Hook called after workers stop and the native client and runtime close.
  *
- * This hook is fired in [TemporalApplication.close] before stopping any workers
- * or closing the core client.
+ * This hook is fired in [TemporalApplication.close] after Core telemetry has been drained,
+ * so plugins can flush and close their resources. The application job is cancelled afterward.
  *
  * Use this hook to:
  * - Clean up plugin resources

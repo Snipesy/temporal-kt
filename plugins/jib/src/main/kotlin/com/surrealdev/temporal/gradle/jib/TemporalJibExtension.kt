@@ -67,6 +67,8 @@ class TemporalJibExtension : JibGradlePluginExtension<Void> {
             setOf(
                 "linux-x86_64-gnu",
                 "linux-aarch64-gnu",
+                "linux-x86_64-musl",
+                "linux-aarch64-musl",
                 "macos-aarch64",
                 "windows-x86_64",
             )
@@ -77,8 +79,9 @@ class TemporalJibExtension : JibGradlePluginExtension<Void> {
             os: String,
         ): Set<String> =
             when (os) {
-                "linux" if architecture == "amd64" -> setOf("linux-x86_64-gnu")
-                "linux" if architecture == "arm64" -> setOf("linux-aarch64-gnu")
+                // Jib platforms identify OS and architecture, so retain both libc variants.
+                "linux" if architecture == "amd64" -> setOf("linux-x86_64-gnu", "linux-x86_64-musl")
+                "linux" if architecture == "arm64" -> setOf("linux-aarch64-gnu", "linux-aarch64-musl")
                 "darwin" if architecture == "arm64" -> setOf("macos-aarch64")
                 "windows" if architecture == "amd64" -> setOf("windows-x86_64")
                 else -> emptySet()

@@ -177,7 +177,7 @@ class TemporalTestApplicationBuilder internal constructor(
 
         // Apply deployment options if configured
         deploymentOptions?.let { options ->
-            appBuilder.deployment(options.version, options.useWorkerVersioning)
+            appBuilder.deployment(options.version, options.useWorkerVersioning, options.defaultVersioningBehavior)
         }
 
         // Apply shutdown config

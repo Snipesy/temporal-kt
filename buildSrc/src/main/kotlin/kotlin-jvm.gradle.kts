@@ -58,23 +58,9 @@ tasks.withType<JavaExec>().configureEach {
     jvmArgs(nativeAccessArgs)
 }
 
-// Native library path for internal development
-// Skip for core-bridge since it already handles its own native library inclusion
-if (project.name != "core-bridge") {
-    val nativeLibsDir = rootProject.layout.projectDirectory.dir("core-bridge/build/native-libs")
-    val skipNativeBuild = project.findProperty("skipNativeBuild")?.toString()?.toBoolean() ?: false
-
-    // Add native libs to test resources so NativeLoader can find them
-    sourceSets {
-        test {
-            resources.srcDir(nativeLibsDir)
-        }
-    }
-
-    // Ensure native lib is built before processing test resources
-    tasks.named("processTestResources") {
-        if (!skipNativeBuild) {
-            dependsOn(":core-bridge:copyNativeLib")
-        }
-    }
-}
+// NOTE: the native library is deliberately NOT wired in here.
+//
+// This plugin is applied to every module, so wiring the native in here would put it on the test
+// classpath of modules that never execute native code. Modules that need it apply
+// `buildsrc.convention.temporal-native-test` (tests) or `temporal-native-runtime` (runnable)
+// instead, which resolve the published classifier artifact from temporal-kt-bridge.

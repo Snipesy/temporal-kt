@@ -36,7 +36,8 @@ import com.surrealdev.temporal.core.TemporalWorker
 import com.surrealdev.temporal.core.TlsConfig
 import com.surrealdev.temporal.core.WorkerConfig
 import com.surrealdev.temporal.core.WorkerDeploymentOptions
-import com.surrealdev.temporal.core.createJvmResourceMonitor
+import com.surrealdev.temporal.internal.BridgeCompatibility
+import com.surrealdev.temporal.internal.BuildConfig
 import com.surrealdev.temporal.internal.ZombieEvictionConfig
 import com.surrealdev.temporal.serialization.NoOpCodec
 import com.surrealdev.temporal.serialization.PayloadCodec
@@ -51,9 +52,11 @@ import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.LoggerFactory
 import java.util.concurrent.atomic.AtomicBoolean
@@ -144,8 +147,6 @@ open class TemporalApplication internal constructor(
     private var runtime: TemporalRuntime? = null
     private var coreClient: TemporalCoreClient? = null
     private val workers = mutableMapOf<String, ManagedWorker>()
-    internal var jvmResourceMonitor: com.surrealdev.temporal.core.internal.JvmResourceMonitor? = null
-        private set
 
     @Volatile
     private var started = false
@@ -171,6 +172,10 @@ open class TemporalApplication internal constructor(
                 ApplicationPreStartup,
                 ApplicationPreStartupContext(this),
             )
+            // Fail with one clear message if core and core-bridge were pinned at versions that
+            // were never built together, rather than with a NoSuchMethodError further in.
+            BridgeCompatibility.check()
+
             // Create the runtime, with Core metrics bridge if OTel plugin provided a Meter
             val coreMetricsMeter = attributes.getOrNull(CoreMetricsMeterKey)
             val rt = TemporalRuntime.create(coreMetricsMeter, config.workerHeartbeatIntervalMs)
@@ -186,6 +191,7 @@ open class TemporalApplication internal constructor(
                     tlsDisabled = config.connection.tlsDisabled,
                     options =
                         ClientOptions(
+                            clientVersion = BuildConfig.SDK_VERSION,
                             identity = config.connection.identity,
                             grpcCompression = config.connection.grpcCompression,
                         ),
@@ -198,20 +204,7 @@ open class TemporalApplication internal constructor(
                 ApplicationSetupContext(this, rt, client),
             )
 
-            // Create JVM resource monitor if any task queue uses JvmResourceBased slot suppliers
-            val needsJvmMonitor =
-                taskQueues.any { tq ->
-                    tq.workflowSlotSupplier is SlotSupplier.JvmResourceBased ||
-                        tq.activitySlotSupplier is SlotSupplier.JvmResourceBased ||
-                        tq.localActivitySlotSupplier is SlotSupplier.JvmResourceBased
-                }
-            if (needsJvmMonitor) {
-                jvmResourceMonitor =
-                    createJvmResourceMonitor() as com.surrealdev.temporal.core.internal.JvmResourceMonitor
-            }
-
-            // Create workers for each task queue
-            val coreWorkers = mutableListOf<TemporalWorker>()
+            // Native polling starts during creation, so start each SDK consumer before creating the next worker.
             for (taskQueueConfig in taskQueues) {
                 val effectiveNamespace = taskQueueConfig.namespace ?: config.connection.namespace
 
@@ -250,8 +243,6 @@ open class TemporalApplication internal constructor(
                                 buildId = config.buildId,
                             ),
                     )
-                coreWorkers.add(coreWorker)
-
                 // Wrap in ManagedWorker
                 val managedWorker =
                     ManagedWorker(
@@ -266,15 +257,6 @@ open class TemporalApplication internal constructor(
                     )
 
                 workers[taskQueueConfig.name] = managedWorker
-            }
-
-            // Validate all workers in parallel (each calls describe_namespace RPC)
-            coroutineScope {
-                coreWorkers.map { worker -> launch { worker.validate() } }
-            }
-
-            // Start all workers and fire hooks
-            for ((taskQueueConfig, managedWorker) in taskQueues.zip(workers.values)) {
                 managedWorker.start()
                 hookRegistry.call(
                     WorkerStarted,
@@ -290,10 +272,16 @@ open class TemporalApplication internal constructor(
                 workers.values.map { worker -> launch { worker.awaitReady() } }
             }
         } catch (e: Throwable) {
-            hookRegistry.call(
-                ApplicationStartupFailed,
-                ApplicationStartupFailedContext(this, e),
-            )
+            // Cancellation and failing plugin hooks must not leave a partially started application alive.
+            withContext(NonCancellable) {
+                runCatching {
+                    hookRegistry.call(
+                        ApplicationStartupFailed,
+                        ApplicationStartupFailedContext(this@TemporalApplication, e),
+                    )
+                }.onFailure { if (it !== e) e.addSuppressed(it) }
+                runCatching { close() }.onFailure { if (it !== e) e.addSuppressed(it) }
+            }
             throw e
         }
 
@@ -305,11 +293,8 @@ open class TemporalApplication internal constructor(
     /**
      * Closes the application, stopping all workers and cleaning up resources.
      *
-     * Follows a two-phase shutdown pattern (similar to Ktor):
-     * 1. Fire shutdown hook
-     * 2. Stop workers with explicit stop calls
-     * 3. Cancel application job with grace period
-     * 4. Cleanup resources
+     * Stops workers, closes the native client and runtime to drain Core telemetry, then
+     * fires plugin shutdown hooks and cancels the application job with a grace period.
      */
     suspend fun close() {
         if (!started) return
@@ -335,19 +320,24 @@ open class TemporalApplication internal constructor(
         }
         workers.clear()
 
-        // Close JVM resource monitor if it was created
-        jvmResourceMonitor?.close()
-        jvmResourceMonitor = null
+        // Phase 2: Drain Core telemetry before shutdown hooks close the OTel provider.
+        try {
+            coreClient?.close()
+            coreClient = null
+            runtime?.close()
+            runtime = null
+        } finally {
+            try {
+                hookRegistry.call(
+                    ApplicationShutdown,
+                    ApplicationShutdownContext(this),
+                )
+            } finally {
+                applicationJob.cancel()
+            }
+        }
 
-        // Phase 2: Fire shutdown hooks (resource cleanup, etc.)
-        hookRegistry.call(
-            ApplicationShutdown,
-            ApplicationShutdownContext(this),
-        )
-
-        // Phase 3: Cancel application job with timeout
-        applicationJob.cancel()
-
+        // Phase 3: Wait for the application job with a timeout.
         val completed =
             withTimeoutOrNull(config.shutdown.gracePeriodMs) {
                 applicationJob.join()
@@ -366,12 +356,6 @@ open class TemporalApplication internal constructor(
                 applicationJob.join()
             }
         }
-
-        // Phase 4: Cleanup resources
-        coreClient?.close()
-        coreClient = null
-        runtime?.close()
-        runtime = null
 
         logger.info("Application closed")
     }
