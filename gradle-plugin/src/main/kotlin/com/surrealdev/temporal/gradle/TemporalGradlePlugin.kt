@@ -196,19 +196,22 @@ class TemporalGradlePlugin : KotlinCompilerPluginSupportPlugin {
             )
 
         /**
-         * Detects the native library classifier based on current OS and architecture.
-         */
-        /**
          * "musl" on Alpine and other musl distributions, "gnu" otherwise. Decided from the filesystem:
          * musl installs its loader as /lib/ld-musl-<arch>.so.1, and Alpine ships /etc/alpine-release.
          */
         private fun linuxLibc(): String {
             val alpine = java.io.File("/etc/alpine-release").exists()
             val muslLoader =
-                java.io.File("/lib").list()?.any { it.startsWith("ld-musl-") && it.endsWith(".so.1") } == true
+                java.io
+                    .File("/lib")
+                    .list()
+                    ?.any { it.startsWith("ld-musl-") && it.endsWith(".so.1") } == true
             return if (alpine || muslLoader) "musl" else "gnu"
         }
 
+        /**
+         * Detects the native library classifier based on current OS and architecture.
+         */
         fun detectPlatformClassifier(): String {
             val os = OperatingSystem.current()
             val arch = System.getProperty("os.arch").lowercase()

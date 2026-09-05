@@ -4,6 +4,7 @@ import com.surrealdev.temporal.activity.ActivityContext
 import com.surrealdev.temporal.annotation.Activity
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
+import com.surrealdev.temporal.application.taskQueue
 import com.surrealdev.temporal.client.startWorkflow
 import com.surrealdev.temporal.core.SlotSupplier
 import com.surrealdev.temporal.testing.runTemporalTest
@@ -11,14 +12,11 @@ import com.surrealdev.temporal.workflow.ActivityOptions
 import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.result
 import com.surrealdev.temporal.workflow.startActivity
-import com.surrealdev.temporal.application.taskQueue
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable
+import java.util.UUID
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.measureTime
 
@@ -101,7 +99,9 @@ class BridgeThroughputBenchmark {
             val perSecond = total / elapsed.inWholeMilliseconds.toDouble() * 1000
             println(
                 "BENCHMARK sequential-echo: $total activities across $WORKFLOWS workflows in $elapsed " +
-                    "= ${"%.0f".format(perSecond)} activities/s, ${"%.2f".format(elapsed.inWholeMicroseconds / total / 1000.0)} ms per activity round trip",
+                    "= ${"%.0f".format(perSecond)} activities/s, ${"%.2f".format(
+                        elapsed.inWholeMicroseconds / total / 1000.0,
+                    )} ms per activity round trip",
             )
         }
 }
