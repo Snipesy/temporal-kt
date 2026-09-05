@@ -13,6 +13,8 @@ import com.surrealdev.temporal.application.plugin.hooks.ActivityTaskContext
 import com.surrealdev.temporal.application.plugin.hooks.ActivityTaskFailed
 import com.surrealdev.temporal.application.plugin.hooks.ActivityTaskFailedContext
 import com.surrealdev.temporal.application.plugin.hooks.ActivityTaskStarted
+import com.surrealdev.temporal.application.plugin.hooks.SlotSupplierMetricsContext
+import com.surrealdev.temporal.application.plugin.hooks.SlotSupplierMetricsSampled
 import com.surrealdev.temporal.application.plugin.hooks.WorkerStatusChanged
 import com.surrealdev.temporal.application.plugin.hooks.WorkerStatusChangedContext
 import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskCompleted
@@ -325,6 +327,22 @@ internal class ManagedWorker(
         }
 
         logger.info("[start] Starting worker for taskQueue={}", taskQueue)
+
+        coreWorker.onSlotSupplierMetrics { sample ->
+            mergedHookRegistry.callBlocking(
+                SlotSupplierMetricsSampled,
+                SlotSupplierMetricsContext(
+                    taskQueue,
+                    sample.slotType,
+                    sample.memoryUsage,
+                    sample.cpuLoad,
+                    sample.memoryPidOutput,
+                    sample.cpuPidOutput,
+                    sample.activeSlots,
+                    sample.pendingReserves,
+                ),
+            )
+        }
 
         // Transition to READY once both pollers have registered with the Core SDK
         launch(CoroutineName("ReadyWatcher-$taskQueue")) {
