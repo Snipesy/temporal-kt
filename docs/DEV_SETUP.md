@@ -53,9 +53,9 @@ Changing Rust only — build there, then point this build at the result. No JAR 
 publishing:
 
 ```bash
-cd ../temporal-kt-bridge && cargo build --release --manifest-path core-bridge/rust/Cargo.toml
-cd ../temporal-kt && ./gradlew :core:test \
-  -Ptemporal.nativeLib=$PWD/../temporal-kt-bridge/core-bridge/rust/target/release/libtemporalio_sdk_core_c_bridge.dylib
+cd ../temporal-kt-bridge/core-bridge/rust/kt-bridge && cargo build --release
+cd ../../../../temporal-kt && ./gradlew :core:test \
+  -Ptemporal.nativeLib=$PWD/../temporal-kt-bridge/core-bridge/rust/kt-bridge/target/release/libkt_bridge.dylib
 ```
 
 Changing Kotlin on both sides — build the two together as a composite. Coordinates match, so

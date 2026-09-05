@@ -36,7 +36,6 @@ import com.surrealdev.temporal.core.TemporalWorker
 import com.surrealdev.temporal.core.TlsConfig
 import com.surrealdev.temporal.core.WorkerConfig
 import com.surrealdev.temporal.core.WorkerDeploymentOptions
-import com.surrealdev.temporal.core.createJvmResourceMonitor
 import com.surrealdev.temporal.internal.BridgeCompatibility
 import com.surrealdev.temporal.internal.ZombieEvictionConfig
 import com.surrealdev.temporal.serialization.NoOpCodec
@@ -145,8 +144,6 @@ open class TemporalApplication internal constructor(
     private var runtime: TemporalRuntime? = null
     private var coreClient: TemporalCoreClient? = null
     private val workers = mutableMapOf<String, ManagedWorker>()
-    internal var jvmResourceMonitor: com.surrealdev.temporal.core.internal.JvmResourceMonitor? = null
-        private set
 
     @Volatile
     private var started = false
@@ -202,18 +199,6 @@ open class TemporalApplication internal constructor(
                 ApplicationSetup,
                 ApplicationSetupContext(this, rt, client),
             )
-
-            // Create JVM resource monitor if any task queue uses JvmResourceBased slot suppliers
-            val needsJvmMonitor =
-                taskQueues.any { tq ->
-                    tq.workflowSlotSupplier is SlotSupplier.JvmResourceBased ||
-                        tq.activitySlotSupplier is SlotSupplier.JvmResourceBased ||
-                        tq.localActivitySlotSupplier is SlotSupplier.JvmResourceBased
-                }
-            if (needsJvmMonitor) {
-                jvmResourceMonitor =
-                    createJvmResourceMonitor() as com.surrealdev.temporal.core.internal.JvmResourceMonitor
-            }
 
             // Create workers for each task queue
             val coreWorkers = mutableListOf<TemporalWorker>()
@@ -341,8 +326,6 @@ open class TemporalApplication internal constructor(
         workers.clear()
 
         // Close JVM resource monitor if it was created
-        jvmResourceMonitor?.close()
-        jvmResourceMonitor = null
 
         // Phase 2: Fire shutdown hooks (resource cleanup, etc.)
         hookRegistry.call(
