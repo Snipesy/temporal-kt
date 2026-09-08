@@ -574,10 +574,12 @@ class TemporalClientConfig : PluginPipeline {
     var identity: String? = null
 
     /**
-     * Transport-level gRPC compression. Set to [GrpcCompression.NONE] when an intermediary
-     * (proxy/gateway) rejects compressed frames.
+     * Transport-level gRPC compression. Off by default: tonic builds a fresh ~270 KB deflate state
+     * for every outgoing message, which profiled as two thirds of all native allocation against a
+     * local server. Enable [GrpcCompression.GZIP] when bandwidth to the server is the scarcer
+     * resource, e.g. Temporal Cloud over a metered link.
      */
-    var grpcCompression: GrpcCompression = GrpcCompression.GZIP
+    var grpcCompression: GrpcCompression = GrpcCompression.NONE
 
     // PluginPipeline implementation
     override val attributes: Attributes = Attributes(concurrent = false)

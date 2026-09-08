@@ -629,10 +629,12 @@ data class ConnectionConfig(
      */
     val identity: String? = null,
     /**
-     * Transport-level gRPC compression. [GrpcCompression.NONE] disables compression when an
-     * intermediary (proxy/gateway) rejects compressed frames.
+     * Transport-level gRPC compression. Off by default: tonic builds a fresh ~270 KB deflate state
+     * for every outgoing message, which profiled as two thirds of all native allocation against a
+     * local server. Enable [GrpcCompression.GZIP] when bandwidth to the server is the scarcer
+     * resource, e.g. Temporal Cloud over a metered link.
      */
-    val grpcCompression: GrpcCompression = GrpcCompression.GZIP,
+    val grpcCompression: GrpcCompression = GrpcCompression.NONE,
 )
 
 /**

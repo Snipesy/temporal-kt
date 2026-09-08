@@ -41,6 +41,11 @@ tasks.withType<Test>().configureEach {
     // Enable native access for FFM
     jvmArgs(nativeAccessArgs)
 
+    // Extra flags for the forked test JVM only, e.g. a profiler agent:
+    //   ./gradlew :core:test -PtestJvmArgs="-agentpath:/path/libasyncProfiler.dylib=start,..."
+    // JAVA_TOOL_OPTIONS would also hit the Gradle daemon, which is not what anyone wants.
+    providers.gradleProperty("testJvmArgs").orNull?.let { jvmArgs(it.split(" ").filter(String::isNotBlank)) }
+
     // Log information about all test results, not only the failed ones.
     testLogging {
         events(
