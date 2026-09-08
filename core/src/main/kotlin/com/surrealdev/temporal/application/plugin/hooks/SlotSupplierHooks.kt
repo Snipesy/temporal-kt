@@ -9,8 +9,8 @@ import com.surrealdev.temporal.application.plugin.Hook
  * JVM resource measurements and PID controller outputs. Use this hook to emit
  * observability metrics (e.g., OpenTelemetry gauges).
  *
- * This is a **blocking** (non-suspend) hook because it fires from the grant loop's
- * scheduled executor thread.
+ * This is a **blocking** (non-suspend) hook because it fires from the runtime's resource
+ * sampler thread.
  */
 object SlotSupplierMetricsSampled : Hook<(SlotSupplierMetricsContext) -> Unit> {
     override val name = "SlotSupplierMetricsSampled"

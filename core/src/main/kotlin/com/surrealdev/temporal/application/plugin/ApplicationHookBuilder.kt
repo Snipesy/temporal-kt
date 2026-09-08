@@ -98,7 +98,7 @@ class ApplicationHookBuilder internal constructor(
     /**
      * Registers a handler for slot supplier metrics samples.
      *
-     * Called on every grant loop tick (typically every 50ms) by JvmResourceBased
+     * Called on every resource sample (typically every 50ms) by JvmResourceBased
      * slot suppliers with current resource measurements and PID controller outputs.
      *
      * This is a **blocking** (non-suspend) hook — handlers must return quickly.
