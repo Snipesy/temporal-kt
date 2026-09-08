@@ -14,13 +14,20 @@ dokka {
 }
 
 dependencies {
-    dokka(project(":core-bridge"))
+    // core-bridge and core-common are documented in the temporal-kt-bridge repository.
     dokka(project(":compiler-plugin"))
     dokka(project(":gradle-plugin"))
     dokka(project(":core"))
 }
 
+// `bom` is a java-platform: constraints only, nothing to document.
+val undocumentedProjects = setOf("bom")
+
 subprojects {
+    if (name in undocumentedProjects) {
+        return@subprojects
+    }
+
     apply(plugin = "org.jetbrains.dokka")
 
     // Only apply dokka-javadoc to non-multiplatform projects

@@ -146,8 +146,9 @@ taskQueue("my-queue") {
 ```
 
 **`JvmResourceBased`** uses PID controllers to monitor JVM old gen heap usage and per-process CPU,
-dynamically granting or denying slots based on resource pressure. Multiple workers in the same
-JVM share a single resource monitor and naturally coordinate.
+dynamically granting or denying slots based on resource pressure. Workers sharing a runtime share
+a JVM resource monitor; each task type retains its own targets and PID tuning. Rust enforces the
+slot limits and ramp timing using those JVM decisions.
 
 For advanced tuning of the PID controller:
 

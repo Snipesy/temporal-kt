@@ -400,6 +400,11 @@ internal class WorkflowHandleImpl(
          * catch-up fetch, bounding event delivery latency to roughly this window.
          */
         private const val FOLLOW_LONG_POLL_WINDOW_MS = 2000
+
+        private const val GRPC_UNKNOWN = 2
+
+        /** What the bridge reports for a gRPC UNKNOWN that carried neither message nor cause. */
+        private const val UNKNOWN_NO_MESSAGE = "Unknown with no message"
     }
 
     private sealed class CloseEventResult {
@@ -931,6 +936,17 @@ internal class WorkflowHandleImpl(
                 } catch (e: TemporalCoreException) {
                     if (e.statusCode == GRPC_CANCELLED || e.statusCode == GRPC_DEADLINE_EXCEEDED) {
                         null // poll window elapsed
+                    } else if (e.statusCode == GRPC_UNKNOWN && e.message.orEmpty().endsWith(UNKNOWN_NO_MESSAGE)) {
+                        // The Java time-skipping test server cannot complete a woken ALL-event
+                        // long poll: HistoryStore.waitForNewEvents indexes its 0-based event list
+                        // from a 1-based expectedNextEventId, so the first new event throws
+                        // IndexOutOfBounds, which the service turns into a bare UNKNOWN (no
+                        // message). The deadline path is fine, so only a poll that would have
+                        // delivered events fails. Nothing is lost: plain catch-up below fetches
+                        // exactly those events. The delay keeps a server that fails every wake
+                        // from turning this into a busy loop. A real server never sends this.
+                        kotlinx.coroutines.delay(FALLBACK_HISTORY_POLL_INTERVAL_MS.milliseconds)
+                        null
                     } else {
                         e.rethrowMapped(workflowId, runId)
                     }

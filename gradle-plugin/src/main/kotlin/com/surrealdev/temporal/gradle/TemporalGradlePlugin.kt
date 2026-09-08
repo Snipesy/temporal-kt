@@ -78,8 +78,11 @@ class TemporalGradlePlugin : KotlinCompilerPluginSupportPlugin {
                     // Read extension values lazily during resolution
                     val nativeEnabled = extension.native.enabled.get()
                     if (nativeEnabled) {
+                        // CORE_BRIDGE_VERSION, not VERSION: core-bridge carries a composite
+                        // `<sdkCoreVersion>-<version>` coordinate and does not move with core.
                         val bridge =
-                            "${BuildConfig.GROUP_ID}:${BuildConfig.CORE_BRIDGE_ARTIFACT_ID}:${BuildConfig.VERSION}"
+                            "${BuildConfig.GROUP_ID}:${BuildConfig.CORE_BRIDGE_ARTIFACT_ID}:" +
+                                BuildConfig.CORE_BRIDGE_VERSION
                         val hasJib =
                             project.pluginManager.hasPlugin("com.google.cloud.tools.jib")
                         if (hasJib) {
@@ -95,6 +98,15 @@ class TemporalGradlePlugin : KotlinCompilerPluginSupportPlugin {
                     }
                 }
             }
+
+        // Attach the runtime constraint to our own configuration: Kotlin may be applied later.
+        project.dependencies.constraints.add(
+            temporalNative.name,
+            "${BuildConfig.GROUP_ID}:${BuildConfig.CORE_BRIDGE_ARTIFACT_ID}",
+        ) { constraint ->
+            constraint.version { it.strictly(BuildConfig.CORE_BRIDGE_VERSION) }
+            constraint.because("core-bridge's main jar and its native classifier jar must match exactly")
+        }
 
         // Wire up configurations when Kotlin plugin is applied
         project.pluginManager.withPlugin("org.jetbrains.kotlin.jvm") {
@@ -170,9 +182,25 @@ class TemporalGradlePlugin : KotlinCompilerPluginSupportPlugin {
             listOf(
                 "linux-x86_64-gnu",
                 "linux-aarch64-gnu",
+                "linux-x86_64-musl",
+                "linux-aarch64-musl",
                 "macos-aarch64",
                 "windows-x86_64",
             )
+
+        /**
+         * "musl" on Alpine and other musl distributions, "gnu" otherwise. Decided from the filesystem:
+         * musl installs its loader as /lib/ld-musl-<arch>.so.1, and Alpine ships /etc/alpine-release.
+         */
+        private fun linuxLibc(): String {
+            val alpine = java.io.File("/etc/alpine-release").exists()
+            val muslLoader =
+                java.io
+                    .File("/lib")
+                    .list()
+                    ?.any { it.startsWith("ld-musl-") && it.endsWith(".so.1") } == true
+            return if (alpine || muslLoader) "musl" else "gnu"
+        }
 
         /**
          * Detects the native library classifier based on current OS and architecture.
@@ -183,8 +211,8 @@ class TemporalGradlePlugin : KotlinCompilerPluginSupportPlugin {
 
             return when {
                 os.isMacOsX && (arch == "aarch64" || arch == "arm64") -> "macos-aarch64"
-                os.isLinux && (arch == "aarch64" || arch == "arm64") -> "linux-aarch64-gnu"
-                os.isLinux -> "linux-x86_64-gnu"
+                os.isLinux && (arch == "aarch64" || arch == "arm64") -> "linux-aarch64-${linuxLibc()}"
+                os.isLinux -> "linux-x86_64-${linuxLibc()}"
                 os.isWindows -> "windows-x86_64"
                 else -> throw GradleException("Unsupported platform: ${os.name} / $arch")
             }

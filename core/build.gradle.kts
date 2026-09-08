@@ -3,7 +3,31 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
 plugins {
     id("buildsrc.convention.kotlin-jvm")
     id("buildsrc.convention.maven-publish")
+    // Tests here execute native code, so they need the Core native library on the classpath.
+    id("buildsrc.convention.temporal-native-test")
     alias(libs.plugins.kotlinPluginSerialization)
+    id("com.github.gmazzo.buildconfig")
+}
+
+// Coordinates of the published temporal-kt-bridge artifacts. Derived from gradle.properties so
+// the composite version cannot drift from its parts; see the comment there.
+val bridgeVersion: String by project
+val bridgeSdkCoreVersion: String by project
+val bridgeProtosSdkCoreVersion: String by project
+val bridgeComposite = "$bridgeSdkCoreVersion-$bridgeVersion"
+val protosComposite = "$bridgeProtosSdkCoreVersion-$bridgeVersion"
+
+// The core-bridge seam this module was compiled against. core-bridge is separately published on
+// its own version, so a consumer can pin a bridge that does not fit this core; BridgeCompatibility
+// compares this against BridgeBuildInfo.ABI_VERSION at startup. See gradle.properties.
+val bridgeAbi: String by project
+
+buildConfig {
+    packageName("com.surrealdev.temporal.internal")
+    documentation.set("Build-time configuration constants for temporal-kt core.")
+
+    buildConfigField("REQUIRED_BRIDGE_ABI", bridgeAbi.toInt())
+    buildConfigField("SDK_VERSION", project.version.toString())
 }
 
 kotlin {
@@ -14,12 +38,15 @@ kotlin {
 }
 
 dependencies {
-    api(project(":core-common"))
-    implementation(project(":core-bridge"))
+    api("com.surrealdev.temporal:core-common:$bridgeVersion")
+    api("com.surrealdev.temporal:core-bridge:$bridgeComposite")
+    // Proto types are pervasive in core's public ABI (io.temporal.api.* and coresdk.* appear
+    // throughout core/api/core.api), so consumers need them on their compile classpath.
+    // protobuf-java and protobuf-kotlin arrive transitively from protos.
+    api("com.surrealdev.temporal:protos:$protosComposite")
     api(libs.bundles.kotlinxEcosystem)
-    implementation(libs.protobufJava)
+    // Still needed directly: JsonFormat and Durations from protobuf-java-util.
     implementation(libs.protobufJavaUtil)
-    implementation(libs.protobufKotlin)
     implementation(libs.bundles.hoplite)
     implementation(libs.kotlinReflect)
     api(libs.slf4jApi)

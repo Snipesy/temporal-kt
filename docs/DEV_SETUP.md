@@ -4,41 +4,34 @@
 
 - **Java 25** (GraalVM recommended) - `sdk install java 25.0.1-graal`
 - **Gradle 9.2+** - `sdk install gradle 9.2.1`
-- **Rust (with rustup)** - [rustup.rs](https://rustup.rs)
-- **Protobuf** - `brew install protobuf`
 
 ```bash
 sdk env install
 ```
+
+That is the whole list. A Rust toolchain, `protoc` and git submodules are **not** needed: the
+native library, the FFM bindings and the generated protobuf classes are published from
+[temporal-kt-bridge](https://github.com/SurrealDevelopment/temporal-kt-bridge) and consumed here
+as ordinary dependencies.
 ### Supported Platforms
 
 Temporal-KT currently supports:
 
 * macOS aarch64
-* macOS x86_64
-* Linux x86_64 (glibc)
-* Linux aarch64 (glibc)
+* Linux x86_64 and aarch64, glibc 2.17 or newer (RHEL 7+, Debian 8+, Ubuntu 14.04+)
+* Linux x86_64 and aarch64, musl (Alpine)
 * Windows x86_64
 
-> **Note:** Alpine Linux and other musl libc distributions are not currently supported.
-> For containerized deployments, use a glibc-based image (e.g., `debian`, `ubuntu`) instead of Alpine.
+> The libc flavour is detected at runtime (`/etc/alpine-release` or a `/lib/ld-musl-*.so.1` loader), so
+> Alpine images work with no configuration.
 
-Native libraries are built on each platform's native GitHub Actions runner. Release binaries are built
-and tested on the appropriate platforms (Linux x86_64, Linux aarch64, macOS x86_64, macOS aarch64, Windows x86_64).
+Native libraries are published by temporal-kt-bridge for the platforms listed above.
 
 
 ## Cloning
 
-This repo uses git submodules. Clone with:
-
 ```bash
-git clone --recurse-submodules https://github.com/snipesy/temporal-kt.git
-```
-
-Or if already cloned:
-
-```bash
-git submodule update --init --recursive
+git clone https://github.com/Snipesy/temporal-kt.git
 ```
 
 ## Building
@@ -46,6 +39,36 @@ git submodule update --init --recursive
 ```bash
 ./gradlew build
 ```
+
+## Working on the native bridge
+
+`core-bridge`, `core-common` and `protos` live in
+[SurrealDevelopment/temporal-kt-bridge](https://github.com/SurrealDevelopment/temporal-kt-bridge).
+The version this build is pinned to is `bridgeVersion` / `bridgeSdkCoreVersion` in
+`gradle.properties`.
+
+Changing Rust only — build there, then point this build at the result. No JAR packaging, no
+publishing:
+
+```bash
+cd ../temporal-kt-bridge/core-bridge/rust/kt-bridge && cargo build --release
+cd ../../../../temporal-kt && ./gradlew :core:test \
+  -Ptemporal.nativeLib=$PWD/../temporal-kt-bridge/core-bridge/rust/kt-bridge/target/release/libkt_bridge.dylib
+```
+
+Changing Kotlin on both sides — build the two together as a composite. Coordinates match, so
+Gradle substitutes the projects automatically:
+
+```bash
+./gradlew build -Ptemporal.bridgePath=../temporal-kt-bridge \
+  -Ptemporal.nativeLib=$PWD/../temporal-kt-bridge/core-bridge/rust/kt-bridge/target/release/libkt_bridge.dylib
+```
+
+`-Ptemporal.nativeLib` is still required in composite mode: Gradle can substitute a project for a
+module, but not for a *classifier* artifact, which is how the native library ships.
+
+To validate the published shape instead, run `./gradlew publishToMavenLocal` in the bridge repo
+and build here with `-PuseMavenLocal`.
 
 ## Core Foundation
 

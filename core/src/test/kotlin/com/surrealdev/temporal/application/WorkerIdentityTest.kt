@@ -158,6 +158,31 @@ class WorkerIdentityTest {
         }
 
     @Test
+    fun `worker inherits an explicitly configured connection identity`() =
+        runTemporalTest {
+            val taskQueue = "test-identity-inherited-${UUID.randomUUID()}"
+            val custom = "connection-${UUID.randomUUID()}"
+            val address = targetUrl
+            val app =
+                TemporalApplication {
+                    connection {
+                        target = "http://$address"
+                        identity = custom
+                    }
+                }
+            app.taskQueue(taskQueue) { workflow<IdentityWorkflow>() }
+            try {
+                app.start()
+                val handle = app.client().startWorkflow(workflowType = "IdentityWorkflow", taskQueue = taskQueue)
+                assertEquals("done", handle.result<String>(timeout = 10.seconds))
+                val history = handle.assertHistoryAndReturn { completed() }
+                assertEquals(custom, history.filterByType<TemporalHistoryEvent.WorkflowTaskStarted>().first().identity)
+            } finally {
+                app.close()
+            }
+        }
+
+    @Test
     fun `explicit worker identity overrides the worker but not the client`() =
         runTemporalTest {
             val taskQueue = "test-identity-override-${UUID.randomUUID()}"

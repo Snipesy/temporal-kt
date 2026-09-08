@@ -257,7 +257,7 @@ application {
     onPreStartup { ctx -> }      // Very first thing in start(), before Temporal connection
     onSetup { ctx -> }           // After runtime created, before workers start
     onStartupFailed { ctx -> }   // When start() fails (cleanup resources from earlier hooks)
-    onShutdown { ctx -> }        // Before workers stop
+    onShutdown { ctx -> }        // After workers stop and native resources close
     onWorkerStarted { ctx -> }   // After each worker starts
     onWorkerStopped { ctx -> }   // After each worker stops
 }

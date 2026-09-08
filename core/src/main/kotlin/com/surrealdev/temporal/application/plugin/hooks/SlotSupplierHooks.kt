@@ -5,12 +5,12 @@ import com.surrealdev.temporal.application.plugin.Hook
 /**
  * Hook called periodically by JvmResourceBased slot suppliers with resource metrics.
  *
- * Fired on every grant loop tick (every `rampThrottleMs`, typically 50ms) with current
+ * Fired on the runtime sampler thread (typically every 50ms) with current
  * JVM resource measurements and PID controller outputs. Use this hook to emit
  * observability metrics (e.g., OpenTelemetry gauges).
  *
- * This is a **blocking** (non-suspend) hook because it fires from the grant loop's
- * scheduled executor thread.
+ * This is a **blocking** (non-suspend) hook because it fires from the runtime's resource
+ * sampler thread.
  */
 object SlotSupplierMetricsSampled : Hook<(SlotSupplierMetricsContext) -> Unit> {
     override val name = "SlotSupplierMetricsSampled"

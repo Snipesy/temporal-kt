@@ -13,6 +13,8 @@ import com.surrealdev.temporal.application.plugin.hooks.ActivityTaskContext
 import com.surrealdev.temporal.application.plugin.hooks.ActivityTaskFailed
 import com.surrealdev.temporal.application.plugin.hooks.ActivityTaskFailedContext
 import com.surrealdev.temporal.application.plugin.hooks.ActivityTaskStarted
+import com.surrealdev.temporal.application.plugin.hooks.SlotSupplierMetricsContext
+import com.surrealdev.temporal.application.plugin.hooks.SlotSupplierMetricsSampled
 import com.surrealdev.temporal.application.plugin.hooks.WorkerStatusChanged
 import com.surrealdev.temporal.application.plugin.hooks.WorkerStatusChangedContext
 import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskCompleted
@@ -24,7 +26,7 @@ import com.surrealdev.temporal.application.plugin.hooks.WorkflowTaskStarted
 import com.surrealdev.temporal.common.EncodedTemporalPayloads
 import com.surrealdev.temporal.common.exceptions.ActivityCancelledException
 import com.surrealdev.temporal.common.toProto
-import com.surrealdev.temporal.core.SlotSupplier
+import com.surrealdev.temporal.core.TemporalCoreException
 import com.surrealdev.temporal.core.TemporalWorker
 import com.surrealdev.temporal.internal.isFatalError
 import com.surrealdev.temporal.serialization.PayloadCodec
@@ -117,16 +119,6 @@ internal class ManagedWorker(
     // Explicit references to polling jobs
     private var workflowPollingJob: Job? = null
     private var activityPollingJob: Job? = null
-    private val grantLoopJobs = mutableListOf<Job>()
-
-    /** Resolves the JvmResourceBased config for a given slot type, or null if not JvmResourceBased. */
-    private fun getSlotSupplierConfig(slotType: String): SlotSupplier.JvmResourceBased? =
-        when (slotType) {
-            "workflow" -> config.workflowSlotSupplier
-            "activity" -> config.activitySlotSupplier
-            "local_activity" -> config.localActivitySlotSupplier
-            else -> null
-        } as? SlotSupplier.JvmResourceBased
 
     // Shutdown signaling
     private val shutdownSignal: CompletableJob = Job()
@@ -336,6 +328,22 @@ internal class ManagedWorker(
 
         logger.info("[start] Starting worker for taskQueue={}", taskQueue)
 
+        coreWorker.onSlotSupplierMetrics { sample ->
+            mergedHookRegistry.callBlocking(
+                SlotSupplierMetricsSampled,
+                SlotSupplierMetricsContext(
+                    taskQueue,
+                    sample.slotType,
+                    sample.memoryUsage,
+                    sample.cpuLoad,
+                    sample.memoryPidOutput,
+                    sample.cpuPidOutput,
+                    sample.activeSlots,
+                    sample.pendingReserves,
+                ),
+            )
+        }
+
         // Transition to READY once both pollers have registered with the Core SDK
         launch(CoroutineName("ReadyWatcher-$taskQueue")) {
             workflowPollingStarted.await()
@@ -354,25 +362,6 @@ internal class ManagedWorker(
             launch(CoroutineName("ActivityPoller-$taskQueue")) {
                 pollActivityTasks()
             }
-
-        // Launch grant loops for JvmResourceBased slot suppliers
-        val monitor = application.jvmResourceMonitor
-        if (monitor != null) {
-            for (entry in coreWorker.slotSupplierBridges) {
-                val jvmConfig = getSlotSupplierConfig(entry.slotType) ?: continue
-                grantLoopJobs +=
-                    launch(CoroutineName("SlotGrantLoop-${entry.slotType}-$taskQueue")) {
-                        runSlotSupplierGrantLoop(
-                            bridge = entry.bridge,
-                            config = jvmConfig,
-                            monitor = monitor,
-                            slotType = entry.slotType,
-                            taskQueue = taskQueue,
-                            hookRegistry = mergedHookRegistry,
-                        )
-                    }
-            }
-        }
 
         // This ensures that if a polling job fails unexpectedly, shutdown is triggered
         workflowPollingJob?.invokeOnCompletion { cause ->
@@ -461,12 +450,7 @@ internal class ManagedWorker(
             drainActivityPollsAfterForcedStop()
         }
 
-        // Phase 5: Cancel grant loops before freeing core worker
-        grantLoopJobs.forEach { it.cancel() }
-        grantLoopJobs.forEach { it.join() }
-        grantLoopJobs.clear()
-
-        // Phase 6: Cleanup core worker
+        // Phase 5: Cleanup core worker
         // Note: Workflow executors are cleaned up in pollWorkflowActivations() finally block
         logger.debug("[stop] Awaiting core worker shutdown...")
         coreWorker.awaitShutdown()
@@ -742,9 +726,10 @@ internal class ManagedWorker(
                 } catch (_: CancellationException) {
                     logger.info("[pollWorkflowActivations] Cancelled, exiting")
                     break
+                } catch (e: TemporalCoreException) {
+                    // Core retries transient poll failures internally; a closed failed stream is terminal.
+                    throw e
                 } catch (e: Exception) {
-                    // Log and continue on errors for now
-                    // In production, we'd want proper error handling
                     if (!shutdownSignal.isCompleted) {
                         logger.warn("[pollWorkflowActivations] Error in polling loop", e)
                     }
@@ -974,8 +959,10 @@ internal class ManagedWorker(
                 } catch (_: CancellationException) {
                     logger.info("[pollActivityTasks] Cancelled, exiting")
                     break
+                } catch (e: TemporalCoreException) {
+                    // Let the polling job's completion handler fail the worker instead of retrying this stream.
+                    throw e
                 } catch (e: Exception) {
-                    // Log and continue on errors for now
                     if (!shutdownSignal.isCompleted) {
                         logger.warn("[pollActivityTasks] Error in polling loop", e)
                     }

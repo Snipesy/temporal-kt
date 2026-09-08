@@ -6,6 +6,8 @@ plugins {
 dependencies {
     // Jib extension API for implementing JibGradlePluginExtension
     implementation(libs.jibGradlePluginExtensionApi)
+    testImplementation(kotlin("test"))
+    testImplementation(gradleApi())
 }
 
 mavenPublishing {

@@ -227,8 +227,7 @@ class ConnectionConfigBuilder internal constructor(
     var identity: String? = base.identity
 
     /**
-     * Transport-level gRPC compression. Set to [GrpcCompression.NONE] when an intermediary
-     * (proxy/gateway) rejects compressed frames.
+     * Transport-level gRPC compression. Off by default; see [ConnectionConfig.grpcCompression].
      */
     var grpcCompression: GrpcCompression = base.grpcCompression
 
