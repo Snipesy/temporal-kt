@@ -3,30 +3,26 @@ package com.surrealdev.temporal.workflow.integration
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.taskQueue
+import com.surrealdev.temporal.client.setCurrentVersion
 import com.surrealdev.temporal.client.startWorkflow
 import com.surrealdev.temporal.core.TemporalCoreClient
-import com.surrealdev.temporal.core.TemporalCoreException
 import com.surrealdev.temporal.core.TemporalRuntime
 import com.surrealdev.temporal.core.VersioningBehavior
 import com.surrealdev.temporal.core.WorkerDeploymentVersion
 import com.surrealdev.temporal.testing.TemporalTestApplicationBuilder
 import com.surrealdev.temporal.testing.assertHistory
+import com.surrealdev.temporal.testing.awaitDescribe
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.result
 import io.temporal.api.common.v1.WorkflowExecution
-import io.temporal.api.workflowservice.v1.DescribeWorkerDeploymentRequest
-import io.temporal.api.workflowservice.v1.DescribeWorkerDeploymentResponse
 import io.temporal.api.workflowservice.v1.DescribeWorkflowExecutionRequest
 import io.temporal.api.workflowservice.v1.DescribeWorkflowExecutionResponse
-import io.temporal.api.workflowservice.v1.SetWorkerDeploymentCurrentVersionRequest
-import io.temporal.api.workflowservice.v1.SetWorkerDeploymentCurrentVersionResponse
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.Tag
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
@@ -202,7 +198,7 @@ class PatchDeterminismTest {
         }
 
     /**
-     * Workflow that reports its build ID for verification.
+     * Workflow that reports its build ID for verification. No behavior of its own: inherits the worker default.
      */
     @Workflow("VersionReportingWorkflow")
     class VersionReportingWorkflow {
@@ -210,79 +206,120 @@ class PatchDeterminismTest {
         suspend fun WorkflowContext.run(input: String): String = "processed-by-worker: $input"
     }
 
+    /** Declares its own behavior, so it must not inherit the worker default. */
+    @Workflow("AutoUpgradeReportingWorkflow", versioningBehavior = VersioningBehavior.AUTO_UPGRADE)
+    class AutoUpgradeReportingWorkflow {
+        @WorkflowRun
+        suspend fun WorkflowContext.run(input: String): String = "processed-by-worker: $input"
+    }
+
     @Test
     fun `pinned worker receives workflows through its current deployment version`() =
         runTemporalTest(timeSkipping = false) {
-            verifyVersioning(VersioningBehavior.PINNED)
+            verifyVersioning(VersioningBehavior.PINNED, "VersionReportingWorkflow" to VersioningBehavior.PINNED)
         }
 
     @Test
     fun `auto upgrade worker reports its versioning behavior to the server`() =
         runTemporalTest(timeSkipping = false) {
-            verifyVersioning(VersioningBehavior.AUTO_UPGRADE)
+            verifyVersioning(
+                VersioningBehavior.AUTO_UPGRADE,
+                "VersionReportingWorkflow" to VersioningBehavior.AUTO_UPGRADE,
+            )
         }
 
-    private suspend fun TemporalTestApplicationBuilder.verifyVersioning(behavior: VersioningBehavior) {
-        val taskQueue = "versioning-${UUID.randomUUID()}"
-        val version = WorkerDeploymentVersion("deployment-${UUID.randomUUID()}", "v1.0")
-        deployment(version, defaultVersioningBehavior = behavior)
-        application {
-            taskQueue(taskQueue) {
-                workflow<VersionReportingWorkflow>()
-            }
+    @Test
+    fun `a workflow type can declare its own behavior next to the worker default`() =
+        runTemporalTest(timeSkipping = false) {
+            verifyVersioning(
+                VersioningBehavior.PINNED,
+                "VersionReportingWorkflow" to VersioningBehavior.PINNED,
+                "AutoUpgradeReportingWorkflow" to VersioningBehavior.AUTO_UPGRADE,
+            )
         }
 
-        TemporalRuntime.create().use { runtime ->
-            TemporalCoreClient.connect(runtime, targetUrl).use { coreClient ->
-                // Registration is asynchronous: wait for the worker's first poll to reach the server.
-                withTimeout(30.seconds) {
-                    while (true) {
-                        try {
-                            coreClient.workflowServiceCall(
-                                "DescribeWorkerDeployment",
-                                DescribeWorkerDeploymentRequest
-                                    .newBuilder()
-                                    .setNamespace("default")
-                                    .setDeploymentName(version.deploymentName)
-                                    .build(),
-                            ) { DescribeWorkerDeploymentResponse.parseFrom(it) }
-                            break
-                        } catch (e: TemporalCoreException) {
-                            if (e.statusCode != 5) throw e // NOT_FOUND while the first poll is registering.
-                            delay(100)
+    @Test
+    fun `a registration override beats the annotation`() =
+        runTemporalTest(timeSkipping = false) {
+            verifyVersioning(
+                VersioningBehavior.AUTO_UPGRADE,
+                "AutoUpgradeReportingWorkflow" to VersioningBehavior.PINNED,
+                registerOverride = VersioningBehavior.PINNED,
+            )
+        }
+
+    @Test
+    fun `versioned worker with no behavior anywhere fails at start naming the workflow type`() =
+        runTemporalTest(timeSkipping = false) {
+            deployment(WorkerDeploymentVersion("deployment-${UUID.randomUUID()}", "v1.0"))
+            val e =
+                assertFailsWith<IllegalStateException> {
+                    application {
+                        taskQueue("versioning-${UUID.randomUUID()}") {
+                            workflow<VersionReportingWorkflow>()
                         }
                     }
                 }
-                coreClient.workflowServiceCall(
-                    "SetWorkerDeploymentCurrentVersion",
-                    SetWorkerDeploymentCurrentVersionRequest
-                        .newBuilder()
-                        .setNamespace("default")
-                        .setDeploymentName(version.deploymentName)
-                        .setBuildId(version.buildId)
-                        .build(),
-                ) { SetWorkerDeploymentCurrentVersionResponse.parseFrom(it) }
+            assertTrue("VersionReportingWorkflow" in e.message.orEmpty(), e.message)
+        }
 
-                val handle =
-                    client().startWorkflow<String>(
-                        workflowType = "VersionReportingWorkflow",
-                        taskQueue = taskQueue,
-                        arg = "versioned-input",
-                    )
-                assertEquals("processed-by-worker: versioned-input", handle.result<String>(timeout = 30.seconds))
-                val description =
-                    coreClient.workflowServiceCall(
-                        "DescribeWorkflowExecution",
-                        DescribeWorkflowExecutionRequest
-                            .newBuilder()
-                            .setNamespace("default")
-                            .setExecution(WorkflowExecution.newBuilder().setWorkflowId(handle.workflowId))
-                            .build(),
-                    ) { DescribeWorkflowExecutionResponse.parseFrom(it) }
-                val versioning = description.workflowExecutionInfo.versioningInfo
-                assertEquals(behavior.value, versioning.behaviorValue)
-                assertEquals(version.deploymentName, versioning.deploymentVersion.deploymentName)
-                assertEquals(version.buildId, versioning.deploymentVersion.buildId)
+    /**
+     * Starts a versioned worker whose default is [default], registers the given workflow types,
+     * promotes the version through the typed deployment client, and checks the behavior the server
+     * recorded for one run of each type.
+     */
+    private suspend fun TemporalTestApplicationBuilder.verifyVersioning(
+        default: VersioningBehavior,
+        vararg expected: Pair<String, VersioningBehavior>,
+        registerOverride: VersioningBehavior? = null,
+    ) {
+        val taskQueue = "versioning-${UUID.randomUUID()}"
+        val version = WorkerDeploymentVersion("deployment-${UUID.randomUUID()}", "v1.0")
+        deployment(version, defaultVersioningBehavior = default)
+        application {
+            taskQueue(taskQueue) {
+                for ((type, _) in expected) {
+                    when (type) {
+                        "VersionReportingWorkflow" ->
+                            workflow<VersionReportingWorkflow>(
+                                versioningBehavior = registerOverride,
+                            )
+                        "AutoUpgradeReportingWorkflow" ->
+                            workflow<AutoUpgradeReportingWorkflow>(versioningBehavior = registerOverride)
+                        else -> error("unknown test workflow $type")
+                    }
+                }
+            }
+        }
+        val deployments = client().workerDeployments
+
+        val described = deployments.awaitDescribe(version.deploymentName)
+        deployments.setCurrentVersion(version, conflictToken = described.conflictToken)
+
+        TemporalRuntime.create().use { runtime ->
+            TemporalCoreClient.connect(runtime, targetUrl).use { coreClient ->
+                for ((type, behavior) in expected) {
+                    val handle =
+                        client().startWorkflow<String>(
+                            workflowType = type,
+                            taskQueue = taskQueue,
+                            arg = "versioned-input",
+                        )
+                    assertEquals("processed-by-worker: versioned-input", handle.result<String>(timeout = 30.seconds))
+                    val description =
+                        coreClient.workflowServiceCall(
+                            "DescribeWorkflowExecution",
+                            DescribeWorkflowExecutionRequest
+                                .newBuilder()
+                                .setNamespace("default")
+                                .setExecution(WorkflowExecution.newBuilder().setWorkflowId(handle.workflowId))
+                                .build(),
+                        ) { DescribeWorkflowExecutionResponse.parseFrom(it) }
+                    val versioning = description.workflowExecutionInfo.versioningInfo
+                    assertEquals(behavior.value, versioning.behaviorValue, "behavior recorded for $type")
+                    assertEquals(version.deploymentName, versioning.deploymentVersion.deploymentName)
+                    assertEquals(version.buildId, versioning.deploymentVersion.buildId)
+                }
             }
         }
     }
@@ -301,20 +338,22 @@ class PatchDeterminismTest {
             application {
                 taskQueue(taskQueue) {
                     workflow<VersionReportingWorkflow>()
+                    // Declares AUTO_UPGRADE; on an unversioned worker that must be dropped, not sent.
+                    workflow<AutoUpgradeReportingWorkflow>()
                 }
             }
 
             val client = client()
-            val handle =
-                client.startWorkflow<String>(
-                    workflowType = "VersionReportingWorkflow",
-                    taskQueue = taskQueue,
-                    arg = "test-input",
-                )
-
-            val result: String = handle.result(timeout = 30.seconds)
-            assertEquals("processed-by-worker: test-input", result)
-
-            handle.assertHistory { completed() }
+            for (type in listOf("VersionReportingWorkflow", "AutoUpgradeReportingWorkflow")) {
+                val handle =
+                    client.startWorkflow<String>(
+                        workflowType = type,
+                        taskQueue = taskQueue,
+                        arg = "test-input",
+                    )
+                val result: String = handle.result(timeout = 30.seconds)
+                assertEquals("processed-by-worker: test-input", result)
+                handle.assertHistory { completed() }
+            }
         }
 }

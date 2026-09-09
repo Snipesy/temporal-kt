@@ -8,6 +8,7 @@ import com.surrealdev.temporal.application.plugin.HookRegistryImpl
 import com.surrealdev.temporal.application.plugin.PluginPipeline
 import com.surrealdev.temporal.core.CorePollerBehavior
 import com.surrealdev.temporal.core.SlotSupplier
+import com.surrealdev.temporal.core.VersioningBehavior
 import com.surrealdev.temporal.internal.ZombieEvictionConfig
 import com.surrealdev.temporal.serialization.payloadCodecOrNull
 import com.surrealdev.temporal.serialization.payloadSerializer
@@ -260,10 +261,15 @@ class TaskQueueBuilder internal constructor(
      * 3. Simple class name
      *
      * @param workflowType The workflow type name. If not provided, uses the @Workflow annotation name or class name.
+     * @param versioningBehavior How runs of this type follow worker deployment versions. Overrides the
+     *   `@Workflow(versioningBehavior = ...)` value; null keeps the annotation, else the worker default.
      * @throws IllegalArgumentException if the workflow class doesn't have a no-arg constructor
      * @throws IllegalArgumentException if the workflow type name starts with '__temporal_' (reserved)
      */
-    inline fun <reified T : Any> workflow(workflowType: String? = null) {
+    inline fun <reified T : Any> workflow(
+        workflowType: String? = null,
+        versioningBehavior: VersioningBehavior? = null,
+    ) {
         val klass = T::class
 
         // Verify the class has a no-arg constructor
@@ -292,6 +298,7 @@ class TaskQueueBuilder internal constructor(
             WorkflowRegistration(
                 workflowType = resolvedType,
                 workflowClass = klass,
+                versioningBehavior = versioningBehavior,
             ),
         )
     }

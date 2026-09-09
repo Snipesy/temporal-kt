@@ -3,16 +3,30 @@ package com.surrealdev.temporal.client.internal
 import com.surrealdev.temporal.core.TemporalCoreClient
 import io.temporal.api.workflowservice.v1.CountWorkflowExecutionsRequest
 import io.temporal.api.workflowservice.v1.CountWorkflowExecutionsResponse
+import io.temporal.api.workflowservice.v1.DeleteWorkerDeploymentRequest
+import io.temporal.api.workflowservice.v1.DeleteWorkerDeploymentResponse
+import io.temporal.api.workflowservice.v1.DeleteWorkerDeploymentVersionRequest
+import io.temporal.api.workflowservice.v1.DeleteWorkerDeploymentVersionResponse
+import io.temporal.api.workflowservice.v1.DescribeWorkerDeploymentRequest
+import io.temporal.api.workflowservice.v1.DescribeWorkerDeploymentResponse
+import io.temporal.api.workflowservice.v1.DescribeWorkerDeploymentVersionRequest
+import io.temporal.api.workflowservice.v1.DescribeWorkerDeploymentVersionResponse
 import io.temporal.api.workflowservice.v1.DescribeWorkflowExecutionRequest
 import io.temporal.api.workflowservice.v1.DescribeWorkflowExecutionResponse
 import io.temporal.api.workflowservice.v1.GetWorkflowExecutionHistoryRequest
 import io.temporal.api.workflowservice.v1.GetWorkflowExecutionHistoryResponse
+import io.temporal.api.workflowservice.v1.ListWorkerDeploymentsRequest
+import io.temporal.api.workflowservice.v1.ListWorkerDeploymentsResponse
 import io.temporal.api.workflowservice.v1.ListWorkflowExecutionsRequest
 import io.temporal.api.workflowservice.v1.ListWorkflowExecutionsResponse
 import io.temporal.api.workflowservice.v1.QueryWorkflowRequest
 import io.temporal.api.workflowservice.v1.QueryWorkflowResponse
 import io.temporal.api.workflowservice.v1.RequestCancelWorkflowExecutionRequest
 import io.temporal.api.workflowservice.v1.RequestCancelWorkflowExecutionResponse
+import io.temporal.api.workflowservice.v1.SetWorkerDeploymentCurrentVersionRequest
+import io.temporal.api.workflowservice.v1.SetWorkerDeploymentCurrentVersionResponse
+import io.temporal.api.workflowservice.v1.SetWorkerDeploymentRampingVersionRequest
+import io.temporal.api.workflowservice.v1.SetWorkerDeploymentRampingVersionResponse
 import io.temporal.api.workflowservice.v1.SignalWorkflowExecutionRequest
 import io.temporal.api.workflowservice.v1.SignalWorkflowExecutionResponse
 import io.temporal.api.workflowservice.v1.StartWorkflowExecutionRequest
@@ -148,4 +162,56 @@ internal class WorkflowServiceClient(
             rpc = "CountWorkflowExecutions",
             request = request,
         ) { input -> CountWorkflowExecutionsResponse.parseFrom(input) }
+
+    // ----- Worker deployment management -----
+
+    suspend fun describeWorkerDeployment(request: DescribeWorkerDeploymentRequest): DescribeWorkerDeploymentResponse =
+        coreClient.workflowServiceCall(
+            rpc = "DescribeWorkerDeployment",
+            request = request,
+        ) { input -> DescribeWorkerDeploymentResponse.parseFrom(input) }
+
+    suspend fun listWorkerDeployments(request: ListWorkerDeploymentsRequest): ListWorkerDeploymentsResponse =
+        coreClient.workflowServiceCall(
+            rpc = "ListWorkerDeployments",
+            request = request,
+        ) { input -> ListWorkerDeploymentsResponse.parseFrom(input) }
+
+    suspend fun describeWorkerDeploymentVersion(
+        request: DescribeWorkerDeploymentVersionRequest,
+    ): DescribeWorkerDeploymentVersionResponse =
+        coreClient.workflowServiceCall(
+            rpc = "DescribeWorkerDeploymentVersion",
+            request = request,
+        ) { input -> DescribeWorkerDeploymentVersionResponse.parseFrom(input) }
+
+    suspend fun setWorkerDeploymentCurrentVersion(
+        request: SetWorkerDeploymentCurrentVersionRequest,
+    ): SetWorkerDeploymentCurrentVersionResponse =
+        coreClient.workflowServiceCall(
+            rpc = "SetWorkerDeploymentCurrentVersion",
+            request = request,
+        ) { input -> SetWorkerDeploymentCurrentVersionResponse.parseFrom(input) }
+
+    suspend fun setWorkerDeploymentRampingVersion(
+        request: SetWorkerDeploymentRampingVersionRequest,
+    ): SetWorkerDeploymentRampingVersionResponse =
+        coreClient.workflowServiceCall(
+            rpc = "SetWorkerDeploymentRampingVersion",
+            request = request,
+        ) { input -> SetWorkerDeploymentRampingVersionResponse.parseFrom(input) }
+
+    suspend fun deleteWorkerDeployment(request: DeleteWorkerDeploymentRequest): DeleteWorkerDeploymentResponse =
+        coreClient.workflowServiceCall(
+            rpc = "DeleteWorkerDeployment",
+            request = request,
+        ) { input -> DeleteWorkerDeploymentResponse.parseFrom(input) }
+
+    suspend fun deleteWorkerDeploymentVersion(
+        request: DeleteWorkerDeploymentVersionRequest,
+    ): DeleteWorkerDeploymentVersionResponse =
+        coreClient.workflowServiceCall(
+            rpc = "DeleteWorkerDeploymentVersion",
+            request = request,
+        ) { input -> DeleteWorkerDeploymentVersionResponse.parseFrom(input) }
 }

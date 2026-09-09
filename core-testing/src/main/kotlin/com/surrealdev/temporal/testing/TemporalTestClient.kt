@@ -3,6 +3,7 @@ package com.surrealdev.temporal.testing
 import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.client.TemporalClient
 import com.surrealdev.temporal.client.TemporalClientImpl
+import com.surrealdev.temporal.client.WorkerDeploymentClient
 import com.surrealdev.temporal.client.WorkflowExecutionList
 import com.surrealdev.temporal.client.WorkflowHandle
 import com.surrealdev.temporal.client.WorkflowStartOptions
@@ -85,6 +86,9 @@ class TemporalTestClient internal constructor(
     internal val timeSkippingState = TimeSkippingStateTracker(testServer)
     override val serializer: PayloadSerializer
         get() = delegate.serializer
+
+    override val workerDeployments: WorkerDeploymentClient
+        get() = delegate.workerDeployments
 
     @OptIn(InternalTemporalApi::class)
     override suspend fun startWorkflowWithPayloads(

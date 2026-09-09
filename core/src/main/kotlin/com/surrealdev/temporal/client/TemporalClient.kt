@@ -12,6 +12,7 @@ import com.surrealdev.temporal.application.plugin.interceptor.ListWorkflows
 import com.surrealdev.temporal.application.plugin.interceptor.ListWorkflowsInput
 import com.surrealdev.temporal.application.plugin.interceptor.StartWorkflow
 import com.surrealdev.temporal.application.plugin.interceptor.StartWorkflowInput
+import com.surrealdev.temporal.client.internal.WorkerDeploymentClientImpl
 import com.surrealdev.temporal.client.internal.WorkflowServiceClient
 import com.surrealdev.temporal.client.internal.rethrowMapped
 import com.surrealdev.temporal.common.SearchAttributeEncoder
@@ -77,6 +78,11 @@ interface TemporalClient {
      * The payload serializer used by this client.
      */
     val serializer: PayloadSerializer
+
+    /**
+     * Worker deployment management: describe deployments, set the current and ramping versions.
+     */
+    val workerDeployments: WorkerDeploymentClient
 
     /**
      * Starts a new workflow execution and returns a handle to it.
@@ -310,6 +316,8 @@ class TemporalClientImpl internal constructor(
             config.namespace,
             config.identity ?: DefaultIdentity.value,
         )
+
+    override val workerDeployments: WorkerDeploymentClient by lazy { WorkerDeploymentClientImpl(serviceClient) }
 
     override suspend fun startWorkflowWithPayloads(
         workflowType: String,

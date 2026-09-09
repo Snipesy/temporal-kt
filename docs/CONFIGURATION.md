@@ -85,6 +85,43 @@ embeddedTemporal(configure = {
 - `PINNED` - Workflow stays on the version it started with
 - `AUTO_UPGRADE` - Workflow automatically upgrades to latest version
 
+**Per-workflow behavior.** The deployment's `defaultVersioningBehavior` applies to every workflow type on
+the worker unless the type declares its own, so long-running pinned workflows and short auto-upgrading
+ones can share one process:
+
+```kotlin
+@Workflow("OrderSaga", versioningBehavior = VersioningBehavior.PINNED)
+class OrderSaga { /* ... */ }
+
+taskQueue("orders") {
+    workflow<OrderSaga>()                                                // PINNED, from the annotation
+    workflow<Housekeeping>(versioningBehavior = VersioningBehavior.AUTO_UPGRADE) // registration override
+}
+```
+
+The order is registration override, then annotation, then the deployment default. With versioning on, a
+type that ends up with no behavior fails the application start with a message naming the type, rather
+than the server failing each of its workflow tasks. On an unversioned worker, declared behaviors are
+ignored.
+
+**Managing deployments from the client.** `client.workerDeployments` wraps the deployment RPCs:
+
+```kotlin
+val deployments = client.workerDeployments
+val current = deployments.describe("order-service")           // routing config, versions, conflict token
+deployments.setCurrentVersion(
+    WorkerDeploymentVersion("order-service", "v1.2.3"),
+    conflictToken = current.conflictToken,                    // fails if someone changed it in between
+)
+deployments.setRampingVersion(WorkerDeploymentVersion("order-service", "v1.3.0"), percentage = 10f)
+deployments.describeVersion(WorkerDeploymentVersion("order-service", "v1.2.3")).status
+deployments.list()                                             // paged
+```
+
+A `null` build ID sends an empty build ID, which the API defines as the deployment's unversioned workers;
+whether a server accepts that is server-dependent. A deployment (or version) the server does not know
+raises `ClientWorkerDeploymentNotFoundException`.
+
 ### Worker Heartbeat
 
 Workers periodically send heartbeat RPCs to the server, reporting liveness, slot usage, poller counts, and resource metrics. This enables server-side load balancing and worker tracking in the Temporal UI.
