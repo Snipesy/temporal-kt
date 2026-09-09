@@ -7,6 +7,7 @@ import com.surrealdev.temporal.annotation.UpdateValidator
 import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.WorkflowRegistration
+import com.surrealdev.temporal.core.VersioningBehavior
 import com.surrealdev.temporal.workflow.WorkflowContext
 import kotlin.reflect.KFunction
 import kotlin.reflect.KType
@@ -98,6 +99,11 @@ internal data class WorkflowMethodInfo(
     val hasContextReceiver: Boolean,
     /** Whether the method is suspending. */
     val isSuspend: Boolean,
+    /**
+     * Versioning behavior reported on every successful workflow task completion for this type.
+     * [VersioningBehavior.UNSPECIFIED] leaves the field unset so Core applies the worker default.
+     */
+    val versioningBehavior: VersioningBehavior = VersioningBehavior.UNSPECIFIED,
     /**
      * Query handlers for this workflow.
      * Keys are query names (null key = dynamic handler).
@@ -206,6 +212,7 @@ internal class WorkflowRegistry {
                 returnType = runMethod.returnType,
                 hasContextReceiver = hasContextReceiver,
                 isSuspend = runMethod.isSuspend,
+                versioningBehavior = registration.effectiveVersioningBehavior(),
                 queryHandlers = queryHandlers,
                 signalHandlers = signalHandlers,
                 updateHandlers = updateHandlers,

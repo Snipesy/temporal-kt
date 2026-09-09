@@ -1,5 +1,7 @@
 package com.surrealdev.temporal.annotation
 
+import com.surrealdev.temporal.core.VersioningBehavior
+
 /**
  * DSL marker for Temporal builders to prevent scope leakage.
  */
@@ -25,12 +27,16 @@ annotation class TemporalDsl
  * ```
  *
  * @param name The workflow type name. If empty, the class name will be used.
+ * @param versioningBehavior How runs of this workflow type follow worker deployment versions.
+ *   [VersioningBehavior.UNSPECIFIED] inherits the worker's default. Only meaningful when the
+ *   application declares a deployment with worker versioning enabled.
  */
 @Target(AnnotationTarget.CLASS)
 @Retention(AnnotationRetention.RUNTIME)
 @MustBeDocumented
 annotation class Workflow(
     val name: String = "",
+    val versioningBehavior: VersioningBehavior = VersioningBehavior.UNSPECIFIED,
 )
 
 /**

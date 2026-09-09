@@ -4,6 +4,7 @@ import com.surrealdev.temporal.activity.ActivityContext
 import com.surrealdev.temporal.activity.EncodedPayloads
 import com.surrealdev.temporal.annotation.InternalTemporalApi
 import com.surrealdev.temporal.annotation.TemporalDsl
+import com.surrealdev.temporal.annotation.Workflow
 import com.surrealdev.temporal.application.health.ApplicationHealthReport
 import com.surrealdev.temporal.application.health.ApplicationStatus
 import com.surrealdev.temporal.application.health.WorkerHealthReport
@@ -34,6 +35,7 @@ import com.surrealdev.temporal.core.TemporalCoreClient
 import com.surrealdev.temporal.core.TemporalRuntime
 import com.surrealdev.temporal.core.TemporalWorker
 import com.surrealdev.temporal.core.TlsConfig
+import com.surrealdev.temporal.core.VersioningBehavior
 import com.surrealdev.temporal.core.WorkerConfig
 import com.surrealdev.temporal.core.WorkerDeploymentOptions
 import com.surrealdev.temporal.internal.BridgeCompatibility
@@ -61,6 +63,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.LoggerFactory
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.CoroutineContext
+import kotlin.reflect.full.findAnnotation
 import kotlin.system.exitProcess
 
 /**
@@ -207,6 +210,7 @@ open class TemporalApplication internal constructor(
             // Native polling starts during creation, so start each SDK consumer before creating the next worker.
             for (taskQueueConfig in taskQueues) {
                 val effectiveNamespace = taskQueueConfig.namespace ?: config.connection.namespace
+                requireVersioningBehaviors(taskQueueConfig)
 
                 // Create the core bridge worker
                 val coreWorker =
@@ -772,13 +776,29 @@ internal data class TaskQueueConfig(
  * @property instanceFactory Optional factory to create workflow instances. If null, a factory
  *   will be created that calls the no-arg constructor. For tests that need to inspect workflow
  *   state, this can provide a custom instance.
+ * @property versioningBehavior Overrides the `@Workflow(versioningBehavior = ...)` value for this
+ *   registration. Null means "use the annotation, else the worker default".
  */
 @PublishedApi
 internal data class WorkflowRegistration(
     val workflowType: String,
     val workflowClass: kotlin.reflect.KClass<*>,
     val instanceFactory: (() -> Any)? = null,
-)
+    val versioningBehavior: VersioningBehavior? = null,
+) {
+    /** Kept so `workflow<T>()` call sites inlined into code compiled against 0.2.0 still link. */
+    constructor(
+        workflowType: String,
+        workflowClass: kotlin.reflect.KClass<*>,
+        instanceFactory: (() -> Any)?,
+    ) : this(workflowType, workflowClass, instanceFactory, null)
+
+    /** The behavior this registration reports on every workflow task, before the worker default applies. */
+    internal fun effectiveVersioningBehavior(): VersioningBehavior =
+        versioningBehavior
+            ?: workflowClass.findAnnotation<Workflow>()?.versioningBehavior
+            ?: VersioningBehavior.UNSPECIFIED
+}
 
 /**
  * Registration info for an activity.
@@ -851,4 +871,28 @@ fun TemporalApplication.taskQueue(
     val builder = TaskQueueBuilder(name, parentApplication = this)
     builder.block()
     taskQueues.add(builder.build())
+}
+
+/**
+ * With worker versioning on, every workflow task must report a versioning behavior, either the
+ * worker default or the workflow type's own. Core fails each task of an unannotated type with a
+ * generic message, so catch it here and name the types instead.
+ */
+private fun TemporalApplication.requireVersioningBehaviors(taskQueueConfig: TaskQueueConfig) {
+    val deployment = config.deployment ?: return
+    if (!deployment.useWorkerVersioning ||
+        deployment.defaultVersioningBehavior != VersioningBehavior.UNSPECIFIED
+    ) {
+        return
+    }
+    val missing =
+        taskQueueConfig.workflows
+            .filter { it.effectiveVersioningBehavior() == VersioningBehavior.UNSPECIFIED }
+            .map { it.workflowType }
+    check(missing.isEmpty()) {
+        "Worker versioning is enabled without a default versioning behavior, but these workflow types on " +
+            "task queue '${taskQueueConfig.name}' do not declare one: $missing. Set " +
+            "@Workflow(versioningBehavior = PINNED or AUTO_UPGRADE), pass versioningBehavior to workflow<T>(), " +
+            "or set defaultVersioningBehavior on the deployment."
+    }
 }

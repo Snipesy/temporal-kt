@@ -6,6 +6,7 @@ import com.surrealdev.temporal.common.failure.FAILURE_SOURCE
 import com.surrealdev.temporal.common.failure.buildFailureProto
 import com.surrealdev.temporal.common.failure.serializeStackTrace
 import com.surrealdev.temporal.common.toProto
+import com.surrealdev.temporal.core.VersioningBehavior
 import com.surrealdev.temporal.internal.isFatalError
 import com.surrealdev.temporal.serialization.safeEncode
 import com.surrealdev.temporal.serialization.safeEncodeSingle
@@ -83,9 +84,7 @@ internal suspend fun WorkflowExecutor.buildTerminalCompletion(
                 .newBuilder()
                 .setRunId(runId)
                 .setSuccessful(
-                    WorkflowCompletion.Success
-                        .newBuilder()
-                        .addAllCommands(commands),
+                    successBuilder(commands),
                 ).build(),
         )
     } catch (e: ContinueAsNewException) {
@@ -198,6 +197,20 @@ private fun unwrapCancellationException(e: Exception): Exception {
 }
 
 /**
+ * Every successful completion carries the workflow type's versioning behavior. Core copies it onto
+ * RespondWorkflowTaskCompleted, falling back to the worker default when it is left unset.
+ */
+private fun WorkflowExecutor.successBuilder(
+    commands: List<WorkflowCommands.WorkflowCommand>,
+): WorkflowCompletion.Success.Builder {
+    val builder = WorkflowCompletion.Success.newBuilder().addAllCommands(commands)
+    if (methodInfo.versioningBehavior != VersioningBehavior.UNSPECIFIED) {
+        builder.setVersioningBehaviorValue(methodInfo.versioningBehavior.value)
+    }
+    return builder
+}
+
+/**
  * Builds a success completion with accumulated commands.
  * Used for non-terminal activations (e.g., after processing queries or when workflow is still running).
  */
@@ -209,9 +222,7 @@ internal fun WorkflowExecutor.buildSuccessCompletion(): WorkflowCompletion.Workf
         .newBuilder()
         .setRunId(runId)
         .setSuccessful(
-            WorkflowCompletion.Success
-                .newBuilder()
-                .addAllCommands(commands),
+            successBuilder(commands),
         ).build()
 }
 
@@ -269,9 +280,7 @@ internal suspend fun WorkflowExecutor.buildWorkflowFailureCompletion(
         .newBuilder()
         .setRunId(runId)
         .setSuccessful(
-            WorkflowCompletion.Success
-                .newBuilder()
-                .addAllCommands(commands),
+            successBuilder(commands),
         ).build()
 }
 
@@ -295,9 +304,7 @@ internal fun WorkflowExecutor.buildWorkflowCancellationCompletion(): WorkflowCom
         .newBuilder()
         .setRunId(runId)
         .setSuccessful(
-            WorkflowCompletion.Success
-                .newBuilder()
-                .addAllCommands(commands),
+            successBuilder(commands),
         ).build()
 }
 
@@ -381,9 +388,7 @@ internal suspend fun WorkflowExecutor.buildContinueAsNewCompletion(
         .newBuilder()
         .setRunId(runId)
         .setSuccessful(
-            WorkflowCompletion.Success
-                .newBuilder()
-                .addAllCommands(commands),
+            successBuilder(commands),
         ).build()
 }
 
