@@ -12,6 +12,8 @@ import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Test
 import java.util.UUID
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.hours
 import io.temporal.api.enums.v1.VersioningBehavior as ProtoVersioningBehavior
 
 /**
@@ -23,6 +25,15 @@ class WorkflowVersioningBehaviorTest {
     class PinnedWorkflow {
         @WorkflowRun
         suspend fun WorkflowContext.run(): String = "done"
+    }
+
+    @Workflow("SleepingWorkflow", versioningBehavior = VersioningBehavior.AUTO_UPGRADE)
+    class SleepingWorkflow {
+        @WorkflowRun
+        suspend fun WorkflowContext.run(): String {
+            sleep(1.hours)
+            return "done"
+        }
     }
 
     @Workflow("UnannotatedWorkflow")
@@ -44,6 +55,20 @@ class WorkflowVersioningBehaviorTest {
             val completion = completeOnce(WorkflowRegistration("UnannotatedWorkflow", UnannotatedWorkflow::class))
             assertEquals(
                 ProtoVersioningBehavior.VERSIONING_BEHAVIOR_UNSPECIFIED,
+                completion.successful.versioningBehavior,
+            )
+        }
+
+    @Test
+    fun `non-terminal completion carries the behavior too`() =
+        runTest {
+            val completion = completeOnce(WorkflowRegistration("SleepingWorkflow", SleepingWorkflow::class))
+            assertTrue(
+                completion.successful.commandsList.any { it.hasStartTimer() },
+                "workflow should be parked on a timer",
+            )
+            assertEquals(
+                ProtoVersioningBehavior.VERSIONING_BEHAVIOR_AUTO_UPGRADE,
                 completion.successful.versioningBehavior,
             )
         }

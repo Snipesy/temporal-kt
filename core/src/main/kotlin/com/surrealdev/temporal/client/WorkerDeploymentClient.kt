@@ -20,8 +20,8 @@ import kotlin.time.Instant
  * ```
  *
  * Passing a `null` build ID to [setCurrentVersion] or [setRampingVersion] sends an empty build ID, which
- * the API defines as "the deployment's unversioned workers". Servers differ in whether they accept it
- * (the dev server bundled with 0.2.0 rejects it for ramping), so treat it as server-dependent.
+ * the API defines as "the deployment's unversioned workers". Whether a given server accepts that is
+ * server-dependent.
  */
 interface WorkerDeploymentClient {
     /**
@@ -213,6 +213,9 @@ enum class WorkerDeploymentVersionStatus {
 
     /** Was draining and the last pinned workflow has closed. */
     DRAINED,
+
+    /** Registered but never routed to; newer servers report this instead of INACTIVE for a fresh version. */
+    CREATED,
 }
 
 /** Whether a version that left the current or ramping role still has pinned workflows. */

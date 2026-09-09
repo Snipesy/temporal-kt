@@ -447,7 +447,6 @@ public final class com/surrealdev/temporal/application/TlsConfigBuilder {
 }
 
 public final class com/surrealdev/temporal/application/WorkflowRegistration {
-	public fun <init> (Ljava/lang/String;Lkotlin/reflect/KClass;Lkotlin/jvm/functions/Function0;)V
 	public fun <init> (Ljava/lang/String;Lkotlin/reflect/KClass;Lkotlin/jvm/functions/Function0;Lcom/surrealdev/temporal/core/VersioningBehavior;)V
 	public synthetic fun <init> (Ljava/lang/String;Lkotlin/reflect/KClass;Lkotlin/jvm/functions/Function0;Lcom/surrealdev/temporal/core/VersioningBehavior;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/lang/String;
@@ -2056,6 +2055,7 @@ public final class com/surrealdev/temporal/client/WorkerDeploymentVersionDescrip
 }
 
 public final class com/surrealdev/temporal/client/WorkerDeploymentVersionStatus : java/lang/Enum {
+	public static final field CREATED Lcom/surrealdev/temporal/client/WorkerDeploymentVersionStatus;
 	public static final field CURRENT Lcom/surrealdev/temporal/client/WorkerDeploymentVersionStatus;
 	public static final field DRAINED Lcom/surrealdev/temporal/client/WorkerDeploymentVersionStatus;
 	public static final field DRAINING Lcom/surrealdev/temporal/client/WorkerDeploymentVersionStatus;
@@ -4070,8 +4070,9 @@ public final class com/surrealdev/temporal/common/exceptions/ClientPermissionDen
 }
 
 public final class com/surrealdev/temporal/common/exceptions/ClientWorkerDeploymentNotFoundException : com/surrealdev/temporal/common/exceptions/TemporalRuntimeException {
-	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getBuildId ()Ljava/lang/String;
 	public final fun getDeploymentName ()Ljava/lang/String;
 }
 

@@ -353,6 +353,7 @@ internal class WorkflowDispatcher(
                             .setFailure(failure),
                     ).build()
 
+            // No registration, so no per-type versioning behavior; the worker default applies.
             return WorkflowCompletion.WorkflowActivationCompletion
                 .newBuilder()
                 .setRunId(activation.runId)

@@ -5,21 +5,19 @@ import com.surrealdev.temporal.annotation.WorkflowRun
 import com.surrealdev.temporal.application.taskQueue
 import com.surrealdev.temporal.client.setCurrentVersion
 import com.surrealdev.temporal.client.startWorkflow
-import com.surrealdev.temporal.common.exceptions.ClientWorkerDeploymentNotFoundException
 import com.surrealdev.temporal.core.TemporalCoreClient
 import com.surrealdev.temporal.core.TemporalRuntime
 import com.surrealdev.temporal.core.VersioningBehavior
 import com.surrealdev.temporal.core.WorkerDeploymentVersion
 import com.surrealdev.temporal.testing.TemporalTestApplicationBuilder
 import com.surrealdev.temporal.testing.assertHistory
+import com.surrealdev.temporal.testing.awaitDescribe
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.result
 import io.temporal.api.common.v1.WorkflowExecution
 import io.temporal.api.workflowservice.v1.DescribeWorkflowExecutionRequest
 import io.temporal.api.workflowservice.v1.DescribeWorkflowExecutionResponse
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.Tag
 import java.util.UUID
 import kotlin.test.Test
@@ -295,19 +293,7 @@ class PatchDeterminismTest {
         }
         val deployments = client().workerDeployments
 
-        // Registration is asynchronous: wait for the worker's first poll to reach the server.
-        val described =
-            withTimeout(30.seconds) {
-                while (true) {
-                    try {
-                        return@withTimeout deployments.describe(version.deploymentName)
-                    } catch (_: ClientWorkerDeploymentNotFoundException) {
-                        delay(100)
-                    }
-                }
-                @Suppress("UNREACHABLE_CODE")
-                error("unreachable")
-            }
+        val described = deployments.awaitDescribe(version.deploymentName)
         deployments.setCurrentVersion(version, conflictToken = described.conflictToken)
 
         TemporalRuntime.create().use { runtime ->
@@ -352,20 +338,22 @@ class PatchDeterminismTest {
             application {
                 taskQueue(taskQueue) {
                     workflow<VersionReportingWorkflow>()
+                    // Declares AUTO_UPGRADE; on an unversioned worker that must be dropped, not sent.
+                    workflow<AutoUpgradeReportingWorkflow>()
                 }
             }
 
             val client = client()
-            val handle =
-                client.startWorkflow<String>(
-                    workflowType = "VersionReportingWorkflow",
-                    taskQueue = taskQueue,
-                    arg = "test-input",
-                )
-
-            val result: String = handle.result(timeout = 30.seconds)
-            assertEquals("processed-by-worker: test-input", result)
-
-            handle.assertHistory { completed() }
+            for (type in listOf("VersionReportingWorkflow", "AutoUpgradeReportingWorkflow")) {
+                val handle =
+                    client.startWorkflow<String>(
+                        workflowType = type,
+                        taskQueue = taskQueue,
+                        arg = "test-input",
+                    )
+                val result: String = handle.result(timeout = 30.seconds)
+                assertEquals("processed-by-worker: test-input", result)
+                handle.assertHistory { completed() }
+            }
         }
 }

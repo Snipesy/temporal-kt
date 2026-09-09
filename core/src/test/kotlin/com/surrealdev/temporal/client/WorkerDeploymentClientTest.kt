@@ -6,11 +6,10 @@ import com.surrealdev.temporal.application.taskQueue
 import com.surrealdev.temporal.common.exceptions.ClientWorkerDeploymentNotFoundException
 import com.surrealdev.temporal.core.VersioningBehavior
 import com.surrealdev.temporal.core.WorkerDeploymentVersion
+import com.surrealdev.temporal.testing.awaitDescribe
 import com.surrealdev.temporal.testing.runTemporalTest
 import com.surrealdev.temporal.workflow.WorkflowContext
 import com.surrealdev.temporal.workflow.result
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.Tag
 import java.util.UUID
 import kotlin.test.Test
@@ -48,11 +47,15 @@ class WorkerDeploymentClientTest {
             val deployments = client().workerDeployments
 
             // The server creates the deployment when the worker's first poll lands.
-            val fresh = awaitDeployment(deployments, version.deploymentName)
+            val fresh = deployments.awaitDescribe(version.deploymentName)
             assertEquals(version.deploymentName, fresh.name)
             assertNull(fresh.routingConfig.currentVersion, "nothing is current before promotion")
             assertEquals(listOf(version), fresh.versions.map { it.version })
-            assertEquals(WorkerDeploymentVersionStatus.INACTIVE, fresh.versions.single().status)
+            assertTrue(
+                fresh.versions.single().status in
+                    setOf(WorkerDeploymentVersionStatus.INACTIVE, WorkerDeploymentVersionStatus.CREATED),
+                "a never-routed version is INACTIVE or, on newer servers, CREATED: ${fresh.versions}",
+            )
 
             // Ramp a quarter of new workflows to the version while nothing is current yet.
             val ramped = deployments.setRampingVersion(version, percentage = 25f, conflictToken = fresh.conflictToken)
@@ -111,24 +114,11 @@ class WorkerDeploymentClientTest {
             val e =
                 assertFailsWith<ClientWorkerDeploymentNotFoundException> { client().workerDeployments.describe(name) }
             assertEquals(name, e.deploymentName)
-            assertFailsWith<ClientWorkerDeploymentNotFoundException> {
-                client().workerDeployments.describeVersion(WorkerDeploymentVersion(name, "v1"))
-            }
-        }
-
-    private suspend fun awaitDeployment(
-        deployments: WorkerDeploymentClient,
-        name: String,
-    ): WorkerDeploymentDescription =
-        withTimeout(30.seconds) {
-            while (true) {
-                try {
-                    return@withTimeout deployments.describe(name)
-                } catch (_: ClientWorkerDeploymentNotFoundException) {
-                    delay(100)
+            assertNull(e.buildId)
+            val v =
+                assertFailsWith<ClientWorkerDeploymentNotFoundException> {
+                    client().workerDeployments.describeVersion(WorkerDeploymentVersion(name, "v1"))
                 }
-            }
-            @Suppress("UNREACHABLE_CODE")
-            error("unreachable")
+            assertEquals("v1", v.buildId)
         }
 }

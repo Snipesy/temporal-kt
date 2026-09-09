@@ -101,7 +101,8 @@ taskQueue("orders") {
 
 The order is registration override, then annotation, then the deployment default. With versioning on, a
 type that ends up with no behavior fails the application start with a message naming the type, rather
-than Core failing each of its workflow tasks.
+than the server failing each of its workflow tasks. On an unversioned worker, declared behaviors are
+ignored.
 
 **Managing deployments from the client.** `client.workerDeployments` wraps the deployment RPCs:
 
@@ -118,8 +119,8 @@ deployments.list()                                             // paged
 ```
 
 A `null` build ID sends an empty build ID, which the API defines as the deployment's unversioned workers;
-whether a server accepts that depends on its version. A deployment that no worker has polled yet raises
-`ClientWorkerDeploymentNotFoundException`.
+whether a server accepts that is server-dependent. A deployment (or version) the server does not know
+raises `ClientWorkerDeploymentNotFoundException`.
 
 ### Worker Heartbeat
 

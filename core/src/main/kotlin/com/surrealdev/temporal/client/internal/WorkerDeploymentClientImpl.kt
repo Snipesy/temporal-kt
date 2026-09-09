@@ -57,7 +57,7 @@ internal class WorkerDeploymentClientImpl(
             name = info.name,
             createTime = info.createTime.takeIf { info.hasCreateTime() }?.toInstant(),
             routingConfig = info.routingConfig.toRoutingConfig(),
-            versions = info.versionSummariesList.map { it.toSummary() },
+            versions = info.versionSummariesList.mapNotNull { it.toSummary() },
             lastModifierIdentity = info.lastModifierIdentity,
             conflictToken = TemporalByteString(response.conflictToken),
         )
@@ -100,7 +100,7 @@ internal class WorkerDeploymentClientImpl(
         reportTaskQueueStats: Boolean,
     ): WorkerDeploymentVersionDescription {
         val response =
-            mapNotFound(version.deploymentName) {
+            mapNotFound(version.deploymentName, version.buildId) {
                 serviceClient.describeWorkerDeploymentVersion(
                     DescribeWorkerDeploymentVersionRequest
                         .newBuilder()
@@ -200,7 +200,7 @@ internal class WorkerDeploymentClientImpl(
         version: WorkerDeploymentVersion,
         skipDrainage: Boolean,
     ) {
-        mapNotFound(version.deploymentName) {
+        mapNotFound(version.deploymentName, version.buildId) {
             serviceClient.deleteWorkerDeploymentVersion(
                 DeleteWorkerDeploymentVersionRequest
                     .newBuilder()
@@ -215,13 +215,14 @@ internal class WorkerDeploymentClientImpl(
 
     private inline fun <T> mapNotFound(
         deploymentName: String,
+        buildId: String? = null,
         call: () -> T,
     ): T =
         try {
             call()
         } catch (e: TemporalCoreException) {
             when (e.statusCode) {
-                GRPC_NOT_FOUND -> throw ClientWorkerDeploymentNotFoundException(deploymentName, cause = e)
+                GRPC_NOT_FOUND -> throw ClientWorkerDeploymentNotFoundException(deploymentName, buildId, cause = e)
                 GRPC_PERMISSION_DENIED -> throw ClientPermissionDeniedException(cause = e)
                 else -> throw e
             }
@@ -241,6 +242,16 @@ private fun WorkerDeploymentVersion.toProto(): ProtoDeploymentVersion =
 private fun ProtoDeploymentVersion.toVersion(): WorkerDeploymentVersion? =
     if (deploymentName.isBlank() || buildId.isBlank()) null else WorkerDeploymentVersion(deploymentName, buildId)
 
+/**
+ * Older servers fill only the deprecated `version` string, `<deployment>.<build>`. Deployment names
+ * cannot contain a dot, so the first one is the separator; build IDs may contain dots.
+ */
+private fun parseLegacyVersion(legacy: String): WorkerDeploymentVersion? {
+    val dot = legacy.indexOf('.')
+    if (dot <= 0 || dot == legacy.lastIndex) return null
+    return WorkerDeploymentVersion(legacy.substring(0, dot), legacy.substring(dot + 1))
+}
+
 private fun RoutingConfig.toRoutingConfig(): WorkerDeploymentRoutingConfig =
     WorkerDeploymentRoutingConfig(
         currentVersion = currentDeploymentVersion.takeIf { hasCurrentDeploymentVersion() }?.toVersion(),
@@ -252,11 +263,13 @@ private fun RoutingConfig.toRoutingConfig(): WorkerDeploymentRoutingConfig =
             rampingVersionPercentageChangedTime.takeIf { hasRampingVersionPercentageChangedTime() }?.toInstant(),
     )
 
-private fun WorkerDeploymentInfo.WorkerDeploymentVersionSummary.toSummary(): WorkerDeploymentVersionSummary =
+/**
+ * Null when the server sent neither a structured version nor a parseable legacy one; such a summary
+ * is dropped from the list rather than failing the whole describe.
+ */
+private fun WorkerDeploymentInfo.WorkerDeploymentVersionSummary.toSummary(): WorkerDeploymentVersionSummary? =
     WorkerDeploymentVersionSummary(
-        version =
-            deploymentVersion.toVersion()
-                ?: error("server returned a version summary without a deployment version: $version"),
+        version = (deploymentVersion.toVersion() ?: parseLegacyVersion(version)) ?: return null,
         status = status.toStatus(),
         drainageStatus = drainageStatus.toDrainageStatus(),
         createTime = createTime.takeIf { hasCreateTime() }?.toInstant(),
@@ -287,6 +300,7 @@ private fun ProtoVersionStatus.toStatus(): WorkerDeploymentVersionStatus =
         ProtoVersionStatus.WORKER_DEPLOYMENT_VERSION_STATUS_RAMPING -> WorkerDeploymentVersionStatus.RAMPING
         ProtoVersionStatus.WORKER_DEPLOYMENT_VERSION_STATUS_DRAINING -> WorkerDeploymentVersionStatus.DRAINING
         ProtoVersionStatus.WORKER_DEPLOYMENT_VERSION_STATUS_DRAINED -> WorkerDeploymentVersionStatus.DRAINED
+        ProtoVersionStatus.WORKER_DEPLOYMENT_VERSION_STATUS_CREATED -> WorkerDeploymentVersionStatus.CREATED
         else -> WorkerDeploymentVersionStatus.UNSPECIFIED
     }
 

@@ -178,6 +178,9 @@ open class TemporalApplication internal constructor(
             // Fail with one clear message if core and core-bridge were pinned at versions that
             // were never built together, rather than with a NoSuchMethodError further in.
             BridgeCompatibility.check()
+            // Pure config validation: do it before the runtime exists so a misconfiguration fails
+            // without touching the server.
+            taskQueues.forEach { requireVersioningBehaviors(it) }
 
             // Create the runtime, with Core metrics bridge if OTel plugin provided a Meter
             val coreMetricsMeter = attributes.getOrNull(CoreMetricsMeterKey)
@@ -210,7 +213,6 @@ open class TemporalApplication internal constructor(
             // Native polling starts during creation, so start each SDK consumer before creating the next worker.
             for (taskQueueConfig in taskQueues) {
                 val effectiveNamespace = taskQueueConfig.namespace ?: config.connection.namespace
-                requireVersioningBehaviors(taskQueueConfig)
 
                 // Create the core bridge worker
                 val coreWorker =
@@ -251,7 +253,7 @@ open class TemporalApplication internal constructor(
                 val managedWorker =
                     ManagedWorker(
                         coreWorker = coreWorker,
-                        config = taskQueueConfig,
+                        config = withoutBehaviorsUnlessVersioned(taskQueueConfig),
                         parentContext = coroutineContext,
                         serializer = taskQueueConfig.serializer ?: payloadSerializer(),
                         codec = taskQueueConfig.codec ?: payloadCodecOrNull() ?: NoOpCodec,
@@ -786,13 +788,6 @@ internal data class WorkflowRegistration(
     val instanceFactory: (() -> Any)? = null,
     val versioningBehavior: VersioningBehavior? = null,
 ) {
-    /** Kept so `workflow<T>()` call sites inlined into code compiled against 0.2.0 still link. */
-    constructor(
-        workflowType: String,
-        workflowClass: kotlin.reflect.KClass<*>,
-        instanceFactory: (() -> Any)?,
-    ) : this(workflowType, workflowClass, instanceFactory, null)
-
     /** The behavior this registration reports on every workflow task, before the worker default applies. */
     internal fun effectiveVersioningBehavior(): VersioningBehavior =
         versioningBehavior
@@ -875,7 +870,7 @@ fun TemporalApplication.taskQueue(
 
 /**
  * With worker versioning on, every workflow task must report a versioning behavior, either the
- * worker default or the workflow type's own. Core fails each task of an unannotated type with a
+ * worker default or the workflow type's own. The server fails each task of an unannotated type with a
  * generic message, so catch it here and name the types instead.
  */
 private fun TemporalApplication.requireVersioningBehaviors(taskQueueConfig: TaskQueueConfig) {
@@ -895,4 +890,16 @@ private fun TemporalApplication.requireVersioningBehaviors(taskQueueConfig: Task
             "@Workflow(versioningBehavior = PINNED or AUTO_UPGRADE), pass versioningBehavior to workflow<T>(), " +
             "or set defaultVersioningBehavior on the deployment."
     }
+}
+
+/**
+ * A versioning behavior only means something on a versioned worker. A `@Workflow(versioningBehavior)`
+ * class registered on an unversioned worker (no deployment, or `useWorkerVersioning = false`) must not
+ * stamp it on completions, so the registrations are rewritten to report none.
+ */
+private fun TemporalApplication.withoutBehaviorsUnlessVersioned(taskQueueConfig: TaskQueueConfig): TaskQueueConfig {
+    if (config.deployment?.useWorkerVersioning == true) return taskQueueConfig
+    return taskQueueConfig.copy(
+        workflows = taskQueueConfig.workflows.map { it.copy(versioningBehavior = VersioningBehavior.UNSPECIFIED) },
+    )
 }
