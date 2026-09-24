@@ -11,6 +11,7 @@ import com.surrealdev.temporal.serialization.serialize
 import com.surrealdev.temporal.testing.ProtoTestHelpers.createActivation
 import com.surrealdev.temporal.testing.ProtoTestHelpers.initializeWorkflowJob
 import com.surrealdev.temporal.testing.ProtoTestHelpers.queryWorkflowJob
+import com.surrealdev.temporal.testing.createIdleTestWorkflowExecutor
 import com.surrealdev.temporal.testing.createTestWorkflowExecutor
 import com.surrealdev.temporal.testing.runWorkflowUnitTest
 import com.surrealdev.temporal.workflow.WorkflowContext
@@ -350,6 +351,46 @@ class QueryHandlerTest {
     // ================================================================
     // Execution Tests
     // ================================================================
+
+    @Test
+    fun `built-in stack trace queries return JSON strings with escaped text`() =
+        runWorkflowUnitTest {
+            val workflowType = "StackTrace\"\\\t\n雪"
+            val runId = "stack-trace-run"
+            val executor = createIdleTestWorkflowExecutor(runId = runId, workflowType = workflowType)
+            try {
+                val initActivation =
+                    createActivation(
+                        runId = runId,
+                        jobs = listOf(initializeWorkflowJob(workflowType = workflowType)),
+                    )
+                assertTrue(executor.activate(initActivation).completion.hasSuccessful())
+
+                val queryTypes = listOf("__stack_trace", "__enhanced_stack_trace")
+                val queryActivation =
+                    createActivation(
+                        runId = runId,
+                        jobs = queryTypes.map { queryWorkflowJob(queryId = it, queryType = it) },
+                    )
+                val completion = executor.activate(queryActivation).completion
+
+                assertTrue(completion.hasSuccessful())
+                val results = completion.successful.commandsList.map { it.respondToQuery }
+                assertEquals(queryTypes, results.map { it.queryId })
+                results.forEach { result ->
+                    assertTrue(result.hasSucceeded(), result.queryId)
+                    val payload = result.succeeded.response.toTemporal()
+                    assertEquals("json/plain", payload.encoding, result.queryId)
+                    val trace = serializer.deserialize<String>(payload)
+                    assertTrue(trace.startsWith("Workflow Stack Trace\n"))
+                    assertTrue(trace.contains("Workflow Type: $workflowType\n"))
+                    assertTrue(trace.contains("Run ID: $runId\n"))
+                    assertTrue(trace.contains("Await Conditions: 1 pending"))
+                }
+            } finally {
+                executor.terminateAllJobs()
+            }
+        }
 
     @Test
     fun `query handler returns result successfully`() =
