@@ -17,6 +17,7 @@ import io.temporal.api.failure.v1.Failure
 import io.temporal.api.sdk.v1.workflowDefinition
 import io.temporal.api.sdk.v1.workflowInteractionDefinition
 import io.temporal.api.sdk.v1.workflowMetadata
+import kotlinx.serialization.json.Json
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.reflect.full.callSuspend
 
@@ -622,12 +623,12 @@ private fun WorkflowExecutor.handleStackTraceQuery(queryId: String) {
     sb.appendLine("Has pending work: ${workflowDispatcher.hasPendingWork()}")
     sb.appendLine()
 
-    // Return as plain text payload
+    // Keep built-in diagnostics readable independently of the application's serializer and codec.
     val payload =
         Payload
             .newBuilder()
-            .putMetadata("encoding", ByteString.copyFromUtf8("plain/plain"))
-            .setData(ByteString.copyFromUtf8(sb.toString()))
+            .putMetadata("encoding", ByteString.copyFromUtf8("json/plain"))
+            .setData(ByteString.copyFromUtf8(Json.encodeToString(sb.toString())))
             .build()
 
     addSuccessQueryResult(queryId, payload)
